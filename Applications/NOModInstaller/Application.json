@@ -1,0 +1,8 @@
+{
+	"Special": "Source/NOModInstaller.csproj",
+	"Paths": [
+		{
+			"File Path": "Executable/Install.exe"
+		}
+	]
+}

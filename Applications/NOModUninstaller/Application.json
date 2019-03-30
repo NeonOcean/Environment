@@ -1,0 +1,8 @@
+{
+	"Special": "Source/NOModUninstaller.csproj",
+	"Paths": [
+		{
+			"File Path": "Executable/Uninstall.exe"
+		}
+	]
+}

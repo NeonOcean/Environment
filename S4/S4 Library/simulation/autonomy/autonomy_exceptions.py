@@ -1,0 +1,3 @@
+
+class AutonomyExitException(Exception):
+    pass

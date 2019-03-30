@@ -1,0 +1,18 @@
+[submodule "Websites/NeonOcean.NOC.Main"]
+	path = Websites/NeonOcean.NOC.Main
+	url = https://github.com/NeonOcean/NOC.Main.git
+[submodule "Websites/NeonOcean.NOC.Mods.Distribution"]
+	path = Websites/NeonOcean.NOC.Mods.Distribution
+	url = https://github.com/NeonOcean/NOC.Mods.Distribution.git
+[submodule "Websites/NeonOcean.NOC.Mods.Documentation"]
+	path = Websites/NeonOcean.NOC.Mods.Documentation
+	url = https://github.com/NeonOcean/NOC.Mods.Documentation.git
+[submodule "Mods/NeonOcean.Main"]
+	path = Mods/NeonOcean.Main
+	url = https://github.com/NeonOcean/Main.git
+[submodule "Mods/NeonOcean.Order"]
+	path = Mods/NeonOcean.Order
+	url = https://github.com/NeonOcean/Order.git
+[submodule "Mods/NeonOcean.Debug"]
+	path = Mods/NeonOcean.Debug
+	url = https://github.com/NeonOcean/Debug.git

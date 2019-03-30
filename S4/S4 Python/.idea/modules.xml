@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Choreography/Python/NeonOcean.Choreography/.idea/NeonOcean.Choreography.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Choreography/Python/NeonOcean.Choreography/.idea/NeonOcean.Choreography.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Cycle/Python/NeonOcean.Cycle/.idea/NeonOcean.Cycle.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Cycle/Python/NeonOcean.Cycle/.idea/NeonOcean.Cycle.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Debug/Python/NeonOcean.Debug/.idea/NeonOcean.Debug.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Debug/Python/NeonOcean.Debug/.idea/NeonOcean.Debug.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Main/Python/NeonOcean.Main/.idea/NeonOcean.Main.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Main/Python/NeonOcean.Main/.idea/NeonOcean.Main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Order/Python/NeonOcean.Order/.idea/NeonOcean.Order.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Order/Python/NeonOcean.Order/.idea/NeonOcean.Order.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../Mods/NeonOcean.Time/Python/NeonOcean.Time/.idea/NeonOcean.Time.iml" filepath="$PROJECT_DIR$/../../Mods/NeonOcean.Time/Python/NeonOcean.Time/.idea/NeonOcean.Time.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../S4 Library/.idea/S4 Library.iml" filepath="$PROJECT_DIR$/../S4 Library/.idea/S4 Library.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/S4 Python.iml" filepath="$PROJECT_DIR$/.idea/S4 Python.iml" />
+    </modules>
+  </component>
+</project>

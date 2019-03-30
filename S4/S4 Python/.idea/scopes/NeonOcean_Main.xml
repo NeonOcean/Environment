@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="NeonOcean.Main" pattern="file[NeonOcean.Main]:*/" />
+</component>

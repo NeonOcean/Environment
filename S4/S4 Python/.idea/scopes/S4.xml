@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="S4" pattern="file[S4 Library]:*/" />
+</component>

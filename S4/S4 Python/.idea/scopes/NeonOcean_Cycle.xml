@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="NeonOcean.Cycle" pattern="file[NeonOcean.Cycle]:*/" />
+</component>
