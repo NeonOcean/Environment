@@ -6,8 +6,13 @@ from json import decoder
 
 from Automation import Mods, Paths
 
+# noinspection SpellCheckingInspection
+ReleasesURL = "https://releases.mods.neonoceancreations.com"  # type: str
+# noinspection SpellCheckingInspection
+PreviewsURL = "https://previews.mods.neonoceancreations.com"  # type: str
+
 class ModVersion:
-	def __init__ (self, versionString: str, versionDirectoryPath: str, baseDirectoryPath: str, concealerFolderName: str = None):
+	def __init__ (self, versionString: str, versionDirectoryPath: str, versionBaseURL: str, baseDirectoryPath: str, concealerFolderName: str = None):
 		versionDirectoryPath = os.path.normpath(versionDirectoryPath)
 		baseDirectoryPath = os.path.normpath(baseDirectoryPath)
 
@@ -47,11 +52,12 @@ class ModVersion:
 			if hasattr(self, "InstallerFilePath"):
 				raise Exception("Found multiple installer distribution files in '" + installerDirectoryPath + "'.")
 
-			installerFilePath = os.path.join(installerDirectoryPath, installerFileName)  # type: str
-			installerFilePath = installerFilePath[installerFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
-			installerFilePath = installerFilePath.replace("\\", "/")
+			installerRelativeFilePath = os.path.join(installerDirectoryPath, installerFileName)  # type: str
+			installerRelativeFilePath = installerRelativeFilePath[installerRelativeFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
 
-			self.InstallerFilePath = installerFilePath
+			self.InstallerRelativeFilePath = installerRelativeFilePath  # type: str
+			self.InstallerFilePath = os.path.join(versionDirectoryPath, installerRelativeFilePath)  # type: str
+			self.InstallerURL = versionBaseURL + "/" + installerRelativeFilePath.replace("\\", "/")  # type: str
 
 		if not hasattr(self, "InstallerFilePath"):
 			raise Exception("Found no installer distribution file in '" + installerDirectoryPath + "'.")
@@ -65,11 +71,13 @@ class ModVersion:
 			if hasattr(self, "filesFilePath"):
 				raise Exception("Found multiple files distribution files in '" + filesDirectoryPath + "'.")
 
-			filesFilePath = os.path.join(filesDirectoryPath, filesFileName)  # type: str
-			filesFilePath = filesFilePath[filesFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
-			filesFilePath = filesFilePath.replace("\\", "/")
+			filesRelativeFilePath = os.path.join(filesDirectoryPath, filesFileName)  # type: str
+			filesRelativeFilePath = filesRelativeFilePath[filesRelativeFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
+			filesRelativeFilePath = filesRelativeFilePath.replace("\\", "/")
 
-			self.FilesFilePath = filesFilePath
+			self.FilesRelativeFilePath = filesRelativeFilePath  # type: str
+			self.FilesFilePath = os.path.join(versionDirectoryPath, filesRelativeFilePath)  # type: str
+			self.FilesURL = versionBaseURL + "/" + filesRelativeFilePath.replace("\\", "/")  # type: str
 
 		if not hasattr(self, "FilesFilePath"):
 			raise Exception("Found no files distribution file in '" + filesDirectoryPath + "'.")
@@ -83,11 +91,13 @@ class ModVersion:
 			if hasattr(self, "SourcesFilePath"):
 				raise Exception("Found multiple sources distribution files in '" + sourcesDirectoryPath + "'.")
 
-			sourcesFilePath = os.path.join(sourcesDirectoryPath, sourcesFileName)  # type: str
-			sourcesFilePath = sourcesFilePath[sourcesFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
-			sourcesFilePath = sourcesFilePath.replace("\\", "/")
+			sourcesRelativeFilePath = os.path.join(sourcesDirectoryPath, sourcesFileName)  # type: str
+			sourcesRelativeFilePath = sourcesRelativeFilePath[sourcesRelativeFilePath.lower().index(baseDirectoryPath.lower() + os.path.sep) + len(baseDirectoryPath) + 1:]
+			sourcesRelativeFilePath = sourcesRelativeFilePath.replace("\\", "/")
 
-			self.SourcesFilePath = sourcesFilePath
+			self.SourcesRelativeFilePath = sourcesRelativeFilePath
+			self.SourcesFilePath = os.path.join(versionDirectoryPath, sourcesRelativeFilePath)  # type: str
+			self.SourcesURL = versionBaseURL + "/" + sourcesRelativeFilePath.replace("\\", "/")  # type: str
 
 		if not hasattr(self, "SourcesFilePath"):
 			raise Exception("Found no sources distribution file in '" + sourcesDirectoryPath + "'.")
@@ -152,12 +162,13 @@ def _Setup () -> None:
 
 	for modName in os.listdir(Paths.DistributionReleasesPath):  # type: str
 		modNameLower = modName.lower()  # type: str
+		modNamespace = modName  # type: str
 
 		validModFolder = False  # type: bool
 		for validModName in validModNames:  # type: str
 			if validModName.lower() == modNameLower:
 				validModFolder = True
-				modName = validModName
+				modNamespace = validModName
 				break
 
 		if not validModFolder:
@@ -170,12 +181,22 @@ def _Setup () -> None:
 		for modVersionName in os.listdir(modPath):  # type: str
 			modVersionPath = os.path.join(modPath, modVersionName)  # type: str
 
-			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modVersionPath, Paths.DistributionReleasesPath))
+			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modVersionPath, ReleasesURL, Paths.DistributionReleasesPath))
 
-		Releases[modName] = modVersions
+		Releases[modNamespace] = modVersions
 
 	for modName in os.listdir(Paths.DistributionPreviewsPath):  # type: str
-		if not modName.lower() in validModNamesLower:
+		modNameLower = modName.lower()  # type: str
+		modNamespace = modName  # type: str
+
+		validModFolder = False  # type: bool
+		for validModName in validModNames:  # type: str
+			if validModName.lower() == modNameLower:
+				validModFolder = True
+				modNamespace = validModName
+				break
+
+		if not validModFolder:
 			continue
 
 		modPath = os.path.join(Paths.DistributionPreviewsPath, modName)  # type: str
@@ -192,9 +213,9 @@ def _Setup () -> None:
 
 			modRandomPath = os.path.join(modVersionPath, modRandomPaths[0])
 
-			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modRandomPath, Paths.DistributionPreviewsPath, modRandomPaths[0]))
+			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modRandomPath, PreviewsURL, Paths.DistributionPreviewsPath, modRandomPaths[0]))
 
-		Previews[modName] = modVersions
+		Previews[modNamespace] = modVersions
 
 	for modNamespace, modReleaseVersions in Releases.items():  # type: str, typing.List[ModVersion]
 		modPreviewVersions = _GetMod(modNamespace, Previews)  # type: typing.List[ModVersion]
