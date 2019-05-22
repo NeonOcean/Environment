@@ -23,10 +23,11 @@ class RebateManager:
         for (trait, rebate_info) in self.TRAIT_REBATE_MAP.items():
             rebate_percentage = rebate_info.rebate_percentage
             valid_objects = rebate_info.valid_objects
-            if not valid_objects is None:
-                if obj.has_any_tag(valid_objects):
-                    self._rebates[trait] += obj.catalog_value*rebate_percentage
-            self._rebates[trait] += obj.catalog_value*rebate_percentage
+            if self._sim_in_household_has_trait(trait):
+                if not valid_objects is None:
+                    if obj.has_any_tag(valid_objects):
+                        self._rebates[trait] += obj.catalog_value*rebate_percentage
+                self._rebates[trait] += obj.catalog_value*rebate_percentage
         if self._rebates:
             self.start_rebate_schedule()
 
@@ -43,7 +44,7 @@ class RebateManager:
     def payout_rebates(self, *_):
         if not self._rebates:
             return
-        rebate_reasons_string = LocalizationHelperTuning.get_bulleted_list((None,), (self.TRAIT_REBATE_MAP[t].notification_text(self.TRAIT_REBATE_MAP[t].rebate_percentage*100) for t in self._rebates))
+        rebate_reasons_string = LocalizationHelperTuning.get_bulleted_list(None, *(self.TRAIT_REBATE_MAP[t].notification_text(self.TRAIT_REBATE_MAP[t].rebate_percentage*100) for t in self._rebates))
         rebate_amount = sum(self._rebates.values())
         active_sim_info = services.active_sim_info()
         dialog = self.REBATE_NOTIFICATION(active_sim_info)

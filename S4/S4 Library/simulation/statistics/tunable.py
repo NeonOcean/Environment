@@ -8,13 +8,15 @@ class TunableStatAsmParam(HasTunableSingletonFactory, AutoFactoryInit):
 
     def get_asm_param(self, stat):
         stat_value = stat.get_user_value() if self.use_user_value else stat.get_value()
-        if self.use_effective_skill_level:
-            stat_value = stat.tracker.owner.get_effective_skill_level(stat)
+        if stat.is_skill:
+            if self.use_effective_skill_level:
+                stat_value = stat.tracker.owner.get_effective_skill_level(stat)
         asm_param_value = None
         for (range_key, stat_range) in self.level_ranges.items():
-            if stat_value >= stat_range.lower_bound and stat_value <= stat_range.upper_bound:
-                asm_param_value = range_key
-                break
+            if stat_value >= stat_range.lower_bound:
+                if stat_value <= stat_range.upper_bound:
+                    asm_param_value = range_key
+                    break
         return (self.asm_param_name, asm_param_value)
 
 class CommodityDecayModifierMapping(TunableMapping):

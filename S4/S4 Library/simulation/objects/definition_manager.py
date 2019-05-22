@@ -118,8 +118,10 @@ class DefinitionManager(InstanceManager):
             for (definition_key, definition) in self._definitions_cache.items():
                 def_cls = definition.cls
                 def_cls_guid64 = getattr(def_cls, 'guid64', None)
-                if object_guid64 is not None and def_cls_guid64 is not None and object_guid64 == def_cls_guid64:
-                    reload_list.add(definition_key)
+                if object_guid64 is not None:
+                    if def_cls_guid64 is not None:
+                        if object_guid64 == def_cls_guid64:
+                            reload_list.add(definition_key)
             for cache_key in reload_list:
                 del self._definitions_cache[cache_key]
             for definition_key in reload_list:
@@ -134,13 +136,13 @@ class DefinitionManager(InstanceManager):
                 def_id = key
                 state = 0
             definition = self._load_definition_and_tuning(def_id, state)
-            if def_id in self._dependencies:
-                list_copy = list(self._dependencies.get(def_id))
-                self._dependencies[def_id].clear()
-                for gameobject in list_copy:
-                    if gameobject.is_sim:
-                        pass
-                    else:
+            if definition is not None:
+                if def_id in self._dependencies:
+                    list_copy = list(self._dependencies.get(def_id))
+                    self._dependencies[def_id].clear()
+                    for gameobject in list_copy:
+                        if gameobject.is_sim:
+                            continue
                         loc_type = gameobject.item_location
                         object_list = file_serialization.ObjectList()
                         save_data = gameobject.save_object(object_list.objects)
@@ -170,25 +172,26 @@ class DefinitionManager(InstanceManager):
                 raise UnavailablePackSafeResourceError
             logger.error('Failed to load definition with id {}', def_id, owner='tingyul')
             return
-        try:
-            tuning_file_id = definition.tuning_file_id
-            if tuning_file_id == 0:
-                tuning_file_id = PROTOTYPE_INSTANCE_ID
-            cls = super().get(tuning_file_id)
-            if cls is None:
-                logger.info('Failed to load object-tuning-id {} for definition {}. This is valid for SP14 objects mimic based on EP04 objects.', tuning_file_id, definition)
-                cls = super().get(PROTOTYPE_INSTANCE_ID)
-            if cls is None:
+        else:
+            try:
+                tuning_file_id = definition.tuning_file_id
+                if tuning_file_id == 0:
+                    tuning_file_id = PROTOTYPE_INSTANCE_ID
+                cls = super().get(tuning_file_id)
+                if cls is None:
+                    logger.info('Failed to load object-tuning-id {} for definition {}. This is valid for SP14 objects mimic based on EP04 objects.', tuning_file_id, definition)
+                    cls = super().get(PROTOTYPE_INSTANCE_ID)
+                if cls is None:
+                    return
+                cls = cls.get_class_for_obj_state(obj_state)
+            except:
+                logger.exception('Unable to create a script object for definition id: {0}', def_id)
                 return
-            cls = cls.get_class_for_obj_state(obj_state)
-        except:
-            logger.exception('Unable to create a script object for definition id: {0}', def_id)
-            return
-        definition.set_class(cls)
-        key = (def_id, obj_state) if obj_state else def_id
-        self._definitions_cache[key] = definition
-        definition.assign_build_buy_tags()
-        return definition
+            definition.set_class(cls)
+            key = (def_id, obj_state) if obj_state else def_id
+            self._definitions_cache[key] = definition
+            definition.assign_build_buy_tags()
+            return definition
 
     def _load_definition(self, def_id):
         key = sims4.resources.Key(sims4.resources.Types.OBJECTDEFINITION, def_id)

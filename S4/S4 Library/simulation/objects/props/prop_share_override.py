@@ -16,17 +16,11 @@ class PropShareOverride(HasTunableSingletonFactory, AutoFactoryInit):
             for (key, param_value) in itertools.chain.from_iterable(d.items() for d in asm.get_all_parameters()):
                 if not isinstance(key, str):
                     if key[1] != self.actor_name:
-                        pass
-                    else:
-                        key = key[0]
-                        if key != self.parameter_name:
-                            pass
-                        else:
-                            return param_value
+                        continue
+                    key = key[0]
                 if key != self.parameter_name:
-                    pass
-                else:
-                    return param_value
+                    continue
+                return param_value
 
     class _PropShareKeyStringLiteral(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'literal': Tunable(description='\n                The literal string that is to be used as a key.\n                ', tunable_type=str, default='')}

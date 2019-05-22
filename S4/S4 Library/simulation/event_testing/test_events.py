@@ -98,6 +98,7 @@ class TestEvent(DynamicEnum):
     AspirationChanged = 88
     MainSituationGoalComplete = 89
     TraitRemoveEvent = 90
+    NarrativesUpdated = 91
 
 CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP = 'CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP'
 

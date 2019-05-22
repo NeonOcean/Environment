@@ -89,9 +89,10 @@ class Club:
 
     @property
     def name(self):
-        if self._localized_custom_name is None:
-            self._localized_custom_name = LocalizationHelperTuning.get_raw_text(self._name)
-        if self._name is not None and self._localized_custom_name is not None:
+        if self._name is not None:
+            if self._localized_custom_name is None:
+                self._localized_custom_name = LocalizationHelperTuning.get_raw_text(self._name)
+        if self._localized_custom_name is not None:
             return self._localized_custom_name
         if self.club_seed is not None:
             return self.club_seed.name
@@ -104,9 +105,10 @@ class Club:
 
     @property
     def description(self):
-        if self._localized_custom_description is None:
-            self._localized_custom_description = LocalizationHelperTuning.get_raw_text(self._description)
-        return self._description is not None and self._localized_custom_description or self.club_seed.description
+        if self._description is not None:
+            if self._localized_custom_description is None:
+                self._localized_custom_description = LocalizationHelperTuning.get_raw_text(self._description)
+        return self._localized_custom_description or self.club_seed.description
 
     @description.setter
     def description(self, value):
@@ -353,10 +355,9 @@ class Club:
                     club_service.on_sim_added_to_social_group(sim, group)
             for other_member in self.members:
                 if member is other_member:
-                    pass
-                else:
-                    resolver = DoubleSimResolver(member, other_member)
-                    ClubTunables.CLUB_MEMBER_LOOT.apply_to_resolver(resolver)
+                    continue
+                resolver = DoubleSimResolver(member, other_member)
+                ClubTunables.CLUB_MEMBER_LOOT.apply_to_resolver(resolver)
             with telemetry_helper.begin_hook(club_telemetry_writer, TELEMETRY_HOOK_CLUB_JOIN, sim_info=member) as hook:
                 hook.write_int(TELEMETRY_FIELD_CLUB_ID, self.id)
             if member.is_selectable and member is not self.leader:
@@ -366,7 +367,7 @@ class Club:
             services.get_event_manager().process_event(TestEvent.ClubMemberAdded, sim_info=member, associated_clubs=(self,))
             services.get_event_manager().process_event(TestEvent.ClubMemberAdded, sim_info=self.leader, associate_clubs=(self,))
             if self.CLUB_JOINED_DRAMA_NODE is not None and member is not self.leader:
-                additional_participants = {ParticipantType.AssociatedClubLeader: (self.leader,), ParticipantType.AssociatedClub: (self,)}
+                additional_participants = {ParticipantType.AssociatedClub: (self,), ParticipantType.AssociatedClubLeader: (self.leader,)}
                 additional_localization_tokens = (self,)
                 resolver = SingleSimResolver(member, additional_participants, additional_localization_tokens)
                 services.drama_scheduler_service().schedule_node(self.CLUB_JOINED_DRAMA_NODE, resolver)
@@ -387,13 +388,14 @@ class Club:
             if not club_rule_mapping[member]:
                 del club_rule_mapping[member]
         club_service._sim_infos_to_clubs_map[member].remove(self)
-        del club_service._sim_infos_to_clubs_map[member]
-        if not from_stop:
-            for buff in club_tuning.ClubTunables.BUFFS_NOT_IN_ANY_CLUB:
-                member.add_buff(buff.buff_type)
+        if not club_service._sim_infos_to_clubs_map[member]:
+            del club_service._sim_infos_to_clubs_map[member]
+            if not from_stop:
+                for buff in club_tuning.ClubTunables.BUFFS_NOT_IN_ANY_CLUB:
+                    member.add_buff(buff.buff_type)
         member_instance = member.get_sim_instance()
         current_gathering = club_service.sims_to_gatherings_map.get(member_instance)
-        if (club_service._sim_infos_to_clubs_map[member] or current_gathering is not None) and current_gathering.associated_club is self:
+        if current_gathering is not None and current_gathering.associated_club is self:
             current_gathering.remove_sim_from_situation(member_instance)
         self.members.remove(member)
         self._recent_member_ids.discard(member.sim_id)
@@ -425,8 +427,9 @@ class Club:
         global_result = True
         for member in list(self.members):
             result = self.validate_sim_info(member, update_if_invalid=update_if_invalid)
-            if global_result and not result:
-                global_result = False
+            if global_result:
+                if not result:
+                    global_result = False
         return global_result
 
     def validate_sim_info(self, sim_info, update_if_invalid=False):
@@ -440,7 +443,7 @@ class Club:
 
     def _validate_member_against_criteria(self, member, criteria, update_if_invalid=False):
         result = criteria.test_sim_info(member)
-        if result or update_if_invalid:
+        if not result and update_if_invalid:
             self.remove_member(member)
         return result
 
@@ -530,8 +533,9 @@ class Club:
             for outfit in sim_info.get_outfits_in_category(outfit_category_and_index[0]):
                 for part in outfit.part_ids:
                     body_type = get_caspart_bodytype(part)
-                    if body_type in CLOTHING_BODY_TYPES and body_type not in outfit_data.body_types:
-                        to_remove.append(part)
+                    if body_type in CLOTHING_BODY_TYPES:
+                        if body_type not in outfit_data.body_types:
+                            to_remove.append(part)
                 break
         return (to_add, to_remove)
 
@@ -568,8 +572,9 @@ class Club:
         if self.hangout_setting == ClubHangoutSetting.HANGOUT_LOT:
             if not self.is_zone_valid_for_gathering(self.hangout_zone_id):
                 is_valid = False
-        elif not self.hangout_venue.allowed_for_clubs:
-            is_valid = False
+        elif self.hangout_setting == ClubHangoutSetting.HANGOUT_VENUE:
+            if not self.hangout_venue.allowed_for_clubs:
+                is_valid = False
         if not is_valid:
             self.hangout_setting = ClubHangoutSetting.HANGOUT_NONE
             services.get_club_service().distribute_club_update((self,))

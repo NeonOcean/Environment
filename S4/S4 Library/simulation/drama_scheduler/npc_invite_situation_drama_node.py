@@ -44,27 +44,26 @@ class NPCInviteSituationDramaNode(BaseDramaNode):
         self._chosen_dialog = None
 
     def _get_zone_id(self):
-        zone_id = self._zone_id
-        if zone_id is not None:
-            return zone_id
+        if self._zone_id is not None and self._situation_to_run.is_venue_location_valid(self._zone_id):
+            return self._zone_id
+        self._zone_id = None
         if self._street is not None:
             lot_id = self._street.get_lot_to_travel_to()
             if lot_id is None:
                 return services.current_zone_id()
             persistence_service = services.get_persistence_service()
-            return persistence_service.resolve_lot_id_into_zone_id(lot_id, ignore_neighborhood_id=True)
+            self._zone_id = persistence_service.resolve_lot_id_into_zone_id(lot_id, ignore_neighborhood_id=True)
+            return self._zone_id
         if self._host_event_at_NPCs_residence:
             zone_id = self._sender_sim_info.vacation_or_home_zone_id
             if zone_id is not None:
-                return zone_id
-            elif self._situation_to_run.has_venue_location():
-                zone_id = self._situation_to_run.get_venue_location()
-                if zone_id is not None:
-                    return zone_id
-        elif self._situation_to_run.has_venue_location():
+                self._zone_id = zone_id
+                return self._zone_id
+        if self._situation_to_run.has_venue_location():
             zone_id = self._situation_to_run.get_venue_location()
             if zone_id is not None:
-                return zone_id
+                self._zone_id = zone_id
+        return self._zone_id
 
     def _get_resolver(self):
         resolver = super()._get_resolver()
@@ -124,7 +123,7 @@ class NPCInviteSituationDramaNode(BaseDramaNode):
         services.drama_scheduler_service().complete_node(self.uid)
 
     def _handle_dialog(self, dialog):
-        if dialog.accepted or dialog.response != NPCHostedSituationDialog.BRING_OTHER_SIMS_RESPONSE_ID:
+        if not dialog.accepted and dialog.response != NPCHostedSituationDialog.BRING_OTHER_SIMS_RESPONSE_ID:
             with telemetry_helper.begin_hook(telemetry_writer, TELEMETRY_HOOK_SITUATION_REJECTED, sim_info=self._receiver_sim_info) as hook:
                 hook.write_guid(TELEMETRY_SITUATION_TYPE_ID, self._situation_to_run.guid64)
             services.drama_scheduler_service().complete_node(self.uid)

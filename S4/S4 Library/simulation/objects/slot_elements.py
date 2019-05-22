@@ -16,7 +16,7 @@ class SlotObjectsFromInventory(XevtTriggeredElement, HasTunableFactory, AutoFact
 
     def _do_behavior(self):
         slot_strategy = self.slot_strategy(self.interaction.get_resolver())
-        if slot_strategy.slot_objects() or self.slot_failure_notification is not None:
+        if not slot_strategy.slot_objects() and self.slot_failure_notification is not None:
             dialog = self.slot_failure_notification(self.interaction.sim, resolver=self.interaction.get_resolver())
             dialog.show_dialog()
         return True

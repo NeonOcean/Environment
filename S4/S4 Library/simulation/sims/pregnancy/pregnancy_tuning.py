@@ -10,7 +10,7 @@ class PregnancyData(HasTunableSingletonFactory, AutoFactoryInit):
 (TunablePregnancyDataReference, _) = define_snippet('Pregnancy', PregnancyData.TunableFactory())
 
 class PregnancyTuning:
-    PREGNANCY_DATA = TunableMapping(description='\n        A mapping of species to pregnancy data.\n        ', key_type=TunableEnumEntry(description="\n            The newborn's species.\n            ", tunable_type=Species, default=Species.HUMAN), value_type=TunablePregnancyDataReference(pack_safe=True))
+    PREGNANCY_DATA = TunableMapping(description='\n        A mapping of species to pregnancy data.\n        ', key_type=TunableEnumEntry(description="\n            The newborn's species.\n            ", tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunablePregnancyDataReference(pack_safe=True))
 
     @classmethod
     def get_pregnancy_data(cls, sim_info):

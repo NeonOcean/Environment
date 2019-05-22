@@ -31,8 +31,7 @@ def create_puppet_postures(sim):
     finally:
         count = _sims_that_create_puppet_postures[sim]
         count -= 1
-        if count < 0:
-            raise AssertionError('Bookkeeping error in create_puppet_postures for {}'.format(sim))
+        assert not count < 0
         if count == 0:
             del _sims_that_create_puppet_postures[sim]
         else:
@@ -185,12 +184,12 @@ class IntimatePartPosture(MultiSimPosture):
                 if not adjacent_part.may_reserve(adjacent_sim):
                     if target.usable_by_transition_controller(sim.queue.transition_controller):
                         if adjacent_target is not None and adjacent_part is not adjacent_target:
-                            pass
-                        elif adjacent_part.supports_posture_type(cls):
+                            continue
+                        if adjacent_part.supports_posture_type(cls):
                             return True
                 if adjacent_target is not None and adjacent_part is not adjacent_target:
-                    pass
-                elif adjacent_part.supports_posture_type(cls):
+                    continue
+                if adjacent_part.supports_posture_type(cls):
                     return True
         return False
 

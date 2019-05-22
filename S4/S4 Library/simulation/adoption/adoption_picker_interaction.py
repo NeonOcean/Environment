@@ -52,8 +52,10 @@ class AdoptionPickerSuperInteraction(SuperInteraction, PickerSuperInteractionMix
         yield from element_utils.run_child(timeline, element_utils.soft_sleep_forever())
         if not self._picked_sim_ids:
             return False
+            yield
         self.adoption_action(self, self._picked_sim_ids)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):

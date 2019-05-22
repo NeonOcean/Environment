@@ -280,16 +280,18 @@ class RestrictedPolygon(ImmutableType):
         return False
 
     def intersect(self, other):
-        if not isinstance(other, RestrictedPolygon):
-            raise AssertionError('Attempting to merge with a non-restricted polygon: {}'.format(other))
+        assert isinstance(other, RestrictedPolygon)
         if self.polygon is not None and other.polygon is not None:
             merged_polygon = None
-            if len(other.polygon) == 1:
-                poly_mine = self.polygon[0]
-                poly_other = other.polygon[0]
-                if sims4.math.vector3_almost_equal_2d(poly_mine[0], poly_other[0], epsilon=ANIMATION_SLOT_EPSILON):
-                    merged_polygon = self.polygon
-            if len(self.polygon) == 1 and merged_polygon is None:
+            if len(self.polygon) == 1:
+                if len(other.polygon) == 1:
+                    poly_mine = self.polygon[0]
+                    poly_other = other.polygon[0]
+                    if len(poly_mine) == 1:
+                        if len(poly_other) == 1:
+                            if sims4.math.vector3_almost_equal_2d(poly_mine[0], poly_other[0], epsilon=ANIMATION_SLOT_EPSILON):
+                                merged_polygon = self.polygon
+            if merged_polygon is None:
                 merged_polygon = self.polygon.intersect(other.polygon)
         else:
             merged_polygon = self.polygon if other.polygon is None else other.polygon

@@ -109,17 +109,15 @@ def has_choices(target_id:int=None, pick_type=PickType.PICK_TERRAIN, x:float=0.0
             context = client.create_interaction_context(sim, pick=pick)
             for aop in potential_target.potential_interactions(context):
                 if tutorial_service is not None and not tutorial_service.is_affordance_visible(aop.affordance):
-                    pass
-                else:
-                    result = ChoiceMenu.is_valid_aop(aop, context, user_pick_target=potential_target)
-                    if result or not result.tooltip:
-                        pass
-                    else:
-                        is_interactable = aop.affordance.allow_user_directed
-                        if not is_interactable:
-                            is_interactable = aop.affordance.has_pie_menu_sub_interactions(aop.target, context, **aop.interaction_parameters)
-                        if is_interactable:
-                            break
+                    continue
+                result = ChoiceMenu.is_valid_aop(aop, context, user_pick_target=potential_target)
+                if not result and not result.tooltip:
+                    continue
+                is_interactable = aop.affordance.allow_user_directed
+                if not is_interactable:
+                    is_interactable = aop.affordance.has_pie_menu_sub_interactions(aop.target, context, **aop.interaction_parameters)
+                if is_interactable:
+                    break
             if sim is not None:
                 for si in sim.si_state:
                     potential_mixer_targets = si.get_potential_mixer_targets()
@@ -190,8 +188,9 @@ def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level
             location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
             pick_target = objects.terrain.TerrainPoint(location)
             potential_targets.append((pick_target, routing_surface))
-            if lot_id != services.active_lot_id():
-                pick_type = PickType.PICK_TERRAIN
+            if lot_id:
+                if lot_id != services.active_lot_id():
+                    pick_type = PickType.PICK_TERRAIN
         else:
             if lot_id and lot_id != services.active_lot_id():
                 location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
@@ -202,7 +201,7 @@ def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level
                 potential_targets.append((pick_target, routing_surface))
                 new_routing_surface = pick_target.provided_routing_surface
                 location = sims4.math.Location(sims4.math.Transform(position), new_routing_surface)
-                if sim is not None and (posture_graph.is_object_mobile_posture_compatible(pick_target) or routing.test_connectivity_math_locations(sim.location, location, sim.routing_context)):
+                if sim is not None and not posture_graph.is_object_mobile_posture_compatible(pick_target) and routing.test_connectivity_math_locations(sim.location, location, sim.routing_context):
                     pick_target = objects.terrain.TerrainPoint(location)
                     potential_targets.append((pick_target, new_routing_surface))
             else:
@@ -286,7 +285,7 @@ def generate_choices(target_id:int=None, pick_type:PickType=PickType.PICK_TERRAI
                     context.add_preferred_objects(preferred_objects)
                     potential_aops = list(potential_target.potential_interactions(context, **interaction_parameters))
                     choice_menu.add_potential_aops(potential_target, context, potential_aops)
-                if shift_held or sim is not None:
+                if not shift_held and sim is not None:
                     context = client.create_interaction_context(sim, pick=pick, shift_held=shift_held)
                     context.add_preferred_objects(preferred_objects)
                     sim.fill_choices_menu_with_si_state_aops(pick_target, context, choice_menu)
@@ -383,70 +382,78 @@ def create_pie_menu_message(sim, choice_menu, reference_id, pie_menu_action, tar
             aop = item.aop
             aop_affordance = aop.affordance
             if tutorial_service is not None and not tutorial_service.is_affordance_visible(aop_affordance):
-                pass
+                continue
+            if sim is None:
+                modifier_tooltip = None
             else:
-                with ProtocolBufferRollback(msg.items) as item_msg:
-                    item_msg.id = aop.aop_id
-                    context = item.context
-                    allow_global_icon_overrides = not blacklist_icon_tags & aop_affordance.interaction_category_tags
-                    allow_global_parent_overrides = not blacklist_parent_tags & aop_affordance.interaction_category_tags
-                    logger.debug('%3d: %s' % (option_id, aop))
-                    name = aop_affordance.get_name(aop.target, context, **aop.interaction_parameters)
-                    (name_override_tunable, name_override_result) = aop_affordance.get_name_override_tunable_and_result(target=aop.target, context=context)
+                (modifier_visibility, modifier_tooltip) = sim.test_pie_menu_modifiers(aop_affordance)
+                if not modifier_visibility:
+                    continue
+            with ProtocolBufferRollback(msg.items) as item_msg:
+                item_msg.id = aop.aop_id
+                context = item.context
+                allow_global_icon_overrides = not blacklist_icon_tags & aop_affordance.interaction_category_tags
+                allow_global_parent_overrides = not blacklist_parent_tags & aop_affordance.interaction_category_tags
+                logger.debug('%3d: %s' % (option_id, aop))
+                name = aop_affordance.get_name(aop.target, context, **aop.interaction_parameters)
+                (name_override_tunable, name_override_result) = aop_affordance.get_name_override_tunable_and_result(target=aop.target, context=context)
+                if parent_override is not None:
                     if allow_global_parent_overrides:
                         name = parent_override(sim, name)
-                    pie_menu_icon = aop_affordance.get_pie_menu_icon_info(context=context, **aop.interaction_parameters) if parent_override is not None and icon_override is None else None
-                    category_key = item.category_key
-                    ignore_pie_menu_icon_override = aop_affordance.is_rally_interaction and pie_menu_icon is not None
-                    if name_override_tunable is not None:
+                pie_menu_icon = aop_affordance.get_pie_menu_icon_info(context=context, **aop.interaction_parameters) if icon_override is None else None
+                category_key = item.category_key
+                ignore_pie_menu_icon_override = aop_affordance.is_rally_interaction and pie_menu_icon is not None
+                if name_override_tunable is not None:
+                    if name_override_tunable.new_pie_menu_icon is not None:
                         if not ignore_pie_menu_icon_override:
                             pie_menu_icon = name_override_tunable.new_pie_menu_icon(resolver)
-                        if name_override_tunable.new_pie_menu_icon is not None and name_override_tunable.new_pie_menu_category is not None:
-                            category_key = name_override_tunable.new_pie_menu_category.guid64
-                        if not (parent_override is None or allow_global_parent_overrides):
+                    if name_override_tunable.new_pie_menu_category is not None:
+                        category_key = name_override_tunable.new_pie_menu_category.guid64
+                    if name_override_tunable.parent_name is not None:
+                        if not (parent_override is None or not allow_global_parent_overrides):
                             name = name_override_tunable.parent_name(sim, name)
-                    if _show_interaction_tuning_name:
-                        affordance_tuning_name = str(aop_affordance.__name__)
-                        name = InteractionCommandsTuning.INTERACTION_TUNING_NAME(name, affordance_tuning_name)
-                    item_msg.score = aop.content_score if aop.content_score is not None else 0
-                    if _show_front_page_score:
-                        name = InteractionCommandsTuning.INTERACTION_FRONT_PAGE_SCORING(name, str(item_msg.score))
-                    item_msg.loc_string = name
-                    tooltip = item.result.tooltip
+                if _show_interaction_tuning_name:
+                    affordance_tuning_name = str(aop_affordance.__name__)
+                    name = InteractionCommandsTuning.INTERACTION_TUNING_NAME(name, affordance_tuning_name)
+                item_msg.score = aop.content_score if aop.content_score is not None else 0
+                if _show_front_page_score:
+                    name = InteractionCommandsTuning.INTERACTION_FRONT_PAGE_SCORING(name, str(item_msg.score))
+                item_msg.loc_string = name
+                tooltip = modifier_tooltip or item.result.tooltip
+                if tooltip is not None:
+                    tooltip = aop_affordance.create_localized_string(tooltip, context=context, target=aop.target, **aop.interaction_parameters)
+                    item_msg.disabled_text = tooltip
+                else:
+                    if tutorial_service is not None:
+                        tooltip = tutorial_service.get_disabled_affordance_tooltip(aop_affordance)
                     if tooltip is not None:
                         tooltip = aop_affordance.create_localized_string(tooltip, context=context, target=aop.target, **aop.interaction_parameters)
                         item_msg.disabled_text = tooltip
                     else:
-                        if tutorial_service is not None:
-                            tooltip = tutorial_service.get_disabled_affordance_tooltip(aop_affordance)
-                        if tooltip is not None:
-                            tooltip = aop_affordance.create_localized_string(tooltip, context=context, target=aop.target, **aop.interaction_parameters)
-                            item_msg.disabled_text = tooltip
-                        else:
-                            success_tooltip = aop_affordance.get_display_tooltip(override=name_override_tunable, context=context, target=aop.target, **aop.interaction_parameters)
-                            if success_tooltip is not None:
-                                item_msg.success_tooltip = success_tooltip
-                    if icon_override is not None and allow_global_icon_overrides:
-                        item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=icon_override)))
-                    elif pie_menu_icon is not None:
-                        item_msg.icon_infos.append(create_icon_info_msg(pie_menu_icon))
-                    if category_key is not None:
-                        item_msg.category_key = category_key
-                    if item.result.icon is not None:
-                        item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=item.result.icon)))
-                    if aop.show_posture_incompatible_icon:
-                        item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=PieMenuActions.POSTURE_INCOMPATIBLE_ICON)))
-                    if club_service is not None and sim is not None:
-                        (encouragement, _) = club_service.get_interaction_encouragement_status_and_rules_for_sim_info(sim.sim_info, aop)
-                        if encouragement == ClubRuleEncouragementStatus.ENCOURAGED:
-                            item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=club_tuning.ClubTunables.PIE_MENU_INTERACTION_ENCOURAGED_ICON)))
-                        elif encouragement == ClubRuleEncouragementStatus.DISCOURAGED:
-                            item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=club_tuning.ClubTunables.PIE_MENU_INTERACTION_DISCOURAGED_ICON)))
-                    handle_pie_menu_item_coloring(item_msg, item, sim, aop, name_override_result)
-                    for visual_target in aop_affordance.visual_targets_gen(aop.target, context, **aop.interaction_parameters):
-                        if visual_target is not None:
-                            item_msg.target_ids.append(visual_target.id)
-                    item_msg.pie_menu_priority = aop_affordance.pie_menu_priority
+                        success_tooltip = aop_affordance.get_display_tooltip(override=name_override_tunable, context=context, target=aop.target, **aop.interaction_parameters)
+                        if success_tooltip is not None:
+                            item_msg.success_tooltip = success_tooltip
+                if icon_override is not None and allow_global_icon_overrides:
+                    item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=icon_override)))
+                elif pie_menu_icon is not None:
+                    item_msg.icon_infos.append(create_icon_info_msg(pie_menu_icon))
+                if category_key is not None:
+                    item_msg.category_key = category_key
+                if item.result.icon is not None:
+                    item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=item.result.icon)))
+                if aop.show_posture_incompatible_icon:
+                    item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=PieMenuActions.POSTURE_INCOMPATIBLE_ICON)))
+                if club_service is not None and sim is not None:
+                    (encouragement, _) = club_service.get_interaction_encouragement_status_and_rules_for_sim_info(sim.sim_info, aop)
+                    if encouragement == ClubRuleEncouragementStatus.ENCOURAGED:
+                        item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=club_tuning.ClubTunables.PIE_MENU_INTERACTION_ENCOURAGED_ICON)))
+                    elif encouragement == ClubRuleEncouragementStatus.DISCOURAGED:
+                        item_msg.icon_infos.append(create_icon_info_msg(IconInfoData(icon_resource=club_tuning.ClubTunables.PIE_MENU_INTERACTION_DISCOURAGED_ICON)))
+                handle_pie_menu_item_coloring(item_msg, item, sim, aop, name_override_result)
+                for visual_target in aop_affordance.visual_targets_gen(aop.target, context, **aop.interaction_parameters):
+                    if visual_target is not None:
+                        item_msg.target_ids.append(visual_target.id)
+                item_msg.pie_menu_priority = aop_affordance.pie_menu_priority
     return msg
 
 def handle_pie_menu_item_coloring(item_msg, item, sim, choice, name_override_result):
@@ -726,14 +733,16 @@ def set_interaction_mode(mode:InteractionModes=None, source:int=None, priority:i
     for (key, val) in vars(interactions.context.InteractionContext).items():
         if key.startswith('SOURCE'):
             sources[val] = key
-    if priority is None:
-        output('Source options:')
-        for val in sources.values():
-            output('    {}'.format(val))
-        output('Priority options:')
-        for val in interactions.priority.Priority:
-            output('    {}'.format(val.name))
-    if mode is None and source is None and mode is InteractionModes.default:
+    if mode is None:
+        if source is None:
+            if priority is None:
+                output('Source options:')
+                for val in sources.values():
+                    output('    {}'.format(val))
+                output('Priority options:')
+                for val in interactions.priority.Priority:
+                    output('    {}'.format(val.name))
+    if mode is InteractionModes.default:
         client.interaction_source = None
         client.interaction_priority = None
     elif mode is InteractionModes.autonomous:

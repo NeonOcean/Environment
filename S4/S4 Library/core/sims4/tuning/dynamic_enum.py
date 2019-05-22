@@ -17,9 +17,10 @@ def validate_locked_enum_id(enum_map_class, enum_id, enum_object, invalid_id=Non
         logger.error('{} {} must have an unique id assigned.', class_name, enum_object.__name__, owner='cjiang')
         return False
     for (exist_id, exist_object) in locked_enums.items():
-        if exist_id == enum_id and exist_object != enum_object:
-            logger.error('{} {} is trying to assign an id({}) which is already used by {}.', class_name, enum_object.__name__, enum_id, exist_object.__name__, owner='cjiang')
-            return False
+        if exist_id == enum_id:
+            if exist_object != enum_object:
+                logger.error('{} {} is trying to assign an id({}) which is already used by {}.', class_name, enum_object.__name__, enum_id, exist_object.__name__, owner='cjiang')
+                return False
     locked_enums[enum_id] = enum_object
     global_locked_enums_maps[class_name] = locked_enums
     return True
@@ -63,10 +64,9 @@ class DynamicEnumMetaclass(enum.Metaclass):
             for element in tuned_elements:
                 enum_name = element.enum_name
                 raw_value = element.enum_value
-                if cls.partitioned and not (cls.locked or is_available_pack(_get_pack_from_enum_value(raw_value))):
-                    pass
-                else:
-                    cls._add_new_enum_value(enum_name, raw_value)
+                if cls.partitioned and not cls.locked and not is_available_pack(_get_pack_from_enum_value(raw_value)):
+                    continue
+                cls._add_new_enum_value(enum_name, raw_value)
 
 class DynamicEnum(enum.Int, metaclass=DynamicEnumMetaclass):
     pass

@@ -39,9 +39,11 @@ class CarryingSim(CarryingObject):
 
     def _get_carried_linked_source_interaction(self):
         for super_affordance in self.sim.super_affordances():
-            if super_affordance.provided_posture_type is self.carried_linked_posture_type and super_affordance._provided_posture_type_species == self.target.species:
-                break
-        raise RuntimeError('{} does not provide an appropriate affordance to {}'.format(self.sim, self))
+            if super_affordance.provided_posture_type is self.carried_linked_posture_type:
+                if super_affordance._provided_posture_type_species == self.target.species:
+                    break
+        else:
+            raise RuntimeError('{} does not provide an appropriate affordance to {}'.format(self.sim, self))
         context = InteractionContext(self.target, InteractionContext.SOURCE_SCRIPT, Priority.Low)
         aop = AffordanceObjectPair(super_affordance, self.sim, super_affordance, None, force_inertial=True)
         result = aop.interaction_factory(context)

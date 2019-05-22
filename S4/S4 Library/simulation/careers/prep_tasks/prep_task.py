@@ -15,12 +15,14 @@ class PrepTask(HasTunableSingletonFactory, AutoFactoryInit):
         stat = sim_info.get_statistic(self.statistic)
         value = stat.get_value()
         for threshold in self.thresholded_descriptions:
-            if lower_threshold is None or threshold.threshold > lower_threshold.threshold:
-                lower_threshold = threshold
-            if not upper_threshold is None:
-                if threshold.threshold < upper_threshold.threshold:
-                    upper_threshold = threshold
-            upper_threshold = threshold
+            if value >= threshold.threshold:
+                if lower_threshold is None or threshold.threshold > lower_threshold.threshold:
+                    lower_threshold = threshold
+            if value < threshold.threshold:
+                if not upper_threshold is None:
+                    if threshold.threshold < upper_threshold.threshold:
+                        upper_threshold = threshold
+                upper_threshold = threshold
         return (lower_threshold, upper_threshold)
 
     def get_prep_task_display_name(self, sim_info):

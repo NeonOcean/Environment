@@ -45,8 +45,10 @@ class PlayAudioMixin:
 
     def _get_mouthpiece_interaction(self, mouthpiece_object, sim):
         for interaction in sim.get_all_running_and_queued_interactions():
-            if isinstance(interaction, PlayAudioMouthpieceSuperInteraction) and (interaction.is_finishing or interaction.is_mouthpiece_target(mouthpiece_object)):
-                return interaction
+            if isinstance(interaction, PlayAudioMouthpieceSuperInteraction):
+                if not interaction.is_finishing:
+                    if interaction.is_mouthpiece_target(mouthpiece_object):
+                        return interaction
 
     def _get_required_sims(self, *args, **kwargs):
         required_sims = super()._get_required_sims(*args, **kwargs)
@@ -79,17 +81,13 @@ class PlayAudioMixin:
             if musician.is_sim and musician is not self.sim and mouthpiece_target is not None:
                 interaction = self._get_mouthpiece_interaction(mouthpiece_target, musician)
                 if interaction is None:
-                    pass
-                else:
-                    interaction.set_mouthpiece_owner(self)
-                    liability = self.get_liability(CANCEL_INTERACTION_ON_EXIT_LIABILITY)
-                    if liability is None:
-                        liability = CancelInteractionsOnExitLiability()
-                        self.add_liability(CANCEL_INTERACTION_ON_EXIT_LIABILITY, liability)
-                    liability.add_cancel_entry(musician, interaction)
-                    vocal = PlaySound(musician, vocal_track.vocal_clip.instance, is_vox=True)
-                    vocal.start()
-                    self._vocals[musician] = (vocal, interaction)
+                    continue
+                interaction.set_mouthpiece_owner(self)
+                liability = self.get_liability(CANCEL_INTERACTION_ON_EXIT_LIABILITY)
+                if liability is None:
+                    liability = CancelInteractionsOnExitLiability()
+                    self.add_liability(CANCEL_INTERACTION_ON_EXIT_LIABILITY, liability)
+                liability.add_cancel_entry(musician, interaction)
             vocal = PlaySound(musician, vocal_track.vocal_clip.instance, is_vox=True)
             vocal.start()
             self._vocals[musician] = (vocal, interaction)
@@ -173,20 +171,20 @@ class PlayAudioMixin:
             skill_level = PlayAudioMixin._get_skill_level(skill_type, sim)
             for track in level_to_tracks[skill_level]:
                 if not styles & MusicStyle.styles_for_track[track]:
-                    pass
-                else:
-                    valid_tracks.append(track)
+                    continue
+                valid_tracks.append(track)
         sim_mood = sim.get_mood()
         valid_mood_tracks = [track for track in valid_tracks if sim_mood in track.moods]
-        if valid_mood_tracks or not valid_tracks:
+        if not valid_mood_tracks and not valid_tracks:
             return
         to_consider = valid_mood_tracks or valid_tracks
         random.shuffle(to_consider)
         for track in to_consider:
             if track.check_for_unlock and sim.sim_info.unlock_tracker is not None and sim.sim_info.unlock_tracker.is_unlocked(track):
                 return track
-            if track.check_for_unlock or track.tests.run_tests(resolver):
-                return track
+            if not track.check_for_unlock:
+                if track.tests.run_tests(resolver):
+                    return track
 
     @classmethod
     def _has_tracks(cls, sim, resolver):
@@ -196,12 +194,11 @@ class PlayAudioMixin:
             skill_level = PlayAudioMixin._get_skill_level(skill_type, sim)
             for track in level_to_tracks[skill_level]:
                 if not styles & MusicStyle.styles_for_track[track]:
-                    pass
-                else:
-                    if track.check_for_unlock and has_tracker and sim.sim_info.unlock_tracker.is_unlocked(track):
-                        return True
-                    if track.check_for_unlock or track.tests.run_tests(resolver):
-                        return True
+                    continue
+                if track.check_for_unlock and has_tracker and sim.sim_info.unlock_tracker.is_unlocked(track):
+                    return True
+                if not track.check_for_unlock and track.tests.run_tests(resolver):
+                    return True
         return False
 
     @classmethod
@@ -350,6 +347,7 @@ class UnluckMusicTrackSuperInteraction(CraftingPhaseSuperInteractionMixin, Super
 
         self.add_exit_function(_destroy_target)
         return True
+        yield
 
 class LicenseSongSuperInteraction(SuperInteraction):
     INSTANCE_TUNABLES = {'music_styles': TunableList(TunableReference(description='\n            Which music styles are available for this interaction.  This\n            should be only the Written Music Style for the particular\n            instrument.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE), class_restrictions=(MusicStyle,), reload_dependent=True))}

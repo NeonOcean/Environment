@@ -18,14 +18,13 @@ class FormationAvailability(HasTunableSingletonFactory, AutoFactoryInit):
             other_formations = [other_formation for other_formation in master.get_routing_slave_data()]
             for formation_type in self.available_formations:
                 if not formation_type.formation_compatibility.test_collection(other_formations):
-                    pass
-                else:
-                    slave_data_count = master.get_routing_slave_data_count(formation_type)
-                    if slave_data_count >= len(formation_type.formation_offsets):
-                        pass
-                    else:
-                        break
-            return TestResult(False, '{} has no more room in their routing formation or their formations are incompatible.', master, tooltip=tooltip)
+                    continue
+                slave_data_count = master.get_routing_slave_data_count(formation_type)
+                if slave_data_count >= len(formation_type.formation_offsets):
+                    continue
+                break
+            else:
+                return TestResult(False, '{} has no more room in their routing formation or their formations are incompatible.', master, tooltip=tooltip)
         return TestResult.TRUE
 
 class InRoutingFormation(HasTunableSingletonFactory, AutoFactoryInit):
@@ -37,7 +36,7 @@ class InRoutingFormation(HasTunableSingletonFactory, AutoFactoryInit):
                 return TestResult(False, '{} is in an invalid routing formation.', slave, tooltip=tooltip)
             if self.required_or_prohibited and slave.routing_component.routing_master is None:
                 return TestResult(False, '{} is not expected to be the slave in a routing formation.', slave, tooltip=tooltip)
-            if self.required_or_prohibited or slave.routing_component.routing_master is not None:
+            if not self.required_or_prohibited and slave.routing_component.routing_master is not None:
                 return TestResult(False, '{} is expected to be the slave in a routing formation.', slave, tooltip=tooltip)
         if master is not None:
             slave_data = master.get_routing_slave_data()
@@ -93,9 +92,11 @@ class RoutingSlaveTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
     def __call__(self, master_sims=(), slave_sims=()):
         master = next(iter(master_sims), None)
         slave = next(iter(slave_sims), None)
-        if master.is_sim:
-            master = master.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-        if slave.is_sim:
-            slave = slave.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+        if master is not None:
+            if master.is_sim:
+                master = master.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+        if slave is not None:
+            if slave.is_sim:
+                slave = slave.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
         result = self.formation_test.test(master, slave, self.tooltip)
         return result

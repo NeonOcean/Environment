@@ -57,7 +57,7 @@ class WorldSpawnPoint(SpawnPoint):
 
     def _get_slot_pos(self, index):
         if not index is None:
-            if not (0 <= index and index <= WorldSpawnPoint.SPAWN_POINT_SLOTS - 1):
+            if not 0 <= index <= WorldSpawnPoint.SPAWN_POINT_SLOTS - 1:
                 logger.warn('Slot Index {} for Spawn Point is out of range.', index)
                 return self._center
         logger.warn('Slot Index {} for Spawn Point is out of range.', index)

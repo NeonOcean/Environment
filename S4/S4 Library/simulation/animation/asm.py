@@ -49,8 +49,17 @@ def _consolidate_carry_info2(posture_manifest):
     for p0 in posture_manifest:
         free_hands = set()
         for p1 in posture_manifest:
-            if p0.actor == p1.actor and (p0.specific == p1.specific and (p0.family == p1.family and (p0.level == p1.level and (p0.surface == p1.surface and (p0.provides == p1.provides and (p0.left in _NOT_SPECIFIC_ACTOR_OR_NONE and (p1.left in _NOT_SPECIFIC_ACTOR_OR_NONE and p0.right in _NOT_SPECIFIC_ACTOR_OR_NONE))))))) and p1.right in _NOT_SPECIFIC_ACTOR_OR_NONE:
-                free_hands.update(p1.free_hands)
+            if p0.actor == p1.actor:
+                if p0.specific == p1.specific:
+                    if p0.family == p1.family:
+                        if p0.level == p1.level:
+                            if p0.surface == p1.surface:
+                                if p0.provides == p1.provides:
+                                    if p0.left in _NOT_SPECIFIC_ACTOR_OR_NONE:
+                                        if p1.left in _NOT_SPECIFIC_ACTOR_OR_NONE:
+                                            if p0.right in _NOT_SPECIFIC_ACTOR_OR_NONE:
+                                                if p1.right in _NOT_SPECIFIC_ACTOR_OR_NONE:
+                                                    free_hands.update(p1.free_hands)
         left = p0.left
         right = p0.right
         left = MATCH_ANY if Hand.LEFT in free_hands else left
@@ -114,16 +123,18 @@ class BoundaryConditionRelative:
         pre_condition_reference_joint = self.pre_condition_reference_joint_name_hash
         post_condition_reference_joint = self.post_condition_reference_joint_name_hash
         pre_condition_reference_object = asm.get_actor_by_name(self.pre_condition_reference_object_name)
-        if pre_condition_transform is not None:
-            pre_obj_transform = pre_condition_reference_object.transform
-            pre_condition_transform = Transform.concatenate(pre_condition_transform, pre_obj_transform)
-        if pre_condition_reference_object is not None and self.post_condition_reference_object_name is None:
+        if pre_condition_reference_object is not None:
+            if pre_condition_transform is not None:
+                pre_obj_transform = pre_condition_reference_object.transform
+                pre_condition_transform = Transform.concatenate(pre_condition_transform, pre_obj_transform)
+        if self.post_condition_reference_object_name is None:
             post_condition_transform = pre_condition_transform
         else:
             post_condition_reference_object = asm.get_actor_by_name(self.post_condition_reference_object_name)
-            if post_condition_transform is not None:
-                post_obj_transform = post_condition_reference_object.transform
-                post_condition_transform = Transform.concatenate(post_condition_transform, post_obj_transform)
+            if post_condition_reference_object is not None:
+                if post_condition_transform is not None:
+                    post_obj_transform = post_condition_reference_object.transform
+                    post_condition_transform = Transform.concatenate(post_condition_transform, post_obj_transform)
         return (pre_condition_transform, post_condition_transform, pre_condition_reference_joint, post_condition_reference_joint)
 
 class Asm(native.animation.NativeAsm):
@@ -142,7 +153,7 @@ class Asm(native.animation.NativeAsm):
             set_actor_names.append(e)
         set_actor_names.sort()
         unset_actor_names = sorted(unset_actor_names)
-        log("Boundary condition error: {}\n    {}\n        {} (Unset actors: {})\n    The boundary information we're looking for is:\n        {}: {} from {} --> {} (Posture: {})".format(headline, actor_info, ', '.join(set_actor_names), ', '.join(unset_actor_names), key))
+        log("Boundary condition error: {}\n    {}\n        {} (Unset actors: {})\n    The boundary information we're looking for is:\n        {}: {} from {} --> {} (Posture: {})".format(headline, actor_info, ', '.join(set_actor_names), ', '.join(unset_actor_names), *key))
 
     @staticmethod
     def transform_almost_equal_2d(a, b):
@@ -239,17 +250,14 @@ class Asm(native.animation.NativeAsm):
             params = itertools.product(actor_species, actor_ages, target_species, target_ages)
         for (_actor_species, _actor_age, *target_params) in params:
             if not SpeciesExtended.is_age_valid_for_animation_cache(_actor_species, _actor_age):
-                pass
-            else:
-                age_species_locked_args = {('age', actor_name): _actor_age.animation_age_param, ('species', actor_name): SpeciesExtended.get_animation_species_param(_actor_species)}
-                if target_name is not None:
-                    (_target_species, _target_age) = target_params
-                    if not SpeciesExtended.is_age_valid_for_animation_cache(_target_species, _target_age):
-                        pass
-                    else:
-                        age_species_locked_args.update({('age', target_name): _target_age.animation_age_param, ('species', target_name): SpeciesExtended.get_animation_species_param(_target_species)})
-                        yield frozendict(param_sequence, age_species_locked_args)
-                yield frozendict(param_sequence, age_species_locked_args)
+                continue
+            age_species_locked_args = {('species', actor_name): SpeciesExtended.get_animation_species_param(_actor_species), ('age', actor_name): _actor_age.animation_age_param}
+            if target_name is not None:
+                (_target_species, _target_age) = target_params
+                if not SpeciesExtended.is_age_valid_for_animation_cache(_target_species, _target_age):
+                    continue
+                age_species_locked_args.update({('species', target_name): SpeciesExtended.get_animation_species_param(_target_species), ('age', target_name): _target_age.animation_age_param})
+            yield frozendict(param_sequence, age_species_locked_args)
 
     def _get_param_sequences_for_cache(self, actor, actor_name, to_state_name, from_state_name, posture, target_name=None):
         internal_param_sequence_list = self._get_param_sequences(actor.id, to_state_name, from_state_name, None)
@@ -267,38 +275,37 @@ class Asm(native.animation.NativeAsm):
                 posture_param_value = param_sequence.get(posture_key)
                 if not (posture_param_value is not None and (posture_param_value.startswith(exact_str) or family_str is None)):
                     if family_str not in posture_param_value:
-                        pass
+                        continue
+                    actor_age_param = ('age', actor_name)
+                    if param_sequence is not None and actor_age_param in param_sequence:
+                        age = Age.get_age_from_animation_param(param_sequence[actor_age_param])
+                        actor_available_ages = (age,)
                     else:
-                        actor_age_param = ('age', actor_name)
-                        if param_sequence is not None and actor_age_param in param_sequence:
-                            age = Age.get_age_from_animation_param(param_sequence[actor_age_param])
-                            actor_available_ages = (age,)
+                        actor_available_ages = Age.get_ages_for_animation_cache()
+                    actor_species_param = ('species', actor_name)
+                    if param_sequence is not None and actor_species_param in param_sequence:
+                        species = SpeciesExtended.get_species_from_animation_param(param_sequence[actor_species_param])
+                        actor_available_species = (species,)
+                    else:
+                        actor_available_species = SpeciesExtended
+                    if target_name is None:
+                        target_available_species = ()
+                        target_available_ages = ()
+                    else:
+                        target_age_param = ('age', target_name)
+                        if param_sequence is not None and target_age_param in param_sequence:
+                            age = Age.get_age_from_animation_param(param_sequence[target_age_param])
+                            target_available_ages = (age,)
                         else:
-                            actor_available_ages = Age.get_ages_for_animation_cache()
-                        actor_species_param = ('species', actor_name)
-                        if param_sequence is not None and actor_species_param in param_sequence:
-                            species = SpeciesExtended.get_species_from_animation_param(param_sequence[actor_species_param])
-                            actor_available_species = (species,)
+                            target_available_ages = Age.get_ages_for_animation_cache()
+                        target_species_param = ('species', target_name)
+                        if param_sequence is not None and target_species_param in param_sequence:
+                            species = SpeciesExtended.get_species_from_animation_param(param_sequence[target_species_param])
+                            target_available_species = (species,)
                         else:
-                            actor_available_species = SpeciesExtended
-                        if target_name is None:
-                            target_available_species = ()
-                            target_available_ages = ()
-                        else:
-                            target_age_param = ('age', target_name)
-                            if param_sequence is not None and target_age_param in param_sequence:
-                                age = Age.get_age_from_animation_param(param_sequence[target_age_param])
-                                target_available_ages = (age,)
-                            else:
-                                target_available_ages = Age.get_ages_for_animation_cache()
-                            target_species_param = ('species', target_name)
-                            if param_sequence is not None and target_species_param in param_sequence:
-                                species = SpeciesExtended.get_species_from_animation_param(param_sequence[target_species_param])
-                                target_available_species = (species,)
-                            else:
-                                target_available_species = SpeciesExtended
-                        for age_species_param_sequence in self._get_param_sequences_for_age_species_gen(param_sequence, actor_name, actor_available_species, actor_available_ages, target_name, target_available_species, target_available_ages):
-                            param_sequence_list.append(age_species_param_sequence)
+                            target_available_species = SpeciesExtended
+                    for age_species_param_sequence in self._get_param_sequences_for_age_species_gen(param_sequence, actor_name, actor_available_species, actor_available_ages, target_name, target_available_species, target_available_ages):
+                        param_sequence_list.append(age_species_param_sequence)
             else:
                 actor_age_param = ('age', actor_name)
                 if param_sequence is not None and actor_age_param in param_sequence:
@@ -377,17 +384,22 @@ class Asm(native.animation.NativeAsm):
                                 cache_containment_slot_data_list = False
                                 self._log_bc_error(logger.error, currently_set_actor_names, key, 'missing parent or child object', "The parent or child in Maya isn't one of the following actors:")
                     required_slots = tuple(required_slots)
-                    if required_slots or boundary.pre_condition_reference_object_id is None:
+                    if not required_slots and boundary.pre_condition_reference_object_id is None:
                         pass
                     elif boundary.pre_condition_reference_object_id is not None and boundary.pre_condition_reference_object_id != 0 and pre_condition_reference_object_name is None:
                         pass
                     else:
                         for (boundary_existing, params_list) in boundary_to_params.items():
-                            if pre_condition_reference_object_name == boundary_existing.pre_condition_reference_object_name and (post_condition_reference_object_name == boundary_existing.post_condition_reference_object_name and (self.transform_almost_equal_2d_safe(boundary.pre_condition_transform, boundary_existing.pre_condition_transform) and self.transform_almost_equal_2d_safe(boundary.post_condition_transform, boundary_existing.post_condition_transform))) and required_slots == boundary_existing.required_slots:
-                                params_list.append(param_sequence)
-                                break
-                        boundary_relative = BoundaryConditionRelative(pre_condition_reference_object_name, boundary.pre_condition_transform, boundary.pre_condition_reference_joint_name_hash, post_condition_reference_object_name, boundary.post_condition_transform, boundary.post_condition_reference_joint_name_hash, required_slots, boundary.debug_info)
-                        boundary_to_params[boundary_relative] = [param_sequence]
+                            if pre_condition_reference_object_name == boundary_existing.pre_condition_reference_object_name:
+                                if post_condition_reference_object_name == boundary_existing.post_condition_reference_object_name:
+                                    if self.transform_almost_equal_2d_safe(boundary.pre_condition_transform, boundary_existing.pre_condition_transform):
+                                        if self.transform_almost_equal_2d_safe(boundary.post_condition_transform, boundary_existing.post_condition_transform):
+                                            if required_slots == boundary_existing.required_slots:
+                                                params_list.append(param_sequence)
+                                                break
+                        else:
+                            boundary_relative = BoundaryConditionRelative(pre_condition_reference_object_name, boundary.pre_condition_transform, boundary.pre_condition_reference_joint_name_hash, post_condition_reference_object_name, boundary.post_condition_transform, boundary.post_condition_reference_joint_name_hash, required_slots, boundary.debug_info)
+                            boundary_to_params[boundary_relative] = [param_sequence]
             else:
                 if verbose_logging:
                     logger.warn('    Pre conditions')
@@ -414,17 +426,22 @@ class Asm(native.animation.NativeAsm):
                             cache_containment_slot_data_list = False
                             self._log_bc_error(logger.error, currently_set_actor_names, key, 'missing parent or child object', "The parent or child in Maya isn't one of the following actors:")
                 required_slots = tuple(required_slots)
-                if required_slots or boundary.pre_condition_reference_object_id is None:
+                if not required_slots and boundary.pre_condition_reference_object_id is None:
                     pass
                 elif boundary.pre_condition_reference_object_id is not None and boundary.pre_condition_reference_object_id != 0 and pre_condition_reference_object_name is None:
                     pass
                 else:
                     for (boundary_existing, params_list) in boundary_to_params.items():
-                        if pre_condition_reference_object_name == boundary_existing.pre_condition_reference_object_name and (post_condition_reference_object_name == boundary_existing.post_condition_reference_object_name and (self.transform_almost_equal_2d_safe(boundary.pre_condition_transform, boundary_existing.pre_condition_transform) and self.transform_almost_equal_2d_safe(boundary.post_condition_transform, boundary_existing.post_condition_transform))) and required_slots == boundary_existing.required_slots:
-                            params_list.append(param_sequence)
-                            break
-                    boundary_relative = BoundaryConditionRelative(pre_condition_reference_object_name, boundary.pre_condition_transform, boundary.pre_condition_reference_joint_name_hash, post_condition_reference_object_name, boundary.post_condition_transform, boundary.post_condition_reference_joint_name_hash, required_slots, boundary.debug_info)
-                    boundary_to_params[boundary_relative] = [param_sequence]
+                        if pre_condition_reference_object_name == boundary_existing.pre_condition_reference_object_name:
+                            if post_condition_reference_object_name == boundary_existing.post_condition_reference_object_name:
+                                if self.transform_almost_equal_2d_safe(boundary.pre_condition_transform, boundary_existing.pre_condition_transform):
+                                    if self.transform_almost_equal_2d_safe(boundary.post_condition_transform, boundary_existing.post_condition_transform):
+                                        if required_slots == boundary_existing.required_slots:
+                                            params_list.append(param_sequence)
+                                            break
+                    else:
+                        boundary_relative = BoundaryConditionRelative(pre_condition_reference_object_name, boundary.pre_condition_transform, boundary.pre_condition_reference_joint_name_hash, post_condition_reference_object_name, boundary.post_condition_transform, boundary.post_condition_reference_joint_name_hash, required_slots, boundary.debug_info)
+                        boundary_to_params[boundary_relative] = [param_sequence]
         if verbose_logging:
             logger.warn('  Boundary -> Param Sequences')
             for (param_key, param_value) in boundary_to_params.items():
@@ -455,7 +472,8 @@ class Asm(native.animation.NativeAsm):
                 if self.transform_almost_equal_2d(containment_transform, containment_transform_existing):
                     slots_to_params.append((boundary_condition, slot_params_list))
                     break
-            containment_slot_data_list.append((containment_transform, [(boundary_condition, slot_params_list)]))
+            else:
+                containment_slot_data_list.append((containment_transform, [(boundary_condition, slot_params_list)]))
         if cache_containment_slot_data_list:
             self._bc_cache[key] = tuple(containment_slot_data_list)
         return containment_slot_data_list
@@ -650,9 +668,10 @@ class Asm(native.animation.NativeAsm):
             for (old_actor, old_suffix) in self._virtual_actors[actor_name]:
                 old_actor = old_actor() if old_actor is not None else None
                 old_actor_id = old_actor.id if old_actor is not None else 0
-                if old_actor_id == actor.id and old_suffix == suffix:
-                    actor_set = True
-                    break
+                if old_actor_id == actor.id:
+                    if old_suffix == suffix:
+                        actor_set = True
+                        break
         if not actor_set:
             if super().add_virtual_actor(actor_name, actor, suffix):
                 callback = self._get_virtual_actor_weakref_callback(actor_name, actor, suffix)
@@ -683,8 +702,9 @@ class Asm(native.animation.NativeAsm):
         deletes = []
         for (key, (target_ref, target_suffix)) in self._virtual_actor_relationships.items():
             target = target_ref() if target_ref is not None else None
-            if target is actor and target_suffix == suffix:
-                deletes.append(key)
+            if target is actor:
+                if target_suffix == suffix:
+                    deletes.append(key)
         for key in deletes:
             del self._virtual_actor_relationships[key]
         return True
@@ -739,19 +759,18 @@ class Asm(native.animation.NativeAsm):
                 self.set_parameter(param_name, param_value)
             else:
                 (param_name, actor_name) = param_name
-                if ignore_virtual_suffix or actor_name in self._virtual_actors:
+                if not ignore_virtual_suffix and actor_name in self._virtual_actors:
                     if not virtual_actor_map is None:
                         if actor_name not in virtual_actor_map:
-                            pass
+                            continue
+                        actor = virtual_actor_map[actor_name]
+                        if actor is None:
+                            raise RuntimeError('{}: Virtual actors for {} do not include {}: {}'.format(self.name, actor_name, actor, self._virtual_actors[actor_name]))
+                        suffix = self.get_suffix(actor_name, actor)
+                        if actor is not None:
+                            self.set_actor_parameter(actor_name, actor, param_name, param_value, suffix)
                         else:
-                            actor = virtual_actor_map[actor_name]
-                            if actor is None:
-                                raise RuntimeError('{}: Virtual actors for {} do not include {}: {}'.format(self.name, actor_name, actor, self._virtual_actors[actor_name]))
-                            suffix = self.get_suffix(actor_name, actor)
-                            if actor is not None:
-                                self.set_actor_parameter(actor_name, actor, param_name, param_value, suffix)
-                            else:
-                                self.set_parameter(param_name, param_value)
+                            self.set_parameter(param_name, param_value)
                 else:
                     (actor, suffix) = self.get_actor_and_suffix(actor_name)
                 if actor is not None:
@@ -819,15 +838,16 @@ class Asm(native.animation.NativeAsm):
 
     def _apply_posture_manifest_overrides(self, manifest:PostureManifest):
         result = manifest
-        if manifest:
-            result = PostureManifest()
-            for entry in manifest:
-                for (override_key, override_value) in self._posture_manifest_overrides.items():
-                    if entry.matches_override_key(override_key):
-                        extra_entries = entry.get_entries_with_override(override_value)
-                        result.update(extra_entries)
-                    else:
-                        result.add(entry)
+        if self._posture_manifest_overrides:
+            if manifest:
+                result = PostureManifest()
+                for entry in manifest:
+                    for (override_key, override_value) in self._posture_manifest_overrides.items():
+                        if entry.matches_override_key(override_key):
+                            extra_entries = entry.get_entries_with_override(override_value)
+                            result.update(extra_entries)
+                        else:
+                            result.add(entry)
         return result
 
     _provided_posture_cache = {}

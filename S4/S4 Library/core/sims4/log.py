@@ -30,7 +30,7 @@ RESULT_DISABLE = _trace.RESULT_DISABLE
 ASSERT_RESULT_RETRY = 2
 ASSERT_RESULT_IGNORE = 3
 ASSERT_RESULT_DISABLE = 5
-CONSOLE_COLORS = {LEVEL_EXCEPTION: ConsoleColor.YELLOW | ConsoleColor.BG_DARK_RED, LEVEL_ERROR: ConsoleColor.RED, LEVEL_WARN: ConsoleColor.YELLOW, (LEVEL_INFO, 'Always'): ConsoleColor.BLUE, (LEVEL_INFO, 'Status'): ConsoleColor.GREEN}
+CONSOLE_COLORS = {(LEVEL_INFO, 'Status'): ConsoleColor.GREEN, (LEVEL_INFO, 'Always'): ConsoleColor.BLUE, LEVEL_WARN: ConsoleColor.YELLOW, LEVEL_ERROR: ConsoleColor.RED, LEVEL_EXCEPTION: ConsoleColor.YELLOW | ConsoleColor.BG_DARK_RED}
 sim_error_dialog_enabled = True
 sim_error_dialog_ignore = set()
 callback_on_error_or_exception = None
@@ -50,14 +50,15 @@ ring_bell_on_exception = False
 
 def call_callback_on_error_or_exception(message):
     global callback_on_error_in_progress
-    if not callback_on_error_in_progress:
-        try:
-            callback_on_error_in_progress = True
-            callback_on_error_or_exception(message)
-        except:
-            pass
-        finally:
-            callback_on_error_in_progress = False
+    if callback_on_error_or_exception is not None:
+        if not callback_on_error_in_progress:
+            try:
+                callback_on_error_in_progress = True
+                callback_on_error_or_exception(message)
+            except:
+                pass
+            finally:
+                callback_on_error_in_progress = False
 
 def get_console_color(level, group):
     key = (level, group)
@@ -177,11 +178,12 @@ def sim_error_dialog(message, exc_tb, exc_tb_text, level=LEVEL_EXCEPTION):
         cur_frame = exc_tb
         depth = 0
         max_depth = 100
-        while cur_frame and depth < max_depth:
-            depth += 1
-            exc_line = cur_frame.tb_lineno
-            exc_fname = cur_frame.tb_frame.f_code.co_filename
-            cur_frame = cur_frame.tb_next
+        while cur_frame:
+            while depth < max_depth:
+                depth += 1
+                exc_line = cur_frame.tb_lineno
+                exc_fname = cur_frame.tb_frame.f_code.co_filename
+                cur_frame = cur_frame.tb_next
     exc_loc = (exc_fname, exc_line)
     if exc_loc in sim_error_dialog_ignore:
         return
@@ -280,27 +282,31 @@ class StackVar:
 
     def _find_values(self):
         stack_frame = sys._getframe(2)
-        while stack_frame and self._attr_names:
-            for attr_name in self._attr_names.copy():
-                attr_value = None
-                info_name = None
-                stack_self = stack_frame.f_locals.get('self', None)
-                if stack_self is not None:
-                    if hasattr(stack_self, attr_name):
-                        attr_value = getattr(stack_self, attr_name)
-                        info_name = '(' + str(stack_self) + ').' + attr_name
-                    if self._check_privates:
-                        private_attr_name = '_{}'.format(attr_name)
-                        if hasattr(stack_self, private_attr_name):
-                            attr_value = getattr(stack_self, private_attr_name)
-                            info_name = '(' + str(stack_self) + ').' + private_attr_name
-                if attr_name in stack_frame.f_locals.keys():
-                    attr_value = stack_frame.f_locals.get(attr_name)
-                    info_name = 'Local Var ' + attr_name
-                if attr_value is None and self._check_locals and attr_value is not None:
-                    self._attr_values[info_name] = attr_value
-                    self._attr_names.discard(attr_name)
-            stack_frame = stack_frame.f_back
+        while stack_frame:
+            while self._attr_names:
+                for attr_name in self._attr_names.copy():
+                    attr_value = None
+                    info_name = None
+                    stack_self = stack_frame.f_locals.get('self', None)
+                    if stack_self is not None:
+                        if hasattr(stack_self, attr_name):
+                            attr_value = getattr(stack_self, attr_name)
+                            info_name = '(' + str(stack_self) + ').' + attr_name
+                        if attr_value is None:
+                            if self._check_privates:
+                                private_attr_name = '_{}'.format(attr_name)
+                                if hasattr(stack_self, private_attr_name):
+                                    attr_value = getattr(stack_self, private_attr_name)
+                                    info_name = '(' + str(stack_self) + ').' + private_attr_name
+                    if attr_value is None:
+                        if self._check_locals:
+                            if attr_name in stack_frame.f_locals.keys():
+                                attr_value = stack_frame.f_locals.get(attr_name)
+                                info_name = 'Local Var ' + attr_name
+                    if attr_value is not None:
+                        self._attr_values[info_name] = attr_value
+                        self._attr_names.discard(attr_name)
+                stack_frame = stack_frame.f_back
 
 @macros.macro
 class Logger:

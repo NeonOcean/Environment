@@ -155,18 +155,19 @@ class Client:
         self._choice_menu = new_choices
 
     def select_interaction(self, choice_id, revision):
-        if revision == self.choice_menu.revision:
-            choice_menu = self.choice_menu
-            self._choice_menu = None
-            self.set_interaction_parameters()
-            try:
-                return choice_menu.select(choice_id)
-            except:
-                if choice_menu.simref is not None:
-                    sim = choice_menu.simref()
-                    if sim is not None:
-                        sim.reset(ResetReason.RESET_ON_ERROR, cause='Exception while selecting interaction from the pie menu.')
-                raise
+        if self.choice_menu is not None:
+            if revision == self.choice_menu.revision:
+                choice_menu = self.choice_menu
+                self._choice_menu = None
+                self.set_interaction_parameters()
+                try:
+                    return choice_menu.select(choice_id)
+                except:
+                    if choice_menu.simref is not None:
+                        sim = choice_menu.simref()
+                        if sim is not None:
+                            sim.reset(ResetReason.RESET_ON_ERROR, cause='Exception while selecting interaction from the pie menu.')
+                    raise
 
     def get_create_op(self, *args, **kwargs):
         return distributor.ops.ClientCreate(self, *args, is_active=True, **kwargs)
@@ -317,8 +318,10 @@ class Client:
                 autonomy_service.logging_sims.discard(sim)
 
     def clean_and_send_remaining_relationship_info(self):
+        relationship_service = services.relationship_service()
         for sim_info in self.selectable_sims:
             sim_info.relationship_tracker.clean_and_send_remaining_relationship_info()
+            relationship_service.clean_and_send_remaining_object_relationships(sim_info.id)
 
     def cancel_live_drag_on_objects(self):
         for obj in self._live_drag_objects:
@@ -337,6 +340,9 @@ class Client:
             if is_stack:
                 for item in stack_items:
                     success = previous_inventory.try_remove_object_by_id(item.id, count=item.stack_count())
+                else:
+                    success = previous_inventory.try_remove_object_by_id(drag_object.id, count=1)
+                    stack_items = previous_inventory.get_stack_items(stack_id)
             else:
                 success = previous_inventory.try_remove_object_by_id(drag_object.id, count=1)
                 stack_items = previous_inventory.get_stack_items(stack_id)
@@ -347,8 +353,9 @@ class Client:
     def remove_drag_object_and_get_next_item(self, drag_object):
         next_object_id = None
         (success, stack_items) = self._get_stack_items_from_drag_object(drag_object, remove=True)
-        if stack_items:
-            next_object_id = stack_items[0].id
+        if success:
+            if stack_items:
+                next_object_id = stack_items[0].id
         return (success, next_object_id)
 
     def get_live_drag_object_value(self, drag_object, is_stack=False):
@@ -378,7 +385,7 @@ class Client:
                 logger_live_drag.error('Live Drag Start called on an object with no Live Drag Component. Object: {}'.format(item))
                 self.send_live_drag_cancel(live_drag_object.id)
                 return
-            if not (item.in_use and item.in_use_by(self) and live_drag_component.can_live_drag):
+            if not ((not item.in_use or item.in_use_by(self)) and live_drag_component.can_live_drag):
                 logger_live_drag.warn('Live Drag Start called on an object that is in use. Object: {}'.format(item))
                 self.send_live_drag_cancel(item.id)
                 return
@@ -421,6 +428,7 @@ class Client:
         self.cancel_live_drag_on_objects()
         next_object_id = None
         success = False
+        inventory_item = source_object.inventoryitem_component
         if target_object is not None:
             live_drag_target_component = target_object.live_drag_target_component
             if live_drag_target_component is not None:
@@ -429,19 +437,22 @@ class Client:
                 success = True
             elif source_object.parent_object() is None and location is not None:
                 inventory_item = source_object.inventoryitem_component
-                if inventory_item.is_in_inventory():
-                    (success, next_object_id) = self.remove_drag_object_and_get_next_item(source_object)
+                if inventory_item is not None:
+                    if inventory_item.is_in_inventory():
+                        (success, next_object_id) = self.remove_drag_object_and_get_next_item(source_object)
                 source_object.set_location(location)
             else:
                 logger_live_drag.error('Live Drag Target Component missing on object: {} and {} cannot be slotted into it.'.format(target_object, source_object))
                 success = False
+        elif inventory_item is not None and inventory_item.is_in_inventory():
+            if inventory_item.can_place_in_world or not inventory_item.inventory_only:
+                if location is not None:
+                    source_object.set_location(location)
+                (success, next_object_id) = self.remove_drag_object_and_get_next_item(source_object)
         else:
             success = True
             if location is not None:
                 source_object.set_location(location)
-            inventory_item = source_object.inventoryitem_component
-            if inventory_item.is_in_inventory():
-                (success, next_object_id) = self.remove_drag_object_and_get_next_item(source_object)
         if success:
             if gsi_handlers.live_drag_handlers.live_drag_archiver.enabled:
                 gsi_handlers.live_drag_handlers.archive_live_drag('End', 'Operation', LiveDragLocation.GAMEPLAY_SCRIPT, end_system, live_drag_object_id=source_object_id, live_drag_target=target_object)
@@ -573,8 +584,9 @@ class Client:
                 if career.is_at_active_event and sim is None:
                     return (Sims_pb2.SimPB.MISSING_ACTIVE_WORK, career.career_category)
                 return (Sims_pb2.SimPB.AT_WORK, career.career_category)
-            if career.is_late and not career.taking_day_off:
-                return (Sims_pb2.SimPB.LATE_FOR_WORK, career.career_category)
+            if career.is_late:
+                if not career.taking_day_off:
+                    return (Sims_pb2.SimPB.LATE_FOR_WORK, career.career_category)
         if services.get_rabbit_hole_service().should_override_selector_visual_type(sim_info):
             return (Sims_pb2.SimPB.OTHER, None)
         if sim is not None and sim.has_hidden_flags(HiddenReasonFlag.RABBIT_HOLE):
@@ -666,8 +678,9 @@ class SelectableSims:
     def get_next_selectable(self, current_selected_sim_info):
         if not any(s.is_enabled_in_skewer for s in self):
             return
-        if not (current_selected_sim_info not in self._selectable_sim_infos or current_selected_sim_info.is_enabled_in_skewer):
-            current_selected_sim_info = None
+        if current_selected_sim_info is not None:
+            if not (current_selected_sim_info not in self._selectable_sim_infos or not current_selected_sim_info.is_enabled_in_skewer):
+                current_selected_sim_info = None
         iterator = filter(operator.attrgetter('is_enabled_in_skewer'), itertools.cycle(self))
         for sim_info in iterator:
             if not current_selected_sim_info is None:

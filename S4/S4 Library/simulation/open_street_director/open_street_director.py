@@ -81,7 +81,7 @@ class OpenStreetDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceM
             self.request.request_destruction()
 
     def _should_load_old_data(self, street_director_proto, reader):
-        if not (services.current_zone().time_has_passed_in_world_since_open_street_save() and self.allow_loading_after_time_passes_elsewhere and street_director_proto.HasField('resource_key')):
+        if not ((not services.current_zone().time_has_passed_in_world_since_open_street_save() or self.allow_loading_after_time_passes_elsewhere) and street_director_proto.HasField('resource_key')):
             return False
         previous_resource_key = sims4.resources.get_key_from_protobuff(street_director_proto.resource_key)
         return previous_resource_key == self.resource_key

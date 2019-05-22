@@ -46,5 +46,8 @@ class CraftingTuning:
     @classmethod
     def get_quality_state_value(cls, stat_type, quality_stat_value):
         for (quality_state, value) in cls.QUALITY_STATE_VALUE_MAP.items():
-            if quality_state.state is not None and (quality_state.state.linked_stat is stat_type and quality_stat_value >= quality_state.range.lower_bound) and quality_stat_value < quality_state.range.upper_bound:
-                return value
+            if quality_state.state is not None:
+                if quality_state.state.linked_stat is stat_type:
+                    if quality_stat_value >= quality_state.range.lower_bound:
+                        if quality_stat_value < quality_state.range.upper_bound:
+                            return value

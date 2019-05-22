@@ -47,9 +47,8 @@ class ClubPickerSuperInteraction(PickerSuperInteraction):
                 return
             for club in club_service.clubs_to_gatherings_map:
                 if club is club_gathering.associated_club:
-                    pass
-                else:
-                    yield club
+                    continue
+                yield club
 
     class _ClubPickerActionChallenge(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'challenge_game': GameRules.TunableReference(description='\n                The game that the club is being challenged at. This is used to\n                determine how many Sims are required, per team.\n                '), 'challenge_social_interaction': SocialSuperInteraction.TunableReference(description='\n                Specify an interaction that the challenging Sim runs on a Sim in\n                the challenged club (usually the leader). Once this interaction\n                completes, the challenge executes.\n                '), 'challenge_interaction': SuperInteraction.TunableReference(description='\n                The interaction to push on the Sims being challenged.\n                ')}
@@ -71,16 +70,15 @@ class ClubPickerSuperInteraction(PickerSuperInteraction):
                 for (_, club) in zip(range(self.challenge_game.teams_per_game.upper_bound), itertools.chain((actor_club_gathering.associated_club,), picked_items)):
                     club_gathering = club_service.clubs_to_gatherings_map.get(club)
                     if club_gathering is None:
-                        pass
-                    else:
-                        club_team = set()
-                        challenger_sims = (interaction.sim,) if actor_club_gathering.associated_club is club else ()
-                        for club_member in itertools.chain(challenger_sims, sorted(club_gathering.all_sims_in_situation_gen(), key=lambda sim: sim.sim_info is not club.leader)):
-                            club_team.add(club_member)
-                            if len(club_team) >= maximum_players_per_team:
-                                break
-                        if len(club_team) >= minimum_players_per_team:
-                            teams.append(club_team)
+                        continue
+                    club_team = set()
+                    challenger_sims = (interaction.sim,) if actor_club_gathering.associated_club is club else ()
+                    for club_member in itertools.chain(challenger_sims, sorted(club_gathering.all_sims_in_situation_gen(), key=lambda sim: sim.sim_info is not club.leader)):
+                        club_team.add(club_member)
+                        if len(club_team) >= maximum_players_per_team:
+                            break
+                    if len(club_team) >= minimum_players_per_team:
+                        teams.append(club_team)
                 if len(teams) < self.challenge_game.teams_per_game.lower_bound:
                     return
                 all_sims = tuple(itertools.chain.from_iterable(teams))
@@ -92,15 +90,14 @@ class ClubPickerSuperInteraction(PickerSuperInteraction):
             for club in picked_items:
                 club_gathering = club_service.clubs_to_gatherings_map.get(club)
                 if club_gathering is None:
-                    pass
-                else:
-                    for club_member in sorted(club_gathering.all_sims_in_situation_gen(), key=lambda sim: sim.sim_info is not club.leader):
-                        context = interaction.context.clone_from_immediate_context(interaction)
-                        execute_result = interaction.sim.push_super_affordance(self.challenge_social_interaction, club_member, context)
-                        if execute_result:
-                            challenge_social_interaction = execute_result.interaction
-                            challenge_social_interaction.register_on_finishing_callback(_on_challenge_social_interaction_finished)
-                            break
+                    continue
+                for club_member in sorted(club_gathering.all_sims_in_situation_gen(), key=lambda sim: sim.sim_info is not club.leader):
+                    context = interaction.context.clone_from_immediate_context(interaction)
+                    execute_result = interaction.sim.push_super_affordance(self.challenge_social_interaction, club_member, context)
+                    if execute_result:
+                        challenge_social_interaction = execute_result.interaction
+                        challenge_social_interaction.register_on_finishing_callback(_on_challenge_social_interaction_finished)
+                        break
 
     class _ClubPickerActionSummon(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'purpose': TunableEnumEntry(description='\n                The purpose/reason the NPC is being summoned.\n                ', tunable_type=NPCSummoningPurpose, default=NPCSummoningPurpose.DEFAULT)}
@@ -133,6 +130,7 @@ class ClubPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):

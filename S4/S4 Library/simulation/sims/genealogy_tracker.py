@@ -111,8 +111,9 @@ class GenealogyTracker(SimInfoTracker):
             x_depth = x_ancestry[closest_ancestor_id]
             y_depth = y_ancestry[closest_ancestor_id]
             bit = FamilyRelationshipTuning.MATRIX[x_depth][y_depth]
-        elif sim_x.spouse_sim_id == sim_y.sim_id:
-            bit = FamilyRelationshipTuning.MATRIX[0][0]
+        elif sim_x.spouse_sim_id is not None:
+            if sim_x.spouse_sim_id == sim_y.sim_id:
+                bit = FamilyRelationshipTuning.MATRIX[0][0]
         if output is not None:
             if bit is None:
                 output('Sims {} and {} are not related.'.format(sim_x.full_name, sim_y.full_name))
@@ -204,15 +205,14 @@ class GenealogyTracker(SimInfoTracker):
         self._ancestor_depths = None
         for family_relation in genealogy_proto_msg.family_relations:
             if family_relation.sim_id == self._owner_id:
-                pass
-            else:
-                relation_type_int = family_relation.relation_type
-                try:
-                    relation_type = FamilyRelationshipIndex(relation_type_int)
-                except KeyError:
-                    logger.error('Failed to load genealogy entry. Invalid to family_relation {} for sim {} to sim_id {}.', relation_type_int, self._owner_id, family_relation.sim_id)
-                    continue
-                self.set_family_relation(relation_type, family_relation.sim_id)
+                continue
+            relation_type_int = family_relation.relation_type
+            try:
+                relation_type = FamilyRelationshipIndex(relation_type_int)
+            except KeyError:
+                logger.error('Failed to load genealogy entry. Invalid to family_relation {} for sim {} to sim_id {}.', relation_type_int, self._owner_id, family_relation.sim_id)
+                continue
+            self.set_family_relation(relation_type, family_relation.sim_id)
 
     def log_contents(self):
         with genealogy_caching():

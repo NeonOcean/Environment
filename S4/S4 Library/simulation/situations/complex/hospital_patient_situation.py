@@ -50,7 +50,7 @@ class _AdmittedState(SituationState):
 
     def handle_event(self, sim_info, event, resolver):
         patient = self.owner.get_patient()
-        if event is TestEvent.InteractionComplete and (patient is not None and sim_info is patient.sim_info) and (resolver.interaction.has_been_reset or resolver(self.owner.go_to_diagnosed_interactions)):
+        if event is TestEvent.InteractionComplete and (patient is not None and (sim_info is patient.sim_info and not resolver.interaction.has_been_reset)) and resolver(self.owner.go_to_diagnosed_interactions):
             self._change_state(_DiagnosedState())
 
 class _DiagnosedState(SituationState):
@@ -64,5 +64,5 @@ class _DiagnosedState(SituationState):
 
     def handle_event(self, sim_info, event, resolver):
         patient = self.owner.get_patient()
-        if event is TestEvent.InteractionComplete and (patient is not None and sim_info is patient.sim_info) and (resolver.interaction.has_been_reset or resolver(self.owner.go_to_treated_interactions)):
+        if event is TestEvent.InteractionComplete and (patient is not None and (sim_info is patient.sim_info and not resolver.interaction.has_been_reset)) and resolver(self.owner.go_to_treated_interactions):
             self._change_state(TreatedState())

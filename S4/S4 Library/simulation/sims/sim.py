@@ -1,4 +1,3 @@
-from _weakrefset import WeakSet
 import functools
 import itertools
 import random
@@ -43,12 +42,10 @@ from objects.mixins import LockoutMixin
 from objects.object_enums import ItemLocation
 from objects.object_enums import ResetReason
 from objects.part import Part
-from placement import ItemType
 from postures import ALL_POSTURES, posture_graph
 from postures.posture_specs import PostureSpecVariable, get_origin_spec
 from postures.posture_state import PostureState
 from postures.transition_sequence import DerailReason
-from routing.portals import PY_OBJ_DATA, SURFACE_OBJ_ID
 from routing.portals.portal_tuning import PortalFlags
 from services.reset_and_delete_service import ResetRecord
 from sims.master_controller import WorkRequest
@@ -364,11 +361,13 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                 for affordance_filter in tunable_affordance_filters:
                     if not affordance_filter(affordance):
                         break
-                return False
+                else:
+                    return False
         for affordance_filter in tunable_affordance_filters:
             if not affordance_filter(affordance):
                 break
-        return False
+        else:
+            return False
         return True
 
     def set_affordance_lock(self, affordance_filter=None):
@@ -423,11 +422,11 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                 if transition_spec.portal_obj is not None:
                     outfit_category_and_index = transition_spec.portal_obj.get_on_entry_outfit(final_si, transition_spec.portal_id, sim_info=self.sim_info)
                     if outfit_category_and_index is None:
-                        pass
-                    else:
-                        outfit_category_and_index = None
-                        break
-            outfit_category_and_index = None
+                        continue
+                    outfit_category_and_index = None
+                    break
+            else:
+                outfit_category_and_index = None
             if outfit_category_and_index is None:
                 outfit_category_and_index = self.sim_info.get_outfit_for_clothing_change(final_si, OutfitChangeReason.DefaultOutfit)
             self.transition_controller.outdoor_streetwear_change[self.id] = outfit_category_and_index
@@ -449,14 +448,14 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             if isinstance(sim_primitive, FollowPath):
                 node = sim_primitive.get_next_non_portal_node()
                 if node is None:
-                    pass
-                else:
-                    position = sims4.math.Vector3Immutable(*node.position)
-                    orientation = sims4.math.QuaternionImmutable(*node.orientation)
-                    break
-        transform = self.transform
-        position = transform.translation
-        orientation = transform.orientation
+                    continue
+                position = sims4.math.Vector3Immutable(*node.position)
+                orientation = sims4.math.QuaternionImmutable(*node.orientation)
+                break
+        else:
+            transform = self.transform
+            position = transform.translation
+            orientation = transform.orientation
         if self.location.world_routing_surface is not None:
             level = self.location.level
         else:
@@ -499,7 +498,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         return self._rig
 
     def inc_lot_routing_restriction_ref_count(self):
-        if self.is_npc and self.sim_info.lives_here:
+        if not self.is_npc or self.sim_info.lives_here:
             return
         self._lot_routing_restriction_ref_count += 1
         if services.current_zone().lot.is_position_on_lot(self.position):
@@ -508,7 +507,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             self.pathplan_context.set_key_mask(self.pathplan_context.get_key_mask() & ~routing.FOOTPRINT_KEY_ON_LOT)
 
     def dec_lot_routing_restriction_ref_count(self):
-        if self.is_npc and self.sim_info.lives_here:
+        if not self.is_npc or self.sim_info.lives_here:
             return
         if self._lot_routing_restriction_ref_count > 0:
             self._lot_routing_restriction_ref_count -= 1
@@ -568,8 +567,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         master_controller = services.get_master_controller()
         master_controller.add_interdependent_reset_records(self, reset_records)
         for other_sim in master_controller.added_sims():
-            if other_sim is not self and other_sim.is_sim and other_sim.has_sim_in_any_queued_interactions_required_sim_cache(self):
-                reset_records.append(ResetRecord(other_sim, ResetReason.RESET_EXPECTED, self, 'In required sims of queued interaction.'))
+            if other_sim is not self:
+                if other_sim.is_sim:
+                    if other_sim.has_sim_in_any_queued_interactions_required_sim_cache(self):
+                        reset_records.append(ResetRecord(other_sim, ResetReason.RESET_EXPECTED, self, 'In required sims of queued interaction.'))
         for social_group in self.get_groups_for_sim_gen():
             for other_sim in social_group:
                 if other_sim is not self:
@@ -603,7 +604,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         self.update_animation_overlays()
         return False
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         if not self.is_simulating:
             return
         affordances = self.sim_info.PHYSIQUE_CHANGE_AFFORDANCES
@@ -672,10 +673,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         for interaction in itertools.chain((self.queue.running,), self.si_state):
             if not interaction is None:
                 if interaction.target is None:
-                    pass
-                else:
-                    allowed_targets.add(interaction.target)
-                    allowed_targets.add(interaction.target.parent)
+                    continue
+                allowed_targets.add(interaction.target)
+                allowed_targets.add(interaction.target.parent)
         if self.transition_controller is not None:
             allowed_targets.update(self.transition_controller.relevant_objects)
         contexts = {obj.raycast_context() for obj in allowed_targets if obj is not None}
@@ -694,7 +694,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                 return
             self.clear_parent(parent.transform, parent.routing_surface)
         zone = services.current_zone()
-        if zone.is_in_build_buy or not from_reset:
+        if not zone.is_in_build_buy and not from_reset:
             return
         if from_reset and zone.is_in_build_buy:
             services.get_event_manager().process_event(test_events.TestEvent.OnBuildBuyReset, sim_info=self.sim_info)
@@ -769,13 +769,14 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             starting_location = placement.create_starting_location(location=location)
             fgl_context = placement.create_fgl_context_for_sim(starting_location, self, additional_avoid_sim_radius=routing.get_default_agent_radius(), routing_context=self.routing_context)
             (trans, orient) = placement.find_good_location(fgl_context)
-            if orient is not None:
-                transform = Transform(trans, orient)
-                if spawn_point is not None:
-                    self.location = self.location.clone(routing_surface=spawn_point.routing_surface, transform=transform)
-                else:
-                    self.location = self.location.clone(transform=transform)
-                success = True
+            if trans is not None:
+                if orient is not None:
+                    transform = Transform(trans, orient)
+                    if spawn_point is not None:
+                        self.location = self.location.clone(routing_surface=spawn_point.routing_surface, transform=transform)
+                    else:
+                        self.location = self.location.clone(transform=transform)
+                    success = True
         finally:
             if should_have_permission:
                 self.pathplan_context.set_key_mask(self.pathplan_context.get_key_mask() | routing.FOOTPRINT_KEY_ON_LOT)
@@ -809,8 +810,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         on_surface = False
         snapped_y = services.terrain_service.terrain_object().get_routing_surface_height_at(location.transform.translation.x, location.transform.translation.z, location.routing_surface)
         LEVEL_SNAP_TOLERANCE = 0.001
-        if sims4.math.almost_equal(snapped_y, location.transform.translation.y, epsilon=LEVEL_SNAP_TOLERANCE):
-            on_surface = True
+        if location.routing_surface == self.routing_surface:
+            if sims4.math.almost_equal(snapped_y, location.transform.translation.y, epsilon=LEVEL_SNAP_TOLERANCE):
+                on_surface = True
         translation = sims4.math.Vector3(location.transform.translation.x, snapped_y, location.transform.translation.z)
         location = location.clone(translation=translation)
         return (location, on_surface)
@@ -870,14 +872,15 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             self.asm_auto_exit.clear()
             self.last_affordance = None
             self.last_animation_factory = None
-            if not self._is_removed:
-                try:
-                    self.validate_current_location_or_fgl(from_reset=True)
-                    self.refresh_los_constraint()
-                    self.visibility = VisibilityState()
-                    self.opacity = 1
-                except Exception:
-                    logger.exception('Exception thrown while finding good location for Sim on reset:')
+            if not being_destroyed:
+                if not self._is_removed:
+                    try:
+                        self.validate_current_location_or_fgl(from_reset=True)
+                        self.refresh_los_constraint()
+                        self.visibility = VisibilityState()
+                        self.opacity = 1
+                    except Exception:
+                        logger.exception('Exception thrown while finding good location for Sim on reset:')
             services.get_event_manager().process_event(test_events.TestEvent.OnSimReset, sim_info=self.sim_info)
             self.two_person_social_transforms.clear()
             self.current_object_set_as_head = None
@@ -902,8 +905,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                     yield si
                 else:
                     linked_interaction_type = si.get_linked_interaction_type()
-                    if linked_interaction_type is not None and issubclass(linked_interaction_type, interaction_type):
-                        yield si
+                    if linked_interaction_type is not None:
+                        if issubclass(linked_interaction_type, interaction_type):
+                            yield si
 
     def get_all_running_and_queued_interactions(self):
         if self.si_state is None or self.queue is None:
@@ -954,12 +958,11 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         if transition_controller is not None and transition_controller.interaction.visible and not transition_controller.interaction.is_finishing:
             return True
         for interaction in self.get_all_running_and_queued_interactions():
-            if interaction.visible or not interaction.is_autonomous_picker_interaction:
-                pass
-            elif interaction.is_super and interaction.pending_complete:
-                pass
-            else:
-                return True
+            if not interaction.visible and not interaction.is_autonomous_picker_interaction:
+                continue
+            if interaction.is_super and interaction.pending_complete:
+                continue
+            return True
         return False
 
     @caches.cached
@@ -967,17 +970,16 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         results = []
         for si in self.si_state.sis_actor_gen():
             if si.is_finishing:
-                pass
-            else:
-                affordance = si.get_interaction_type()
-                results.append((affordance, si.target))
-                linked_affordance = si.get_linked_interaction_type()
+                continue
+            affordance = si.get_interaction_type()
+            results.append((affordance, si.target))
+            linked_affordance = si.get_linked_interaction_type()
+            if linked_affordance is not None:
+                results.append((linked_affordance, si.target))
+            for other_target in si.get_potential_mixer_targets():
+                results.append((affordance, other_target))
                 if linked_affordance is not None:
-                    results.append((linked_affordance, si.target))
-                for other_target in si.get_potential_mixer_targets():
-                    results.append((affordance, other_target))
-                    if linked_affordance is not None:
-                        results.append((linked_affordance, other_target))
+                    results.append((linked_affordance, other_target))
         return frozenset(results)
 
     @caches.cached
@@ -1002,53 +1004,53 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         _generated_affordance = set()
         for interaction in self.si_state:
             if interaction.is_finishing:
-                pass
-            else:
-                for affordance_data in interaction.affordance.provided_affordances:
-                    affordance = affordance_data.affordance
-                    if affordance in _generated_affordance:
-                        pass
-                    elif context.source == InteractionSource.AUTONOMY and not affordance.allow_autonomous:
-                        pass
-                    elif context.sim is self and not affordance_data.allow_self:
-                        pass
-                    elif context.sim.is_running_interaction(affordance, self):
-                        pass
-                    elif self.are_running_equivalent_interactions(context.sim, affordance):
-                        pass
+                continue
+            for affordance_data in interaction.affordance.provided_affordances:
+                affordance = affordance_data.affordance
+                if affordance in _generated_affordance:
+                    continue
+                if context.source == InteractionSource.AUTONOMY and not affordance.allow_autonomous:
+                    continue
+                if context.sim is self and not affordance_data.allow_self:
+                    continue
+                if context.sim.is_running_interaction(affordance, self):
+                    continue
+                if context.sim is not None and self.are_running_equivalent_interactions(context.sim, affordance):
+                    continue
+                target = interaction.get_participant(affordance_data.target)
+                target = target if target is not None else self
+                if not affordance_data.object_filter.is_object_valid(target):
+                    logger.error('Provided Affordance {} from {} is not valid to run on {}', affordance, interaction, target, owner='rmccord')
+                else:
+                    carry_target = interaction.get_participant(affordance_data.carry_target)
+                    provided_affordance = affordance
+                    provided_affordance = CarryTargetInteraction.generate(affordance, carry_target)
+                    _generated_affordance.add(affordance)
+                    if not carry_target is not None or affordance_data.is_linked:
+                        depended_on_si = interaction
+                        depended_on_until_running = affordance_data.unlink_if_running
                     else:
-                        target = interaction.get_participant(affordance_data.target)
-                        target = target if target is not None else self
-                        if not affordance_data.object_filter.is_object_valid(target):
-                            logger.error('Provided Affordance {} from {} is not valid to run on {}', affordance, interaction, target, owner='rmccord')
-                        else:
-                            carry_target = interaction.get_participant(affordance_data.carry_target)
-                            provided_affordance = affordance
-                            provided_affordance = CarryTargetInteraction.generate(affordance, carry_target)
-                            _generated_affordance.add(affordance)
-                            if carry_target is not None and affordance_data.is_linked:
-                                depended_on_si = interaction
-                                depended_on_until_running = affordance_data.unlink_if_running
-                            else:
-                                depended_on_si = None
-                                depended_on_until_running = False
-                            yield from provided_affordance.potential_interactions(target, context, depended_on_si=depended_on_si, depended_on_until_running=depended_on_until_running, **kwargs)
+                        depended_on_si = None
+                        depended_on_until_running = False
+                    yield from provided_affordance.potential_interactions(target, context, depended_on_si=depended_on_si, depended_on_until_running=depended_on_until_running, **kwargs)
         club_service = services.get_club_service()
         if club_service is not None:
             for (club, affordance) in club_service.provided_clubs_and_interactions_gen(context, target=self):
                 aop = AffordanceObjectPair(affordance, self, affordance, None, associated_club=club, **kwargs)
                 if aop.test(context):
                     yield aop
-        if context.sim is not self:
-            for (_, _, carried_object) in get_carried_objects_gen(context.sim):
-                yield from carried_object.get_provided_aops_gen(self, context, **kwargs)
+        if context.sim is not None:
+            if context.sim is not self:
+                for (_, _, carried_object) in get_carried_objects_gen(context.sim):
+                    yield from carried_object.get_provided_aops_gen(self, context, **kwargs)
 
     def _potential_joinable_interactions_gen(self, context, **kwargs):
 
         def get_target(interaction, join_participant):
             join_target = interaction.get_participant(join_participant)
-            if isinstance(join_target, Part):
-                join_target = join_target.part_owner
+            if join_target:
+                if isinstance(join_target, Part):
+                    join_target = join_target.part_owner
             return join_target
 
         def get_join_affordance(default, join_info, joining_sim, target):
@@ -1082,24 +1084,21 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             interaction_type = interaction.get_interaction_type()
             join_target_ref = join_sim.ref()
             for joinable_info in interaction.joinable:
-                if not join_sim is self or not joinable_info.join_available:
-                    pass
-                elif not join_sim is context.sim or not joinable_info.invite_available:
-                    pass
-                else:
-                    join_target = get_target(interaction, joinable_info.join_target)
-                    if not join_target is None or interaction.sim is not self:
-                        pass
-                    else:
-                        (joinable_interaction, join_target) = get_join_affordance(interaction_type, joinable_info, joining_sim, join_target)
-                        if joinable_interaction is None:
-                            pass
-                        else:
-                            join_interaction = join_factory(joinable_interaction.affordance, joining_sim, interaction, joinable_info)
-                            for aop in join_interaction.potential_interactions(join_target, context, join_target_ref=join_target_ref, **kwargs):
-                                result = aop.test(context)
-                                if result or result.tooltip:
-                                    yield aop
+                if not not join_sim is self and not not joinable_info.join_available:
+                    continue
+                if not not join_sim is context.sim and not not joinable_info.invite_available:
+                    continue
+                join_target = get_target(interaction, joinable_info.join_target)
+                if not not join_target is None and interaction.sim is not self:
+                    continue
+                (joinable_interaction, join_target) = get_join_affordance(interaction_type, joinable_info, joining_sim, join_target)
+                if joinable_interaction is None:
+                    continue
+                join_interaction = join_factory(joinable_interaction.affordance, joining_sim, interaction, joinable_info)
+                for aop in join_interaction.potential_interactions(join_target, context, join_target_ref=join_target_ref, **kwargs):
+                    result = aop.test(context)
+                    if result or result.tooltip:
+                        yield aop
 
         def create_join_si(affordance, joining_sim, join_interaction, joinable_info):
             return JoinInteraction.generate(affordance, join_interaction, joinable_info)
@@ -1109,13 +1108,14 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
         if context.sim is not None:
             for interaction in self.si_state.sis_actor_gen():
-                if not interaction.joinable or not interaction.is_finishing:
+                if not not interaction.joinable and not not interaction.is_finishing:
                     for aop in get_join_aops_gen(interaction, self, context.sim, create_join_si):
                         yield aop
             for interaction in context.sim.si_state.sis_actor_gen():
-                if interaction.joinable and not interaction.is_finishing:
-                    for aop in get_join_aops_gen(interaction, context.sim, self, create_invite_to_join_si):
-                        yield aop
+                if interaction.joinable:
+                    if not interaction.is_finishing:
+                        for aop in get_join_aops_gen(interaction, context.sim, self, create_invite_to_join_si):
+                            yield aop
 
     def potential_preroll_interactions(self, context, get_interaction_parameters=None, **kwargs):
         potential_affordances = super().potential_preroll_interactions(context, get_interaction_parameters=get_interaction_parameters, **kwargs)
@@ -1125,16 +1125,15 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         role_affordances = set(role_affordance for active_role in active_roles for role_affordance in active_role.preroll_affordances)
         for affordance in role_affordances:
             if not affordance.is_affordance_available(context=context):
-                pass
-            elif not self.supports_affordance(affordance):
-                pass
+                continue
+            if not self.supports_affordance(affordance):
+                continue
+            if get_interaction_parameters is not None:
+                interaction_parameters = get_interaction_parameters(affordance, kwargs)
             else:
-                if get_interaction_parameters is not None:
-                    interaction_parameters = get_interaction_parameters(affordance, kwargs)
-                else:
-                    interaction_parameters = kwargs
-                for aop in affordance.potential_interactions(self, context, **interaction_parameters):
-                    potential_affordances.append(aop)
+                interaction_parameters = kwargs
+            for aop in affordance.potential_interactions(self, context, **interaction_parameters):
+                potential_affordances.append(aop)
         return potential_affordances
 
     def _potential_behavior_affordances_gen(self, context, **kwargs):
@@ -1161,7 +1160,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         for affordance in self.inventory_component.get_cached_super_affordances_gen():
             if self._can_show_affordance(shift_held, affordance):
                 yield affordance
-        if context is not None and context is not None and context.sim is not None:
+        if (not context is not None or context is not None) and context.sim is not None:
             yield from _get_role_state_affordances_gen(context.sim.active_roles(), use_target=True)
         yield from super()._potential_behavior_affordances_gen(context, **kwargs)
 
@@ -1190,7 +1189,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         yield from self.sim_info.template_affordance_tracker.get_template_interactions_gen(context, **kwargs)
         for ensemble in services.ensemble_service().get_all_ensembles_for_sim(self):
             yield from ensemble.get_ensemble_autonomous_interactions_gen(context, **kwargs)
-        if context.sim is not None and context.source == InteractionSource.AUTONOMY and context.sim is self and context.sim is not self:
+        if not (not context.sim is not None or context.source == InteractionSource.AUTONOMY) or not context.sim is self or context.sim is not self:
             yield from self._potential_joinable_interactions_gen(context, **kwargs)
         else:
             for si in self.si_state.sis_actor_gen():
@@ -1217,10 +1216,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
     def locked_from_obj_by_privacy(self, obj):
         for privacy in services.privacy_service().privacy_instances:
             if self in privacy.allowed_sims:
-                pass
-            elif self not in privacy.disallowed_sims and privacy.evaluate_sim(self):
-                pass
-            elif privacy.intersects_with_object(obj):
+                continue
+            if self not in privacy.disallowed_sims and privacy.evaluate_sim(self):
+                continue
+            if privacy.intersects_with_object(obj):
                 return True
         return False
 
@@ -1253,14 +1252,16 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         lock_out_time = now + lockout_time_span
         mixer_lockout_key = self._get_mixer_key(mixer_interaction.target, mixer_interaction.affordance, sim_specific)
         self._mixers_locked_out[mixer_lockout_key] = lock_out_time
-        if mixer_interaction.lock_out_affordances is not None:
-            for affordance in mixer_interaction.lock_out_affordances:
-                sim_specific = affordance.lock_out_time.target_based_lock_out if affordance.lock_out_time is not None else False
-                mixer_lockout_key = self._get_mixer_key(mixer_interaction.target, affordance, sim_specific)
-                self._mixers_locked_out[mixer_lockout_key] = lock_out_time
+        if not initial_lockout:
+            if lock_other_affordance:
+                if mixer_interaction.lock_out_affordances is not None:
+                    for affordance in mixer_interaction.lock_out_affordances:
+                        sim_specific = affordance.lock_out_time.target_based_lock_out if affordance.lock_out_time is not None else False
+                        mixer_lockout_key = self._get_mixer_key(mixer_interaction.target, affordance, sim_specific)
+                        self._mixers_locked_out[mixer_lockout_key] = lock_out_time
 
     def update_last_used_interaction(self, interaction):
-        if interaction.is_super or interaction.lock_out_time is not None:
+        if not interaction.is_super and interaction.lock_out_time is not None:
             self.set_sub_action_lockout(interaction, lock_other_affordance=True)
         front_page_cooldown = interaction.content_score.front_page_cooldown if interaction.content_score is not None else None
         if front_page_cooldown is not None:
@@ -1294,16 +1295,18 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             return False
         now = services.time_service().sim_now
         locked_out = False
-        if now >= targeted_unlock_time:
-            if targeted_lockout_key in self._mixers_locked_out:
-                del self._mixers_locked_out[targeted_lockout_key]
-        else:
-            locked_out = True
-        if now >= global_unlock_time:
-            if global_lockout_key in self._mixers_locked_out:
-                del self._mixers_locked_out[global_lockout_key]
-        else:
-            locked_out = True
+        if targeted_unlock_time is not None:
+            if now >= targeted_unlock_time:
+                if targeted_lockout_key in self._mixers_locked_out:
+                    del self._mixers_locked_out[targeted_lockout_key]
+            else:
+                locked_out = True
+        if global_unlock_time is not None:
+            if now >= global_unlock_time:
+                if global_lockout_key in self._mixers_locked_out:
+                    del self._mixers_locked_out[global_lockout_key]
+            else:
+                locked_out = True
         return locked_out
 
     def create_default_si(self, target_override=None):
@@ -1382,8 +1385,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                         posture_type = self.posture_state.body.posture_type if self.posture_state is not None else compatible_postures[0]
                         target_override = target
                         break
-                    (target_override, posture_types) = next(iter(compatible_postures_and_targets.items()))
-                    posture_type = next(iter(posture_types), None)
+                    else:
+                        (target_override, posture_types) = next(iter(compatible_postures_and_targets.items()))
+                        posture_type = next(iter(posture_types), None)
                 if posture_type is None:
                     posture_type = posture_graph.SIM_DEFAULT_POSTURE_TYPE
             origin_posture_spec = get_origin_spec(posture_type)
@@ -1459,6 +1463,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                 if owning_household_of_active_lot is not None:
                     for target_sim_info in owning_household_of_active_lot:
                         self.relationship_tracker.add_relationship_appropriateness_buffs(target_sim_info.id)
+                services.relationship_service().on_sim_creation(self)
                 self.autonomy_component.start_autonomy_alarm()
                 situation_manager = services.get_zone_situation_manager()
                 situation_manager.on_begin_sim_creation_notification(self)
@@ -1605,10 +1610,11 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         self._dynamic_preroll_commodity_flags_map[key] = commodity_flags
 
     def remove_dynamic_preroll_commodity_flags(self, key):
-        if key in self._dynamic_preroll_commodity_flags_map:
-            del self._dynamic_preroll_commodity_flags_map[key]
-        if not self._dynamic_preroll_commodity_flags_map:
-            self._dynamic_preroll_commodity_flags_map = None
+        if self._dynamic_preroll_commodity_flags_map is not None:
+            if key in self._dynamic_preroll_commodity_flags_map:
+                del self._dynamic_preroll_commodity_flags_map[key]
+            if not self._dynamic_preroll_commodity_flags_map:
+                self._dynamic_preroll_commodity_flags_map = None
 
     def commodities_gen(self):
         for stat in self.commodity_tracker:
@@ -1630,14 +1636,15 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
     def scored_stats_gen(self):
         for stat in self.statistics_gen():
-            if not stat.is_scored or self.is_scorable(stat.stat_type):
+            if not not stat.is_scored and self.is_scorable(stat.stat_type):
                 yield stat
         for commodity in self.commodities_gen():
-            if not commodity.is_scored or self.is_scorable(commodity.stat_type):
+            if not not commodity.is_scored and self.is_scorable(commodity.stat_type):
                 yield commodity
         for static_commodity in self.static_commodities_gen():
-            if static_commodity.is_scored and self.is_scorable(static_commodity.stat_type):
-                yield static_commodity
+            if static_commodity.is_scored:
+                if self.is_scorable(static_commodity.stat_type):
+                    yield static_commodity
 
     def force_update_routing_location(self):
         for primitive in self.primitives:
@@ -1669,10 +1676,12 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         if self._posture_state is not None and value is not None:
             if self._posture_state.carry_targets != value.carry_targets:
                 for interaction in self.queue:
-                    if not interaction.carry_track is not None:
-                        if interaction.should_carry_create_target():
+                    if interaction.transition is not None:
+                        if not interaction.transition.running:
+                            if not interaction.carry_track is not None:
+                                if interaction.should_carry_create_target():
+                                    interaction.transition.reset_sim_progress(self)
                             interaction.transition.reset_sim_progress(self)
-                    interaction.transition.reset_sim_progress(self)
             if self._posture_state.body != value.body and self.animation_interaction is not None:
                 self.animation_interaction.clear_animation_liability_cache()
         self._posture_state = value
@@ -1703,8 +1712,8 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         if self.si_state is not None:
             for si in self.si_state:
                 if excluded_group is not None and si.social_group is excluded_group:
-                    pass
-                elif si.ignore_group_socials:
+                    continue
+                if si.ignore_group_socials:
                     return True
         if self.queue is None:
             return True
@@ -1767,8 +1776,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         social_context_bit = SocialContextTest.get_overall_short_term_context_bit(*sims)
         if social_context_bit is not None:
             size_limit = social_context_bit.size_limit
-            if len(sims) > size_limit.size:
-                social_context_bit = size_limit.transformation
+            if size_limit is not None:
+                if len(sims) > size_limit.size:
+                    social_context_bit = size_limit.transformation
         return social_context_bit
 
     def on_social_context_changed(self):
@@ -1792,8 +1802,8 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         asm_param_dict = self.sim_info.trait_tracker.get_default_trait_asm_params(actor_name)
         for trait in self.sim_info.get_traits():
             if trait.trait_asm_overrides.trait_asm_param is None:
-                pass
-            elif trait.trait_asm_overrides.param_type is None:
+                continue
+            if trait.trait_asm_overrides.param_type is None:
                 asm_param_dict[(trait.trait_asm_overrides.trait_asm_param, actor_name)] = True
             else:
                 asm_param_dict[(trait.trait_asm_overrides.param_type, actor_name)] = trait.trait_asm_overrides.trait_asm_param
@@ -1804,10 +1814,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         param_dict = {}
         for skill in self.all_skills():
             if not skill.stat_asm_param.always_apply:
-                pass
-            else:
-                (asm_param_name, asm_param_value) = skill.get_asm_param()
-                if asm_param_name is not None and asm_param_value is not None:
+                continue
+            (asm_param_name, asm_param_value) = skill.get_asm_param()
+            if asm_param_name is not None:
+                if asm_param_value is not None:
                     param_dict[asm_param_name] = asm_param_value
         return param_dict
 
@@ -1820,8 +1830,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         sim_constraint = sim_transform_constraint.intersect(sim_posture_constraint)
         (_, included_sis) = self.si_state.get_combined_constraint(sim_constraint, None, None, None, True, True)
         for si in self.si_state:
-            if si not in included_sis and si.basic_content is not None and si.basic_content.staging:
-                si.cancel(finishing_type, cancel_reason_msg)
+            if si not in included_sis:
+                if si.basic_content is not None:
+                    if si.basic_content.staging:
+                        si.cancel(finishing_type, cancel_reason_msg)
 
     def refresh_los_constraint(self, *args, target_position=DEFAULT, **kwargs):
         if target_position is DEFAULT:
@@ -1843,14 +1855,13 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         master_transform = sims4.math.Transform(target_position, sims4.math.angle_to_yaw_quaternion(sims4.math.vector3_angle(target_forward)))
         for slave_data in self.get_all_routing_slave_data_gen():
             if not slave_data.slave.is_sim:
-                pass
-            else:
-                offset = sims4.math.Vector3.ZERO()
-                for attachment_info in slave_data.attachment_info_gen():
-                    offset.x = offset.x + attachment_info.parent_offset.x - attachment_info.offset.x
-                    offset.z = offset.z + attachment_info.parent_offset.y - attachment_info.offset.y
-                transformed_point = master_transform.transform_point(offset)
-                slave_data.slave.refresh_los_constraint(target_position=transformed_point)
+                continue
+            offset = sims4.math.Vector3.ZERO()
+            for attachment_info in slave_data.attachment_info_gen():
+                offset.x = offset.x + attachment_info.parent_offset.x - attachment_info.offset.x
+                offset.z = offset.z + attachment_info.parent_offset.y - attachment_info.offset.y
+            transformed_point = master_transform.transform_point(offset)
+            slave_data.slave.refresh_los_constraint(target_position=transformed_point)
 
     @property
     def los_constraint(self):
@@ -1869,9 +1880,11 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             for base_constraint in si_constraint:
                 if base_constraint.geometry is not None:
                     break
-            if self.queue.running.is_super:
-                base_constraint = interactions.constraints.Transform(self.transform, routing_surface=self.routing_surface)
-            if self.queue.running is not None and base_constraint.geometry is not None and base_constraint.geometry.polygon:
+            else:
+                if self.queue.running is not None:
+                    if self.queue.running.is_super:
+                        base_constraint = interactions.constraints.Transform(self.transform, routing_surface=self.routing_surface)
+            if base_constraint.geometry is not None and base_constraint.geometry.polygon:
                 los_constraint = self.los_constraint
                 base_geometry = base_constraint.geometry
                 expanded_polygons = []
@@ -1912,14 +1925,15 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             return WorkRequest()
         _ = self.queue._get_head()
         next_interaction = self.queue.get_head()
-        if services.current_zone().is_zone_running:
-            if any(not i.is_super for i in self.queue._autonomy):
-                for i in tuple(self.queue._autonomy):
-                    i.cancel(FinishingType.INTERACTION_QUEUE, 'Blocked interaction in autonomy bucket, canceling all interactions in the autonomy bucket to fix.')
-            else:
-                self.run_subaction_autonomy()
-                next_interaction = self.queue.get_head()
-        if next_interaction is None and next_interaction is not None:
+        if next_interaction is None:
+            if services.current_zone().is_zone_running:
+                if any(not i.is_super for i in self.queue._autonomy):
+                    for i in tuple(self.queue._autonomy):
+                        i.cancel(FinishingType.INTERACTION_QUEUE, 'Blocked interaction in autonomy bucket, canceling all interactions in the autonomy bucket to fix.')
+                else:
+                    self.run_subaction_autonomy()
+                    next_interaction = self.queue.get_head()
+        if next_interaction is not None:
             wait_to_be_picked_up_liability = next_interaction.get_liability(WaitToBePickedUpLiability.LIABILITY_TOKEN)
             if wait_to_be_picked_up_liability is not None:
                 return WorkRequest()
@@ -1958,6 +1972,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                     self.queue._apply_next_pressure()
                     result = yield from element_utils.run_child(timeline, idle_sequence)
                     return result
+                    yield
                 finally:
                     idle_sequence = None
 
@@ -2014,16 +2029,18 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                     (target_si, _) = transition_controller.interaction.get_target_si()
                     if target_si is not None and target_si.id == id_to_find:
                         return target_si
-        if self.si_state is not None:
-            interaction = self.si_state.find_interaction_by_id(id_to_find)
+        if interaction is None:
+            if self.si_state is not None:
+                interaction = self.si_state.find_interaction_by_id(id_to_find)
         return interaction
 
     def find_continuation_by_id(self, source_id):
         interaction = None
         if self.queue is not None:
             interaction = self.queue.find_continuation_by_id(source_id)
-        if self.si_state is not None:
-            interaction = self.si_state.find_continuation_by_id(source_id)
+        if interaction is None:
+            if self.si_state is not None:
+                interaction = self.si_state.find_continuation_by_id(source_id)
         return interaction
 
     def find_sub_interaction_by_aop_id(self, super_id, aop_id):
@@ -2115,10 +2132,11 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             objs = i.get_participants(PARTICIPANT_TYPE_MASK)
             for obj in objs:
                 relevant_obj_ids.add(obj.id)
-        if self.queue.running is not None:
-            objs = self.queue.running.get_participants(PARTICIPANT_TYPE_MASK)
-            for obj in objs:
-                relevant_obj_ids.add(obj.id)
+        if self.queue is not None:
+            if self.queue.running is not None:
+                objs = self.queue.running.get_participants(PARTICIPANT_TYPE_MASK)
+                for obj in objs:
+                    relevant_obj_ids.add(obj.id)
         op = distributor.ops.SetRelatedObjects(relevant_obj_ids, self.id)
         dist = Distributor.instance()
         dist.add_op(triggering_sim, op)

@@ -30,6 +30,7 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
         self.owner.add_statistic_component()
         self.hovertip_requested = False
         self._fruit_spawners = []
+        self._exclusive_fruits = set()
 
     @property
     def is_shoot(self):
@@ -61,17 +62,18 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
             yield ('subtext', subtext)
 
     def update_hovertip(self):
-        if self.hovertip_requested:
-            old_handles = list(self._ui_metadata_handles)
-            try:
-                self._ui_metadata_handles = []
-                for (name, value) in self._ui_metadata_gen():
-                    handle = self.owner.add_ui_metadata(name, value)
-                    self._ui_metadata_handles.append(handle)
-            finally:
-                for handle in old_handles:
-                    self.owner.remove_ui_metadata(handle)
-                self.owner.update_ui_metadata()
+        if services.client_manager():
+            if self.hovertip_requested:
+                old_handles = list(self._ui_metadata_handles)
+                try:
+                    self._ui_metadata_handles = []
+                    for (name, value) in self._ui_metadata_gen():
+                        handle = self.owner.add_ui_metadata(name, value)
+                        self._ui_metadata_handles.append(handle)
+                finally:
+                    for handle in old_handles:
+                        self.owner.remove_ui_metadata(handle)
+                    self.owner.update_ui_metadata()
 
     def on_client_connect(self, client):
         self.update_hovertip()
@@ -90,6 +92,10 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
         return False
 
     @property
+    def fruit_spawners(self):
+        return tuple(self._fruit_spawners)
+
+    @property
     def root_stock(self):
         if not self._fruit_spawners:
             return
@@ -98,6 +104,8 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
     def get_root_stock_names(self):
         fruit_names = []
         for spawner in self._fruit_spawners:
+            if spawner.spawn_weight == 0:
+                continue
             tree_fruit_name_key = spawner.main_spawner.cls._components.gardening._tuned_values.fruit_name.hash
             if tree_fruit_name_key not in fruit_names:
                 fruit_names.append(tree_fruit_name_key)
@@ -113,6 +121,13 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
         return self.root_stock.main_spawner.cls._components.gardening
 
     def _add_spawner(self, fruit_definition):
+        if fruit_definition in GardeningTuning.EXCLUSIVE_FRUITS:
+            if not self._exclusive_fruits:
+                for other_spawner in self._fruit_spawners:
+                    if other_spawner.main_spawner in GardeningTuning.EXCLUSIVE_FRUITS:
+                        continue
+                    other_spawner.spawn_weight = 0
+            self._exclusive_fruits.add(fruit_definition)
         spawn_weight = self._get_fruit_spawn_weight(fruit_definition)
         spawner_data = FruitSpawnerData(spawn_weight=spawn_weight)
         spawner_data.set_fruit(fruit_definition)
@@ -120,16 +135,20 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
         self.owner.add_spawner_data(spawner_data)
 
     def _get_fruit_spawn_weight(self, fruit):
+        if self._exclusive_fruits and fruit not in GardeningTuning.EXCLUSIVE_FRUITS:
+            return 0
         plant_rarity = None
         fruit_rarity = None
         gardening_collection_data = ObjectCollectionData.get_collection_data(CollectionIdentifier.Gardening)
         for obj_data in gardening_collection_data.object_list:
             if obj_data.collectable_item is fruit.definition:
                 fruit_rarity = obj_data.rarity
-            if obj_data.collectable_item is self.root_stock.main_spawner:
-                plant_rarity = obj_data.rarity
-            if self.root_stock is not None and fruit_rarity and plant_rarity:
-                break
+            if self.root_stock is not None:
+                if obj_data.collectable_item is self.root_stock.main_spawner:
+                    plant_rarity = obj_data.rarity
+            if fruit_rarity:
+                if plant_rarity:
+                    break
         if fruit_rarity is None:
             fruit_rarity = ObjectCollectionRarity.COMMON
         else:
@@ -163,9 +182,8 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
         for fruit_spawner in gardening_component_data.fruit_spawners:
             definition = definition_manager.get(fruit_spawner.definition_id)
             if definition is None:
-                pass
-            else:
-                self._add_spawner(definition)
+                continue
+            self._add_spawner(definition)
 
     def populate_localization_token(self, token):
         token.type = LocalizedStringToken.OBJECT

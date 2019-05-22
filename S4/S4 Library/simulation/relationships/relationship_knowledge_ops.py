@@ -39,12 +39,12 @@ class KnowOtherSimTraitOp(BaseTargetedLootOperation):
             return
         trait_tracker = target.trait_tracker
         if self.traits.learned_type == self.TRAIT_SPECIFIED:
-            traits = tuple(trait for trait in self.traits.potential_traits if trait_tracker.has_trait(trait) and trait not in knowledge.known_traits)
+            traits = tuple(trait for trait in self.traits.potential_traits if trait_tracker.has_trait(trait) if trait not in knowledge.known_traits)
         elif self.traits.learned_type == self.TRAIT_ALL:
             traits = self._select_traits(knowledge, trait_tracker)
         elif self.traits.learned_type == self.TRAIT_RANDOM:
             traits = self._select_traits(knowledge, trait_tracker, random_count=self.traits.count)
-            if traits or self.notification_no_more_traits is not None:
+            if not traits and self.notification_no_more_traits is not None:
                 interaction = resolver.interaction
                 if interaction is not None:
                     self.notification_no_more_traits(interaction).show_notification(additional_tokens=(subject, target), recipients=(subject,), icon_override=IconInfoData(obj_instance=target))
@@ -53,7 +53,7 @@ class KnowOtherSimTraitOp(BaseTargetedLootOperation):
         if traits:
             interaction = resolver.interaction
             if interaction is not None and self.notification is not None:
-                trait_string = LocalizationHelperTuning.get_bulleted_list((None,), (trait.display_name(target) for trait in traits))
+                trait_string = LocalizationHelperTuning.get_bulleted_list(None, *(trait.display_name(target) for trait in traits))
                 self.notification(interaction).show_notification(additional_tokens=(subject, target, trait_string), recipients=(subject,), icon_override=IconInfoData(obj_instance=target))
 
 class KnowOtherSimCareerOp(BaseTargetedLootOperation):

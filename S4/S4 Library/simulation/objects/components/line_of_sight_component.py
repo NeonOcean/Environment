@@ -46,8 +46,9 @@ class LineOfSight(_line_of_sight._LineOfSight):
 
     @property
     def constraint_multi_surface(self):
-        if self._constraint is not None:
-            self._constraint_multi_surface = self._constraint.get_multi_surface_version()
+        if self._constraint_multi_surface is None:
+            if self._constraint is not None:
+                self._constraint_multi_surface = self._constraint.get_multi_surface_version()
         return self._constraint_multi_surface
 
     @property
@@ -56,8 +57,9 @@ class LineOfSight(_line_of_sight._LineOfSight):
 
     @property
     def constraint_convex_multi_surface(self):
-        if self._constraint_convex is not None:
-            self._constraint_convex_multi_surface = self._constraint_convex.get_multi_surface_version()
+        if self._constraint_convex_multi_surface is None:
+            if self._constraint_convex is not None:
+                self._constraint_convex_multi_surface = self._constraint_convex.get_multi_surface_version()
         return self._constraint_convex_multi_surface
 
     @property
@@ -73,9 +75,11 @@ class LineOfSight(_line_of_sight._LineOfSight):
         self._routing_surface = routing_surface
         self._constraint_multi_surface = None
         self._constraint_convex_multi_surface = None
-        if routing_surface.type in routing.object_routing_surfaces:
-            zone_id = services.current_zone_id()
-            routing_surface = routing.SurfaceIdentifier(zone_id or 0, routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
+        if not allow_object_routing_surface:
+            if routing_surface is not None:
+                if routing_surface.type in routing.object_routing_surfaces:
+                    zone_id = services.current_zone_id()
+                    routing_surface = routing.SurfaceIdentifier(zone_id or 0, routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
         self._contours = build_buy.get_wall_contours(self._position.x, self._position.z, routing_surface, True)
         self.generate_constraint(build_convex=build_convex)
 

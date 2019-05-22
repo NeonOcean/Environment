@@ -30,3 +30,4 @@ class StatePickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim)
         return True
+        yield

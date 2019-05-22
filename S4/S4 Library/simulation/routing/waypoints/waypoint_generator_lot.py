@@ -39,36 +39,19 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
             block_object_constraints = object_constraints.pop(block_id, ())
             if restriction is not None:
                 if restriction and block_id == 0:
-                    pass
-                elif restriction or block_id != 0:
-                    pass
-                else:
-                    for (polygon, routing_surface) in block_data:
-                        polygon_waypoint_count = math.ceil(waypoint_count*(polygon.area()/total_area))
-                        for position in random_uniform_points_in_compound_polygon(polygon, num=int(polygon_waypoint_count)):
-                            if not routing.test_connectivity_pt_pt(sim_location, routing.Location(position, routing_surface=self._routing_surface), sim_routing_context):
-                                pass
-                            else:
-                                position_constraint = Circle(position, self.constraint_radius, routing_surface=routing_surface)
-                                for block_object_constraint in tuple(block_object_constraints):
-                                    intersection = block_object_constraint.intersect(position_constraint)
-                                    if intersection.valid:
-                                        block_object_constraints.remove(block_object_constraint)
-                                final_constraints.append(position_constraint)
-                    final_constraints.extend(block_object_constraints)
+                    continue
             else:
                 for (polygon, routing_surface) in block_data:
                     polygon_waypoint_count = math.ceil(waypoint_count*(polygon.area()/total_area))
                     for position in random_uniform_points_in_compound_polygon(polygon, num=int(polygon_waypoint_count)):
                         if not routing.test_connectivity_pt_pt(sim_location, routing.Location(position, routing_surface=self._routing_surface), sim_routing_context):
-                            pass
-                        else:
-                            position_constraint = Circle(position, self.constraint_radius, routing_surface=routing_surface)
-                            for block_object_constraint in tuple(block_object_constraints):
-                                intersection = block_object_constraint.intersect(position_constraint)
-                                if intersection.valid:
-                                    block_object_constraints.remove(block_object_constraint)
-                            final_constraints.append(position_constraint)
+                            continue
+                        position_constraint = Circle(position, self.constraint_radius, routing_surface=routing_surface)
+                        for block_object_constraint in tuple(block_object_constraints):
+                            intersection = block_object_constraint.intersect(position_constraint)
+                            if intersection.valid:
+                                block_object_constraints.remove(block_object_constraint)
+                        final_constraints.append(position_constraint)
                 final_constraints.extend(block_object_constraints)
         final_constraints.extend(itertools.chain.from_iterable(object_constraints.values()))
         return final_constraints
@@ -89,14 +72,13 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
             polygons[0] = self._get_polygons_for_lot()
         for (block_id, (polys, level)) in block_data.items():
             if level != self._routing_surface.secondary_id:
-                pass
-            else:
-                polygon = CompoundPolygon([Polygon(list(reversed(p))) for p in polys])
-                if not polygon.area():
-                    pass
-                else:
-                    polygons[block_id].append((polygon, self._routing_surface))
+                continue
+            polygon = CompoundPolygon([Polygon(list(reversed(p))) for p in polys])
+            if not polygon.area():
+                continue
+            polygons[block_id].append((polygon, self._routing_surface))
         if not polygons:
             return False
+            yield
         final_constraints = self._get_waypoint_constraints_from_polygons(polygons, object_constraints, waypoint_count)
         yield from final_constraints

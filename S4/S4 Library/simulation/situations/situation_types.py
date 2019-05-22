@@ -16,6 +16,7 @@ class SituationCreationUIOption(enum.Int):
     NOT_AVAILABLE = 0
     AVAILABLE = 1
     DEBUG_AVAILABLE = 2
+    SPECIFIED_ONLY = 3
 
 class SituationMedal(enum.Int):
     TIN = 0
@@ -97,3 +98,4 @@ class SituationUserFacingType(enum.Int):
     VET_SITUATION_EVENT = 2
     HOLIDAY_EVENT = 3
     ACTING_CAREER_EVENT = 4
+    MOTHER_PLANT_EVENT = 5

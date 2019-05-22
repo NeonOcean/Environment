@@ -26,10 +26,11 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
         if skip_carry_pose:
             for inv_type in valid_inventory_types:
                 inv_data = InventoryTypeTuning.INVENTORY_TYPE_DATA.get(inv_type)
-                if inv_data is not None and not inv_data.skip_carry_pose_allowed:
-                    logger.error('You cannot tune your item to skip carry\n                    pose unless it is only valid for the sim, mailbox, and/or\n                    hidden inventories.  Any other inventory type will not\n                    properly support this option. -Mike Duke')
+                if inv_data is not None:
+                    if not inv_data.skip_carry_pose_allowed:
+                        logger.error('You cannot tune your item to skip carry\n                    pose unless it is only valid for the sim, mailbox, and/or\n                    hidden inventories.  Any other inventory type will not\n                    properly support this option. -Mike Duke')
 
-    FACTORY_TUNABLES = {'description': '\n            An object with this component can be placed in inventories.\n            ', 'valid_inventory_types': TunableList(description='\n            A list of Inventory Types this object can go into.\n            ', tunable=TunableEnumEntry(description='\n                Any inventory type tuned here is one in which the owner of this\n                component can be placed into.\n                ', tunable_type=InventoryType, default=InventoryType.UNDEFINED, invalid_enums=(InventoryType.UNDEFINED,))), 'skip_carry_pose': Tunable(description='\n            If Checked, this object will not use the normal pick up or put down\n            SI which goes through the carry pose.  It will instead use a swipe\n            pick up which does a radial route and swipe.  Put down will run a\n            FGL and do a swipe then fade in the object in the world. You can\n            only use this for an object that is only valid for the sim, hidden\n            and/or mailbox inventory.  It will not work with other inventory\n            types.', tunable_type=bool, default=False), 'inventory_only': Tunable(description='\n            Denote the owner of this component as an "Inventory Only" object.\n            These objects are not meant to be placed in world, and will not\n            generate any of the default interactions normally generated for\n            inventory objects.\n            ', tunable_type=bool, default=False), 'visible': Tunable(description="\n            Whether the object is visible in the Sim's Inventory or not.\n            Objects that are invisible won't show up but can still be tested\n            for.\n            ", tunable_type=bool, default=True), 'put_away_affordance': OptionalTunable(description='\n            Whether to use the default put away interaction or an overriding\n            one. The default affordance is tuned at\n            objects.components.inventory_item -> InventoryItemComponent -> Put\n            Away Affordance.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION)), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'no_carry_add_to_sim_inventory_affordances': OptionalTunable(description='\n            Any affordances tuned here will be used in place of the "Default No\n            Carry Add To Sim Inventory Affordances" tunable. The default\n            affordances are tuned at objects.components.inventory_item ->\n            InventoryItemComponent -> Default No Carry Add To Sim Inventory\n            Affordances\n            ', tunable=TunableList(description="\n                A list of override affordances to add objects that skip the carry pose\n                to a Sim's inventory.\n                ", tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'no_carry_add_to_world_affordances': OptionalTunable(description='\n            Any affordances tuned here will be used in place of the "Default No\n            Carry Add To World Affordances" tunable. The default affordances\n            are tuned at objects.components.inventory_item -> \n            InventoryItemComponent -> Default No Carry Add To World Affordances\n            ', tunable=TunableSet(description="\n                A set of override affordances to add objects in a Sim's \n                inventory that skip the carry pose to the world.\n                ", tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'stack_scheme': TunableEnumEntry(description="\n            How object should stack in an inventory. If you're confused on\n            what definitions and variants are, consult a build/buy designer or\n            producer.\n            \n            NONE: Object will not stack.\n            \n            VARIANT_GROUP: This object will stack with objects with in the same\n            variant group. For example, orange guitars will stack with red\n            guitars.\n\n            DEFINITION: This object will stack with objects with the same\n            definition. For example, orange guitars will stack with other\n            orange guitars but not with red guitars.\n            ", tunable_type=StackScheme, default=StackScheme.VARIANT_GROUP), 'can_place_in_world': Tunable(description='\n            If checked, this object will generate affordances allowing it to be\n            placed in the world. If unchecked, it will not.\n            ', tunable_type=bool, default=True), 'remove_from_npc_inventory': Tunable(description="\n            If checked, this object will never be added to a NPC Sim's\n            inventory. \n            \n            This field is never used for an active family sims. Player played\n            sims use this flag to shelve the objects in their inventories\n            (performance optimization). Instead of creating the object in the\n            Sim's inventory, shelved objects are stored in the save file and\n            loaded only when the Sim's family becomes player controlled.\n            ", tunable_type=bool, default=False), 'forward_client_state_change_to_inventory_owner': OptionalTunable(description='\n            Whether the object is forwarding the client state changes to the \n            inventory owner or not.\n            \n            example. Earbuds object has Audio State change but it will play\n            the audio on the Sim owner instead.\n            ', tunable=TunableList(description='\n                List of client states that are going to be forwarded to \n                inventory owner.\n                ', tunable=TunableVariant(description='\n                    Any client states change tuned here is going to be \n                    forwarded to inventory owner.\n                    ', locked_args={'audio_state': StateChange.AUDIO_STATE, 'audio_effect_state': StateChange.AUDIO_EFFECT_STATE, 'vfx_state': StateChange.VFX}))), 'forward_affordances_to_inventory_owner': Tunable(description='\n            If checked, all interactions for this object will be available\n            when clicking on inventory owner object, while having this object \n            in their inventory.\n            \n            example. Earbuds "Listen To" is available on the Sim while\n            having earbuds in Sim\'s inventory.\n            ', tunable_type=bool, default=False), 'on_inventory_change_tooltip_updates': TunableSet(description='\n            A set of tooltip fields that should be updated when this object\n            changes inventory. Not all tooltip fields are supported. Talk to\n            a GPE to add support for more fields.\n            ', tunable=TunableEnumEntry(description='\n                The Tooltip Field to update on this object.\n                ', tunable_type=TooltipFields, default=TooltipFields.relic_description)), 'persist_in_hidden_storage': Tunable(description="\n            If checked, any objects that are part of a Sim's inventory's\n            hidden storage will be persisted as hidden, and will be created\n            in the hidden storage on load. Otherwise, objects that were in\n            the hidden storage on save will be moved to the visible storage\n            on load.\n            \n            eg. Crystals that are mounted in the crystal helmet should persist\n            their hidden state so that they are created in the hidden storage\n            on load.\n            ", tunable_type=bool, default=False), 'verify_tunable_callback': _verify_tunable_callback}
+    FACTORY_TUNABLES = {'description': '\n            An object with this component can be placed in inventories.\n            ', 'valid_inventory_types': TunableList(description='\n            A list of Inventory Types this object can go into.\n            ', tunable=TunableEnumEntry(description='\n                Any inventory type tuned here is one in which the owner of this\n                component can be placed into.\n                ', tunable_type=InventoryType, default=InventoryType.UNDEFINED, invalid_enums=(InventoryType.UNDEFINED,))), 'skip_carry_pose': Tunable(description='\n            If Checked, this object will not use the normal pick up or put down\n            SI which goes through the carry pose.  It will instead use a swipe\n            pick up which does a radial route and swipe.  Put down will run a\n            FGL and do a swipe then fade in the object in the world. You can\n            only use this for an object that is only valid for the sim, hidden\n            and/or mailbox inventory.  It will not work with other inventory\n            types.', tunable_type=bool, default=False), 'inventory_only': Tunable(description='\n            Denote the owner of this component as an "Inventory Only" object.\n            These objects are not meant to be placed in world, and will not\n            generate any of the default interactions normally generated for\n            inventory objects.\n            ', tunable_type=bool, default=False), 'visible': Tunable(description="\n            Whether the object is visible in the Sim's Inventory or not.\n            Objects that are invisible won't show up but can still be tested\n            for.\n            ", tunable_type=bool, default=True), 'put_away_affordance': OptionalTunable(description='\n            Whether to use the default put away interaction or an overriding\n            one. The default affordance is tuned at\n            objects.components.inventory_item -> InventoryItemComponent -> Put\n            Away Affordance.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION)), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'no_carry_add_to_sim_inventory_affordances': OptionalTunable(description='\n            Any affordances tuned here will be used in place of the "Default No\n            Carry Add To Sim Inventory Affordances" tunable. The default\n            affordances are tuned at objects.components.inventory_item ->\n            InventoryItemComponent -> Default No Carry Add To Sim Inventory\n            Affordances\n            ', tunable=TunableList(description="\n                A list of override affordances to add objects that skip the carry pose\n                to a Sim's inventory.\n                ", tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'no_carry_add_to_world_affordances': OptionalTunable(description='\n            Any affordances tuned here will be used in place of the "Default No\n            Carry Add To World Affordances" tunable. The default affordances\n            are tuned at objects.components.inventory_item -> \n            InventoryItemComponent -> Default No Carry Add To World Affordances\n            ', tunable=TunableSet(description="\n                A set of override affordances to add objects in a Sim's \n                inventory that skip the carry pose to the world.\n                ", tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))), disabled_name='DEFAULT', enabled_name='OVERRIDE'), 'stack_scheme': TunableEnumEntry(description="\n            How object should stack in an inventory. If you're confused on\n            what definitions and variants are, consult a build/buy designer or\n            producer.\n            \n            NONE: Object will not stack.\n            \n            VARIANT_GROUP: This object will stack with objects with in the same\n            variant group. For example, orange guitars will stack with red\n            guitars.\n\n            DEFINITION: This object will stack with objects with the same\n            definition. For example, orange guitars will stack with other\n            orange guitars but not with red guitars.\n            \n            Dynamic entries stack together.\n            ", tunable_type=StackScheme, default=StackScheme.VARIANT_GROUP), 'can_place_in_world': Tunable(description='\n            If checked, this object will generate affordances allowing it to be\n            placed in the world. If unchecked, it will not.\n            ', tunable_type=bool, default=True), 'remove_from_npc_inventory': Tunable(description="\n            If checked, this object will never be added to a NPC Sim's\n            inventory. \n            \n            This field is never used for an active family sims. Player played\n            sims use this flag to shelve the objects in their inventories\n            (performance optimization). Instead of creating the object in the\n            Sim's inventory, shelved objects are stored in the save file and\n            loaded only when the Sim's family becomes player controlled.\n            ", tunable_type=bool, default=False), 'forward_client_state_change_to_inventory_owner': OptionalTunable(description='\n            Whether the object is forwarding the client state changes to the \n            inventory owner or not.\n            \n            example. Earbuds object has Audio State change but it will play\n            the audio on the Sim owner instead.\n            ', tunable=TunableList(description='\n                List of client states that are going to be forwarded to \n                inventory owner.\n                ', tunable=TunableVariant(description='\n                    Any client states change tuned here is going to be \n                    forwarded to inventory owner.\n                    ', locked_args={'audio_state': StateChange.AUDIO_STATE, 'audio_effect_state': StateChange.AUDIO_EFFECT_STATE, 'vfx_state': StateChange.VFX}))), 'forward_affordances_to_inventory_owner': Tunable(description='\n            If checked, all interactions for this object will be available\n            when clicking on inventory owner object, while having this object \n            in their inventory.\n            \n            example. Earbuds "Listen To" is available on the Sim while\n            having earbuds in Sim\'s inventory.\n            ', tunable_type=bool, default=False), 'on_inventory_change_tooltip_updates': TunableSet(description='\n            A set of tooltip fields that should be updated when this object\n            changes inventory. Not all tooltip fields are supported. Talk to\n            a GPE to add support for more fields.\n            ', tunable=TunableEnumEntry(description='\n                The Tooltip Field to update on this object.\n                ', tunable_type=TooltipFields, default=TooltipFields.relic_description)), 'persist_in_hidden_storage': Tunable(description="\n            If checked, any objects that are part of a Sim's inventory's\n            hidden storage will be persisted as hidden, and will be created\n            in the hidden storage on load. Otherwise, objects that were in\n            the hidden storage on save will be moved to the visible storage\n            on load.\n            \n            eg. Crystals that are mounted in the crystal helmet should persist\n            their hidden state so that they are created in the hidden storage\n            on load.\n            ", tunable_type=bool, default=False), 'register_with_lost_and_found': Tunable(description="\n            If checked, objects placed on a lot from a Sim inventory will\n            register for lost and found cleanup.  When the zone spins up, items\n            'left behind' or 'lost' by a Sim after the Sim's household leaves\n            a lot will be returned to them or their household.  Only use for\n            items where this is likely to matter to the player.\n            ", tunable_type=bool, default=False), 'always_destroy_on_inventory_transfer': Tunable(description='\n            If checked then this object will always be destroyed on inventory\n            transfer.\n            ', tunable_type=bool, default=False), 'verify_tunable_callback': _verify_tunable_callback}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -43,7 +44,7 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
         self.save_for_stack_compaction = False
         self._is_hidden = False
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         inventory = self.get_inventory()
         if inventory is not None:
             for owner in inventory.owning_objects_gen():
@@ -118,8 +119,11 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
             if owner_inventory_component is not None:
                 if self.forward_affordances_to_inventory_owner:
                     owner_inventory_component.add_forwarded_object(self.owner)
-                if inventory.owner.is_sim and (self.target_super_affordances or self.super_affordances):
-                    owner_inventory_component.add_affordance_provider_object(self.owner)
+                if inventory.owner.is_sim:
+                    if self.target_super_affordances or self.super_affordances:
+                        owner_inventory_component.add_affordance_provider_object(self.owner)
+                    if self.register_with_lost_and_found:
+                        services.get_object_lost_and_found_service().remove_object(self.owner.id)
 
     def on_removed_from_inventory(self):
         owner = self.last_inventory_owner
@@ -132,13 +136,16 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
                     self.owner.new_in_inventory = False
                 if self.forward_affordances_to_inventory_owner:
                     inventory.remove_forwarded_object(self.owner)
-                if owner.is_sim and (self.target_super_affordances or self.super_affordances):
-                    inventory.remove_affordance_provider_object(self.owner)
+                if owner.is_sim:
+                    if self.target_super_affordances or self.super_affordances:
+                        inventory.remove_affordance_provider_object(self.owner)
+                    if self.register_with_lost_and_found:
+                        services.get_object_lost_and_found_service().add_game_object(owner.zone_id, self.owner.id, owner.id, owner.household_id)
 
     def _update_tooltip_fields(self, inventory_owner=None):
         for tooltip_field in self.on_inventory_change_tooltip_updates:
             if tooltip_field == TooltipFields.relic_description:
-                if inventory_owner is not None and inventory_owner.is_sim:
+                if inventory_owner is not None and inventory_owner.is_sim and inventory_owner.sim_info.relic_tracker is not None:
                     tooltip_text = inventory_owner.sim_info.relic_tracker.get_tooltip_for_object(self.owner)
                 else:
                     tooltip_text = RelicTuning.IN_WORLD_HOVERTIP_TEXT
@@ -176,7 +183,7 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
 
     @componentmethod_with_fallback(lambda *args, **kwargs: 0)
     def get_stack_sort_order(self, inspect_only=False):
-        if inspect_only or self._sort_order is None:
+        if not inspect_only and self._sort_order is None:
             self._recalculate_sort_order()
         if self._sort_order is not None:
             return self._sort_order
@@ -188,17 +195,16 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
         for state_info in InventoryItemComponent.STACK_SORT_ORDER_STATES:
             state = state_info.state
             if state is None:
-                pass
-            else:
-                invert_order = state_info.is_value_order_inverted
-                num_values = len(state.values)
-                if self.owner.has_state(state):
-                    state_value = self.owner.get_state(state)
-                    value = state.values.index(state_value)
-                    if not invert_order:
-                        value = num_values - value - 1
-                    sort_order += multiplier*value
-                multiplier *= num_values
+                continue
+            invert_order = state_info.is_value_order_inverted
+            num_values = len(state.values)
+            if self.owner.has_state(state):
+                state_value = self.owner.get_state(state)
+                value = state.values.index(state_value)
+                if not invert_order:
+                    value = num_values - value - 1
+                sort_order += multiplier*value
+            multiplier *= num_values
         self._sort_order = sort_order
 
     def component_interactable_gen(self):
@@ -229,28 +235,27 @@ class InventoryItemComponent(Component, HasTunableFactory, AutoFactoryInit, Supe
                             yield from self.DEFAULT_ADD_TO_WORLD_AFFORDANCES
                 elif not obj_inventory_found:
                     if self.skip_carry_pose:
-                        pass
-                    else:
-                        lot = services.current_zone().lot
-                        if lot or InventoryTypeTuning.is_put_away_allowed_on_inventory_type(valid_type):
-                            for inventory in lot.get_object_inventories(valid_type):
-                                if not inventory.has_owning_object:
-                                    pass
-                                else:
-                                    obj_inventory_found = True
-                                    if self.put_away_affordance is None:
-                                        yield self.PUT_AWAY_AFFORDANCE
-                                    else:
-                                        yield self.put_away_affordance
-                                    break
+                        continue
+                    lot = services.current_zone().lot
+                    if lot or InventoryTypeTuning.is_put_away_allowed_on_inventory_type(valid_type):
+                        for inventory in lot.get_object_inventories(valid_type):
+                            if not inventory.has_owning_object:
+                                continue
+                            obj_inventory_found = True
+                            if self.put_away_affordance is None:
+                                yield self.PUT_AWAY_AFFORDANCE
+                            else:
+                                yield self.put_away_affordance
+                            break
 
     def valid_object_inventory_gen(self):
         lot = services.current_zone().lot
         for valid_type in self.valid_inventory_types:
-            if valid_type != InventoryType.SIM and InventoryTypeTuning.is_put_away_allowed_on_inventory_type(valid_type):
-                for inventory in lot.get_object_inventories(valid_type):
-                    for obj in inventory.owning_objects_gen():
-                        yield obj
+            if valid_type != InventoryType.SIM:
+                if InventoryTypeTuning.is_put_away_allowed_on_inventory_type(valid_type):
+                    for inventory in lot.get_object_inventories(valid_type):
+                        for obj in inventory.owning_objects_gen():
+                            yield obj
 
     def set_inventory_type(self, inventory_type, owner):
         if self._current_inventory_type != None:

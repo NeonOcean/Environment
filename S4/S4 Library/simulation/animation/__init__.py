@@ -91,7 +91,7 @@ UserDataKey = collections.namedtuple('UserDataKey', ['event_type', 'actor_id', '
 @unique_id('_context_uid')
 class AnimationContext:
     _get_next_asm_event_uid = UniqueIdGenerator()
-    _CENSOR_MAPPING = {native.animation.arb.CENSOREVENT_STATE_LHAND: CensorState.LHAND, native.animation.arb.CENSOREVENT_STATE_RHAND: CensorState.RHAND, native.animation.arb.CENSOREVENT_STATE_FULLBODY: CensorState.FULLBODY, native.animation.arb.CENSOREVENT_STATE_TODDLERPELVIS: CensorState.TODDLER_PELVIS, native.animation.arb.CENSOREVENT_STATE_PELVIS: CensorState.PELVIS, native.animation.arb.CENSOREVENT_STATE_TORSOPELVIS: CensorState.TORSO_PELVIS, native.animation.arb.CENSOREVENT_STATE_TORSO: CensorState.TORSO, native.animation.arb.CENSOREVENT_STATE_OFF: CensorState.OFF}
+    _CENSOR_MAPPING = {native.animation.arb.CENSOREVENT_STATE_OFF: CensorState.OFF, native.animation.arb.CENSOREVENT_STATE_TORSO: CensorState.TORSO, native.animation.arb.CENSOREVENT_STATE_TORSOPELVIS: CensorState.TORSO_PELVIS, native.animation.arb.CENSOREVENT_STATE_PELVIS: CensorState.PELVIS, native.animation.arb.CENSOREVENT_STATE_TODDLERPELVIS: CensorState.TODDLER_PELVIS, native.animation.arb.CENSOREVENT_STATE_FULLBODY: CensorState.FULLBODY, native.animation.arb.CENSOREVENT_STATE_RHAND: CensorState.RHAND, native.animation.arb.CENSOREVENT_STATE_LHAND: CensorState.LHAND}
 
     def __init__(self, *args, is_throwaway=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -137,7 +137,7 @@ class AnimationContext:
         if self._posture_owners is not None:
             self._posture_owners.discard(posture)
             self.release_ref(posture)
-            if self._posture_owners or self._ref_count:
+            if not self._posture_owners and self._ref_count:
                 logger.error('{} release all the postures but still have {} ref count. This is invalid.', self, self._ref_count)
 
     def reset_for_new_interaction(self):
@@ -180,14 +180,13 @@ class AnimationContext:
     def _all_props_gen(self, held_only):
         for (name, prop) in self._props.items():
             if prop.id not in prop.manager:
-                pass
-            elif held_only:
+                continue
+            if held_only:
                 parent = prop.parent
                 if not parent is None:
                     if not parent.is_sim:
-                        pass
-                    else:
-                        yield name
+                        continue
+                    yield name
             else:
                 yield name
 
@@ -242,12 +241,13 @@ class AnimationContext:
         if not definition_id:
             self._override_prop_states(from_actor, prop, states_to_override)
             return prop
-        if prop.definition.id != definition_id:
-            asm.set_actor(prop_name, None)
-            prop.destroy(source=self, cause='Replacing prop.')
-            del props[prop_name]
-            prop = None
-        if prop is not None and prop is None:
+        if prop is not None:
+            if prop.definition.id != definition_id:
+                asm.set_actor(prop_name, None)
+                prop.destroy(source=self, cause='Replacing prop.')
+                del props[prop_name]
+                prop = None
+        if prop is None:
             share_key = asm.get_prop_share_key(prop_name)
             if share_key is None:
                 prop = create_prop(definition_id)
@@ -339,8 +339,9 @@ class AnimationContext:
         props = asm.get_props_in_traversal(asm.current_state, state)
         for (prop_name, definition_id) in props.items():
             prop = self._get_prop(asm, prop_name, definition_id)
-            if prop is not None and not asm.set_actor(prop_name, prop):
-                logger.warn('{}: Failed to set actor: {} to {}', asm, prop_name, prop)
+            if prop is not None:
+                if not asm.set_actor(prop_name, prop):
+                    logger.warn('{}: Failed to set actor: {} to {}', asm, prop_name, prop)
         self._vfx_overrides = asm.vfx_overrides
         self._sound_overrides = asm.sound_overrides
         for actor_name in self.apply_carry_interaction_mask:
@@ -353,39 +354,8 @@ class AnimationContext:
                 actors = arb._actors()
                 if actors and actor_id not in actors:
                     if optional:
-                        pass
-                    else:
-                        logger.error("Failed to schedule custom x-event {} from {} on {} which didn't have the requested actor: {}, callback: {}", event_id, asm, arb, actor_id, callback)
-                        scheduled_event = False
-                        if actor_id is None:
-                            actors = arb._actors()
-                            if actors:
-                                for arb_actor_id in actors:
-                                    if arb.add_custom_event(arb_actor_id, time, event_id):
-                                        scheduled_event = True
-                                        break
-                        elif arb.add_custom_event(actor_id, time, event_id):
-                            scheduled_event = True
-                        if scheduled_event:
-                            if not hasattr(arb, '_context_uids'):
-                                arb._context_uids = set()
-                            if uid not in arb._context_uids:
-                                arb.register_event_handler(callback, ClipEventType.Script, event_id)
-                                arb._context_uids.add(uid)
-                        elif allow_stub_creation:
-                            asm_actors = list(asm.actors_gen()) if asm_actors is None else asm_actors
-                            for actor in asm_actors:
-                                if actor.id == actor_id:
-                                    actors = {actor_id}
-                                    event_data = {}
-                                    data = ArbEventData(ClipEventType.Script, event_id, event_data, actors)
-
-                                    def custom_event_alarm_callback(timeline):
-                                        callback(data)
-
-                                    alarm_handle = add_alarm(self, clock.interval_in_sim_minutes(time), custom_event_alarm_callback)
-                                    self._alarm_handles.append(alarm_handle)
-                                    break
+                        continue
+                    logger.error("Failed to schedule custom x-event {} from {} on {} which didn't have the requested actor: {}, callback: {}", event_id, asm, arb, actor_id, callback)
             scheduled_event = False
             if actor_id is None:
                 actors = arb._actors()
@@ -479,10 +449,11 @@ class AnimationContext:
             self._user_data[key].stop()
             del self._user_data[key]
         mirrored = event_data.event_data['clip_is_mirrored']
-        if mirrored_effect_name is not None:
-            effect_name = mirrored_effect_name
-            mirrored = False
-        if not (mirrored and effect_name):
+        if mirrored:
+            if mirrored_effect_name is not None:
+                effect_name = mirrored_effect_name
+                mirrored = False
+        if not effect_name:
             return
         if mirrored:
             try:
@@ -516,10 +487,11 @@ class AnimationContext:
             return
         sound_name = event_data.event_data['sound_name']
         sound_id = sims4.hash_util.hash64(sound_name)
-        if sound_id in self._sound_overrides:
-            sound_id = self._sound_overrides[sound_id]
+        if self._sound_overrides:
+            if sound_id in self._sound_overrides:
+                sound_id = self._sound_overrides[sound_id]
         key = UserDataKey(ClipEventType.ServerSoundStart, obj.id, sound_name)
-        if self._sound_overrides and key in self._user_data:
+        if key in self._user_data:
             self._user_data[key].stop()
             del self._user_data[key]
         if sound_id is None:

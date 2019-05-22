@@ -29,27 +29,26 @@ def may_reserve_posture_target(sim, node, target, interaction=None):
                 for (participant, part_definition) in interaction.score_additional_sims_for_in_use.items():
                     sim_participant = interaction.get_participant(participant)
                     if sim is sim_participant:
-                        pass
-                    else:
-                        targets_to_check = {}
-                        if target.is_part:
-                            targets_to_check = {part for part in target.part_owner.parts if part is not target and part_definition is part.part_definition}
-                        found_reservable = False
-                        for part_target in targets_to_check:
-                            part_reservation_handler = interaction.get_interaction_reservation_handler(sim=sim_participant, target=part_target)
-                            if part_reservation_handler.may_reserve():
-                                found_reservable = True
-                        if not found_reservable:
-                            return False
+                        continue
+                    targets_to_check = {}
+                    if target.is_part:
+                        targets_to_check = {part for part in target.part_owner.parts if part is not target if part_definition is part.part_definition}
+                    found_reservable = False
+                    for part_target in targets_to_check:
+                        part_reservation_handler = interaction.get_interaction_reservation_handler(sim=sim_participant, target=part_target)
+                        if part_reservation_handler.may_reserve():
+                            found_reservable = True
+                    if not found_reservable:
+                        return False
     for aop in target.get_posture_aops_gen():
         posture_affordance = aop.affordance
         if posture_affordance.provided_posture_type is not node.body_posture:
-            pass
-        elif posture_affordance._provided_posture_type_species != sim.species:
-            pass
-        else:
-            break
-    posture_affordance = None
+            continue
+        if posture_affordance._provided_posture_type_species != sim.species:
+            continue
+        break
+    else:
+        posture_affordance = None
     if posture_affordance is not None:
         reservation_handler = posture_affordance.get_interaction_reservation_handler(sim=sim, target=target)
         if reservation_handler is not None and not reservation_handler.may_reserve():
@@ -145,17 +144,15 @@ class PostureScoring:
         for sub_constraint in spec_constraint:
             if not sub_constraint.posture_state_spec is None:
                 if sub_constraint.posture_state_spec.slot_manifest is None:
-                    pass
-                else:
-                    for manifest_entry in sub_constraint.posture_state_spec.slot_manifest:
-                        for slot_type in manifest_entry.slot_types:
-                            spec_slots_and_costs[slot_type] = sub_constraint.cost
+                    continue
+                for manifest_entry in sub_constraint.posture_state_spec.slot_manifest:
+                    for slot_type in manifest_entry.slot_types:
+                        spec_slots_and_costs[slot_type] = sub_constraint.cost
         for dest_node in destination_nodes:
             if dest_node in goal_costs:
-                pass
-            else:
-                node_cost = PostureScoring.get_goal_node_cost(dest_node, sim, interaction, var_map, preferences, included_sis, additional_template_list, relationship_bonuses, spec_constraint, group_constraint, spec_slots_and_costs.copy())
-                goal_costs[dest_node] = node_cost
+                continue
+            node_cost = PostureScoring.get_goal_node_cost(dest_node, sim, interaction, var_map, preferences, included_sis, additional_template_list, relationship_bonuses, spec_constraint, group_constraint, spec_slots_and_costs.copy())
+            goal_costs[dest_node] = node_cost
 
     @staticmethod
     def get_preferred_object_cost(goal_targets, preferred_objects, cost_str_list=None):
@@ -164,7 +161,8 @@ class PostureScoring:
         for goal_target in goal_targets:
             if goal_target is not None:
                 break
-        return 0
+        else:
+            return 0
         cost = 0
         goal_ancestry = set()
         for goal_target in goal_targets:
@@ -205,16 +203,16 @@ class PostureScoring:
         most_important_ensemble = services.ensemble_service().get_most_important_ensemble_for_sim(sim)
         for other_sim in sims_to_consider:
             if other_sim is sim:
-                pass
-            elif other_sim.posture.unconstrained:
-                pass
-            elif other_sim.is_moving:
-                pass
-            elif not other_sim.posture.allow_affinity:
-                pass
-            else:
-                scores = []
-                zone_director = services.venue_service().get_zone_director()
+                continue
+            if other_sim.posture.unconstrained:
+                continue
+            if other_sim.is_moving:
+                continue
+            if not other_sim.posture.allow_affinity:
+                continue
+            scores = []
+            zone_director = services.venue_service().get_zone_director()
+            if sim_affinity_posture_scoring_data is not None:
                 if not zone_director.disable_sim_affinity_posture_scoring(sim):
                     tags = set()
                     for si in other_sim.si_state:
@@ -225,105 +223,75 @@ class PostureScoring:
                         if match_tag == InteractionPostureAffinityTag.ALL:
                             match = True
                         else:
-                            match = match_tag in tags != scoring_strategy.negate_tag
+                            match = (match_tag in tags) != scoring_strategy.negate_tag
                         if not match:
+                            continue
+                        (affinity, message) = scoring_strategy.affinity_strategy(sim, other_sim)
+                        if not affinity:
+                            continue
+                        scores.append((affinity, message))
+            if most_important_ensemble is not None and most_important_ensemble.is_sim_in_ensemble(other_sim):
+                scores.append((-PostureScoring.ENSEMBLE_BONUS, PostureScoring.ENSEMBLE_BONUS_MESSAGE))
+            elif not zone_director.disable_sim_affinity_posture_scoring(sim) and not relationship_tracker.has_bit(other_sim.sim_id, RelationshipGlobalTuning.HAS_MET_RELATIONSHIP_BIT):
+                scores.append((PostureScoring.HAS_NOT_MET_PENALTY, PostureScoring.HAS_NOT_MET_COST_MESSAGE))
+            if not scores:
+                pass
+            else:
+                other_sim_cluster = None
+                other_sim_body_target = other_sim.posture_state.body_target
+                if other_sim_body_target is not None:
+                    if other_sim_body_target.is_part:
+                        other_sim_body_target = other_sim_body_target.part_owner
+                    other_sim_cluster = obj_to_cluster.get(other_sim_body_target)
+                other_sim_facing = sims4.math.yaw_quaternion_to_angle(other_sim.transform.orientation)
+                distances = {}
+                nodes_in_sight = posture_graph.nodes_matching_constraint_geometry(other_sim.los_constraint)
+                for goal_node in nodes_in_sight:
+                    goal_body = goal_node[postures.posture_specs.BODY_INDEX]
+                    goal_body_target = goal_body[postures.posture_specs.BODY_TARGET_INDEX]
+                    goal_posture_type = goal_body[postures.posture_specs.BODY_POSTURE_TYPE_INDEX]
+                    if not goal_body_target is None:
+                        if goal_posture_type.mobile:
+                            continue
+                        distance = distances.get(goal_body_target)
+                        if distance is None:
+                            sim_facing = sims4.math.yaw_quaternion_to_angle(goal_body_target.transform.orientation)
+                            accum = accumulator.HarmonicMeanAccumulator()
+                            delta = other_sim.transform.translation - goal_body_target.transform.translation
+                            socials.geometry.score_facing(accum, sim_facing, other_sim_facing, delta)
+                            facing_score = accum.value()
+                            if facing_score <= 0:
+                                continue
+                            distance = (goal_body_target.position - other_sim.position).magnitude_2d()
+                            distance = max(distance, 1)
+                            distance /= facing_score
+                            distances[goal_body_target] = distance
+                        bonus = 0
+                        all_messages = []
+                        distance_modifier = RelationshipSimAffinityStrategy.DISTANCE_TO_IMPACT_CURVE.get(distance)
+                        for (affinity, message) in scores:
+                            affinity_weighted = affinity*distance_modifier
+                            bonus += affinity_weighted
+                        if not bonus:
                             pass
                         else:
-                            (affinity, message) = scoring_strategy.affinity_strategy(sim, other_sim)
-                            if not affinity:
-                                pass
+                            if goal_body_target.is_part:
+                                goal_object = goal_body_target.part_owner
                             else:
-                                scores.append((affinity, message))
-                if sim_affinity_posture_scoring_data is not None and most_important_ensemble is not None and most_important_ensemble.is_sim_in_ensemble(other_sim):
-                    scores.append((-PostureScoring.ENSEMBLE_BONUS, PostureScoring.ENSEMBLE_BONUS_MESSAGE))
-                elif zone_director.disable_sim_affinity_posture_scoring(sim) or not relationship_tracker.has_bit(other_sim.sim_id, RelationshipGlobalTuning.HAS_MET_RELATIONSHIP_BIT):
-                    scores.append((PostureScoring.HAS_NOT_MET_PENALTY, PostureScoring.HAS_NOT_MET_COST_MESSAGE))
-                if not scores:
-                    pass
-                else:
-                    other_sim_cluster = None
-                    other_sim_body_target = other_sim.posture_state.body_target
-                    if other_sim_body_target is not None:
-                        if other_sim_body_target.is_part:
-                            other_sim_body_target = other_sim_body_target.part_owner
-                        other_sim_cluster = obj_to_cluster.get(other_sim_body_target)
-                    other_sim_facing = sims4.math.yaw_quaternion_to_angle(other_sim.transform.orientation)
-                    distances = {}
-                    nodes_in_sight = posture_graph.nodes_matching_constraint_geometry(other_sim.los_constraint)
-                    for goal_node in nodes_in_sight:
-                        goal_body = goal_node[postures.posture_specs.BODY_INDEX]
-                        goal_body_target = goal_body[postures.posture_specs.BODY_TARGET_INDEX]
-                        goal_posture_type = goal_body[postures.posture_specs.BODY_POSTURE_TYPE_INDEX]
-                        if not goal_body_target is None:
-                            if goal_posture_type.mobile:
-                                pass
+                                goal_object = goal_body_target
+                            if goal_object in obj_to_cluster:
+                                same_cluster = obj_to_cluster[goal_object] is other_sim_cluster
                             else:
-                                distance = distances.get(goal_body_target)
-                                if distance is None:
-                                    sim_facing = sims4.math.yaw_quaternion_to_angle(goal_body_target.transform.orientation)
-                                    accum = accumulator.HarmonicMeanAccumulator()
-                                    delta = other_sim.transform.translation - goal_body_target.transform.translation
-                                    socials.geometry.score_facing(accum, sim_facing, other_sim_facing, delta)
-                                    facing_score = accum.value()
-                                    if facing_score <= 0:
-                                        pass
-                                    else:
-                                        distance = (goal_body_target.position - other_sim.position).magnitude_2d()
-                                        distance = max(distance, 1)
-                                        distance /= facing_score
-                                        distances[goal_body_target] = distance
-                                        bonus = 0
-                                        all_messages = []
-                                        distance_modifier = RelationshipSimAffinityStrategy.DISTANCE_TO_IMPACT_CURVE.get(distance)
-                                        for (affinity, message) in scores:
-                                            affinity_weighted = affinity*distance_modifier
-                                            bonus += affinity_weighted
-                                        if not bonus:
-                                            pass
-                                        else:
-                                            if goal_body_target.is_part:
-                                                goal_object = goal_body_target.part_owner
-                                            else:
-                                                goal_object = goal_body_target
-                                            if goal_object in obj_to_cluster:
-                                                same_cluster = obj_to_cluster[goal_object] is other_sim_cluster
-                                            else:
-                                                same_cluster = False
-                                            if same_cluster:
-                                                bonus *= PostureScoring.SAME_CLUSTER_SIM_MULTIPLIER
-                                            current_bonus_info = bonuses.get(goal_body_target)
-                                            if not current_bonus_info is None:
-                                                if bonus < current_bonus_info[0]:
-                                                    formatted_message = ''
-                                                    bonuses[goal_body_target] = (bonus, formatted_message)
-                                            formatted_message = ''
-                                            bonuses[goal_body_target] = (bonus, formatted_message)
-                                bonus = 0
-                                all_messages = []
-                                distance_modifier = RelationshipSimAffinityStrategy.DISTANCE_TO_IMPACT_CURVE.get(distance)
-                                for (affinity, message) in scores:
-                                    affinity_weighted = affinity*distance_modifier
-                                    bonus += affinity_weighted
-                                if not bonus:
-                                    pass
-                                else:
-                                    if goal_body_target.is_part:
-                                        goal_object = goal_body_target.part_owner
-                                    else:
-                                        goal_object = goal_body_target
-                                    if goal_object in obj_to_cluster:
-                                        same_cluster = obj_to_cluster[goal_object] is other_sim_cluster
-                                    else:
-                                        same_cluster = False
-                                    if same_cluster:
-                                        bonus *= PostureScoring.SAME_CLUSTER_SIM_MULTIPLIER
-                                    current_bonus_info = bonuses.get(goal_body_target)
-                                    if not current_bonus_info is None:
-                                        if bonus < current_bonus_info[0]:
-                                            formatted_message = ''
-                                            bonuses[goal_body_target] = (bonus, formatted_message)
+                                same_cluster = False
+                            if same_cluster:
+                                bonus *= PostureScoring.SAME_CLUSTER_SIM_MULTIPLIER
+                            current_bonus_info = bonuses.get(goal_body_target)
+                            if not current_bonus_info is None:
+                                if bonus < current_bonus_info[0]:
                                     formatted_message = ''
                                     bonuses[goal_body_target] = (bonus, formatted_message)
+                            formatted_message = ''
+                            bonuses[goal_body_target] = (bonus, formatted_message)
         obj_to_cluster.clear()
         return bonuses
 
@@ -342,7 +310,7 @@ class PostureScoring:
             cost_str_list = None
         reservation_handler = interaction.get_interaction_reservation_handler(sim=sim, target=goal_body_target)
         if reservation_handler is not None:
-            if goal_body_target is not None and not (goal_body_target.is_sim or may_reserve_posture_target(sim, goal_node, goal_body_target, interaction=interaction)):
+            if goal_body_target is not None and not goal_body_target.is_sim and not may_reserve_posture_target(sim, goal_node, goal_body_target, interaction=interaction):
                 cost += PostureScoring.IN_USE_PENALTY
                 if gsi_handlers.posture_graph_handlers.archiver.enabled:
                     cost_str_list.append('IN_USE_PENALTY: {}'.format(PostureScoring.IN_USE_PENALTY))
@@ -361,18 +329,16 @@ class PostureScoring:
                             best_slot_type_and_cost = (None, 0)
                             break
                         if not any(slot in spec_slots_and_costs.keys() for slot in runtime_slot.slot_types):
-                            pass
-                        else:
-                            slot_cost = min(spec_slots_and_costs[slot] for slot in runtime_slot.slot_types if slot in spec_slots_and_costs)
-                            if best_slot_type_and_cost is not None and best_slot_type_and_cost[1] <= slot_cost:
-                                pass
-                            else:
-                                result = runtime_slot.is_valid_for_placement(obj=slot_manifest_entry.actor, objects_to_ignore=objects_to_ignore)
-                                if result:
-                                    best_slot_type_and_cost = (runtime_slot.slot_types, slot_cost)
-                                    for slot in runtime_slot.slot_types:
-                                        if slot in spec_slots_and_costs:
-                                            del spec_slots_and_costs[slot]
+                            continue
+                        slot_cost = min(spec_slots_and_costs[slot] for slot in runtime_slot.slot_types if slot in spec_slots_and_costs)
+                        if best_slot_type_and_cost is not None and best_slot_type_and_cost[1] <= slot_cost:
+                            continue
+                        result = runtime_slot.is_valid_for_placement(obj=slot_manifest_entry.actor, objects_to_ignore=objects_to_ignore)
+                        if result:
+                            best_slot_type_and_cost = (runtime_slot.slot_types, slot_cost)
+                            for slot in runtime_slot.slot_types:
+                                if slot in spec_slots_and_costs:
+                                    del spec_slots_and_costs[slot]
                 if best_slot_type_and_cost is None:
                     cost += PostureScoring.IN_USE_PENALTY
                     if gsi_handlers.posture_graph_handlers.archiver.enabled:
@@ -401,56 +367,59 @@ class PostureScoring:
             cost += body_target_cost
         if group_constraint is not None:
             for sub_constraint in group_constraint:
-                if not goal_body_target is None:
-                    if sub_constraint.geometry.contains_point(goal_body_target.position):
-                        cost -= PostureScoring.IN_PARTY_CONSTRAINT_BONUS
-                        if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                            cost_str_list.append('IN_PARTY_CONSTRAINT_BONUS: -{}'.format(PostureScoring.IN_PARTY_CONSTRAINT_BONUS))
-                        break
+                if not sub_constraint.geometry is None:
+                    if not goal_body_target is None:
+                        if sub_constraint.geometry.contains_point(goal_body_target.position):
+                            cost -= PostureScoring.IN_PARTY_CONSTRAINT_BONUS
+                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                cost_str_list.append('IN_PARTY_CONSTRAINT_BONUS: -{}'.format(PostureScoring.IN_PARTY_CONSTRAINT_BONUS))
+                            break
                 cost -= PostureScoring.IN_PARTY_CONSTRAINT_BONUS
-                if sub_constraint.geometry is None or gsi_handlers.posture_graph_handlers.archiver.enabled:
+                if gsi_handlers.posture_graph_handlers.archiver.enabled:
                     cost_str_list.append('IN_PARTY_CONSTRAINT_BONUS: -{}'.format(PostureScoring.IN_PARTY_CONSTRAINT_BONUS))
                 break
-        if goal_body_target.is_part:
-            main_group = sim.get_main_group()
-            if main_group is not None:
-                group_sims = tuple(group_sim for group_sim in main_group if group_sim is not sim)
-            else:
-                group_sims = ()
-            adjacent_parts = list(goal_body_target.adjacent_parts_gen())
-            for adjacent_part in adjacent_parts:
-                if any(adjacent_part.in_use_by(group_sim) for group_sim in group_sims):
-                    cost -= PostureScoring.ADJACENT_TO_GROUP_MEMBER_BONUS
-                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                        cost_str_list.append('ADJACENT_TO_GROUP_MEMBER_BONUS: {}'.format(PostureScoring.ADJACENT_TO_GROUP_MEMBER_BONUS))
-                    break
-        if group_constraint is not None and goal_body_target is not None and goal_body_target is not None:
+        if group_constraint is not None:
+            if goal_body_target is not None:
+                if goal_body_target.is_part:
+                    main_group = sim.get_main_group()
+                    if main_group is not None:
+                        group_sims = tuple(group_sim for group_sim in main_group if group_sim is not sim)
+                    else:
+                        group_sims = ()
+                    adjacent_parts = list(goal_body_target.adjacent_parts_gen())
+                    for adjacent_part in adjacent_parts:
+                        if any(adjacent_part.in_use_by(group_sim) for group_sim in group_sims):
+                            cost -= PostureScoring.ADJACENT_TO_GROUP_MEMBER_BONUS
+                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                cost_str_list.append('ADJACENT_TO_GROUP_MEMBER_BONUS: {}'.format(PostureScoring.ADJACENT_TO_GROUP_MEMBER_BONUS))
+                            break
+        if goal_body_target is not None:
             for destination in final_destinations_gen():
                 destination_body_target = destination[body_index][body_target_index]
-                if destination_body_target is not None and destination_body_target is goal_body_target:
-                    cost += PostureScoring.DEST_ALREADY_SELECTED_PENALTY
-                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                        cost_str_list.append('DEST_ALREADY_SELECTED_PENALTY: {}'.format(PostureScoring.DEST_ALREADY_SELECTED_PENALTY))
-        if not interaction.is_putdown:
-            posture_graph = services.current_zone().posture_graph_service
-            for (carry_si, additional_templates) in additional_template_dict.items():
-                if posture_graph.any_template_passes_destination_test(additional_templates, carry_si, sim, goal_node):
-                    pass
-                else:
+                if destination_body_target is not None:
+                    if destination_body_target is goal_body_target:
+                        cost += PostureScoring.DEST_ALREADY_SELECTED_PENALTY
+                        if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                            cost_str_list.append('DEST_ALREADY_SELECTED_PENALTY: {}'.format(PostureScoring.DEST_ALREADY_SELECTED_PENALTY))
+        if additional_template_dict:
+            if not interaction.is_putdown:
+                posture_graph = services.current_zone().posture_graph_service
+                for (carry_si, additional_templates) in additional_template_dict.items():
+                    if posture_graph.any_template_passes_destination_test(additional_templates, carry_si, sim, goal_node):
+                        continue
                     cost += PostureScoring.CANCEL_EXISTING_CARRY_OR_SLOT_COST
                     if gsi_handlers.posture_graph_handlers.archiver.enabled:
                         cost_str_list.append('CANCEL_EXISTING_CARRY_OR_SLOT_COST: {}'.format(PostureScoring.CANCEL_EXISTING_CARRY_OR_SLOT_COST))
-        if additional_template_dict and goal_body_target is not None and interaction.combined_posture_target_preference is not None:
+        if goal_body_target is not None and interaction.combined_posture_target_preference is not None:
             posture_target_preferences = interaction.combined_posture_target_preference.copy()
             for si in included_sis:
                 si_target_preferences = si.combined_posture_target_preference
                 if si_target_preferences is None:
-                    pass
-                elif si.has_active_cancel_replacement:
-                    pass
-                else:
-                    for (posture_tag, weight) in si_target_preferences.items():
-                        posture_target_preferences[posture_tag] = weight + posture_target_preferences.get(posture_tag, 0)
+                    continue
+                if si.has_active_cancel_replacement:
+                    continue
+                for (posture_tag, weight) in si_target_preferences.items():
+                    posture_target_preferences[posture_tag] = weight + posture_target_preferences.get(posture_tag, 0)
             if goal_surface_target is not None and goal_surface_target.posture_transition_target_tag != postures.PostureTransitionTargetPreferenceTag.INVALID:
                 preference_score = posture_target_preferences.get(goal_surface_target.posture_transition_target_tag, 0)
             elif goal_body_target is not None and goal_body_target.posture_transition_target_tag != postures.PostureTransitionTargetPreferenceTag.INVALID:
@@ -460,14 +429,15 @@ class PostureScoring:
             cost -= preference_score
             if gsi_handlers.posture_graph_handlers.archiver.enabled:
                 cost_str_list.append('goal_body_target preference bonus: {}'.format(-preference_score))
-        if interaction.posture_surface_slotted_object_preference is not None:
-            slot_types = {x for x in interaction.posture_surface_slotted_object_preference.keys()}
-            for runtime_slot in goal_surface_target.get_runtime_slots_gen(slot_types=slot_types):
-                if runtime_slot.children:
-                    for slot_type in runtime_slot.slot_types:
-                        value = interaction.posture_surface_slotted_object_preference.get(slot_type, 0)
-                        cost -= value
-        if goal_surface_target is not None and preferences is None:
+        if goal_surface_target is not None:
+            if interaction.posture_surface_slotted_object_preference is not None:
+                slot_types = {x for x in interaction.posture_surface_slotted_object_preference.keys()}
+                for runtime_slot in goal_surface_target.get_runtime_slots_gen(slot_types=slot_types):
+                    if runtime_slot.children:
+                        for slot_type in runtime_slot.slot_types:
+                            value = interaction.posture_surface_slotted_object_preference.get(slot_type, 0)
+                            cost -= value
+        if preferences is None:
             posture_cost = goal_body[body_posture_type_index].cost
             cost += posture_cost
             if gsi_handlers.posture_graph_handlers.archiver.enabled:

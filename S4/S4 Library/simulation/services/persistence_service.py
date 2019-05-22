@@ -182,6 +182,7 @@ class PersistenceService(Service):
         def call_save_game_gen(timeline):
             result = yield from save_generator(timeline, *args, **kwargs)
             return result
+            yield
 
         self._create_save_timeline()
         element = elements.GeneratorElement(call_save_game_gen)
@@ -193,6 +194,7 @@ class PersistenceService(Service):
         save_game_data = SaveGameData(0, 'scratch', True, None)
         save_result_code = yield from self.save_game_gen(timeline, save_game_data, send_save_message=False, check_cooldown=False)
         return save_result_code
+        yield
 
     def save_game_gen(self, timeline, save_game_data, send_save_message=True, check_cooldown=False, ignore_callback=False):
         (result_code, failure_reason) = yield from self._save_game_gen(timeline, save_game_data, check_cooldown=check_cooldown)
@@ -206,18 +208,20 @@ class PersistenceService(Service):
             distributor = Distributor.instance()
             distributor.add_event(MSG_GAME_SAVE_COMPLETE, msg)
         return result_code
+        yield
 
     def _save_game_gen(self, timeline, save_game_data, check_cooldown=True):
         save_lock_reason = self.get_save_lock_tooltip()
         if save_lock_reason is not None:
             return (SaveGameResult.FAILED_SAVE_LOCKED, save_lock_reason)
+            yield
         current_time = services.server_clock_service().now()
         result_code = SaveGameResult.FAILED_ON_COOLDOWN
         if self._time_of_last_save is not None:
             cooldown = (current_time - self._time_of_last_save).in_real_world_seconds()
         else:
             cooldown = PersistenceTuning.SAVE_GAME_COOLDOWN + 1
-        if check_cooldown and cooldown > PersistenceTuning.SAVE_GAME_COOLDOWN:
+        if not check_cooldown or cooldown > PersistenceTuning.SAVE_GAME_COOLDOWN:
             result_code = SaveGameResult.SUCCESS
             error_code_string = None
             try:
@@ -231,10 +235,12 @@ class PersistenceService(Service):
                     hook.write_int(TELEMETRY_FIELD_STACK_HASH, sims4.hash_util.hash64(error_code_string))
             finally:
                 self.save_error_code = persistence_error_types.ErrorCodes.NO_ERROR
-        if result_code == SaveGameResult.SUCCESS:
-            self._time_of_last_save = current_time
+        if check_cooldown:
+            if result_code == SaveGameResult.SUCCESS:
+                self._time_of_last_save = current_time
         failure_reason = self._get_failure_reason_for_result_code(result_code, error_code_string)
         return (result_code, failure_reason)
+        yield
 
     def _get_failure_reason_for_result_code(self, result_code, exception_code_string):
         if result_code == SaveGameResult.SUCCESS:
@@ -278,7 +284,7 @@ class PersistenceService(Service):
         self.save_error_code = persistence_error_types.ErrorCodes.NO_ERROR
 
     def get_world_ids(self):
-        return set(self._world_ids)
+        return self._world_ids
 
     def get_lot_proto_buff(self, lot_id):
         zone_id = self.resolve_lot_id_into_zone_id(lot_id)
@@ -354,10 +360,11 @@ class PersistenceService(Service):
             neighborhood_id = services.current_zone().neighborhood_id
         if self._save_game_data_proto is not None:
             for zone in self._save_game_data_proto.zones:
-                if not ignore_neighborhood_id:
-                    if zone.neighborhood_id == neighborhood_id:
-                        return zone.zone_id
-                return zone.zone_id
+                if zone.lot_id == lot_id:
+                    if not ignore_neighborhood_id:
+                        if zone.neighborhood_id == neighborhood_id:
+                            return zone.zone_id
+                    return zone.zone_id
 
     def resolve_lot_id_into_zone_and_neighborhood_id(self, lot_id):
         if self._save_game_data_proto is not None:
@@ -391,7 +398,8 @@ class PersistenceService(Service):
             if sim_msg.sim_id == sim_id:
                 del self._save_game_data_proto.sims[index]
                 break
-        logger.error('Attempting to delete Sim {} that is absent in the save file.', sim_id)
+        else:
+            logger.error('Attempting to delete Sim {} that is absent in the save file.', sim_id)
         self.dirty_sim_data_pb_cache()
 
     def get_sim_proto_buff(self, sim_id):
@@ -413,7 +421,8 @@ class PersistenceService(Service):
             if household_msg.household_id == household_id:
                 del self._save_game_data_proto.households[index]
                 break
-        logger.error('Attempting to delete Household {} that is absent in the save file.', household_id)
+        else:
+            logger.error('Attempting to delete Household {} that is absent in the save file.', household_id)
         self._household_pb_cache = None
 
     def get_household_proto_buff(self, household_id):

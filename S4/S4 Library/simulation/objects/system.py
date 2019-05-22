@@ -109,7 +109,7 @@ def create_object(definition_or_id, obj_id=0, init=None, post_add=None, loc_type
             post_add(obj)
         return obj
     finally:
-        if added_to_object_manager or obj is not None:
+        if not added_to_object_manager and obj is not None:
             import _weakrefutils
             _weakrefutils.clear_weak_refs(obj)
 

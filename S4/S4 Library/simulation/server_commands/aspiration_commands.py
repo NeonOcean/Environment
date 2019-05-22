@@ -1,3 +1,4 @@
+from aspirations.aspiration_types import AspriationType
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, get_tunable_instance
 import services
 import sims4.commands
@@ -63,19 +64,18 @@ def complete_current_milestone(opt_sim:OptionalTargetParam=None, _connection=Non
 def complete_objective(objective_type:TunableInstanceParam(sims4.resources.Types.OBJECTIVE), opt_sim:OptionalTargetParam=None, _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is not None and objective_type is not None:
-        sim.sim_info.aspiration_tracker.complete_objective(objective_type)
-        track_id = sim.sim_info.primary_aspiration.guid64 if sim.sim_info.primary_aspiration is not None else 0
-        if track_id != 0:
-            track = get_tunable_instance(sims4.resources.Types.ASPIRATION_TRACK, track_id)
-            for (_, track_aspriation) in track.get_aspirations():
-                if objective_type in track_aspriation.objectives:
-                    count_completed = 0
-                    for obj in track_aspriation.objectives:
-                        if sim.sim_info.aspiration_tracker.objective_completed(obj):
-                            count_completed += 1
-                    if count_completed == len(track_aspriation.objectives):
-                        sim.sim_info.aspiration_tracker.complete_milestone(track_aspriation, sim.sim_info)
-                    break
+        aspiration_tracker = sim.sim_info.aspiration_tracker
+        aspiration_tracker.complete_objective(objective_type)
+        goal_value = objective_type.goal_value()
+        aspiration_tracker.update_objective(objective_type, goal_value, goal_value, objective_type.is_goal_value_money)
+        aspiration_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION)
+        for aspiration_id in aspiration_manager.types:
+            aspiration = aspiration_manager.get(aspiration_id)
+            if aspiration.aspiration_type == AspriationType.FULL_ASPIRATION and aspiration.complete_only_in_sequence and not aspiration_tracker.aspiration_in_sequence(aspiration):
+                continue
+            for aspiration_objective in aspiration.objectives:
+                if objective_type.guid64 == aspiration_objective.guid64 and aspiration_tracker.validate_and_return_completed_status(aspiration):
+                    aspiration_tracker.complete_milestone(aspiration, sim.sim_info)
         sim.sim_info.aspiration_tracker.send_if_dirty()
         sims4.commands.output('Complete {} on {}'.format(objective_type, sim), _connection)
 

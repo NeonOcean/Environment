@@ -39,11 +39,12 @@ class BirthdayPartySituation(SituationComplexCommon):
             self._celebrant_id = sim.sim_id
 
     def _is_birthday_starting(self, event, resolver):
-        if resolver(self.start_reception):
-            participants = resolver.get_participants(ParticipantType.Actor)
-            for sim_info in participants:
-                if sim_info.id == self._celebrant_id:
-                    return True
+        if event == TestEvent.InteractionStart:
+            if resolver(self.start_reception):
+                participants = resolver.get_participants(ParticipantType.Actor)
+                for sim_info in participants:
+                    if sim_info.id == self._celebrant_id:
+                        return True
         return False
 
 class GatherState(SituationState):

@@ -61,7 +61,7 @@ class _ProcedureState(SituationState):
             self._test_event_register(TestEvent.InteractionComplete, custom_key)
 
     def handle_event(self, sim_info, event, resolver):
-        if event is TestEvent.InteractionComplete and (resolver.interaction.has_been_reset or resolver(self.owner.go_to_treated_interactions)):
+        if event is TestEvent.InteractionComplete and not resolver.interaction.has_been_reset and resolver(self.owner.go_to_treated_interactions):
             with telemetry_helper.begin_hook(emergency_telemetry_writer, TELEMETRY_EMERGENCY_SUCCESS) as hook:
                 hook.write_guid('type', self.owner.guid64)
             self._change_state(TreatedState())

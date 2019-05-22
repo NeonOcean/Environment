@@ -122,7 +122,7 @@ class OccultTracker:
         self._sim_info_map[occult_type] = sim_info
 
     def _generate_sim_info(self, occult_type, generate_new=True):
-        if self._sim_info_map or occult_type != OccultType.HUMAN:
+        if not self._sim_info_map and occult_type != OccultType.HUMAN:
             generate_new_human_form = self.OCCULT_DATA[occult_type].generate_new_human_form_on_add
             self._generate_sim_info(OccultType.HUMAN, generate_new=generate_new_human_form)
         sim_info = self._create_new_sim_info_base_wrapper(self._sim_info)
@@ -140,8 +140,9 @@ class OccultTracker:
         for trait_data in self.OCCULT_DATA.values():
             if self.sim_info.has_trait(trait_data.occult_trait):
                 return True
-            if trait_data.part_occult_trait is not None and self.sim_info.has_trait(trait_data.part_occult_trait):
-                return True
+            if trait_data.part_occult_trait is not None:
+                if self.sim_info.has_trait(trait_data.part_occult_trait):
+                    return True
         return False
 
     @staticmethod
@@ -214,14 +215,15 @@ class OccultTracker:
                     SimInfoBaseWrapper.copy_physical_attributes(offspring_info, self._sim_info)
                 else:
                     SimInfoBaseWrapper.apply_genetics(offspring_info, parent_info_a, parent_info_b, seed=seed, **kwargs)
-            if trait_data.part_occult_trait is not None and self._sim_info.has_trait(trait_data.part_occult_trait):
-                if occult_tracker_a.has_occult_type(occult_type):
-                    parent_info_a = occult_tracker_a.get_occult_sim_info(occult_type) or parent_a_normal
-                    parent_info_b = parent_b_normal
-                else:
-                    parent_info_a = parent_a_normal
-                    parent_info_b = occult_tracker_b.get_occult_sim_info(occult_type) or parent_b_normal
-                SimInfoBaseWrapper.apply_genetics(normal_sim_info, parent_info_a, parent_info_b, seed=seed, **kwargs)
+            if trait_data.part_occult_trait is not None:
+                if self._sim_info.has_trait(trait_data.part_occult_trait):
+                    if occult_tracker_a.has_occult_type(occult_type):
+                        parent_info_a = occult_tracker_a.get_occult_sim_info(occult_type) or parent_a_normal
+                        parent_info_b = parent_b_normal
+                    else:
+                        parent_info_a = parent_a_normal
+                        parent_info_b = occult_tracker_b.get_occult_sim_info(occult_type) or parent_b_normal
+                    SimInfoBaseWrapper.apply_genetics(normal_sim_info, parent_info_a, parent_info_b, seed=seed, **kwargs)
         if not self._sim_info.current_occult_types:
             SimInfoBaseWrapper.copy_physical_attributes(normal_sim_info, self._sim_info)
 
@@ -290,5 +292,7 @@ class OccultTracker:
                 else:
                     sim_info.load_outfits(sim_info_data.outfits)
                     SimInfoBaseWrapper.copy_physical_attributes(sim_info._base, sim_info_data)
-            elif occult_type != OccultType.HUMAN and self.has_occult_type(occult_type) and occult_type == self._sim_info.current_occult_types:
-                self._generate_sim_info(occult_type, generate_new=False)
+            elif occult_type != OccultType.HUMAN:
+                if self.has_occult_type(occult_type):
+                    if occult_type == self._sim_info.current_occult_types:
+                        self._generate_sim_info(occult_type, generate_new=False)

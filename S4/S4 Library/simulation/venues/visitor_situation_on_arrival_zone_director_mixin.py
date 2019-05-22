@@ -19,10 +19,12 @@ class VisitorSituationOnArrivalZoneDirectorMixin:
     def _sim_info_already_in_arrival_situation(self, sim_info, situation_manager):
         seeds = situation_manager.get_zone_persisted_seeds_during_zone_spin_up()
         for seed in seeds:
-            if services.current_zone().time_has_passed_in_world_since_zone_save():
-                if seed.allow_time_jump:
+            if sim_info in seed.invited_sim_infos_gen():
+                if seed.situation_type is self.user_sim_arrival_situation:
+                    if services.current_zone().time_has_passed_in_world_since_zone_save():
+                        if seed.allow_time_jump:
+                            return True
                     return True
-            return True
         return False
 
     def create_arrival_situation_for_sim(self, sim_info, situation_type=DEFAULT, during_spin_up=False):
@@ -50,10 +52,9 @@ class VisitorSituationOnArrivalZoneDirectorMixin:
         guest_list = SituationGuestList(invite_only=True)
         for sim_info in sim_infos:
             if during_spin_up and self._sim_info_already_in_arrival_situation(sim_info, situation_manager):
-                pass
-            else:
-                guest_info = SituationGuestInfo.construct_from_purpose(sim_info.id, self.user_sim_arrival_situation.default_job(), SituationInvitationPurpose.INVITED)
-                guest_list.add_guest_info(guest_info)
+                continue
+            guest_info = SituationGuestInfo.construct_from_purpose(sim_info.id, self.user_sim_arrival_situation.default_job(), SituationInvitationPurpose.INVITED)
+            guest_list.add_guest_info(guest_info)
         return guest_list
 
     def create_situations_during_zone_spin_up(self):

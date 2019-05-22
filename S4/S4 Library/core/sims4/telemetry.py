@@ -133,10 +133,11 @@ def _check_filter(module_tag, group_tag, hook_tag, data):
             match = tags[0] == module_tag
         elif l == 0:
             match = True
-        if fields:
-            if _check_fields(fields, data):
-                return action == RuleAction.COLLECT
-        return action == RuleAction.COLLECT
+        if match:
+            if fields:
+                if _check_fields(fields, data):
+                    return action == RuleAction.COLLECT
+            return action == RuleAction.COLLECT
     return True
 
 def _check_fields(fields, data):
@@ -145,11 +146,12 @@ def _check_fields(fields, data):
         return True
     matches = 0
     for (key, value) in data:
-        if fields[key] != value:
-            return False
-        matches += 1
-        if key in fields and matches == expected:
-            return True
+        if key in fields:
+            if fields[key] != value:
+                return False
+            matches += 1
+            if matches == expected:
+                return True
     return False
 
 FIELD_ACCOUNT_ID = 'acct'

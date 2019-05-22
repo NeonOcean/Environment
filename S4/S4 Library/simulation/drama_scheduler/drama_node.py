@@ -260,9 +260,8 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
             for participant_type in drama_participant.blacklist_participants:
                 sim_info = resolver.get_participant(participant_type)
                 if sim_info is None:
-                    pass
-                else:
-                    blacklist_sim_ids.add(sim_info.id)
+                    continue
+                blacklist_sim_ids.add(sim_info.id)
             if self._club_id is not None:
                 club = services.get_club_service().get_club_by_id(self._club_id)
             else:
@@ -338,10 +337,9 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
             max_week_time = max_start_time.time_since_beginning_of_week().absolute_ticks()
             if not time > max_week_time:
                 if time < min_week_time:
-                    pass
-                else:
-                    start_of_week = min_start_time.start_of_week()
-                    final_valid_times.append(start_of_week + TimeSpan(time))
+                    continue
+                start_of_week = min_start_time.start_of_week()
+                final_valid_times.append(start_of_week + TimeSpan(time))
         if not final_valid_times:
             logger.info("Couldn't find any valid times for drama node {} so it could not be scheduled.", self)
             return False
@@ -356,12 +354,11 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
         for time_block in self.time_option.valid_times:
             for (day, day_enabled) in time_block.days_available.items():
                 if not day_enabled:
-                    pass
-                else:
-                    days_as_time_span = date_and_time.create_time_span(days=day)
-                    start_time = (time_block.start_time + days_as_time_span).absolute_ticks()
-                    end_time = start_time + date_and_time.create_time_span(hours=time_block.duration).in_ticks()
-                    start_and_end_times.append((start_time, end_time))
+                    continue
+                days_as_time_span = date_and_time.create_time_span(days=day)
+                start_time = (time_block.start_time + days_as_time_span).absolute_ticks()
+                end_time = start_time + date_and_time.create_time_span(hours=time_block.duration).in_ticks()
+                start_and_end_times.append((start_time, end_time))
         start_and_end_times.sort()
         if not self.allow_during_work_hours:
             career_times = [(start_time, end_time) for career in self._receiver_sim_info.careers.values() for (start_time, end_time) in career.get_busy_time_periods()]
@@ -373,24 +370,25 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
                 career_iter = iter(career_times)
                 (start_time, end_time) = next(times_iter)
                 (career_start_time, career_end_time) = next(career_iter)
-                if end_time <= start_time:
-                    try:
-                        (start_time, end_time) = next(times_iter)
-                    except StopIteration:
-                        break
-                elif end_time <= career_start_time:
-                    possible_valid_times.append((start_time, end_time))
-                    try:
-                        (start_time, end_time) = next(times_iter)
-                    except StopIteration:
-                        break
-                elif career_end_time <= start_time:
-                    (career_start_time, career_end_time) = next(career_iter)
-                elif start_time < career_start_time:
-                    possible_valid_times.append((start_time, career_start_time))
-                    start_time = career_end_time
-                elif career_start_time <= start_time:
-                    start_time = career_end_time
+                while True:
+                    if end_time <= start_time:
+                        try:
+                            (start_time, end_time) = next(times_iter)
+                        except StopIteration:
+                            break
+                    elif end_time <= career_start_time:
+                        possible_valid_times.append((start_time, end_time))
+                        try:
+                            (start_time, end_time) = next(times_iter)
+                        except StopIteration:
+                            break
+                    elif career_end_time <= start_time:
+                        (career_start_time, career_end_time) = next(career_iter)
+                    elif start_time < career_start_time:
+                        possible_valid_times.append((start_time, career_start_time))
+                        start_time = career_end_time
+                    elif career_start_time <= start_time:
+                        start_time = career_end_time
             else:
                 possible_valid_times = start_and_end_times
         else:
@@ -406,15 +404,14 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
             for (possible_start, possible_end) in possible_valid_times:
                 if not possible_start > max_week_time:
                     if possible_end < min_week_time:
-                        pass
-                    else:
-                        if not scheduled_time_only:
-                            if possible_start < min_week_time:
-                                possible_start = min_week_time
-                            if possible_end > max_week_time:
-                                possible_end = max_week_time
-                        start_of_week = min_start_time.start_of_week()
-                        final_valid_times.append((start_of_week + TimeSpan(possible_start), start_of_week + TimeSpan(possible_end)))
+                        continue
+                    if not scheduled_time_only:
+                        if possible_start < min_week_time:
+                            possible_start = min_week_time
+                        if possible_end > max_week_time:
+                            possible_end = max_week_time
+                    start_of_week = min_start_time.start_of_week()
+                    final_valid_times.append((start_of_week + TimeSpan(possible_start), start_of_week + TimeSpan(possible_end)))
         return final_valid_times
 
     def _select_time_based_on_schedule(self, time_modifier=TimeSpan.ZERO):
@@ -442,13 +439,12 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
         for time_block in self.time_option.valid_times:
             for (day, day_enabled) in time_block.days_available.items():
                 if not day_enabled:
-                    pass
-                else:
-                    days_as_time_span = date_and_time.create_time_span(days=day)
-                    start_time = time_block.start_time + days_as_time_span
-                    end_time = start_time + date_and_time.create_time_span(hours=time_block.duration)
-                    if start_time <= week_time and week_time <= end_time:
-                        return
+                    continue
+                days_as_time_span = date_and_time.create_time_span(days=day)
+                start_time = time_block.start_time + days_as_time_span
+                end_time = start_time + date_and_time.create_time_span(hours=time_block.duration)
+                if start_time <= week_time <= end_time:
+                    return
         logger.error('Node {}: Scheduled or trying to run at {}, which is not a valid tuned time.', self, time_to_check, trigger_breakpoint=True)
 
     def _alarm_callback(self, _):
@@ -554,7 +550,7 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
                         return TestResult(False, 'Cannot run because the sender sim info is min LOD.')
                     if self.sender_sim_info_type == SenderSimInfoType.UNINSTANCED_ONLY and self._sender_sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
                         return TestResult(False, 'Cannot run because the sender sim info is instanced.')
-                if self.allow_during_work_hours or self._receiver_sim_info.career_tracker.currently_during_work_hours:
+                if not self.allow_during_work_hours and self._receiver_sim_info.career_tracker.currently_during_work_hours:
                     return TestResult(False, 'Cannot run because the target sim is at work.')
             result = self.run_tests.run_tests(resolver)
             if not result:

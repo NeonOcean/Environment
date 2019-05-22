@@ -7,6 +7,7 @@ from interactions.utils.loot_basic_op import BaseLootOperation, BaseTargetedLoot
 from interactions.utils.success_chance import SuccessChance
 from interactions.utils.tunable_icon import TunableIcon
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
+from relationships.relationship_track import ObjectRelationshipTrack
 from sims4 import math
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.tunable import Tunable, TunableVariant, TunableInterval, TunableEnumEntry, TunableReference, TunablePercent, TunableFactory, TunableRate, TunableList, OptionalTunable, TunableTuple, TunableRange, HasTunableSingletonFactory, TunableEnumFlags
@@ -47,8 +48,9 @@ class StatisticOperation(BaseLootOperation):
         self._stat = stat
         self._ad_multiplier = 1
         self._loot_type = LootType.GENERIC
-        if issubclass(self._stat, Skill):
-            self._loot_type = LootType.SKILL
+        if self._stat is not None:
+            if issubclass(self._stat, Skill):
+                self._loot_type = LootType.SKILL
 
     def __repr__(self):
         return '<{} {} {}>'.format(type(self).__name__, self.stat, self.subject)
@@ -79,9 +81,10 @@ class StatisticOperation(BaseLootOperation):
         raise NotImplementedError
 
     def _attempt_to_get_real_stat_value(self, obj, interaction):
-        if interaction is not None:
-            obj = interaction.get_participant(ParticipantType.Actor)
-        if obj is None and obj is not None:
+        if obj is None:
+            if interaction is not None:
+                obj = interaction.get_participant(ParticipantType.Actor)
+        if obj is not None:
             stat_value = obj.get_stat_value(self.stat)
             if stat_value is not None:
                 return stat_value
@@ -379,36 +382,35 @@ class StatisticTransferOp(StatisticOperation):
         for donor in donors:
             transfer_stat_tracker = donor.get_tracker(self._transferred_stat)
             if transfer_stat_tracker is None:
-                pass
-            else:
-                transfer_value = transfer_stat_tracker.get_value(self._transferred_stat)
-                if self._transfer_type == TransferType.ADDITIVE:
-                    tracker.add_value(self.stat, transfer_value, interaction=interaction)
-                elif self._transfer_type == TransferType.SUBTRACTIVE:
-                    tracker.add_value(self.stat, -transfer_value, interaction=interaction)
-                elif self._transfer_type == TransferType.REPLACEMENT:
-                    tracker.set_value(self.stat, transfer_value, interaction=interaction)
-                elif self._transfer_type == TransferType.AVERAGE:
-                    subject_value = tracker.get_value(self.stat)
-                    if self._transfer_type_average_advanced is None:
-                        average_value = (subject_value + transfer_value)/2
+                continue
+            transfer_value = transfer_stat_tracker.get_value(self._transferred_stat)
+            if self._transfer_type == TransferType.ADDITIVE:
+                tracker.add_value(self.stat, transfer_value, interaction=interaction)
+            elif self._transfer_type == TransferType.SUBTRACTIVE:
+                tracker.add_value(self.stat, -transfer_value, interaction=interaction)
+            elif self._transfer_type == TransferType.REPLACEMENT:
+                tracker.set_value(self.stat, transfer_value, interaction=interaction)
+            elif self._transfer_type == TransferType.AVERAGE:
+                subject_value = tracker.get_value(self.stat)
+                if self._transfer_type_average_advanced is None:
+                    average_value = (subject_value + transfer_value)/2
+                else:
+                    subject = tracker.owner
+                    if subject is None:
+                        logger.error('Failed to find the owner for tracker {}.', tracker, owner='mkartika')
                     else:
-                        subject = tracker.owner
-                        if subject is None:
-                            logger.error('Failed to find the owner for tracker {}.', tracker, owner='mkartika')
+                        q_stat_tracker = subject.get_tracker(self._transfer_type_average_advanced.quantity_stat)
+                        q_transfer_stat_tracker = donor.get_tracker(self._transfer_type_average_advanced.quantity_transferred_stat)
+                        if q_stat_tracker is None:
+                            logger.error('Failed to find quantity stat tracker for stat {} on {}.', self._transfer_type_average_advanced.quantity_stat, subject, owner='mkartika')
+                        elif q_transfer_stat_tracker is None:
+                            logger.error('Failed to find quantity stat tracker for stat {} on {}.', self._transfer_type_average_advanced.quantity_transferred_stat, donor, owner='mkartika')
                         else:
-                            q_stat_tracker = subject.get_tracker(self._transfer_type_average_advanced.quantity_stat)
-                            q_transfer_stat_tracker = donor.get_tracker(self._transfer_type_average_advanced.quantity_transferred_stat)
-                            if q_stat_tracker is None:
-                                logger.error('Failed to find quantity stat tracker for stat {} on {}.', self._transfer_type_average_advanced.quantity_stat, subject, owner='mkartika')
-                            elif q_transfer_stat_tracker is None:
-                                logger.error('Failed to find quantity stat tracker for stat {} on {}.', self._transfer_type_average_advanced.quantity_transferred_stat, donor, owner='mkartika')
-                            else:
-                                q_value = q_stat_tracker.get_value(self._transfer_type_average_advanced.quantity_stat)
-                                q_transfer_value = q_transfer_stat_tracker.get_value(self._transfer_type_average_advanced.quantity_transferred_stat)
-                                average_value = (subject_value*q_value + transfer_value*q_transfer_value)/(q_value + q_transfer_value)
-                                tracker.set_value(self.stat, average_value, interaction=interaction)
-                    tracker.set_value(self.stat, average_value, interaction=interaction)
+                            q_value = q_stat_tracker.get_value(self._transfer_type_average_advanced.quantity_stat)
+                            q_transfer_value = q_transfer_stat_tracker.get_value(self._transfer_type_average_advanced.quantity_transferred_stat)
+                            average_value = (subject_value*q_value + transfer_value*q_transfer_value)/(q_value + q_transfer_value)
+                            tracker.set_value(self.stat, average_value, interaction=interaction)
+                tracker.set_value(self.stat, average_value, interaction=interaction)
 
 class NormalizeStatisticsOp(BaseTargetedLootOperation):
     FACTORY_TUNABLES = {'stats_to_normalize': TunableList(description='\n            Stats to be affected by the normalization.\n            ', tunable=TunableReference(services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions=statistics.commodity.Commodity)), 'normalize_percent': TunablePercent(description='\n            In seeking the average value, this is the percent of movement toward the average value \n            the stat will move to achieve the new value. For example, if you have a Sim with 50 \n            fun, and a Sim with 100 fun, and want to normalize them exactly halfway to their \n            average of 75, tune this to 100%. A value of 50% would move one Sim to 67.5 and the other\n            to 77.5\n            ', default=100, maximum=100, minimum=0)}
@@ -424,200 +426,17 @@ class NormalizeStatisticsOp(BaseTargetedLootOperation):
             if source_tracker is None:
                 return
             if not source_tracker.has_statistic(stat_type):
-                pass
-            else:
-                target_tracker = subject.get_tracker(stat_type)
-                if target_tracker is None:
-                    return
-                source_value = source_tracker.get_value(stat_type)
-                target_value = target_tracker.get_value(stat_type)
-                average_value = (source_value + target_value)/2
-                source_percent_gain = (source_value - average_value)*self._normalize_percent
-                target_percent_gain = (target_value - average_value)*self._normalize_percent
-                target_tracker.set_value(stat_type, source_value - source_percent_gain)
-                source_tracker.set_value(stat_type, target_value - target_percent_gain)
-
-class RelationshipOperation(StatisticOperation, BaseTargetedLootOperation):
-    FACTORY_TUNABLES = {'track': TunableReference(description='\n            The track to be manipulated.', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack'), 'track_range': TunableInterval(description='\n            The relationship track must > lower_bound and <= upper_bound for\n            the operation to apply.', tunable_type=float, default_lower=-101, default_upper=100), 'headline_icon_modifier': OptionalTunable(description='\n            If enabled then when updating the relationship track we will\n            use an icon modifier when sending the headline.\n            ', tunable=TunableIcon(description='\n                The icon that we will use as a modifier to the headline.\n                ')), 'locked_args': {'advertise': False, 'stat': None}}
-    DEFAULT_PARTICIPANT_ARGUMENTS = {'subject': TunableEnumFlags(description='\n            The owner Sim for this relationship change. Relationship is\n            applied to all Sims in this list, to all Sims in the Target\n            Participant Type list\n            ', enum_type=ParticipantType, invalid_enums=ParticipantType.Invalid, default=ParticipantType.Actor), 'target_participant_type': TunableEnumFlags(description="\n            The target Sim for this relationship change. Any\n            relationship that would be given to 'self' is discarded.\n            ", enum_type=ParticipantType, invalid_enums=(ParticipantType.Invalid,), default=ParticipantType.Invalid)}
-
-    def __init__(self, track_range=None, track=DEFAULT, headline_icon_modifier=None, **kwargs):
-        super().__init__(**kwargs)
-        self._track_range = track_range
-        self._track = track
-        if self._track is None:
-            self._track = DEFAULT
-        self._loot_type = LootType.RELATIONSHIP
-        self._headline_icon_modifier = headline_icon_modifier
-
-    def __repr__(self):
-        return '<{} {} {}, subject: {} target:{}>'.format(type(self).__name__, self._track, self._track_range, self.subject, self.target_participant_type)
-
-    def get_stat(self, interaction, source=None, target=None):
-        if source is None:
-            actors = interaction.get_participants(self.subject)
-            if not actors:
+                continue
+            target_tracker = subject.get_tracker(stat_type)
+            if target_tracker is None:
                 return
-            source = next(iter(actors))
-        if target is None:
-            targets = interaction.get_participants(self.target_participant_type)
-            for potential_target in targets:
-                if potential_target is not source:
-                    target = potential_target
-                    break
-        if target is None:
-            return
-        if isinstance(target, int):
-            target_sim_id = target
-        else:
-            target_sim_id = target.sim_id
-        return source.sim_info.relationship_tracker.get_relationship_track(target_sim_id, self._track, True)
-
-    def _get_interval(self, aop):
-        return StatisticOperation.STATIC_CHANGE_INTERVAL
-
-    def _apply_to_subject_and_target(self, subject, target, resolver):
-        source_sim_info = self._get_sim_info_from_participant(subject)
-        if not source_sim_info:
-            return
-        target_sim_infos = []
-        if target == ParticipantType.AllRelationships:
-            sim_mgr = services.sim_info_manager()
-            target_sim_infos = set(sim_mgr.get(relations.get_other_sim_id(source_sim_info.sim_id)) for relations in source_sim_info.relationship_tracker)
-            target_sim_infos.discard(None)
-        else:
-            target_sim_info = self._get_sim_info_from_participant(target)
-            if not target_sim_info:
-                return
-            target_sim_infos = (target_sim_info,)
-        for target_sim_info in target_sim_infos:
-            if source_sim_info is target_sim_info:
-                if not self.target_participant_type & ParticipantType.PickedSim:
-                    logger.error('Attempting to give relationship loot between the same sim {} in {} with resolver: {}', target_sim_info, self, resolver, owner='nabaker')
-                    self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
-            else:
-                self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
-
-    def _get_sim_info_from_participant(self, participant):
-        if isinstance(participant, int):
-            sim_info_manager = services.sim_info_manager()
-            if sim_info_manager is None:
-                return
-            sim_info = sim_info_manager.get(participant)
-        else:
-            sim_info = getattr(participant, 'sim_info', participant)
-        if sim_info is None:
-            logger.error('Could not get Sim Info from {0} in StatisticAddRelationship loot op.', participant)
-        return sim_info
-
-    def _apply_to_sim_info(self, source_sim_info, target_sim_id):
-        if self._track is DEFAULT:
-            self._track = RelationshipGlobalTuning.REL_INSPECTOR_TRACK
-        apply_initial_modifier = not services.relationship_service().has_relationship_track(source_sim_info.sim_id, target_sim_id, self._track)
-        rel_stat = source_sim_info.relationship_tracker.get_relationship_track(target_sim_id, self._track, True)
-        if rel_stat is not None:
-            self._maybe_apply_op(rel_stat.tracker, source_sim_info, apply_initial_modifier=apply_initial_modifier)
-
-    def _maybe_apply_op(self, tracker, target_sim, **kwargs):
-        value = tracker.get_value(self._track)
-        if self._track_range.lower_bound < value and value <= self._track_range.upper_bound:
-            self._apply(tracker, target_sim, headline_icon_modifier=self._headline_icon_modifier, **kwargs)
-
-class RandomSimStatisticAddRelationship(RelationshipOperation):
-    KNOWN_SIMS = 0
-    ALL_SIMS = 1
-
-    @staticmethod
-    def _verify_tunable_callback(cls, tunable_name, source, value):
-        if value._store_single_result_on_interaction and not (value._number_of_random_sims is None or value._number_of_random_sims == 1):
-            logger.error('RandomSimStatisticAddRelationship is tuned to store result on interaction and is expecting more than one result. {}', source)
-
-    FACTORY_TUNABLES = {'amount': lambda *args, **kwargs: _get_tunable_amount(*args, **kwargs), 'who': TunableVariant(description="\n            Which Sims are valid choices before running tests.\n            If set to known_sims_only then it will only choose between Sims \n            that the subject sim already knows.\n            \n            IF set to all_sims then it will choose between all of the sims, \n            including those that the Sim hasn't met.\n            ", locked_args={'known_sims_only': KNOWN_SIMS, 'all_sims': ALL_SIMS}, default='known_sims_only'), 'tests_on_random_sim': TunableTestSet(description='\n            Tests that will be run to filer the Sims where we will pick the\n            random sim to apply this statistic change.\n            '), 'number_of_random_sims': OptionalTunable(description='\n            If enabled allows you to specify the number of Sims to choose to\n            add the relationship with.\n            ', tunable=TunableRange(description='\n                The number of Sims to choose to add relationship with from\n                the list of valid choices.\n                ', tunable_type=int, minimum=1, default=1)), 'loot_applied_notification': OptionalTunable(description='\n            If enable the notification will be displayed passing the subject\n            and the random sim as tokens.\n            ', tunable=UiDialogNotification.TunableFactory(description='\n                Notification that will be shown when the loot is applied.\n                ')), 'create_sim_if_no_results': OptionalTunable(description='\n            If enabled, will result in a new Sim Info being created to meet\n            the conditions of the supplied Sim Template.\n            ', tunable=TunableReference(description='\n                A reference to a Sim Filter to use to create a Sim.\n                                \n                This does not guarantee that the created Sim will pass\n                tests_on_random_sim. However the resulting sim will be used as\n                a valid result.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SIM_FILTER), class_restrictions=('TunableSimFilter',))), 'store_single_result_on_interaction': OptionalTunable(description='\n            If enabled will place the result into the SavedActor specified on\n            the interaction.\n            \n            This will only work if the value of number_or_random_sims is 1.\n            This will overwrite whatever else is currently set in the\n            SavedActor space chosen.\n            ', tunable=TunableEnumEntry(description='\n            \n                ', tunable_type=ParticipantTypeSavedActor, default=ParticipantTypeSavedActor.SavedActor1)), 'verify_tunable_callback': _verify_tunable_callback}
-
-    def __init__(self, *args, amount, who, tests_on_random_sim, number_of_random_sims, loot_applied_notification, create_sim_if_no_results, store_single_result_on_interaction, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._amount = amount
-        self._who = who
-        self._tests_on_random_sim = tests_on_random_sim
-        self._number_of_random_sims = number_of_random_sims
-        self._loot_applied_notification = loot_applied_notification
-        self._create_sim_if_no_results = create_sim_if_no_results
-        self._store_single_result_on_interaction = store_single_result_on_interaction
-
-    def get_value(self, **kwargs):
-        return self._amount
-
-    def _apply(self, tracker, target_sim, **kwargs):
-        tracker.add_value(self._track, self._amount, **kwargs)
-
-    def _apply_to_subject_and_target(self, subject, target, resolver):
-        source_sim_info = self._get_sim_info_from_participant(subject)
-        if not source_sim_info:
-            return
-        valid_sim_infos = []
-        if self._who == self.KNOWN_SIMS:
-            target_sim_infos = source_sim_info.relationship_tracker.get_target_sim_infos()
-            for target_sim_info in target_sim_infos:
-                test_resolver = DoubleSimResolver(source_sim_info, target_sim_info)
-                if self._tests_on_random_sim.run_tests(test_resolver):
-                    valid_sim_infos.append(target_sim_info)
-        elif self._who == self.ALL_SIMS:
-            sim_info_manager = services.sim_info_manager()
-            for sim_info in sim_info_manager.values():
-                test_resolver = DoubleSimResolver(source_sim_info, sim_info)
-                if self._tests_on_random_sim.run_tests(test_resolver):
-                    valid_sim_infos.append(sim_info)
-        if not valid_sim_infos:
-            if not self._create_sim_if_no_results:
-                return
-            result = self._create_sim_if_no_results.create_sim_info(0)
-            if result:
-                valid_sim_infos.append(result.sim_info)
-        for _ in range(self._number_of_random_sims or 1):
-            if not valid_sim_infos:
-                break
-            target_sim_info = random.choice(valid_sim_infos)
-            valid_sim_infos.remove(target_sim_info)
-            if source_sim_info is target_sim_info:
-                target_sim_info = random.choice(valid_sim_infos)
-                valid_sim_infos.remove(target_sim_info)
-            self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
-            if self._loot_applied_notification is not None:
-                dialog = self._loot_applied_notification(source_sim_info, resolver=DoubleSimResolver(source_sim_info, target_sim_info))
-                dialog.show_dialog()
-            if self._store_single_result_on_interaction:
-                interaction = resolver.interaction
-                if interaction is not None:
-                    for (index, tag) in enumerate(list(ParticipantTypeSavedActor)):
-                        if tag is self._store_single_result_on_interaction:
-                            interaction.set_saved_participant(index, target_sim_info)
-                            break
-
-class StatisticAddRelationship(RelationshipOperation):
-    FACTORY_TUNABLES = {'amount': lambda *args, **kwargs: _get_tunable_amount(*args, **kwargs)}
-
-    def __init__(self, amount, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._amount = amount
-
-    def get_value(self, **kwargs):
-        return self._amount
-
-    def _apply(self, tracker, target_sim, **kwargs):
-        tracker.add_value(self._track, self._amount, **kwargs)
-
-class StatisticSetRelationship(RelationshipOperation):
-    FACTORY_TUNABLES = {'value': Tunable(description='\n                The value to set the relationship to.', tunable_type=float, default=0)}
-
-    def __init__(self, value, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._value = value
-
-    def get_value(self, **kwargs):
-        return self._value - self._track.default_value
-
-    def _apply(self, tracker, target_sim, apply_initial_modifier=False, **kwargs):
-        tracker.set_value(self._track, self._value, apply_initial_modifier=apply_initial_modifier, **kwargs)
+            source_value = source_tracker.get_value(stat_type)
+            target_value = target_tracker.get_value(stat_type)
+            average_value = (source_value + target_value)/2
+            source_percent_gain = (source_value - average_value)*self._normalize_percent
+            target_percent_gain = (target_value - average_value)*self._normalize_percent
+            target_tracker.set_value(stat_type, source_value - source_percent_gain)
+            source_tracker.set_value(stat_type, target_value - target_percent_gain)
 
 class SkillEffectivenessLoot(StatisticChangeOp):
     FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            The sim(s) to operation is applied to.', tunable_type=ParticipantType, default=ParticipantType.Actor), 'effectiveness': TunableEnumEntry(description='\n            Enum to determine which curve to use when giving points to sim.', tunable_type=statistics.skill.SkillEffectiveness, needs_tuning=True, default=statistics.skill.SkillEffectiveness.STANDARD), 'level': Tunable(description='\n            x-point on skill effectiveness curve.', tunable_type=int, default=0), 'locked_args': {'amount': 0}}
@@ -633,6 +452,7 @@ class TunableStatisticChange(TunableVariant):
 
     def __init__(self, *args, locked_args=None, variant_locked_args=None, gain_type=GAIN_TYPE_AMOUNT, include_relationship_ops=True, statistic_override=None, description='A variant of statistic operations.', **kwargs):
         if include_relationship_ops:
+            kwargs['object_relationship_change'] = StatisticAddObjectRelationship.TunableFactory(description='\n                Add to the object relationship score statistic for this Super Interaction.\n                ', amount=gain_type, **ObjectRelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
             kwargs['relationship_change'] = StatisticAddRelationship.TunableFactory(description='\n                Adds to the relationship score statistic for this Super Interaction\n                ', amount=gain_type, **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
             kwargs['relationship_set'] = StatisticSetRelationship.TunableFactory(description='\n                Sets the relationship score statistic to a specific value.\n                ', **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
             kwargs['random_relationship_set'] = RandomSimStatisticAddRelationship.TunableFactory(description='\n                Adds the relationship statistic score about an amount to a \n                random sim selected out of all the known sims for the Actor.\n                ', locked_args={'target_participant_type': ParticipantType.Actor, 'advertise': False, 'stat': None}, **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
@@ -672,8 +492,9 @@ class DynamicSkillLootOp(BaseLootOperation):
                 logger.error('Skill Effectiveness is not tuned for this loot operation in {}', interaction)
                 return (None, None, None)
         level_range = self._skill_loot_data_override.level_range
-        if interaction is not None:
-            level_range = interaction.level_range_from_skill_loot_data
+        if level_range is None:
+            if interaction is not None:
+                level_range = interaction.level_range_from_skill_loot_data
         return (stat, effectiveness, level_range)
 
     def get_stat(self, interaction):
@@ -685,20 +506,21 @@ class DynamicSkillLootOp(BaseLootOperation):
     def get_value(self, obj=None, interaction=None, sims=None):
         amount = 0
         multiplier = 1
-        if interaction is not None:
-            (stat_type, effectiveness, level_range) = self._get_skill_level_data(interaction)
-            if stat_type is None:
-                return 0
-            tracker = obj.get_tracker(stat_type)
-            if tracker is None:
-                return stat_type.default_value
-            amount = self._get_change_amount(tracker, stat_type, effectiveness, level_range)
-            if sims:
-                targets = sims.copy()
-            else:
-                targets = interaction.get_participants(ParticipantType.Actor)
-            if targets:
-                multiplier = stat_type.get_skill_based_statistic_multiplier(targets, amount)
+        if obj is not None:
+            if interaction is not None:
+                (stat_type, effectiveness, level_range) = self._get_skill_level_data(interaction)
+                if stat_type is None:
+                    return 0
+                tracker = obj.get_tracker(stat_type)
+                if tracker is None:
+                    return stat_type.default_value
+                amount = self._get_change_amount(tracker, stat_type, effectiveness, level_range)
+                if sims:
+                    targets = sims.copy()
+                else:
+                    targets = interaction.get_participants(ParticipantType.Actor)
+                if targets:
+                    multiplier = stat_type.get_skill_based_statistic_multiplier(targets, amount)
         return amount*multiplier
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
@@ -799,3 +621,239 @@ class ObjectStatisticChangeOp(StatisticChangeOp):
 
     def get_fulfillment_rate(self, interaction):
         return 0
+
+class RelationshipOperationMixin:
+    FACTORY_TUNABLES = {'track_range': TunableInterval(description='\n                The relationship track must > lower_bound and <= upper_bound for\n                the operation to apply.', tunable_type=float, default_lower=-101, default_upper=100), 'headline_icon_modifier': OptionalTunable(description='\n                If enabled then when updating the relationship track we will\n                use an icon modifier when sending the headline.\n                ', tunable=TunableIcon(description='\n                    The icon that we will use as a modifier to the headline.\n                    ')), 'locked_args': {'advertise': False, 'stat': None}}
+    DEFAULT_PARTICIPANT_ARGUMENTS = {'subject': TunableEnumFlags(description='\n            The owner Sim for this relationship change. Relationship is updated\n            between the participant sim and the target objects as defined by\n            the object relationship track.\n            ', enum_type=ParticipantType, invalid_enums=ParticipantType.Invalid, default=ParticipantType.Actor), 'target_participant_type': TunableEnumFlags(description="\n            The target Sim for this relationship change. Any\n            relationship that would be given to 'self' is discarded.\n            ", enum_type=ParticipantType, invalid_enums=(ParticipantType.Invalid,), default=ParticipantType.Invalid)}
+
+    def find_op_participants(self, interaction, source=None, target=None):
+        if source is None:
+            actors = interaction.get_participants(self.subject)
+            if not actors:
+                return (source, target)
+            source = next(iter(actors))
+        if target is None:
+            targets = interaction.get_participants(self.target_participant_type)
+            for potential_target in targets:
+                if potential_target is not source:
+                    target = potential_target
+                    break
+        return (source, target)
+
+    def _get_sim_info_from_participant(self, participant):
+        if isinstance(participant, int):
+            sim_info_manager = services.sim_info_manager()
+            if sim_info_manager is None:
+                return
+            sim_info = sim_info_manager.get(participant)
+        else:
+            sim_info = getattr(participant, 'sim_info', participant)
+        if sim_info is None:
+            logger.error('Could not get Sim Info from {0} in StatisticAddRelationship loot op.', participant)
+        return sim_info
+
+class RelationshipOperation(RelationshipOperationMixin, StatisticOperation, BaseTargetedLootOperation):
+    FACTORY_TUNABLES = {'track': TunableReference(description='\n            The track to be manipulated.', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack')}
+
+    def __init__(self, track_range=None, track=DEFAULT, headline_icon_modifier=None, **kwargs):
+        super().__init__(**kwargs)
+        self._track_range = track_range
+        self._track = DEFAULT if track is None else track
+        self._loot_type = LootType.RELATIONSHIP
+        self._headline_icon_modifier = headline_icon_modifier
+
+    def __repr__(self):
+        return '<{} {} {}, subject: {} target:{}>'.format(type(self).__name__, self._track, self._track_range, self.subject, self.target_participant_type)
+
+    def get_stat(self, interaction, source=None, target=None):
+        (source, target) = self.find_op_participants(interaction, source, target)
+        if source is None or target is None:
+            return
+        if isinstance(target, int):
+            target_sim_id = target
+        else:
+            target_sim_id = target.sim_id
+        return source.sim_info.relationship_tracker.get_relationship_track(target_sim_id, self._track, True)
+
+    def _get_interval(self, aop):
+        return StatisticOperation.STATIC_CHANGE_INTERVAL
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        source_sim_info = self._get_sim_info_from_participant(subject)
+        if not source_sim_info:
+            return
+        target_sim_infos = []
+        if target == ParticipantType.AllRelationships:
+            sim_mgr = services.sim_info_manager()
+            target_sim_infos = set(sim_mgr.get(relations.get_other_sim_id(source_sim_info.sim_id)) for relations in source_sim_info.relationship_tracker)
+            target_sim_infos.discard(None)
+        else:
+            target_sim_info = self._get_sim_info_from_participant(target)
+            if not target_sim_info:
+                return
+            target_sim_infos = (target_sim_info,)
+        for target_sim_info in target_sim_infos:
+            if source_sim_info is target_sim_info:
+                if not self.target_participant_type & ParticipantType.PickedSim:
+                    logger.error('Attempting to give relationship loot between the same sim {} in {} with resolver: {}', target_sim_info, self, resolver, owner='nabaker')
+                    self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
+            else:
+                self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
+
+    def _apply_to_sim_info(self, source_sim_info, target_sim_id):
+        if self._track is DEFAULT:
+            self._track = RelationshipGlobalTuning.REL_INSPECTOR_TRACK
+        apply_initial_modifier = not services.relationship_service().has_relationship_track(source_sim_info.sim_id, target_sim_id, self._track)
+        rel_stat = source_sim_info.relationship_tracker.get_relationship_track(target_sim_id, self._track, True)
+        if rel_stat is not None:
+            self._maybe_apply_op(rel_stat.tracker, source_sim_info, apply_initial_modifier=apply_initial_modifier)
+
+    def _maybe_apply_op(self, tracker, target_sim, **kwargs):
+        value = tracker.get_value(self._track)
+        if self._track_range.lower_bound < value <= self._track_range.upper_bound:
+            self._apply(tracker, target_sim, headline_icon_modifier=self._headline_icon_modifier, **kwargs)
+
+class RandomSimStatisticAddRelationship(RelationshipOperation):
+    KNOWN_SIMS = 0
+    ALL_SIMS = 1
+
+    @staticmethod
+    def _verify_tunable_callback(cls, tunable_name, source, value):
+        if value._store_single_result_on_interaction and not value._number_of_random_sims is None and not value._number_of_random_sims == 1:
+            logger.error('RandomSimStatisticAddRelationship is tuned to store result on interaction and is expecting more than one result. {}', source)
+
+    FACTORY_TUNABLES = {'amount': lambda *args, **kwargs: _get_tunable_amount(*args, **kwargs), 'who': TunableVariant(description="\n            Which Sims are valid choices before running tests.\n            If set to known_sims_only then it will only choose between Sims \n            that the subject sim already knows.\n            \n            IF set to all_sims then it will choose between all of the sims, \n            including those that the Sim hasn't met.\n            ", locked_args={'known_sims_only': KNOWN_SIMS, 'all_sims': ALL_SIMS}, default='known_sims_only'), 'tests_on_random_sim': TunableTestSet(description='\n            Tests that will be run to filer the Sims where we will pick the\n            random sim to apply this statistic change.\n            '), 'number_of_random_sims': OptionalTunable(description='\n            If enabled allows you to specify the number of Sims to choose to\n            add the relationship with.\n            ', tunable=TunableRange(description='\n                The number of Sims to choose to add relationship with from\n                the list of valid choices.\n                ', tunable_type=int, minimum=1, default=1)), 'loot_applied_notification': OptionalTunable(description='\n            If enable the notification will be displayed passing the subject\n            and the random sim as tokens.\n            ', tunable=UiDialogNotification.TunableFactory(description='\n                Notification that will be shown when the loot is applied.\n                ')), 'create_sim_if_no_results': OptionalTunable(description='\n            If enabled, will result in a new Sim Info being created to meet\n            the conditions of the supplied Sim Template.\n            ', tunable=TunableReference(description='\n                A reference to a Sim Filter to use to create a Sim.\n                                \n                This does not guarantee that the created Sim will pass\n                tests_on_random_sim. However the resulting sim will be used as\n                a valid result.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SIM_FILTER), class_restrictions=('TunableSimFilter',))), 'store_single_result_on_interaction': OptionalTunable(description='\n            If enabled will place the result into the SavedActor specified on\n            the interaction.\n            \n            This will only work if the value of number_or_random_sims is 1.\n            This will overwrite whatever else is currently set in the\n            SavedActor space chosen.\n            ', tunable=TunableEnumEntry(description='\n            \n                ', tunable_type=ParticipantTypeSavedActor, default=ParticipantTypeSavedActor.SavedActor1)), 'verify_tunable_callback': _verify_tunable_callback}
+
+    def __init__(self, *args, amount, who, tests_on_random_sim, number_of_random_sims, loot_applied_notification, create_sim_if_no_results, store_single_result_on_interaction, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._amount = amount
+        self._who = who
+        self._tests_on_random_sim = tests_on_random_sim
+        self._number_of_random_sims = number_of_random_sims
+        self._loot_applied_notification = loot_applied_notification
+        self._create_sim_if_no_results = create_sim_if_no_results
+        self._store_single_result_on_interaction = store_single_result_on_interaction
+
+    def get_value(self, **kwargs):
+        return self._amount
+
+    def _apply(self, tracker, target_sim, **kwargs):
+        tracker.add_value(self._track, self._amount, **kwargs)
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        source_sim_info = self._get_sim_info_from_participant(subject)
+        if not source_sim_info:
+            return
+        valid_sim_infos = []
+        if self._who == self.KNOWN_SIMS:
+            target_sim_infos = source_sim_info.relationship_tracker.get_target_sim_infos()
+            for target_sim_info in target_sim_infos:
+                test_resolver = DoubleSimResolver(source_sim_info, target_sim_info)
+                if self._tests_on_random_sim.run_tests(test_resolver):
+                    valid_sim_infos.append(target_sim_info)
+        elif self._who == self.ALL_SIMS:
+            sim_info_manager = services.sim_info_manager()
+            for sim_info in sim_info_manager.values():
+                test_resolver = DoubleSimResolver(source_sim_info, sim_info)
+                if self._tests_on_random_sim.run_tests(test_resolver):
+                    valid_sim_infos.append(sim_info)
+        if not valid_sim_infos:
+            if not self._create_sim_if_no_results:
+                return
+            result = self._create_sim_if_no_results.create_sim_info(0)
+            if result:
+                valid_sim_infos.append(result.sim_info)
+        for _ in range(self._number_of_random_sims or 1):
+            if not valid_sim_infos:
+                break
+            target_sim_info = random.choice(valid_sim_infos)
+            valid_sim_infos.remove(target_sim_info)
+            if source_sim_info is target_sim_info:
+                target_sim_info = random.choice(valid_sim_infos)
+                valid_sim_infos.remove(target_sim_info)
+            self._apply_to_sim_info(source_sim_info, target_sim_info.sim_id)
+            if self._loot_applied_notification is not None:
+                dialog = self._loot_applied_notification(source_sim_info, resolver=DoubleSimResolver(source_sim_info, target_sim_info))
+                dialog.show_dialog()
+            if self._store_single_result_on_interaction:
+                interaction = resolver.interaction
+                if interaction is not None:
+                    for (index, tag) in enumerate(list(ParticipantTypeSavedActor)):
+                        if tag is self._store_single_result_on_interaction:
+                            interaction.set_saved_participant(index, target_sim_info)
+                            break
+
+class StatisticAddRelationship(RelationshipOperation):
+    FACTORY_TUNABLES = {'amount': lambda *args, **kwargs: _get_tunable_amount(*args, **kwargs)}
+
+    def __init__(self, amount, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._amount = amount
+
+    def get_value(self, **kwargs):
+        return self._amount
+
+    def _apply(self, tracker, target_sim, **kwargs):
+        tracker.add_value(self._track, self._amount, **kwargs)
+
+class StatisticSetRelationship(RelationshipOperation):
+    FACTORY_TUNABLES = {'value': Tunable(description='\n                The value to set the relationship to.', tunable_type=float, default=0)}
+
+    def __init__(self, value, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._value = value
+
+    def get_value(self, **kwargs):
+        return self._value - self._track.default_value
+
+    def _apply(self, tracker, target_sim, apply_initial_modifier=False, **kwargs):
+        tracker.set_value(self._track, self._value, apply_initial_modifier=apply_initial_modifier, **kwargs)
+
+class ObjectRelationshipOperation(RelationshipOperationMixin, StatisticOperation, BaseTargetedLootOperation):
+    FACTORY_TUNABLES = {'track': TunableReference(description='\n            The track to be manipulated.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='ObjectRelationshipTrack')}
+
+    def __init__(self, track_range=None, track=DEFAULT, headline_icon_modifier=None, **kwargs):
+        super().__init__(**kwargs)
+        self._track_range = track_range
+        self._track = DEFAULT if track is None else track
+        self._loot_type = LootType.RELATIONSHIP
+        self._headline_icon_modifier = headline_icon_modifier
+
+    def get_stat(self, interaction, source=None, target=None):
+        (source, target) = self.find_op_participants(interaction, source, target)
+        if source is None or target is None:
+            logger.error('None participant found while applying Object Relationship Operations. Source: {}, Target: {}', source, target)
+            return
+        obj_tag_set = ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS[self._track]
+        return services.relationship_service().get_object_relationship_track(source.sim_info.sim_id, obj_tag_set, target.definition.id, track=self._track, add=True)
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        source_sim_info = self._get_sim_info_from_participant(subject)
+        if not source_sim_info:
+            return
+        self._apply_to_sim_info(source_sim_info, target)
+
+    def _apply_to_sim_info(self, source_sim_info, target):
+        obj_tag_set = ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS[self._track]
+        apply_initial_modifier = not services.relationship_service().has_object_relationship_track(source_sim_info.sim_id, obj_tag_set, self._track)
+        rel_stat = services.relationship_service().get_object_relationship_track(source_sim_info.sim_id, obj_tag_set, target_def_id=target.definition.id, track=self._track, add=True)
+        if rel_stat is not None:
+            self._maybe_apply_op(rel_stat.tracker, source_sim_info, apply_initial_modifier=apply_initial_modifier)
+
+    def _maybe_apply_op(self, tracker, source_sim, **kwargs):
+        value = tracker.get_value(self._track)
+        if self._track_range.lower_bound < value <= self._track_range.upper_bound:
+            self._apply(tracker, source_sim, headline_icon_modifier=self._headline_icon_modifier, **kwargs)
+
+class StatisticAddObjectRelationship(ObjectRelationshipOperation):
+    FACTORY_TUNABLES = {'amount': lambda *args, **kwargs: _get_tunable_amount(*args, **kwargs)}
+
+    def __init__(self, amount, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._amount = amount
+
+    def get_value(self, **kwargs):
+        return self._amount
+
+    def _apply(self, tracker, target_sim, **kwargs):
+        tracker.add_value(self._track, self._amount, **kwargs)

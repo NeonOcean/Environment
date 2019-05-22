@@ -14,12 +14,11 @@ class CoworkerMixin:
         sim_info_manager = services.sim_info_manager()
         for target in sim_info_manager.values():
             if self._sim_info is target:
-                pass
-            elif not target.career_tracker is None:
+                continue
+            if not target.career_tracker is None:
                 if target.career_tracker.get_career_by_uid(self.guid64) is None:
-                    pass
-                else:
-                    add_coworker_relationship_bit(self._sim_info, target)
+                    continue
+                add_coworker_relationship_bit(self._sim_info, target)
 
     def remove_coworker_relationship_bit(self):
         if not self.has_coworkers:
@@ -32,9 +31,9 @@ class CoworkerMixin:
         for target in tracker.get_target_sim_infos():
             if target is None:
                 logger.callstack('SimInfos not all loaded', level=sims4.log.LEVEL_ERROR)
-            elif not tracker.has_bit(target.id, self.COWORKER_RELATIONSHIP_BIT):
-                pass
             else:
+                if not tracker.has_bit(target.id, self.COWORKER_RELATIONSHIP_BIT):
+                    continue
                 yield target
 
 def fixup_coworker_relationship_bit():
@@ -42,18 +41,16 @@ def fixup_coworker_relationship_bit():
     sim_info_manager = services.sim_info_manager()
     for sim_info in sim_info_manager.values():
         if sim_info.career_tracker is None:
-            pass
-        else:
-            for career in sim_info.careers.values():
-                if not career.has_coworkers:
-                    pass
-                else:
-                    career_map[career.guid64].append(sim_info)
+            continue
+        for career in sim_info.careers.values():
+            if not career.has_coworkers:
+                continue
+            career_map[career.guid64].append(sim_info)
     for coworkers in career_map.values():
         for (a, b) in itertools.combinations(coworkers, 2):
             if a is b:
-                pass
-            elif not a.relationship_tracker.has_bit(b.id, CoworkerMixin.COWORKER_RELATIONSHIP_BIT):
+                continue
+            if not a.relationship_tracker.has_bit(b.id, CoworkerMixin.COWORKER_RELATIONSHIP_BIT):
                 add_coworker_relationship_bit(a, b)
 
 def add_coworker_relationship_bit(a, b):

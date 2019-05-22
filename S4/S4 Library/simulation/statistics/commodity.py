@@ -168,8 +168,9 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
                     if threshold_value < state.value or threshold_value > previous_value:
                         logger.error('{0} add buff threshold is out of range for state at index:{1}.  Please update tuning', cls, index)
                 previous_value = state.value
-                if state.buff is not None and state.buff.buff_type is not None:
-                    state.buff.buff_type.add_owning_commodity(cls)
+                if state.buff is not None:
+                    if state.buff.buff_type is not None:
+                        state.buff.buff_type.add_owning_commodity(cls)
 
     @classmethod
     def _verify_tuning_callback(cls):
@@ -318,13 +319,14 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
         self._setup_commodity_states(apply_state_enter_loot=apply_state_enter_loot)
         self.decay_enabled = not self.tracker.owner.is_locked(self)
         self._apply_buff_load_reason()
-        if self._convergence_callback_data is None:
-            self._convergence_callback_data = self.create_callback_listener(Threshold(self.convergence_value, operator.eq), self._remove_self_from_tracker)
-            if activate_convergence_callback:
-                self.add_callback_listener(self._convergence_callback_data)
-                self._allow_convergence_callback_to_activate = False
-            else:
-                self._allow_convergence_callback_to_activate = True
+        if self.remove_on_convergence:
+            if self._convergence_callback_data is None:
+                self._convergence_callback_data = self.create_callback_listener(Threshold(self.convergence_value, operator.eq), self._remove_self_from_tracker)
+                if activate_convergence_callback:
+                    self.add_callback_listener(self._convergence_callback_data)
+                    self._allow_convergence_callback_to_activate = False
+                else:
+                    self._allow_convergence_callback_to_activate = True
 
     @contextlib.contextmanager
     def _suppress_client_updates_context_manager(self, is_rate_change=True):
@@ -466,19 +468,21 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
 
     def _get_next_buff_commodity_decaying_to(self):
         transition_into_buff_id = 0
-        if self._current_state_index > 0:
-            current_value = self.get_value()
-            buff_tunable_ref = None
-            if self.convergence_value <= current_value:
-                buff_tunable_ref = self.commodity_states[self._current_state_index - 1].buff
-            else:
-                next_state_index = self._current_state_index + 1
-                if next_state_index < len(self.commodity_states):
-                    buff_tunable_ref = self.commodity_states[next_state_index].buff
-            if buff_tunable_ref is not None:
-                buff_type = buff_tunable_ref.buff_type
-                if buff_type.visible:
-                    transition_into_buff_id = buff_type.guid64
+        if self._current_state_index is not None:
+            if self._current_state_index > 0:
+                current_value = self.get_value()
+                buff_tunable_ref = None
+                if self.convergence_value <= current_value:
+                    buff_tunable_ref = self.commodity_states[self._current_state_index - 1].buff
+                else:
+                    next_state_index = self._current_state_index + 1
+                    if next_state_index < len(self.commodity_states):
+                        buff_tunable_ref = self.commodity_states[next_state_index].buff
+                if buff_tunable_ref is not None:
+                    buff_type = buff_tunable_ref.buff_type
+                    if buff_type is not None:
+                        if buff_type.visible:
+                            transition_into_buff_id = buff_type.guid64
         return transition_into_buff_id
 
     def _add_buff_from_state(self, commodity_state, apply_buff_loot=True):
@@ -493,10 +497,11 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
 
     def _apply_buff_load_reason(self):
         self.force_apply_buff_on_start_up = False
-        if self._buff_handle is not None:
-            current_state = self.commodity_states[self._current_state_index]
-            self.tracker.owner.set_buff_reason(current_state.buff.buff_type, self.force_buff_reason, use_replacement=True)
-            self.force_buff_reason = None
+        if self.force_buff_reason is not None:
+            if self._buff_handle is not None:
+                current_state = self.commodity_states[self._current_state_index]
+                self.tracker.owner.set_buff_reason(current_state.buff.buff_type, self.force_buff_reason, use_replacement=True)
+                self.force_buff_reason = None
 
     def _add_buff_callback(self, _):
         current_state = self.commodity_states[self._current_state_index]
@@ -515,19 +520,20 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
             self.tracker.owner.remove_buff(self._buff_handle)
             self._buff_handle = None
         if new_state.buff.buff_type:
-            if new_state.buff_add_threshold is not None and not (self.force_apply_buff_on_start_up or new_state.buff_add_threshold.compare(current_value)):
+            if new_state.buff_add_threshold is not None and not self.force_apply_buff_on_start_up and not new_state.buff_add_threshold.compare(current_value):
                 self._buff_threshold_callback = self.create_and_add_callback_listener(new_state.buff_add_threshold, self._add_buff_callback)
             else:
                 apply_buff_loot = apply_state_enter_loot or old_state_index is not None
                 self._add_buff_from_state(new_state, apply_buff_loot=apply_buff_loot)
-        if new_state.loot_list_on_enter is not None:
-            if self.tracker.owner.is_sim:
-                resolver = event_testing.resolver.SingleSimResolver(self.tracker.owner)
-            else:
-                resolver = event_testing.resolver.SingleObjectResolver(self.tracker.owner)
-            for loot_action in new_state.loot_list_on_enter:
-                loot_action.apply_to_resolver(resolver)
-        if (old_state_index is not None or apply_state_enter_loot or new_state.apply_loot_on_load) and send_client_update:
+        if old_state_index is not None or apply_state_enter_loot or new_state.apply_loot_on_load:
+            if new_state.loot_list_on_enter is not None:
+                if self.tracker.owner.is_sim:
+                    resolver = event_testing.resolver.SingleSimResolver(self.tracker.owner)
+                else:
+                    resolver = event_testing.resolver.SingleObjectResolver(self.tracker.owner)
+                for loot_action in new_state.loot_list_on_enter:
+                    loot_action.apply_to_resolver(resolver)
+        if send_client_update:
             self.send_commodity_progress_msg()
 
     def _enter_distress(self, stat_instance):
@@ -624,15 +630,18 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
         elif self.time_passage_fixup_type() == CommodityTimePassageFixupType.FIXUP_USING_AUTOSATISFY_CURVE and (self._off_lot_simulation == self.OFF_LOT_SIM_DISABLED or self.tracker.owner.is_baby or sim.is_npc and self._off_lot_simulation != self.OFF_LOT_SIM_ALL):
             self.set_to_auto_satisfy_value()
 
-    def update_commodity_to_time(self, time):
+    def update_commodity_to_time(self, time, update_callbacks=False):
         self._last_update = time
+        old_value = self._value
         self._update_value()
+        if update_callbacks:
+            self._update_callback_listeners(old_value=old_value, new_value=self._value)
 
     def set_to_auto_satisfy_value(self):
         if self.use_autosatisfy_curve and self._auto_satisfy_curve:
             now = services.time_service().sim_now
             time_sim_was_saved = self.tracker.owner.time_sim_was_saved
-            if time_sim_was_saved is None and self.use_auto_satisfy_curve_as_initial_value and time_sim_was_saved == now:
+            if not (not time_sim_was_saved is None or self.use_auto_satisfy_curve_as_initial_value) or time_sim_was_saved == now:
                 return False
             random_time_offset = random.uniform(-1*self.auto_satisfy_curve_random_time_offset, self.auto_satisfy_curve_random_time_offset)
             now += interval_in_sim_minutes(random_time_offset)
@@ -752,8 +761,8 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
             for index in range(len(cls.commodity_states)):
                 state = cls.commodity_states[index]
                 if state.buff is None:
-                    pass
-                elif state.buff.buff_type is buff_type:
+                    continue
+                if state.buff.buff_type is buff_type:
                     return index
 
     @classproperty
@@ -858,9 +867,10 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass=HashedT
         commodity_msg.commodity_state_index = self.state_index
         commodity_msg.is_rate_change = is_rate_change
 
-    def on_unlock(self):
-        super().on_unlock()
-        self.set_to_exact_auto_satisfy_value()
+    def on_unlock(self, auto_satisfy=True):
+        super().on_unlock(auto_satisfy=auto_satisfy)
+        if auto_satisfy:
+            self.set_to_exact_auto_satisfy_value()
 
 class RuntimeCommodity(Commodity):
     INSTANCE_SUBCLASSES_ONLY = True

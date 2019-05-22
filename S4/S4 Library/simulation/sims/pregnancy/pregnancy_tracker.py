@@ -31,7 +31,7 @@ import sims4.log
 logger = sims4.log.Logger('Pregnancy', default_owner='epanero')
 
 class PregnancyTracker(SimInfoTracker):
-    PREGNANCY_COMMODITY_MAP = TunableMapping(description='\n        The commodity to award if conception is successful.\n        ', key_type=TunableEnumEntry(description='\n            Species these commodities are intended for.\n            ', tunable_type=Species, default=Species.HUMAN), value_type=TunableReference(description='\n            The commodity reference controlling pregnancy.\n            ', pack_safe=True, manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)))
+    PREGNANCY_COMMODITY_MAP = TunableMapping(description='\n        The commodity to award if conception is successful.\n        ', key_type=TunableEnumEntry(description='\n            Species these commodities are intended for.\n            ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunableReference(description='\n            The commodity reference controlling pregnancy.\n            ', pack_safe=True, manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)))
     PREGNANCY_TRAIT = TunableReference(description='\n        The trait that all pregnant Sims have during pregnancy.\n        ', manager=services.trait_manager())
     PREGNANCY_ORIGIN_TRAIT_MAPPING = TunableMapping(description='\n        A mapping from PregnancyOrigin to a set of traits to be added at the\n        start of the pregnancy, and removed at the end of the pregnancy.\n        ', key_type=PregnancyOrigin, value_type=TunableTuple(description='\n            A tuple of the traits that should be added/removed with a pregnancy\n            that has this origin, and the content pack they are associated with.\n            ', traits=TunableSet(description='\n                The traits to be added/removed.\n                ', tunable=Trait.TunablePackSafeReference()), pack=TunableEnumEntry(description='\n                The content pack associated with this set of traits. If the pack\n                is uninstalled, the pregnancy will be auto-completed.\n                ', tunable_type=Pack, default=Pack.BASE_GAME)))
     PREGNANCY_RATE = TunableRange(description='\n        The rate per Sim minute of pregnancy.\n        ', tunable_type=float, default=0.001, minimum=EPSILON)
@@ -99,30 +99,31 @@ class PregnancyTracker(SimInfoTracker):
         self.enable_pregnancy()
 
     def enable_pregnancy(self):
-        if not self._is_enabled:
-            pregnancy_commodity_type = self.PREGNANCY_COMMODITY_MAP.get(self._sim_info.species)
-            tracker = self._sim_info.get_tracker(pregnancy_commodity_type)
-            pregnancy_commodity = tracker.get_statistic(pregnancy_commodity_type, add=True)
-            pregnancy_commodity.add_statistic_modifier(self.PREGNANCY_RATE)
-            threshold = sims4.math.Threshold(pregnancy_commodity.max_value, operator.ge)
-            self._completion_callback_listener = tracker.create_and_add_listener(pregnancy_commodity.stat_type, threshold, self._on_pregnancy_complete)
-            if threshold.compare(pregnancy_commodity.get_value()):
-                self._on_pregnancy_complete()
-            tracker = self._sim_info.get_tracker(self.GENDER_CHANCE_STAT)
-            tracker.add_statistic(self.GENDER_CHANCE_STAT)
-            self._sim_info.add_trait(self.PREGNANCY_TRAIT)
-            traits_pack_tuple = self.PREGNANCY_ORIGIN_TRAIT_MAPPING.get(self._origin)
-            if traits_pack_tuple is not None:
-                for trait in traits_pack_tuple.traits:
-                    self._sim_info.add_trait(trait)
-            self._is_enabled = True
+        if self.is_pregnant:
+            if not self._is_enabled:
+                pregnancy_commodity_type = self.PREGNANCY_COMMODITY_MAP.get(self._sim_info.species)
+                tracker = self._sim_info.get_tracker(pregnancy_commodity_type)
+                pregnancy_commodity = tracker.get_statistic(pregnancy_commodity_type, add=True)
+                pregnancy_commodity.add_statistic_modifier(self.PREGNANCY_RATE)
+                threshold = sims4.math.Threshold(pregnancy_commodity.max_value, operator.ge)
+                self._completion_callback_listener = tracker.create_and_add_listener(pregnancy_commodity.stat_type, threshold, self._on_pregnancy_complete)
+                if threshold.compare(pregnancy_commodity.get_value()):
+                    self._on_pregnancy_complete()
+                tracker = self._sim_info.get_tracker(self.GENDER_CHANCE_STAT)
+                tracker.add_statistic(self.GENDER_CHANCE_STAT)
+                self._sim_info.add_trait(self.PREGNANCY_TRAIT)
+                traits_pack_tuple = self.PREGNANCY_ORIGIN_TRAIT_MAPPING.get(self._origin)
+                if traits_pack_tuple is not None:
+                    for trait in traits_pack_tuple.traits:
+                        self._sim_info.add_trait(trait)
+                self._is_enabled = True
 
     def _on_pregnancy_complete(self, *_, **__):
         if not self.is_pregnant:
             return
         if self._sim_info.is_npc:
             current_zone = services.current_zone()
-            if current_zone.is_zone_running and self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+            if not current_zone.is_zone_running or self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
                 if self._completion_alarm_handle is None:
                     self._completion_alarm_handle = alarms.add_alarm(self, clock.interval_in_sim_minutes(1), self._on_pregnancy_complete, repeating=True, cross_zone=True)
             else:
@@ -266,17 +267,17 @@ class PregnancyTracker(SimInfoTracker):
             trait_entries = cls.PREGNANCY_ORIGIN_MODIFIERS[origin].trait_entries
             for trait_entry in trait_entries:
                 if random.random() >= trait_entry.chance:
-                    pass
-                else:
-                    selected_trait = pop_weighted([(t.weight, t.trait) for t in trait_entry.traits if t.trait.is_valid_trait(offspring_data)], random=random)
-                    if selected_trait is not None:
-                        _add_trait_if_possible(selected_trait)
-        if parent_b is not None:
-            for inherited_trait_entries in parent_a.trait_tracker.get_inherited_traits(parent_b):
-                selected_trait = pop_weighted(list(inherited_trait_entries), random=random)
+                    continue
+                selected_trait = pop_weighted([(t.weight, t.trait) for t in trait_entry.traits if t.trait.is_valid_trait(offspring_data)], random=random)
                 if selected_trait is not None:
                     _add_trait_if_possible(selected_trait)
-        if not (parent_a is not None and personality_trait_slots):
+        if parent_a is not None:
+            if parent_b is not None:
+                for inherited_trait_entries in parent_a.trait_tracker.get_inherited_traits(parent_b):
+                    selected_trait = pop_weighted(list(inherited_trait_entries), random=random)
+                    if selected_trait is not None:
+                        _add_trait_if_possible(selected_trait)
+        if not personality_trait_slots:
             return traits
         personality_traits = get_possible_traits(offspring_data)
         random.shuffle(personality_traits)
@@ -292,25 +293,30 @@ class PregnancyTracker(SimInfoTracker):
         traits_b = set(parent_b.trait_tracker.personality_traits)
         shared_parent_traits = list(traits_a.intersection(traits_b) - set(traits))
         random.shuffle(shared_parent_traits)
-        while personality_trait_slots and shared_parent_traits:
-            current_trait = shared_parent_traits.pop()
-            if current_trait in personality_traits:
-                personality_traits.remove(current_trait)
-            did_add_trait = _add_trait_if_possible(current_trait)
-            if did_add_trait and not personality_trait_slots:
-                return traits
+        while personality_trait_slots:
+            while shared_parent_traits:
+                current_trait = shared_parent_traits.pop()
+                if current_trait in personality_traits:
+                    personality_traits.remove(current_trait)
+                did_add_trait = _add_trait_if_possible(current_trait)
+                if did_add_trait:
+                    if not personality_trait_slots:
+                        return traits
         remaining_parent_traits = list(traits_a.symmetric_difference(traits_b) - set(traits))
         random.shuffle(remaining_parent_traits)
-        while personality_trait_slots and remaining_parent_traits:
-            current_trait = remaining_parent_traits.pop()
-            if current_trait in personality_traits:
-                personality_traits.remove(current_trait)
-            did_add_trait = _add_trait_if_possible(current_trait)
-            if did_add_trait and not personality_trait_slots:
-                return traits
-        while personality_trait_slots and personality_traits:
-            current_trait = personality_traits.pop()
-            _add_trait_if_possible(current_trait)
+        while personality_trait_slots:
+            while remaining_parent_traits:
+                current_trait = remaining_parent_traits.pop()
+                if current_trait in personality_traits:
+                    personality_traits.remove(current_trait)
+                did_add_trait = _add_trait_if_possible(current_trait)
+                if did_add_trait:
+                    if not personality_trait_slots:
+                        return traits
+        while personality_trait_slots:
+            while personality_traits:
+                current_trait = personality_traits.pop()
+                _add_trait_if_possible(current_trait)
         return traits
 
     def create_offspring_data(self):
@@ -381,10 +387,11 @@ class PregnancyTracker(SimInfoTracker):
                             logger.error('Pregnancy for {} has a None parent for IDs {}. Please file a DT with a save attached.', self._sim_info, ','.join(str(parent_id) for parent_id in self._parent_ids))
                             return
                         parent_instance = parent.get_sim_instance()
-                        if parent_instance is not None and parent_instance.client is not None:
-                            additional_tokens = list(itertools.chain(self.get_parents(), self._offspring_data))
-                            dialog = npc_dialog(parent_instance, DoubleSimResolver(additional_tokens[0], additional_tokens[1]))
-                            dialog.show_dialog(additional_tokens=additional_tokens)
+                        if parent_instance is not None:
+                            if parent_instance.client is not None:
+                                additional_tokens = list(itertools.chain(self.get_parents(), self._offspring_data))
+                                dialog = npc_dialog(parent_instance, DoubleSimResolver(additional_tokens[0], additional_tokens[1]))
+                                dialog.show_dialog(additional_tokens=additional_tokens)
                 return
 
     def save(self):

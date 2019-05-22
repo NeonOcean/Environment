@@ -88,12 +88,13 @@ def genealogy_show_family_tree(sim_info_id:int, antecedent_depth:int=8, descenda
                     if relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.SIBLING_RELATIONSHIP_BIT):
                         with ProtocolBufferRollback(family_tree_node.siblings) as sibling_family_tree_node:
                             populate_family_tree_node(sibling_family_tree_node, relationship.get_other_sim_id(sim_info_id), 1, 0, incoming_sim_id=sim_info_id)
-                    elif incoming_sim_id or relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.GRANDPARENT_RELATIONSHIP_BIT):
+                    elif not incoming_sim_id and relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.GRANDPARENT_RELATIONSHIP_BIT):
                         with ProtocolBufferRollback(family_tree_node.grandparents) as grandparent_family_tree_node:
                             populate_family_tree_node(grandparent_family_tree_node, relationship.get_other_sim_id(sim_info_id), 0, 1, include_spouse=True, incoming_sim_id=sim_info_id)
-                    elif relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.GRANDCHILD_RELATIONSHIP_BIT):
-                        with ProtocolBufferRollback(family_tree_node.grandchildren) as grandchild_family_tree_node:
-                            populate_family_tree_node(grandchild_family_tree_node, relationship.get_other_sim_id(sim_info_id), 1, 0, incoming_sim_id=sim_info_id)
+                    elif not incoming_sim_id:
+                        if relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.GRANDCHILD_RELATIONSHIP_BIT):
+                            with ProtocolBufferRollback(family_tree_node.grandchildren) as grandchild_family_tree_node:
+                                populate_family_tree_node(grandchild_family_tree_node, relationship.get_other_sim_id(sim_info_id), 1, 0, incoming_sim_id=sim_info_id)
                 if include_spouse:
                     if relationship.has_bit(sim_info.sim_id, FamilyRelationshipTuning.DIVORCED_SPOUSE_RELATIONSHIP_BIT):
                         with ProtocolBufferRollback(family_tree_node.divorced_spouses) as divorced_spouse_family_tree_node:

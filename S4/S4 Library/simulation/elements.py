@@ -198,8 +198,7 @@ class GeneratorElementBase(ParentElement):
         self.generator = pending_generator(timeline)
         try:
             child = next(self.generator)
-            if not _check_yield(child):
-                raise AssertionError('Yielding non-Element handle: {}'.format(child))
+            assert _check_yield(child)
             return child
         except StopIteration as exc:
             return GeneratorElementBase._result_value(exc)
@@ -207,8 +206,7 @@ class GeneratorElementBase(ParentElement):
     def _resume(self, timeline, child_result):
         try:
             child = self.generator.send(child_result)
-            if not _check_yield(child):
-                raise AssertionError('Yielding non-Element handle: {}'.format(child))
+            assert _check_yield(child)
             return child
         except StopIteration as exc:
             return GeneratorElementBase._result_value(exc)
@@ -244,10 +242,11 @@ class GeneratorElementBase(ParentElement):
         elif self.generator.gi_frame is not None:
             status = 'active'
             name = '{}@{}'.format(self.generator.gi_code.co_name, self.generator.gi_code.co_firstlineno)
-            if self._child_handle is not None:
-                child_element = self._child_handle.element
-                if child_element is not None:
-                    status += '; child: {}'.format(child_element)
+            if not tracing:
+                if self._child_handle is not None:
+                    child_element = self._child_handle.element
+                    if child_element is not None:
+                        status += '; child: {}'.format(child_element)
         else:
             status = 'dead'
             name = self._get_default_gen_name()
@@ -472,7 +471,7 @@ class SequenceElement(ParentElement):
 
     def _run_next(self, timeline):
         cancelled = self.soft_stopped or self.failed
-        if self.index < len(self.queue):
+        while self.index < len(self.queue):
             child_element = self.queue[self.index]
             if cancelled and not isinstance(child_element, MustRunElement):
                 self.index += 1
@@ -620,14 +619,13 @@ class AllElement(Element):
         self.result = None
 
     def add_work(self, timeline, child):
-        if child in self.active:
-            raise AssertionError('Double scheduling of child in add_work.')
+        assert not child in self.active
         (element, handle) = timeline._active
-        while handle is not None and element is not self:
-            handle = element._parent_handle
-            element = handle.element
-        if handle is None:
-            raise AssertionError('Work can only be added to an All element when it in the running chain.')
+        while handle is not None:
+            while element is not self:
+                handle = element._parent_handle
+                element = handle.element
+        assert not handle is None
         self.active[child] = child_handle = timeline.schedule_asap(child)
         child_handle.element.set_parent_handle(handle)
 
@@ -637,8 +635,7 @@ class AllElement(Element):
         pending = self.inactive
         self.inactive = []
         for child in pending:
-            if child in children:
-                raise AssertionError('Double scheduling of a child in All')
+            assert not child in children
             children[child] = timeline.schedule_child(child, timeline.now)
         self.active = children
         return self._work(timeline)

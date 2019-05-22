@@ -37,10 +37,9 @@ class SuperInteractionRestorer:
         for sim_info in sim_info_manager.get_sims_for_spin_up_action(SimZoneSpinUpAction.RESTORE_SI):
             sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             if sim is None:
-                pass
-            else:
-                self._sims_to_restore.append(sim.ref())
-                sim.set_allow_route_instantly_when_hitting_marks(True)
+                continue
+            self._sims_to_restore.append(sim.ref())
+            sim.set_allow_route_instantly_when_hitting_marks(True)
         if not self._sims_to_restore:
             return
         self._sims_to_restore.sort(key=lambda sim_ref: sim_ref().id)

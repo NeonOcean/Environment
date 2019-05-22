@@ -11,7 +11,7 @@ class FilteredObjectPickerInteraction(ObjectPickerInteraction):
     ON_LOT_ONLY = 'on_lot'
     OFF_LOT_ONLY = 'off_lot'
     ANYWHERE = 'anywhere'
-    INSTANCE_TUNABLES = {'object_filter': ObjectDefinitonsOrTagsVariant(description='\n            Filter to use to find an object.\n            ', tuning_group=GroupNames.PICKERTUNING), 'on_off_lot_requirement': TunableVariant(description='\n            Whether to accept objects on the active lot.\n            ', default=ON_LOT_ONLY, locked_args={ANYWHERE: ANYWHERE, OFF_LOT_ONLY: OFF_LOT_ONLY, ON_LOT_ONLY: ON_LOT_ONLY}, tuning_group=GroupNames.PICKERTUNING)}
+    INSTANCE_TUNABLES = {'object_filter': ObjectDefinitonsOrTagsVariant(description='\n            Filter to use to find an object.\n            ', tuning_group=GroupNames.PICKERTUNING), 'on_off_lot_requirement': TunableVariant(description='\n            Whether to accept objects on the active lot.\n            ', default=ON_LOT_ONLY, locked_args={ON_LOT_ONLY: ON_LOT_ONLY, OFF_LOT_ONLY: OFF_LOT_ONLY, ANYWHERE: ANYWHERE}, tuning_group=GroupNames.PICKERTUNING)}
 
     @flexmethod
     def _get_objects_gen(cls, inst, target, context, **kwargs):

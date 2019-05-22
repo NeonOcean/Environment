@@ -63,12 +63,11 @@ class NotebookEntryBait(NotebookEntry):
     def has_identical_entries(self, entries):
         for entry in entries:
             if entry.recipe_object_definition_id != self.recipe_object_definition_id:
-                pass
-            else:
-                for entry_id in self.entry_object_definition_ids:
-                    if entry_id not in entry.entry_object_definition_ids:
-                        entry.add_entry_definition_id(entry_id)
-                return True
+                continue
+            for entry_id in self.entry_object_definition_ids:
+                if entry_id not in entry.entry_object_definition_ids:
+                    entry.add_entry_definition_id(entry_id)
+            return True
         return False
 
 class NotebookEntryRecipe(NotebookEntry):

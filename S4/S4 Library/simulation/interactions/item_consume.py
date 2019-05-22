@@ -28,13 +28,13 @@ class ItemCost(AutoFactoryInit, HasTunableSingletonFactory):
             if item_count < item.quantity:
                 unavailable_items[item.ingredient] += item.quantity - item_count
         if unavailable_items:
-            tooltip = LocalizationHelperTuning.get_bulleted_list(self.UNAVAILABLE_TOOLTIP_HEADER(sim), tuple(LocalizationHelperTuning.get_object_count(count, item) for (item, count) in unavailable_items.items()))
+            tooltip = LocalizationHelperTuning.get_bulleted_list(self.UNAVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(count, item) for (item, count) in unavailable_items.items()))
             return event_testing.results.TestResult(False, "Sim doesn't have the required items in inventory.", tooltip=lambda *_, **__: tooltip)
         return TestResult.TRUE
 
     def get_interaction_tooltip(self, tooltip=None, sim=None):
         if self.ingredients:
-            item_tooltip = LocalizationHelperTuning.get_bulleted_list(self.AVAILABLE_TOOLTIP_HEADER(sim), tuple(LocalizationHelperTuning.get_object_count(ingredient.quantity, ingredient.ingredient) for ingredient in self.ingredients))
+            item_tooltip = LocalizationHelperTuning.get_bulleted_list(self.AVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(ingredient.quantity, ingredient.ingredient) for ingredient in self.ingredients))
             if tooltip is None:
                 return item_tooltip
             else:

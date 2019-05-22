@@ -649,12 +649,13 @@ class RestaurantDinerBackGroundSituation(SituationComplexCommon):
         elif self.cur_state_is_correct_state_type(_DinerAdvanceToSeatedOrEating):
             self._cur_state.sim_added()
         for member in self._situation_sims:
-            if not self.is_player_group():
-                self.add_has_met_rel_bit(sim.sim_info, member.sim_info)
-            greetings.add_greeted_rel_bit(sim.sim_info, member.sim_info)
-            sim_rel_tracker = sim.sim_info.relationship_tracker
-            if member is not sim and sim_rel_tracker is not None:
-                sim_rel_tracker.add_relationship_bit(member.id, self.group_rel_bit)
+            if member is not sim:
+                if not self.is_player_group():
+                    self.add_has_met_rel_bit(sim.sim_info, member.sim_info)
+                greetings.add_greeted_rel_bit(sim.sim_info, member.sim_info)
+                sim_rel_tracker = sim.sim_info.relationship_tracker
+                if sim_rel_tracker is not None:
+                    sim_rel_tracker.add_relationship_bit(member.id, self.group_rel_bit)
 
     def add_has_met_rel_bit(self, a_sim_info, b_sim_info):
         a_sim_info.relationship_tracker.add_relationship_bit(b_sim_info.id, RelationshipGlobalTuning.HAS_MET_RELATIONSHIP_BIT)
@@ -824,8 +825,8 @@ class RestaurantDinerBackGroundSituation(SituationComplexCommon):
     def cleanup_sub_situations(self, sim=None):
         for situation in self.sub_situations:
             if situation and (sim is not None and sim not in situation.all_sims_in_situation_gen()) and situation.get_num_sims_in_job() > 0:
-                pass
-            elif situation is not None:
+                continue
+            if situation is not None:
                 situation._self_destruct()
         self.sub_situations.clear()
 

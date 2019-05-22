@@ -32,6 +32,7 @@ class TeleportHereInteraction(TerrainSuperInteraction):
     def _run_interaction_gen(self, timeline):
         if not self._teleporting:
             return True
+            yield
         starting_loc = placement.create_starting_location(transform=self.target.transform, routing_surface=self.target.routing_surface)
         if self.target_jig is not None:
             fgl_context = placement.create_fgl_context_for_object(starting_loc, self.target_jig)
@@ -40,12 +41,14 @@ class TeleportHereInteraction(TerrainSuperInteraction):
         (position, orientation) = placement.find_good_location(fgl_context)
         if position is None:
             return False
+            yield
         end_transform = sims4.math.Transform(position, orientation)
         self.sim.routing_component.on_slot = None
         ending_location = sims4.math.Location(end_transform, self.target.routing_surface)
         self.sim.location = ending_location
         self.sim.refresh_los_constraint()
         return True
+        yield
 
 class TeleportInteraction(SuperInteraction):
     _teleporting = True
@@ -63,3 +66,4 @@ class TeleportInteraction(SuperInteraction):
             break
         result = yield from super()._run_interaction_gen(timeline)
         return result
+        yield

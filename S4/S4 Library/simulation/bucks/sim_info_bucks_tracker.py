@@ -31,6 +31,6 @@ class SimInfoBucksTracker(BucksTrackerBase):
             if required_rank > current_rank:
                 for perk in tuning.rewards.values():
                     if perk is None:
-                        pass
-                    elif self.is_perk_unlocked(perk):
+                        continue
+                    if self.is_perk_unlocked(perk):
                         self.lock_perk(perk, refund_cost=True)

@@ -2,6 +2,7 @@ from collections import defaultdict
 from distributor.rollback import ProtocolBufferRollback
 from relationships.bit_timout import BitTimeoutData
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
+from relationships.object_relationship_track_tracker import ObjectRelationshipTrackTracker
 from relationships.relationship_enums import RelationshipBitCullingPrevention
 from relationships.relationship_track_tracker import RelationshipTrackTracker
 from relationships.sim_knowledge import SimKnowledge
@@ -56,11 +57,11 @@ class RelationshipData:
     def can_cull_relationship(self, consider_convergence, is_played_relationship):
         for bit in self._bits.values():
             if bit.relationship_culling_prevention == RelationshipBitCullingPrevention.ALLOW_ALL:
-                pass
-            else:
-                if bit.relationship_culling_prevention == RelationshipBitCullingPrevention.PLAYED_AND_UNPLAYED:
-                    return False
-                if is_played_relationship and bit.relationship_culling_prevention == RelationshipBitCullingPrevention.PLAYED_ONLY:
+                continue
+            if bit.relationship_culling_prevention == RelationshipBitCullingPrevention.PLAYED_AND_UNPLAYED:
+                return False
+            if is_played_relationship:
+                if bit.relationship_culling_prevention == RelationshipBitCullingPrevention.PLAYED_ONLY:
                     return False
         return True
 
@@ -99,10 +100,11 @@ class RelationshipData:
         if sim is not None:
             bit_instance.on_add_to_relationship(sim, target_sim_info, self.relationship, from_load)
             self.show_bit_added_dialog(bit_instance, sim, target_sim_info)
-        self._send_telemetry_event_for_bit_change(TELEMETRY_HOOK_ADD_BIT, bit_to_add, sim_info, target_sim_info)
-        services.get_event_manager().process_event(event_testing.test_events.TestEvent.AddRelationshipBit, sim_info=sim_info, relationship_bit=bit_to_add, sim_id=sim_info.sim_id, target_sim_id=target_sim_info.sim_id)
-        if bit_to_add is RelationshipGlobalTuning.MARRIAGE_RELATIONSHIP_BIT and sim_info is not None:
-            sim_info.update_spouse_sim_id(target_sim_info.sim_id)
+        if not self.relationship._is_object_rel:
+            self._send_telemetry_event_for_bit_change(TELEMETRY_HOOK_ADD_BIT, bit_to_add, sim_info, target_sim_info)
+            services.get_event_manager().process_event(event_testing.test_events.TestEvent.AddRelationshipBit, sim_info=sim_info, relationship_bit=bit_to_add, sim_id=sim_info.sim_id, target_sim_id=target_sim_info.sim_id)
+            if bit_to_add is RelationshipGlobalTuning.MARRIAGE_RELATIONSHIP_BIT and sim_info is not None:
+                sim_info.update_spouse_sim_id(target_sim_info.sim_id)
 
     def _update_client_from_bit_add(self, bit_type, bit_instance, from_load):
         raise NotImplementedError
@@ -145,8 +147,8 @@ class RelationshipData:
     def _on_remove_bit_threshold_satisfied(self, track):
         for bit in self._bits.keys():
             if bit.remove_on_threshold is None:
-                pass
-            elif bit.remove_on_threshold.track is type(track):
+                continue
+            if bit.remove_on_threshold.track is type(track):
                 self.remove_bit(bit)
                 return
         logger.error("Got a callback to remove a bit for track {}, but one doesn't exist.", track)
@@ -221,8 +223,8 @@ class RelationshipData:
         while bit_list:
             bit = bit_list.pop()
             if bit in self._bits:
-                pass
-            elif not self.relationship.add_relationship_bit(sim_id_a, sim_id_b, bit, notify_client=False, pending_bits=bit_list, from_load=True, send_rel_change_event=False):
+                continue
+            if not self.relationship.add_relationship_bit(sim_id_a, sim_id_b, bit, notify_client=False, pending_bits=bit_list, from_load=True, send_rel_change_event=False):
                 logger.warn('Failed to load relationship bit {}.  This is valid if tuning has changed.', bit)
         if relationship_data_msg.timeouts is not None:
             for timeout_save in relationship_data_msg.timeouts:
@@ -237,10 +239,9 @@ class RelationshipData:
         for relationship_bit_lock_data in relationship_data_msg.relationship_bit_locks:
             lock_type = relationship_bit_lock_manager.get(relationship_bit_lock_data.relationship_bit_lock_type)
             if lock_type is None:
-                pass
-            else:
-                new_lock = self.add_lock(lock_type)
-                new_lock.load(relationship_bit_lock_data)
+                continue
+            new_lock = self.add_lock(lock_type)
+            new_lock.load(relationship_bit_lock_data)
 
     def destroy(self):
         self.relationship = None
@@ -277,6 +278,10 @@ class RelationshipData:
             return locks
         locks.extend(self._relationship_bit_locks.values())
         return locks
+
+    def on_sim_creation(self, sim):
+        for bit_instance in self._bits.values():
+            bit_instance.add_buffs_for_bit_add(sim, self.relationship, True)
 
 class UnidirectionalRelationshipData(RelationshipData):
     __slots__ = ('_knowledge', '_actor_sim_id', 'bit_added_buffs')
@@ -365,7 +370,7 @@ class UnidirectionalRelationshipData(RelationshipData):
             return
         target_sim = target_sim_info.get_sim_instance()
         if sim.is_selectable and sim.is_human:
-            if target_sim is None or target_sim.is_selectable and target_sim.is_pet:
+            if target_sim is None or not target_sim.is_selectable or target_sim.is_pet:
                 relationship_bit.show_bit_added_dialog(sim, sim, target_sim_info)
             elif not target_sim_info.relationship_tracker.has_bit(sim.id, type(relationship_bit)):
                 relationship_bit.show_bit_added_dialog(sim, sim, target_sim_info)
@@ -375,10 +380,10 @@ class UnidirectionalRelationshipData(RelationshipData):
     def show_bit_removed_dialog(self, relationship_bit, sim, target_sim_info):
         if relationship_bit.bit_removed_notification is None:
             return
-        if sim.is_selectable and sim.is_pet:
+        if not sim.is_selectable or sim.is_pet:
             return
         target_sim = target_sim_info.get_sim_instance()
-        if target_sim is not None or target_sim.is_selectable and target_sim.is_pet:
+        if target_sim is not None or not target_sim.is_selectable or target_sim.is_pet:
             relationship_bit.show_bit_removed_dialog(sim, target_sim_info)
         elif not target_sim_info.relationship_tracker.has_bit(sim.id, type(self)):
             relationship_bit.show_bit_removed_dialog(sim, target_sim_info)
@@ -388,7 +393,10 @@ class BidirectionalRelationshipData(RelationshipData):
 
     def __init__(self, relationship):
         super().__init__(relationship)
-        self._relationship_track_tracker = RelationshipTrackTracker(self)
+        if relationship._is_object_rel == False:
+            self._relationship_track_tracker = RelationshipTrackTracker(self)
+        else:
+            self._relationship_track_tracker = ObjectRelationshipTrackTracker(self)
         self._level_change_watcher_id = self._relationship_track_tracker.add_watcher(self._value_changed)
 
     def __repr__(self):
@@ -441,12 +449,11 @@ class BidirectionalRelationshipData(RelationshipData):
         for track in self._relationship_track_tracker:
             bit = track.get_active_bit()
             if not bit:
-                pass
-            else:
-                if not highest_priority_bit is None:
-                    if bit.priority > highest_priority_bit.priority:
-                        highest_priority_bit = bit
-                highest_priority_bit = bit
+                continue
+            if not highest_priority_bit is None:
+                if bit.priority > highest_priority_bit.priority:
+                    highest_priority_bit = bit
+            highest_priority_bit = bit
         return highest_priority_bit
 
     def get_prevailing_short_term_context_track(self):
@@ -476,7 +483,8 @@ class BidirectionalRelationshipData(RelationshipData):
         sim_info_a = sim_info_manager.get(self.sim_id_a)
         sim_info_b = sim_info_manager.get(self.sim_id_b)
         self._update_client_for_sim_info_for_bit_add(bit_type, bit_instance, sim_info_a, sim_info_b, from_load)
-        self._update_client_for_sim_info_for_bit_add(bit_type, bit_instance, sim_info_b, sim_info_a, from_load)
+        if sim_info_b is not None:
+            self._update_client_for_sim_info_for_bit_add(bit_type, bit_instance, sim_info_b, sim_info_a, from_load)
 
     def add_bit(self, bit_type, bit_instance, from_load=False):
         super().add_bit(bit_type, bit_instance, from_load=from_load)
@@ -513,15 +521,14 @@ class BidirectionalRelationshipData(RelationshipData):
         super().save_relationship_data(relationship_data_msg)
         for track in self._relationship_track_tracker:
             if not track.persisted:
-                pass
-            elif track.persist_at_convergence or track.is_at_convergence():
-                pass
-            else:
-                with ProtocolBufferRollback(relationship_data_msg.tracks) as track_proto_buffer:
-                    track_proto_buffer.track_id = track.type_id()
-                    track_proto_buffer.value = track.get_value()
-                    track_proto_buffer.visible = track.visible_to_client
-                    track_proto_buffer.ticks_until_decay_begins = track.get_saved_ticks_until_decay_begins()
+                continue
+            if not track.persist_at_convergence and track.is_at_convergence():
+                continue
+            with ProtocolBufferRollback(relationship_data_msg.tracks) as track_proto_buffer:
+                track_proto_buffer.track_id = track.type_id()
+                track_proto_buffer.value = track.get_value()
+                track_proto_buffer.visible = track.visible_to_client
+                track_proto_buffer.ticks_until_decay_begins = track.get_saved_ticks_until_decay_begins()
 
     def load_relationship_data(self, relationship_data_msg):
         track_manager = services.get_instance_manager(sims4.resources.Types.STATISTIC)
@@ -532,19 +539,18 @@ class BidirectionalRelationshipData(RelationshipData):
             for track_data in relationship_data_msg.tracks:
                 track_type = track_manager.get(track_data.track_id)
                 if track_type is None:
-                    pass
-                elif track_type.persist_at_convergence or track_data.value == track_type.default_value:
-                    pass
+                    continue
+                if not track_type.persist_at_convergence and track_data.value == track_type.default_value:
+                    continue
+                track_inst = self._relationship_track_tracker.add_statistic(track_type)
+                if track_inst is not None:
+                    track_inst.set_value(track_data.value)
+                    track_inst.visible_to_client = track_data.visible
+                    track_inst.set_time_until_decay_begins(track_data.ticks_until_decay_begins)
+                    track_inst.fixup_callbacks_during_load()
+                    track_to_bit_list_map[track_inst] = []
                 else:
-                    track_inst = self._relationship_track_tracker.add_statistic(track_type)
-                    if track_inst is not None:
-                        track_inst.set_value(track_data.value)
-                        track_inst.visible_to_client = track_data.visible
-                        track_inst.set_time_until_decay_begins(track_data.ticks_until_decay_begins)
-                        track_inst.fixup_callbacks_during_load()
-                        track_to_bit_list_map[track_inst] = []
-                    else:
-                        logger.warn('Failed to load track {}.  This is valid if the tuning has changed.', track_type)
+                    logger.warn('Failed to load track {}.  This is valid if the tuning has changed.', track_type)
         finally:
             self._relationship_track_tracker.suppress_callback_setup_during_load = False
             self._relationship_track_tracker.load_in_progress = False

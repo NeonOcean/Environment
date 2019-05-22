@@ -89,10 +89,9 @@ def get_best_supported_posture(provided_postures, supported_postures, carry_stat
         compatible_postures = provided_postures.intersection(supported_postures)
     if compatible_postures:
         for entry in sorted(compatible_postures, reverse=True):
-            if ignore_carry or not are_carry_compatible(entry, carry_state):
-                pass
-            else:
-                return entry
+            if not ignore_carry and not are_carry_compatible(entry, carry_state):
+                continue
+            return entry
 
 def get_posture_types_supported_by_manifest(supported_posture_manifest):
     supported_posture_types = set()

@@ -58,7 +58,7 @@ class TemplateAffordanceTracker(SimInfoTracker):
             logger.error('None affordance_template provided. Can not stop tracking a None affordance template.')
             return
         self._affordance_templates[affordance_template] -= 1
-        if self._affordance_templates[affordance_template] == 0:
+        if affordance_template in self._affordance_templates == 0:
             del self._affordance_templates[affordance_template]
             post_run_duration = affordance_template.post_run_duration if affordance_template.post_run_duration is not None else self.DEFAULT_POST_RUN_DURATION
             if post_run_duration > 0:

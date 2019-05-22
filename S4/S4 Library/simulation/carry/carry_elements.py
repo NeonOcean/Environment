@@ -25,7 +25,7 @@ from postures.posture_state import PostureState
 logger = sims4.log.Logger('Carry', default_owner='rmccord')
 
 def _create_enter_carry_posture(sim, posture_state, carry_target, track):
-    var_map = {PostureSpecVariable.POSTURE_TYPE_CARRY_OBJECT: carry_target.get_carry_object_posture(), PostureSpecVariable.HAND: track_to_hand(track), PostureSpecVariable.CARRY_TARGET: carry_target}
+    var_map = {PostureSpecVariable.CARRY_TARGET: carry_target, PostureSpecVariable.HAND: track_to_hand(track), PostureSpecVariable.POSTURE_TYPE_CARRY_OBJECT: carry_target.get_carry_object_posture()}
     pick_up_operation = PostureOperation.PickUpObject(PostureSpecVariable.POSTURE_TYPE_CARRY_OBJECT, PostureSpecVariable.CARRY_TARGET)
     new_source_aop = pick_up_operation.associated_aop(sim, var_map)
     new_posture_spec = pick_up_operation.apply(posture_state.get_posture_spec(var_map), enter_carry_while_holding=True)
@@ -54,11 +54,11 @@ def enter_carry_while_holding(si, obj=None, carry_obj_participant_type=None, cal
         track = si.carry_track
     if track is None:
         raise RuntimeError("[rmccord] enter_carry_while_holding: Interaction {} does not have a carry_track, which means its animation tuning doesn't have a carry target or create target specified in object editor or the posture manifest from the swing graph does not require a specific object. {}".format(si, StackVar(('process', '_auto_constraints'))))
-    if owning_affordance is None:
-        create_si_fn = None
-    if create_si_fn is DEFAULT and create_si_fn is DEFAULT:
-        if owning_affordance is DEFAULT:
-            raise AssertionError("[rmccord] No create_si_fn was provided and we don't know how to make one.")
+    if create_si_fn is DEFAULT:
+        if owning_affordance is None:
+            create_si_fn = None
+    if create_si_fn is DEFAULT:
+        assert not owning_affordance is DEFAULT
 
         def create_si_fn():
             context.carry_target = obj
@@ -104,15 +104,18 @@ def enter_carry_while_holding(si, obj=None, carry_obj_participant_type=None, cal
                 result = new_source_aop.interaction_factory(context)
                 if not result:
                     return result
+                    yield
                 source_interaction = result.interaction
                 new_posture.source_interaction = source_interaction
                 owning_interaction = None
                 if create_si_fn is not None:
                     (aop, context) = create_si_fn()
-                    if aop.test(context):
-                        result = aop.interaction_factory(context)
-                        if result:
-                            owning_interaction = result.interaction
+                    if aop is not None:
+                        if context is not None:
+                            if aop.test(context):
+                                result = aop.interaction_factory(context)
+                                if result:
+                                    owning_interaction = result.interaction
                 if owning_interaction is None:
                     si.acquire_posture_ownership(new_posture)
                     yield from source_interaction.run_direct_gen(timeline)
@@ -123,6 +126,7 @@ def enter_carry_while_holding(si, obj=None, carry_obj_participant_type=None, cal
                 if target_posture_state is not None:
                     yield from new_posture.kickstart_linked_carried_posture_gen(timeline)
                 return result
+                yield
 
             def call_callback(_):
                 if callback is not None:
@@ -133,7 +137,9 @@ def enter_carry_while_holding(si, obj=None, carry_obj_participant_type=None, cal
                     obj.posture_state = target_posture_state
                 result = yield from element_utils.run_child(timeline, must_run([PostureTransition(new_posture, new_posture_state, context, var_map), push_si_gen, call_callback]))
                 return result
+                yield
             return True
+            yield
 
         sequence = disable_asm_auto_exit(sim, sequence)
         with si.cancel_deferred((si,)):
@@ -149,11 +155,11 @@ def _create_exit_carry_posture(sim, target, interaction, use_posture_animations,
         return failure_result
     spec_surface = sim.posture_state.spec[SURFACE_INDEX]
     has_slot_surface = spec_surface is not None and spec_surface[SURFACE_SLOT_TYPE_INDEX] is not None
-    if target.transient or has_slot_surface:
+    if not target.transient and has_slot_surface:
         put_down_operation = PostureOperation.PutDownObjectOnSurface(PostureSpecVariable.POSTURE_TYPE_CARRY_NOTHING, spec_surface[SURFACE_TARGET_INDEX], spec_surface[SURFACE_SLOT_TYPE_INDEX], PostureSpecVariable.CARRY_TARGET)
     else:
         put_down_operation = PostureOperation.PutDownObject(PostureSpecVariable.POSTURE_TYPE_CARRY_NOTHING, PostureSpecVariable.CARRY_TARGET)
-    var_map = {PostureSpecVariable.SLOT_TEST_DEFINITION: interaction.create_target, PostureSpecVariable.SLOT: slot_manifest, PostureSpecVariable.POSTURE_TYPE_CARRY_NOTHING: CarryPostureStaticTuning.POSTURE_CARRY_NOTHING, PostureSpecVariable.HAND: track_to_hand(old_carry_posture.track), PostureSpecVariable.CARRY_TARGET: target}
+    var_map = {PostureSpecVariable.CARRY_TARGET: target, PostureSpecVariable.HAND: track_to_hand(old_carry_posture.track), PostureSpecVariable.POSTURE_TYPE_CARRY_NOTHING: CarryPostureStaticTuning.POSTURE_CARRY_NOTHING, PostureSpecVariable.SLOT: slot_manifest, PostureSpecVariable.SLOT_TEST_DEFINITION: interaction.create_target}
     current_spec = sim.posture_state.get_posture_spec(var_map)
     if current_spec is None:
         if preserve_posture is None:
@@ -214,7 +220,7 @@ def exit_carry_while_holding(interaction, callback=None, sequence=None, sim_part
             (_, _, _, new_transition, _) = _create_exit_carry_posture(sim, target, interaction, use_posture_animations, preserve_posture=new_posture)
             if new_transition is not None:
                 transition = new_transition
-            if use_posture_animations or not exited_carry:
+            if not use_posture_animations and not exited_carry:
                 event_handler_exit_carry(None)
                 if callback is not None:
                     callback()
@@ -247,7 +253,9 @@ def exit_carry_while_holding(interaction, callback=None, sequence=None, sim_part
                         si_target_was_target = False
                         new_posture.source_interaction = None
                         return True
+                        yield
                     return False
+                    yield
 
                 def post_transition(_):
                     if interaction_target_was_target:
@@ -272,6 +280,7 @@ def swap_carry_while_holding(interaction, original_carry_target, new_carry_objec
         (original_carry_posture, carry_nothing_posture, carry_nothing_posture_state, transition_to_carry_nothing, carry_nothing_var_map) = _create_exit_carry_posture(sim, original_carry_target, interaction, False)
         if transition_to_carry_nothing is None:
             return False
+            yield
         (final_posture_state, final_posture, final_source_aop, final_var_map) = _create_enter_carry_posture(sim, carry_nothing_posture_state, new_carry_object, original_carry_posture.track)
         got_callback = False
 
@@ -306,11 +315,13 @@ def swap_carry_while_holding(interaction, original_carry_target, new_carry_objec
                 result = final_source_aop.interaction_factory(context)
                 if not result:
                     return result
+                    yield
                 final_source_interaction = result.interaction
                 si.acquire_posture_ownership(final_posture)
                 yield from final_source_interaction.run_direct_gen(timeline)
                 final_posture.source_interaction = final_source_interaction
                 return result
+                yield
 
             if not got_callback:
                 event_handler_swap_carry(None)
@@ -339,10 +350,12 @@ def swap_carry_while_holding(interaction, original_carry_target, new_carry_objec
                     result = yield from element_utils.run_child(timeline, transition_to_carry_nothing)
                     if not result:
                         return False
+                        yield
                     interaction_target_was_target = False
                     si_target_was_target = False
                     carry_nothing_posture.source_interaction = None
                     return True
+                    yield
 
                 def post_transition(_):
                     if interaction_target_was_target:

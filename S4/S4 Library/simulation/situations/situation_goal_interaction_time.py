@@ -55,8 +55,9 @@ class SituationGoalInteractionTime(SituationGoal):
         super().setup()
         if self._situation is None and self._sim_info is not None:
             sim = self._sim_info.get_sim_instance()
-            if sim.si_state.is_running_affordance(self._goal_test.affordance):
-                self._sims_running_interaction.add(self._actor_ref().id)
+            if sim is not None:
+                if sim.si_state.is_running_affordance(self._goal_test.affordance):
+                    self._sims_running_interaction.add(self._actor_ref().id)
         else:
             for sim in self._situation.all_sims_in_situation_gen():
                 if sim.si_state.is_running_affordance(self._goal_test.affordance):

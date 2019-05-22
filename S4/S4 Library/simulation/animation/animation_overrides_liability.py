@@ -15,22 +15,20 @@ class AnimationOverridesLiability(Liability, HasTunableFactory, AutoFactoryInit)
     def on_add(self, interaction):
         for obj in interaction.get_participants(self.participants):
             if obj is None:
-                pass
-            else:
-                self._participants.add(obj)
-                obj.add_dynamic_animation_overrides(self.animation_overrides)
-                if not obj.is_sim:
-                    pass
-                else:
-                    for si in obj.si_state:
-                        animation_context = si.animation_context
-                        if animation_context is not None:
-                            for asm in animation_context.get_asms_gen():
-                                actor_name = asm.get_actor_name(obj)
-                                if actor_name is not None:
-                                    overrides = obj.get_anim_overrides(actor_name)
-                                    if overrides is not None:
-                                        overrides.override_asm(asm, actor=obj)
+                continue
+            self._participants.add(obj)
+            obj.add_dynamic_animation_overrides(self.animation_overrides)
+            if not obj.is_sim:
+                continue
+            for si in obj.si_state:
+                animation_context = si.animation_context
+                if animation_context is not None:
+                    for asm in animation_context.get_asms_gen():
+                        actor_name = asm.get_actor_name(obj)
+                        if actor_name is not None:
+                            overrides = obj.get_anim_overrides(actor_name)
+                            if overrides is not None:
+                                overrides.override_asm(asm, actor=obj)
 
     def release(self):
         for obj in self._participants:

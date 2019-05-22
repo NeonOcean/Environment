@@ -67,10 +67,12 @@ class PutDownChooserInteraction(SuperInteraction):
         obj = self.object_to_put_down(self)
         if obj is None:
             return True
+            yield
         carryable_component = obj.carryable_component
         if carryable_component is None:
             logger.error("Attempting to run {} on target {} but it doesn't have a carryable component.", self, obj, owner='tastle')
             return False
+            yield
         debug_name = 'PutDownChooser'
         context = self.context.clone_for_continuation(self)
         if carryable_component.prefer_owning_sim_inventory_when_not_on_home_lot and obj.get_household_owner_id() == self.sim.household_id and not self.sim.on_home_lot:
@@ -82,6 +84,7 @@ class PutDownChooserInteraction(SuperInteraction):
             logger.error('Put down test failed.\n                aop:{}\n                test result:{} [tastle/trevorlindsey]'.format(aop, execute_result.test_result))
             self.sim.reset(ResetReason.RESET_EXPECTED, self, 'Put down test failed.')
         return execute_result
+        yield
 
     @classproperty
     def is_putdown(cls):
@@ -241,19 +244,20 @@ class CollectManyInteraction(SuperInteraction):
                 created_object.set_household_owner_id(active_household_id)
 
     def _xevt_callback(self, *_, **__):
-        if self.target is not None:
-            if self._object_create_helper is None:
-                for statistic in self.target.statistic_tracker:
-                    self.carry_target.statistic_tracker.add_value(statistic.stat_type, statistic.get_value())
-            elif self._original_carry_target is not None:
-                for statistic in self._original_carry_target.statistic_tracker:
-                    self.carry_target.statistic_tracker.add_value(statistic.stat_type, statistic.get_value())
-            elif self.aggregate_object is self.INTERACTION_TARGET:
-                self.carry_target.copy_state_values(self.target)
-            else:
-                for statistic in self.target.statistic_tracker:
-                    self.carry_target.statistic_tracker.set_value(statistic.stat_type, statistic.get_value())
-        if self.carry_target is not None and self.destroy_original_object and self.target is not None:
+        if self.carry_target is not None:
+            if self.target is not None:
+                if self._object_create_helper is None:
+                    for statistic in self.target.statistic_tracker:
+                        self.carry_target.statistic_tracker.add_value(statistic.stat_type, statistic.get_value())
+                elif self._original_carry_target is not None:
+                    for statistic in self._original_carry_target.statistic_tracker:
+                        self.carry_target.statistic_tracker.add_value(statistic.stat_type, statistic.get_value())
+                elif self.aggregate_object is self.INTERACTION_TARGET:
+                    self.carry_target.copy_state_values(self.target)
+                else:
+                    for statistic in self.target.statistic_tracker:
+                        self.carry_target.statistic_tracker.set_value(statistic.stat_type, statistic.get_value())
+        if self.destroy_original_object and self.target is not None:
             self._collected_targets.add(self.target)
             self.target.transient = True
             self.target.remove_from_client()
@@ -273,7 +277,9 @@ class PutAwayInteraction(SuperInteraction):
         aop = self.target.get_put_down_aop(self, context, alternative_multiplier=EXCLUSION_MULTIPLIER, own_inventory_multiplier=EXCLUSION_MULTIPLIER, object_inventory_multiplier=OPTIMAL_MULTIPLIER, in_slot_multiplier=EXCLUSION_MULTIPLIER, on_floor_multiplier=EXCLUSION_MULTIPLIER, visibility_override=self.visible, display_name_override=self.display_name, additional_post_run_autonomy_commodities=self.post_run_autonomy_commodities.requests, debug_name='PutAwayInteraction')
         if aop is not None:
             return aop.test_and_execute(context)
+            yield
         return False
+        yield
 
     @classproperty
     def is_putdown(cls):
@@ -306,6 +312,7 @@ class PutDownQuicklySuperInteraction(PutAwayBase):
             logger.error('Put down test failed.\n                aop:{}\n                test result:{} [tastle]'.format(aop, execute_result.test_result))
             self.sim.reset(ResetReason.RESET_EXPECTED, self, 'Put down test failed.')
         return execute_result
+        yield
 
     @classproperty
     def is_putdown(cls):
@@ -335,7 +342,9 @@ class AddToWorldSuperInteraction(SuperInteraction):
         aop = self.target.get_put_down_aop(self, context, own_inventory_multiplier=EXCLUSION_MULTIPLIER, object_inventory_multiplier=EXCLUSION_MULTIPLIER, in_slot_multiplier=self.put_down_cost_multipliers.in_slot_multiplier, on_floor_multiplier=self.put_down_cost_multipliers.on_floor_multiplier, visibility_override=self.visible, display_name_override=self.display_name, debug_name='AddToWorldSuperInteraction')
         if aop is not None:
             return aop.test_and_execute(context)
+            yield
         return False
+        yield
 
     @flexmethod
     def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
@@ -402,7 +411,7 @@ class PutDownHereInteraction(TerrainSuperInteraction):
         carry_target = inst.carry_target if inst is not None else None
         if carry_target is not None:
             yield create_carry_constraint(carry_target, debug_name='CarryForPutDown')
-            if carry_target.transient or inst._carry_system_target.transform is not None:
+            if not carry_target.transient and inst._carry_system_target.transform is not None:
                 yield carry_target.get_carry_transition_constraint(sim, inst._carry_system_target.transform.translation, sim.routing_surface)
 
     @classproperty
@@ -413,9 +422,10 @@ class PutDownHereInteraction(TerrainSuperInteraction):
         yield from super()._run_interaction_gen(timeline)
         execute_social_adjustment = True
         carryable_component = self.carry_target.get_component(CARRYABLE_COMPONENT)
-        if carryable_component.defer_putdown:
-            execute_social_adjustment = False
-        if carryable_component is not None and execute_social_adjustment:
+        if carryable_component is not None:
+            if carryable_component.defer_putdown:
+                execute_social_adjustment = False
+        if execute_social_adjustment:
             main_social_group = self.sim.get_main_group()
             if main_social_group is not None:
                 main_social_group.execute_adjustment_interaction(self.sim)
@@ -463,19 +473,18 @@ def create_put_down_in_slot_type_constraint(sim, carry_target, slot_types_and_co
     constraints = []
     for (slot_type, cost) in slot_types_and_costs:
         if cost is None:
-            pass
+            continue
+        if target is not None and target is not carry_target:
+            slot_manifest_entry = SlotManifestEntry(carry_target, PostureSpecVariable.INTERACTION_TARGET, slot_type)
         else:
-            if target is not None and target is not carry_target:
-                slot_manifest_entry = SlotManifestEntry(carry_target, PostureSpecVariable.INTERACTION_TARGET, slot_type)
-            else:
-                slot_manifest_entry = SlotManifestEntry(carry_target, PostureSpecVariable.ANYTHING, slot_type)
-            slot_manifest = SlotManifest((slot_manifest_entry,))
-            posture_state_spec_stand = PostureStateSpec(STAND_POSTURE_MANIFEST, slot_manifest, PostureSpecVariable.ANYTHING)
-            posture_constraint_stand = Constraint(debug_name='PutDownInSlotTypeConstraint_Stand', posture_state_spec=posture_state_spec_stand, cost=cost)
-            constraints.append(posture_constraint_stand)
-            posture_state_spec_sit = PostureStateSpec(SIT_POSTURE_MANIFEST, slot_manifest, PostureSpecVariable.ANYTHING)
-            posture_constraint_sit = Constraint(debug_name='PutDownInSlotTypeConstraint_Sit', posture_state_spec=posture_state_spec_sit, cost=cost)
-            constraints.append(posture_constraint_sit)
+            slot_manifest_entry = SlotManifestEntry(carry_target, PostureSpecVariable.ANYTHING, slot_type)
+        slot_manifest = SlotManifest((slot_manifest_entry,))
+        posture_state_spec_stand = PostureStateSpec(STAND_POSTURE_MANIFEST, slot_manifest, PostureSpecVariable.ANYTHING)
+        posture_constraint_stand = Constraint(debug_name='PutDownInSlotTypeConstraint_Stand', posture_state_spec=posture_state_spec_stand, cost=cost)
+        constraints.append(posture_constraint_stand)
+        posture_state_spec_sit = PostureStateSpec(SIT_POSTURE_MANIFEST, slot_manifest, PostureSpecVariable.ANYTHING)
+        posture_constraint_sit = Constraint(debug_name='PutDownInSlotTypeConstraint_Sit', posture_state_spec=posture_state_spec_sit, cost=cost)
+        constraints.append(posture_constraint_sit)
     if not constraints:
         return Nowhere('Carry Target has no slot types or costs tuned for put down: {} Sim:{}', carry_target, sim)
     final_constraint = create_constraint_set(constraints)
@@ -556,7 +565,7 @@ class PutDownAnywhereInteraction(PutAwayBase):
     def build_basic_content(self, sequence, **kwargs):
         sequence = super().build_basic_content(sequence, **kwargs)
         constraint_intersection = self.sim.posture_state.constraint_intersection
-        if self.target is not None and self.target.parent is not None and (self.target.parent.is_sim or constraint_intersection.intersect(self._slot_constraint).valid):
+        if self.target is not None and (self.target.parent is not None and not self.target.parent.is_sim) and constraint_intersection.intersect(self._slot_constraint).valid:
             return sequence
         if self.target is not None and self.target.parent is not None and self.target.parent is self.sim:
             if constraint_intersection.intersect(self._object_inventory_constraint).valid:
@@ -595,7 +604,7 @@ class PutDownAnywhereInteraction(PutAwayBase):
     def apply_posture_state_and_interaction_to_constraint(cls, inst, posture_state, *args, invalid_expected=False, **kwargs):
         inst_or_cls = inst if inst is not None else cls
         result = super(SuperInteraction, inst_or_cls).apply_posture_state_and_interaction_to_constraint(posture_state, *args, invalid_expected=True, **kwargs)
-        if result.valid or not invalid_expected:
+        if not result.valid and not invalid_expected:
             logger.error('Failed to resolve {} with posture state {}. Result: {}', inst_or_cls, posture_state, result, owner='maxr', trigger_breakpoint=True)
         return result
 

@@ -101,10 +101,9 @@ class _SetupPortalsState(_ZoneSpinUpState):
         object_manager = services.object_manager()
         for portal_object in object_manager.portal_cache_gen():
             if portal_object.provided_routing_surface is not None:
-                pass
-            else:
-                portal_component = portal_object.get_component(PORTAL_COMPONENT)
-                portal_component.finalize_portals()
+                continue
+            portal_component = portal_object.get_component(PORTAL_COMPONENT)
+            portal_component.finalize_portals()
         return _ZoneSpinUpStateResult.DONE
 
 class _InitializeDoorServiceState(_ZoneSpinUpState):
@@ -421,7 +420,12 @@ class _PrerollAutonomyState(_ZoneSpinUpState):
     def on_enter(self):
         super().on_enter()
         caches.skip_cache = False
-        services.sim_info_manager().run_preroll_autonomy()
+        sim_info_manager = services.sim_info_manager()
+        for sim in sim_info_manager.instanced_sims_gen():
+            weather_aware_component = sim.weather_aware_component
+            if weather_aware_component is not None:
+                weather_aware_component.on_preroll_autonomy()
+        sim_info_manager.run_preroll_autonomy()
         return _ZoneSpinUpStateResult.DONE
 
     def on_exit(self):
@@ -526,7 +530,7 @@ class _SetActiveSimState(_ZoneSpinUpState):
         zone_spin_up_service = zone.zone_spin_up_service
         active_sim_id = zone_spin_up_service._client_connect_data.active_sim_id
         client = zone_spin_up_service._client_connect_data.client
-        if active_sim_id and client.set_active_sim_by_id(active_sim_id) or client.active_sim is None:
+        if not (active_sim_id and client.set_active_sim_by_id(active_sim_id)) and client.active_sim is None:
             client.set_next_sim()
         client.resend_active_sim_info()
         active_household = services.active_household()
@@ -759,8 +763,9 @@ class ZoneSpinUpService(sims4.service_manager.Service):
                     state_result = self._current_state.on_enter()
                     if state_result == _ZoneSpinUpStateResult.DONE:
                         self._current_state.on_exit()
-                    if state_result == _ZoneSpinUpStateResult.WAITING and self.disallow_waiting:
-                        logger.error("State {} is trying to wait when it's not allowed to.", self._current_state, owner='tingyul')
+                    if state_result == _ZoneSpinUpStateResult.WAITING:
+                        if self.disallow_waiting:
+                            logger.error("State {} is trying to wait when it's not allowed to.", self._current_state, owner='tingyul')
         except Exception as e:
             self._status = ZoneSpinUpStatus.ERRORED
             error_code = self._current_state.exception_error_code()

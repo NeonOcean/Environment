@@ -58,9 +58,9 @@ def shortest_path_gen(sources, is_destination_fn, get_neighbors_fn, cost_fn=None
         curr = heappop(queue).data
         if queue or isinstance(curr, Path):
             yield curr
-        elif curr in visited:
-            pass
         else:
+            if curr in visited:
+                continue
             visited.add(curr)
             curr_cost = min_costs[curr]
             if is_destination_fn(curr):
@@ -80,7 +80,8 @@ def shortest_path_gen(sources, is_destination_fn, get_neighbors_fn, cost_fn=None
                 prev[successor] = curr
                 heuristic = 0 if heuristic_fn is None else heuristic_fn(successor)
                 heappush(queue, QueueEntry(successor, cost + heuristic))
-    raise RuntimeError('get_shortest_path() exceeded the maximum {} iterations.'.format(maximum_iterations))
+    else:
+        raise RuntimeError('get_shortest_path() exceeded the maximum {} iterations.'.format(maximum_iterations))
 
 def shortest_path(*args, **kwargs):
     return next(shortest_path_gen(*args, **kwargs), None)
@@ -109,8 +110,9 @@ def bits(num, minimum_length=None):
     while num:
         b.append(num % 2 == 1)
         num = num//2
-    if len(b) < minimum_length:
-        b = b + [False]*(minimum_length - len(b))
+    if minimum_length is not None:
+        if len(b) < minimum_length:
+            b = b + [False]*(minimum_length - len(b))
     return b
 
 def count_bits(num):

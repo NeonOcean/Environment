@@ -79,7 +79,7 @@ class CraftingStationComponent(Component, HasTunableFactory, component_name=type
             self.owner.remove_state_changed_callback(self._on_crafting_object_state_changed)
 
     def _on_crafting_object_state_changed(self, owner, state, old_value, new_value):
-        if old_value.remove_from_crafting_cache or new_value.remove_from_crafting_cache:
+        if not old_value.remove_from_crafting_cache and new_value.remove_from_crafting_cache:
             self._should_be_in_cache = False
             self.remove_from_crafting_cache()
         elif old_value.remove_from_crafting_cache and not new_value.remove_from_crafting_cache:

@@ -77,10 +77,10 @@ class LifeSkillStatistic(HasTunableReference, LifeSkillDisplayMixin, TunedContin
                 if out_range.in_range_buff is not None:
                     owner.Buffs.remove_buff_by_type(out_range.in_range_buff.buff_type)
         for in_range in in_ranges:
-            if in_range.in_range_notification is not None and (from_load or is_household_sim):
+            if in_range.in_range_notification is not None and not from_load and is_household_sim:
                 dialog = in_range.in_range_notification(owner, resolver=SingleSimResolver(owner))
                 dialog.show_dialog(additional_tokens=(owner,))
-            if in_range.vfx_triggered is not None and (from_load or is_household_sim):
+            if in_range.vfx_triggered is not None and not from_load and is_household_sim:
                 if self._vfx is not None:
                     self._vfx.stop(immediate=True)
                     self._vfx = None

@@ -15,20 +15,19 @@ def death_kill_npcs(_connection=None):
     household_manager = services.household_manager()
     for household in tuple(household_manager.get_all()):
         if not household.home_zone_id:
-            pass
-        elif household is services.active_household():
-            pass
-        else:
-            for sim_info in household:
+            continue
+        if household is services.active_household():
+            continue
+        for sim_info in household:
+            if sim_info.can_live_alone:
                 if len(tuple(household.can_live_alone_info_gen())) <= 1:
                     break
-                if sim_info.can_live_alone and sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                    pass
-                elif sim_info.is_toddler_or_younger:
-                    pass
-                elif sim_info.death_type:
-                    pass
-                else:
-                    death_type = DeathType.get_random_death_type()
-                    sim_info.death_tracker.set_death_type(death_type, is_off_lot_death=True)
+            if sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                continue
+            if sim_info.is_toddler_or_younger:
+                continue
+            if sim_info.death_type:
+                continue
+            death_type = DeathType.get_random_death_type()
+            sim_info.death_tracker.set_death_type(death_type, is_off_lot_death=True)
     return True

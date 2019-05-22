@@ -59,3 +59,4 @@ class WatchSuperInteraction(SuperInteraction):
     def _run_interaction_gen(self, timeline):
         result = yield from element_utils.run_child(timeline, build_critical_section_with_finally(self._start_route_goal_suppression, build_critical_section(build_critical_section(self.ensure_state(self.affordance.required_channel), objects.components.state.with_on_state_changed(self.target, self.affordance.required_channel.state, self._changed_state_callback, super()._run_interaction_gen)), maybe(lambda : len(self.target.get_users(sims_only=True)) == 1, self.ensure_state(self.off_channel))), self._stop_route_goal_suppression))
         return result
+        yield

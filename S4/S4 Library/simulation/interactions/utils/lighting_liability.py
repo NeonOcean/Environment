@@ -25,17 +25,15 @@ class LightingLiability(Liability, HasTunableFactory, AutoFactoryInit):
         position = participant.position
         for obj in services.object_manager().get_all_objects_with_component_gen(objects.components.types.LIGHTING_COMPONENT):
             if get_object_has_tag(obj.definition.id, LightingComponent.MANUAL_LIGHT_TAG):
-                pass
+                continue
+            distance_from_pos = obj.position - position
+            if distance_from_pos.magnitude_squared() > self.radius_squared:
+                continue
+            if obj.get_light_dimmer_value() == LightingComponent.LIGHT_AUTOMATION_DIMMER_VALUE:
+                self._automated_lights.add(obj)
             else:
-                distance_from_pos = obj.position - position
-                if distance_from_pos.magnitude_squared() > self.radius_squared:
-                    pass
-                else:
-                    if obj.get_light_dimmer_value() == LightingComponent.LIGHT_AUTOMATION_DIMMER_VALUE:
-                        self._automated_lights.add(obj)
-                    else:
-                        self._lights.add(obj)
-                    obj.set_light_dimmer_value(LightingComponent.LIGHT_DIMMER_VALUE_OFF)
+                self._lights.add(obj)
+            obj.set_light_dimmer_value(LightingComponent.LIGHT_DIMMER_VALUE_OFF)
 
     def release(self):
         for obj in self._lights:

@@ -41,22 +41,25 @@ class JigGroup(SideGroup):
         slot_map = cls.participant_slot_map if participant_slot_overrides is None else participant_slot_overrides
         actor_slot_index = slot_map.get(ParticipantType.Actor, cls.DEFAULT_SLOT_INDEX_ACTOR)
         target_slot_index = slot_map.get(ParticipantType.TargetSim, cls.DEFAULT_SLOT_INDEX_TARGET)
-        if not picked_object.is_sim:
-            try:
-                (actor_transform, target_transform, routing_surface) = get_two_person_transforms_for_jig(picked_object.definition, picked_object.transform, picked_object.routing_surface, actor_slot_index, target_slot_index)
-                yield (actor_transform, target_transform, routing_surface, ())
-                return
-            except RuntimeError:
-                pass
+        if picked_object is not None:
+            if picked_object.carryable_component is None:
+                if not picked_object.is_sim:
+                    try:
+                        (actor_transform, target_transform, routing_surface) = get_two_person_transforms_for_jig(picked_object.definition, picked_object.transform, picked_object.routing_surface, actor_slot_index, target_slot_index)
+                        yield (actor_transform, target_transform, routing_surface, ())
+                        return
+                    except RuntimeError:
+                        pass
         fallback_routing_surface = None
-        if picked_object is not None and picked_object.carryable_component is None and initiating_sim.routing_surface != target_sim.routing_surface:
+        if initiating_sim.routing_surface != target_sim.routing_surface:
             if initiating_sim.routing_surface.type == routing.SurfaceType.SURFACETYPE_WORLD:
                 fallback_routing_surface = initiating_sim.routing_surface
             else:
                 fallback_routing_surface = target_sim.routing_surface
-        if target_sim.in_pool:
-            sim_pool = pool_utils.get_pool_by_block_id(target_sim.block_id)
-            fallback_routing_surface = sim_pool.world_routing_surface
+        if target_sim is not None:
+            if target_sim.in_pool:
+                sim_pool = pool_utils.get_pool_by_block_id(target_sim.block_id)
+                fallback_routing_surface = sim_pool.world_routing_surface
         yield from cls.jig.get_transforms_gen(initiating_sim, target_sim, actor_slot_index=actor_slot_index, target_slot_index=target_slot_index, stay_outside=cls.stay_outside, fallback_routing_surface=fallback_routing_surface)
 
     @classmethod
@@ -70,9 +73,8 @@ class JigGroup(SideGroup):
             else:
                 transform = target_transform
             if transform is None:
-                pass
-            else:
-                all_transforms.append(interactions.constraints.Transform(transform, routing_surface=routing_surface, debug_name='JigGroupConstraint'))
+                continue
+            all_transforms.append(interactions.constraints.Transform(transform, routing_surface=routing_surface, debug_name='JigGroupConstraint'))
         if not all_transforms:
             return Nowhere('Unable to get constraints from jig.')
         return create_constraint_set(all_transforms)
@@ -108,10 +110,9 @@ class JigGroup(SideGroup):
         for (sim_transform, target_transform, routing_surface, locked_params) in self._get_jig_transforms_gen(self.initiating_sim, self.target_sim, picked_object=self.picked_object, participant_slot_overrides=self.participant_slot_overrides):
             if not sim_transform is None:
                 if target_transform is None:
-                    pass
-                else:
-                    self._sim_transform_map[self.initiating_sim].append((sim_transform, locked_params))
-                    self._sim_transform_map[self.target_sim].append((target_transform, ()))
+                    continue
+                self._sim_transform_map[self.initiating_sim].append((sim_transform, locked_params))
+                self._sim_transform_map[self.target_sim].append((target_transform, ()))
         if not (self._sim_transform_map[self.initiating_sim] and self._sim_transform_map[self.target_sim]):
             self._constraint = Nowhere('JigGroup, failed to FGL and place the jig. Sim: {}, Target Sim: {}, Picked Object: {}', self.initiating_sim, self.target_sim, self.picked_object)
             return

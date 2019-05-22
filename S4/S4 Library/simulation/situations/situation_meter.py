@@ -73,6 +73,8 @@ class SituationMeter:
         self._dirty = False
 
     def send_update(self):
+        if self._situation is None:
+            return
         if self._situation.is_user_facing and services.get_zone_situation_manager().is_distributed(self._situation):
             distributor = Distributor.instance()
             op = SituationMeterUpdateOp(self._create_update_message())

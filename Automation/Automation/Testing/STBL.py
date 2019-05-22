@@ -19,9 +19,9 @@ def VerifyCollisions () -> None:
 
 	modEntries = list()  # type: typing.List[typing.Tuple[str, int]]
 
-	for mod in Mods.GetAllModNames():  # type: str
+	for modNamespace in Mods.GetAllModNames():  # type: str
 		try:
-			stblModule = importlib.import_module("Mod_" + mod.replace(".", "_") + ".STBL")
+			stblModule = importlib.import_module("Mod_" + modNamespace.replace(".", "_") + ".STBL")
 		except:
 			continue
 

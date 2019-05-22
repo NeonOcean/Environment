@@ -57,7 +57,7 @@ class ApplyAwayActionInteraction(ImmediateSuperInteraction):
             return inst_or_cls.create_localized_string(away_action.pie_menu_tooltip, **kwargs)
         return inst_or_cls.get_display_tooltip(**kwargs)
 
-lock_instance_tunables(ApplyAwayActionInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST, test_globals=TunableGlobalTestSet.DEFAULT_LIST)
+lock_instance_tunables(ApplyAwayActionInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST)
 
 class AwayActionSimPickerInteraction(SimPickerInteraction):
 
@@ -98,13 +98,14 @@ class AwayActionSimPickerInteraction(SimPickerInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.away_action_sim_info)
         return True
+        yield
 
     def _push_continuations(self, sim_ids, zone_datas=None):
         target_sim_id = next(iter(sim_ids))
         target_sim_info = services.sim_info_manager().get(target_sim_id)
         self.away_action_sim_info.away_action_tracker.create_and_apply_away_action(self.away_action, target_sim_info)
 
-lock_instance_tunables(AwayActionSimPickerInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST, test_globals=TunableGlobalTestSet.DEFAULT_LIST)
+lock_instance_tunables(AwayActionSimPickerInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST)
 
 class ApplyDefaultAwayActionInteraction(ImmediateSuperInteraction):
     INSTANCE_TUNABLES = {'away_action_sim_info_test': TunableTestSet(description='\n            A set of tests that will be run on the sim info that is trying to\n            run the set default away action interaction.\n            ', tuning_group=GroupNames.CORE)}
@@ -129,4 +130,4 @@ class ApplyDefaultAwayActionInteraction(ImmediateSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self.away_action_sim_info.away_action_tracker.reset_to_default_away_action()
 
-lock_instance_tunables(ApplyDefaultAwayActionInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST, test_globals=TunableGlobalTestSet.DEFAULT_LIST)
+lock_instance_tunables(ApplyDefaultAwayActionInteraction, simless=True, tests=TunableTestSet.DEFAULT_LIST)

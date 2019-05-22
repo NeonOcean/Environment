@@ -1,5 +1,7 @@
+import itertools
 import sys
 import time
+from event_testing.results import TestResult
 from interactions import ParticipantType, ParticipantTypeSituationSims
 from performance.test_profiling import TestProfileRecord, ProfileMetrics
 from sims4.utils import classproperty
@@ -148,6 +150,16 @@ class Resolver:
                 return tuple(sim_info for sim_info in owning_household.sim_info_gen())
             return ()
         return ()
+        if participant_type == ParticipantType.LotOwnersOrRenters:
+            owning_household = services.owning_household_of_active_lot()
+            if owning_household is not None:
+                return tuple(sim_info for sim_info in owning_household.sim_info_gen())
+            else:
+                current_zone = services.current_zone()
+                travel_group = services.travel_group_manager().get_travel_group_by_zone_id(current_zone.id)
+                if travel_group is not None:
+                    return tuple(sim_info for sim_info in travel_group.sim_info_gen())
+            return ()
         if participant_type == ParticipantType.LotOwnerSingleAndInstanced:
             owning_household = services.owning_household_of_active_lot()
             if owning_household is not None:
@@ -186,6 +198,42 @@ class GlobalResolver(Resolver):
             return ()
         logger.error('GlobalResolver unable to resolve {}', participant_type)
         return ()
+
+class AffordanceResolver(Resolver):
+
+    def __init__(self, affordance, actor):
+        super().__init__(skip_safe_tests=False, search_for_tooltip=False)
+        self.affordance = affordance
+        self.actor = actor
+
+    def __repr__(self):
+        return 'AffordanceResolver: affordance: {}, actor {}'.format(self.affordance, self.actor)
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == event_testing.test_constants.SIM_INSTANCE or participant_type == ParticipantType.Actor:
+            if self.actor is not None:
+                result = _to_sim_info(self.actor)
+                if result:
+                    return (result,)
+            return ()
+        if participant_type == 0:
+            logger.error('Calling get_participants with no flags on {}.', self)
+            return ()
+        if participant_type == ParticipantType.Affordance:
+            return (self.affordance,)
+        if participant_type == ParticipantType.AllRelationships:
+            return (ParticipantType.AllRelationships,)
+        return self._get_participants_base(participant_type, **kwargs)
+
+    def __call__(self, test):
+        if not test.supports_early_testing():
+            return True
+        if test.participants_for_early_testing is None:
+            test.participants_for_early_testing = tuple(test.get_expected_args().values())
+        for participant in test.participants_for_early_testing:
+            if not self.get_participants(participant):
+                return TestResult.TRUE
+        return super().__call__(test)
 
 class InteractionResolver(Resolver):
 
@@ -411,6 +459,8 @@ class SingleSimResolver(Resolver):
             return (self.sim_info_to_test,)
         if participant_type in self._additional_participants:
             return self._additional_participants[participant_type]
+        if participant_type == ParticipantType.PickedZoneId:
+            return frozenset()
         result = self._get_participants_base(participant_type, **kwargs)
         if result is not None:
             return result
@@ -638,3 +688,53 @@ class SingleActorAndObjectResolver(Resolver):
 
     def get_localization_tokens(self, *args, **kwargs):
         return (self._sim_info, self._obj)
+
+class DoubleSimAndObjectResolver(Resolver):
+
+    def __init__(self, actor_sim_info, target_sim_info, obj, source):
+        super().__init__()
+        self._actor_sim_info = actor_sim_info
+        self._target_sim_info = target_sim_info
+        self._obj = obj
+        self._source = source
+
+    def __repr__(self):
+        return f'DoubleActorAndObjectResolver: actor_sim_info: {self._actor_sim_info}, target_sim_info: {self._target_sim_info}, object: {self._obj}'
+
+    @property
+    def profile_metric_key(self):
+        return f'source:{self._source} object:{self._obj}'
+
+    def get_participants(self, participant_type, **kwargs):
+        result = self._get_participants_base(participant_type, **kwargs)
+        if result is not None:
+            return result
+        if participant_type == ParticipantType.Actor or participant_type == ParticipantType.CustomSim or participant_type == event_testing.test_constants.SIM_INSTANCE:
+            return (self._sim_info,)
+        if participant_type == ParticipantType.TargetSim:
+            return (self._target_sim_info,)
+        if participant_type == ParticipantType.SignificantOtherTargetSim:
+            return (self._target_sim_info.get_significant_other_sim_info(),)
+        if participant_type == ParticipantType.Object:
+            return (self._obj,)
+        if participant_type == ParticipantType.ObjectParent:
+            if self._obj is None or self._obj.parent is None:
+                return ()
+            return (self._obj.parent,)
+        if participant_type == ParticipantType.StoredSim:
+            stored_sim_info = self._obj.get_stored_sim_info()
+            return (stored_sim_info,)
+        if participant_type == ParticipantType.OwnerSim:
+            owner_sim_info_id = self._obj.get_sim_owner_id()
+            owner_sim_info = services.sim_info_manager().get(owner_sim_info_id)
+            return (owner_sim_info,)
+        if participant_type == ParticipantType.Affordance:
+            return ()
+        if participant_type == ParticipantType.InteractionContext:
+            return ()
+        if participant_type == event_testing.test_constants.FROM_EVENT_DATA:
+            return ()
+        raise ValueError(f'Trying to use DoubleActorAndObjectResolver with something that is not supported: {participant_type}')
+
+    def get_localization_tokens(self, *args, **kwargs):
+        return (self._sim_info, self._target_sim_info, self._obj)

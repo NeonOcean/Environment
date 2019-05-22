@@ -78,25 +78,32 @@ class WaypointInteraction(SuperInteraction):
         for constraint in self._waypoint_generator.get_waypoint_constraints_gen(self.sim, self.waypoint_count):
             goals = self._get_goals_for_constraint(constraint)
             if not goals:
-                pass
-            else:
-                waypoints.append(goals)
+                continue
+            waypoints.append(goals)
         if not waypoints:
             return False
+            yield
         if self.staging:
             for route_waypoints in itertools.cycle(self.waypoint_stitching(waypoints, self._waypoint_generator.loops)):
                 result = yield from self._do_route_to_constraint_gen(route_waypoints, timeline)
                 if not result:
                     return result
+                    yield
+            else:
+                return result
+                yield
         else:
             for route_waypoints in self.waypoint_stitching(waypoints, self._waypoint_generator.loops):
                 result = yield from self._do_route_to_constraint_gen(route_waypoints, timeline)
             return result
+            yield
         return True
+        yield
 
     def _do_route_to_constraint_gen(self, waypoints, timeline):
         if self.is_finishing:
             return False
+            yield
         all_sims = self.required_sims()
         if not all_sims:
             return
@@ -109,21 +116,21 @@ class WaypointInteraction(SuperInteraction):
             result = yield from element_utils.run_child(timeline, plan_primitive)
             if not result:
                 return False
+                yield
             if not (plan_primitive.path.nodes and plan_primitive.path.nodes.plan_success):
                 return False
+                yield
             plan_primitives.append(plan_primitive)
             if i == len(all_sims) - 1:
-                pass
-            else:
-                for node in plan_primitive.path.nodes:
-                    position = Vector3(*node.position)
-                    for goal in itertools.chain.from_iterable(waypoints):
-                        if goal.routing_surface_id != node.routing_surface_id:
-                            pass
-                        else:
-                            dist_sq = (Vector3(*goal.position) - position).magnitude_2d_squared()
-                            if dist_sq < goal_size:
-                                goal.cost = routing.get_default_obstacle_cost()
+                continue
+            for node in plan_primitive.path.nodes:
+                position = Vector3(*node.position)
+                for goal in itertools.chain.from_iterable(waypoints):
+                    if goal.routing_surface_id != node.routing_surface_id:
+                        continue
+                    dist_sq = (Vector3(*goal.position) - position).magnitude_2d_squared()
+                    if dist_sq < goal_size:
+                        goal.cost = routing.get_default_obstacle_cost()
         route_primitives = []
         for plan_primitive in plan_primitives:
             sequence = get_route_element_for_path(plan_primitive.sim, plan_primitive.path, interaction=self, force_follow_path=True)
@@ -132,6 +139,7 @@ class WaypointInteraction(SuperInteraction):
             route_primitives.append(sequence)
         result = yield from element_utils.run_child(timeline, do_all(*route_primitives))
         return result
+        yield
 
     @classmethod
     def get_rallyable_aops_gen(cls, target, context, **kwargs):

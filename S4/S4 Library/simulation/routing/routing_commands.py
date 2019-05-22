@@ -36,15 +36,19 @@ def routing_debug_follow(x:float=None, y:float=None, z:float=None, obj:OptionalT
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result:
             return result
+            yield
         nodes = plan_primitive.path.nodes
         if not (nodes and nodes.plan_success):
             return False
+            yield
         else:
             follow_path_element = FollowPath(obj, plan_primitive.path)
             result = yield from element_utils.run_child(timeline, follow_path_element)
             if not result:
                 return result
+                yield
         return True
+        yield
 
     timeline = services.time_service().sim_timeline
     timeline.schedule(GeneratorElement(_do_route_gen))
@@ -86,15 +90,19 @@ def routing_debug_waypoints(*waypoint_data, _connection=None):
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result:
             return result
+            yield
         nodes = plan_primitive.path.nodes
         if not (nodes and nodes.plan_success):
             return False
+            yield
         else:
             follow_path_element = FollowPath(obj, plan_primitive.path)
             result = yield from element_utils.run_child(timeline, follow_path_element)
             if not result:
                 return result
+                yield
         return True
+        yield
 
     timeline = services.time_service().sim_timeline
     timeline.schedule(GeneratorElement(_do_route_gen))
@@ -118,7 +126,7 @@ def routing_debug_generate_routing_goals_from_geometry(*args, obj:OptionalTarget
     routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_OBJECT)
     for poly_str in polygon_strs:
         point_list = extract_floats(poly_str)
-        if point_list and len(point_list) % 2 != 0:
+        if not point_list or len(point_list) % 2 != 0:
             output('Point list is not valid length. Too few or one too many.')
             return
         vertices = []

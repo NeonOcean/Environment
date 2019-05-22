@@ -37,7 +37,7 @@ class GatherTogetherState(CommonInteractionCompletedSituationState):
 class TakingTurnsState(CommonSituationState):
 
     def on_activate(self, reader=None):
-        self.owner.do_next_turn()
+        self.owner.do_next_turn(set_others_waiting=True)
         if self.owner is None:
             return
         super().on_activate(reader=reader)
@@ -124,12 +124,17 @@ class EveryoneTakeATurnOnceSituation(SituationComplexCommon):
             if not sim_info.has_buff(self.sim_took_turn_buff.buff_type):
                 self._ready_sim_ids.add(sim_info.id)
 
-    def do_next_turn(self):
+    def do_next_turn(self, set_others_waiting=False):
         if self._ready_sim_ids:
             sim_id = self._ready_sim_ids.pop()
             sub_situation = self._get_sub_situation_for_sim_id(sim_id)
             if sub_situation is not None:
                 if self._ready_sim_ids:
+                    if set_others_waiting:
+                        for waiting_sims_id in self._ready_sim_ids:
+                            waiting_sub_situation = self._get_sub_situation_for_sim_id(waiting_sims_id)
+                            if waiting_sub_situation is not None:
+                                waiting_sub_situation.wait_for_turn()
                     sub_situation.take_turn()
                 else:
                     sub_situation.take_last_turn()
@@ -142,8 +147,9 @@ class EveryoneTakeATurnOnceSituation(SituationComplexCommon):
             sim_info = sim_info_manager.get(sim_id)
             if sim_info is not None:
                 sim = sim_info.get_sim_instance()
-                if sim is not None and self.is_sim_in_situation(sim):
-                    self.remove_sim_from_situation(sim)
+                if sim is not None:
+                    if self.is_sim_in_situation(sim):
+                        self.remove_sim_from_situation(sim)
 
     def _cleanup_sub_situations(self):
         for situation in self._get_sub_situations():
@@ -159,9 +165,14 @@ class WaitState(CommonSituationState):
 
 class TakeTurnState(CommonInteractionCompletedSituationState):
 
+    def __init__(self, *args, last_turn=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_turn = last_turn
+
     def _finish_turn(self):
         owning_situation = self.owner
-        self._change_state(self.owner.sim_wait_state())
+        if not self._last_turn:
+            self._change_state(self.owner.sim_wait_state())
         owning_situation.background_situation.do_next_turn()
 
     def timer_expired(self):
@@ -177,7 +188,7 @@ class TakeTurnState(CommonInteractionCompletedSituationState):
         self._finish_turn()
 
 class EveryoneTakeATurnOnceSubSituation(SituationComplexCommon):
-    INSTANCE_TUNABLES = {'sim_wait_state': WaitState.TunableFactory(description='\n            The state of Sims who are not currently taking a turn.\n            ', tuning_group=GroupNames.STATE), 'take_turn_state': TakeTurnState.TunableFactory(description='\n            The state of Sims who are taking a turn.\n            ', tuning_group=GroupNames.STATE), 'take_last_turn_state': TakeTurnState.TunableFactory(description='\n            The state of the Sim who are taking a last turn.\n            ', tuning_group=GroupNames.STATE), 'job_and_role_state': TunableSituationJobAndRoleState(description='\n            Job and Role State.\n            ')}
+    INSTANCE_TUNABLES = {'sim_wait_state': WaitState.TunableFactory(description='\n            The state of Sims who are not currently taking a turn.\n            ', tuning_group=GroupNames.STATE), 'take_turn_state': TakeTurnState.TunableFactory(description='\n            The state of Sims who are taking a turn.\n            ', tuning_group=GroupNames.STATE), 'take_last_turn_state': TakeTurnState.TunableFactory(description='\n            The state of the Sim who are taking a last turn.\n            ', tuning_group=GroupNames.STATE, locked_args={'last_turn': True}), 'job_and_role_state': TunableSituationJobAndRoleState(description='\n            Job and Role State.\n            ')}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
 
     def __init__(self, seed, *args, **kwargs):
@@ -208,6 +219,9 @@ class EveryoneTakeATurnOnceSubSituation(SituationComplexCommon):
     @classmethod
     def default_job(cls):
         pass
+
+    def wait_for_turn(self):
+        self._change_state(self.sim_wait_state())
 
     def take_turn(self):
         self._change_state(self.take_turn_state())

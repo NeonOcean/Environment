@@ -19,23 +19,22 @@ class RetailUtils:
         accessed_shared_inventories = []
         for obj in services.object_manager().valid_objects():
             if not obj.is_on_active_lot():
-                pass
-            elif not cls._is_obj_owned_by_lot_owner(obj, lot_owner_household_id):
-                pass
-            else:
-                if not obj.has_component(objects.components.types.RETAIL_COMPONENT) or (not allow_for_sale or obj.retail_component.is_for_sale or (not allow_sold or obj.retail_component.is_sold or not allow_not_for_sale)) or obj.retail_component.is_not_for_sale:
-                    yield obj
-                if allow_for_sale and include_inventories and obj.has_component(objects.components.types.INVENTORY_COMPONENT):
-                    inventory_type = obj.inventory_component.inventory_type
-                    if inventory_type in RetailUtils.RETAIL_INVENTORY_TYPES:
-                        if InventoryTypeTuning.is_shared_between_objects(inventory_type):
-                            if inventory_type in accessed_shared_inventories:
-                                pass
-                            else:
-                                accessed_shared_inventories.append(inventory_type)
-                        for inventory_obj in obj.inventory_component:
-                            if inventory_obj.has_component(objects.components.types.RETAIL_COMPONENT):
-                                yield inventory_obj
+                continue
+            if not cls._is_obj_owned_by_lot_owner(obj, lot_owner_household_id):
+                continue
+            if not not obj.has_component(objects.components.types.RETAIL_COMPONENT) and (not allow_for_sale or not obj.retail_component.is_for_sale or (not allow_sold or not obj.retail_component.is_sold) or not not allow_not_for_sale and obj.retail_component.is_not_for_sale):
+                yield obj
+            if allow_for_sale:
+                if include_inventories:
+                    if obj.has_component(objects.components.types.INVENTORY_COMPONENT):
+                        inventory_type = obj.inventory_component.inventory_type
+                        if inventory_type in RetailUtils.RETAIL_INVENTORY_TYPES:
+                            if InventoryTypeTuning.is_shared_between_objects(inventory_type):
+                                if inventory_type in accessed_shared_inventories:
+                                    continue
+                            for inventory_obj in obj.inventory_component:
+                                if inventory_obj.has_component(objects.components.types.RETAIL_COMPONENT):
+                                    yield inventory_obj
 
     @classmethod
     def get_all_retail_objects(cls):
@@ -46,13 +45,13 @@ class RetailUtils:
         output_set = set()
         for obj in services.object_manager().valid_objects():
             if not obj.is_on_active_lot():
-                pass
-            elif not cls._is_obj_owned_by_lot_owner(obj, lot_owner_household_id):
-                pass
-            else:
-                if obj.has_component(objects.components.types.RETAIL_COMPONENT):
-                    output_set.add(obj)
-                if obj.has_component(objects.components.types.INVENTORY_COMPONENT) and obj.inventory_component.inventory_type in RetailUtils.RETAIL_INVENTORY_TYPES:
+                continue
+            if not cls._is_obj_owned_by_lot_owner(obj, lot_owner_household_id):
+                continue
+            if obj.has_component(objects.components.types.RETAIL_COMPONENT):
+                output_set.add(obj)
+            if obj.has_component(objects.components.types.INVENTORY_COMPONENT):
+                if obj.inventory_component.inventory_type in RetailUtils.RETAIL_INVENTORY_TYPES:
                     output_set |= set(obj.inventory_component)
         return output_set
 

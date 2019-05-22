@@ -183,7 +183,7 @@ class PoolSeat(GameObject):
     def _compute_position_and_routing_surface_for_posture(self):
         (world_location, pool_location) = self.get_single_portal_locations()
         if world_location is None or pool_location is None:
-            return ()
+            return ((), ())
         return (((world_location.position, world_location.routing_surface),), ((pool_location.position, pool_location.routing_surface),))
 
     def _get_cached_position_and_routing_surface_for_posture(self, node):

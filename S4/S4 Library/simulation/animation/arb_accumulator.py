@@ -49,6 +49,7 @@ class ArbSequenceElement(elements.SubclassableGeneratorElement):
     def _run_gen(self, timeline):
         if not self._arb_element_sequence:
             return True
+            yield
         duration_must_run = 0
         for arb_element in self._arb_element_sequence:
             (arb_duration_total, arb_duration_must_run, arb_duration_repeat) = arb_element.arb.get_timing()
@@ -78,13 +79,15 @@ class ArbSequenceElement(elements.SubclassableGeneratorElement):
         if not self._animate_instantly:
             yield from element_utils.run_child(timeline, animation_sleep_element)
         optional_time_elapsed = animation_sleep_element.optional_time_elapsed
-        if optional_time_elapsed > 0:
-            for actor in actors:
-                time_debt = arb_accumulator.get_time_debt((actor,))
-                new_time_debt = time_debt - optional_time_elapsed
-                new_time_debt = max(new_time_debt, 0)
-                arb_accumulator.set_time_debt((actor,), new_time_debt)
+        if ArbAccumulatorService.MAXIMUM_TIME_DEBT > 0:
+            if optional_time_elapsed > 0:
+                for actor in actors:
+                    time_debt = arb_accumulator.get_time_debt((actor,))
+                    new_time_debt = time_debt - optional_time_elapsed
+                    new_time_debt = max(new_time_debt, 0)
+                    arb_accumulator.set_time_debt((actor,), new_time_debt)
         return True
+        yield
 
 class _arb_parallelizer:
 
@@ -138,11 +141,10 @@ class ArbAccumulatorService(sims4.service_manager.Service):
         max_debt = 0
         for sim in sims:
             if sim not in self._time_debt:
-                pass
-            else:
-                sim_debt = self._time_debt[sim]
-                if sim_debt > max_debt:
-                    max_debt = sim_debt
+                continue
+            sim_debt = self._time_debt[sim]
+            if sim_debt > max_debt:
+                max_debt = sim_debt
         return max_debt
 
     def set_time_debt(self, sims, debt):
@@ -189,13 +191,14 @@ class ArbAccumulatorService(sims4.service_manager.Service):
         actors_with_idles = set()
         if self._to_idle_func is not None:
             for actor in all_actors:
-                if actor.is_sim and not arb_element.arb._normal_timeline_ends_in_looping_content(actor.id):
-                    (to_idle_arb, on_done_func) = self._to_idle_func(actor)
-                    if on_done_func is not None:
-                        on_done.append(on_done_func)
-                    if to_idle_arb is not None:
-                        arb_element.execute_and_merge_arb(to_idle_arb, False)
-                        actors_with_idles.add(actor)
+                if actor.is_sim:
+                    if not arb_element.arb._normal_timeline_ends_in_looping_content(actor.id):
+                        (to_idle_arb, on_done_func) = self._to_idle_func(actor)
+                        if on_done_func is not None:
+                            on_done.append(on_done_func)
+                        if to_idle_arb is not None:
+                            arb_element.execute_and_merge_arb(to_idle_arb, False)
+                            actors_with_idles.add(actor)
         return actors_with_idles
 
     def _begin_arb_element(self, all_actors, actors_with_idles, on_done):
@@ -225,7 +228,7 @@ class ArbAccumulatorService(sims4.service_manager.Service):
         return arb_element
 
     def _append_arb_to_element(self, buffer_arb_element, arb, actors, safe_mode, attach=True):
-        if arb.empty or buffer_arb_element.arb._can_append(arb, safe_mode):
+        if not arb.empty and buffer_arb_element.arb._can_append(arb, safe_mode):
             buffer_arb_element.event_records = buffer_arb_element.event_records or []
             if attach:
                 buffer_arb_element.attach(*actors, actor_instances=arb._actor_instances())
@@ -234,7 +237,7 @@ class ArbAccumulatorService(sims4.service_manager.Service):
         return False
 
     def _append_arb_element_to_element(self, buffer_arb_element, arb_element, actors, safe_mode):
-        if arb_element.arb.empty or buffer_arb_element.arb._can_append(arb_element.arb, safe_mode):
+        if not arb_element.arb.empty and buffer_arb_element.arb._can_append(arb_element.arb, safe_mode):
             buffer_arb_element.event_records = buffer_arb_element.event_records or []
             buffer_arb_element.attach(*actors)
             buffer_arb_element.event_records.extend(arb_element.event_records)

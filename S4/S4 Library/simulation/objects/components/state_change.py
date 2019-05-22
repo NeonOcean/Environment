@@ -31,3 +31,4 @@ class StateChange:
     WALKSTYLE = 'walkstyle'
     PERIODIC_LOOT = 'periodic_loot'
     GLOW = 'glow'
+    SITUATION = 'situation'

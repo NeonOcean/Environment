@@ -236,7 +236,7 @@ class NativeArb(ArbBase):
         events = tuple(sorted(events, key=lambda e: e[0] != ClipEventType.ClientLocationCapture))
         handlers_to_delete = []
         for (event_type, event_id, event_data) in events:
-            applicable_handlers = [handler for handler in self._handlers if (handler.event_type is None or event_types_match(handler.event_type, event_type)) and (handler.event_id == event_id or handler.event_id is None)]
+            applicable_handlers = [handler for handler in self._handlers if handler.event_type is None or event_types_match(handler.event_type, event_type) if handler.event_id == event_id or handler.event_id is None]
             if applicable_handlers:
                 with BlockOnAnimationTag() as tag:
                     errors = []
@@ -252,10 +252,11 @@ class NativeArb(ArbBase):
                         else:
                             result = handler.callback(data)
                         handlers_to_delete.append(handler)
-                        if not isinstance(result, str):
-                            if not result:
-                                errors.append(result)
-                        errors.append(result)
+                        if result is not None:
+                            if not isinstance(result, str):
+                                if not result:
+                                    errors.append(result)
+                            errors.append(result)
         for handler in handlers_to_delete:
             if handler in self._handlers:
                 self._handlers.remove(handler)

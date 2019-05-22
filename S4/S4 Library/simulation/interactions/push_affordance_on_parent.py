@@ -14,10 +14,10 @@ class PushAffordanceOnRandomParent(XevtTriggeredElement):
         household = child_sim_info.household
         parents = set()
         for sim_info in household:
-            if sim_info is child_sim_info or not sim_info.is_teen_or_younger:
-                if not sim_info.is_instanced():
-                    pass
-                else:
+            if not sim_info is child_sim_info:
+                if not sim_info.is_teen_or_younger:
+                    if not sim_info.is_instanced():
+                        continue
                     parents.add(sim_info)
         for parent_sim_info in child_sim_info.genealogy.get_parent_sim_infos_gen():
             if parent_sim_info.is_instanced():

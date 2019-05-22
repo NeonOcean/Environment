@@ -156,15 +156,14 @@ class EventManagerService(Service):
             has_not_triggered_achievment_data_object = True
             for sim_info in household._sim_infos:
                 if sim_info == exclude_sim:
-                    pass
-                else:
+                    continue
+                if callbacks is not None:
+                    self._process_data_map_for_aspiration(sim_info, event_type, callbacks, **kwargs)
+                if has_not_triggered_achievment_data_object:
                     if callbacks is not None:
-                        self._process_data_map_for_aspiration(sim_info, event_type, callbacks, **kwargs)
-                    if has_not_triggered_achievment_data_object:
-                        if callbacks is not None:
-                            self._process_data_map_for_achievement(sim_info, event_type, callbacks, **kwargs)
-                        has_not_triggered_achievment_data_object = False
-                    self._process_test_event(sim_info, event_type, **kwargs)
+                        self._process_data_map_for_achievement(sim_info, event_type, callbacks, **kwargs)
+                    has_not_triggered_achievment_data_object = False
+                self._process_test_event(sim_info, event_type, **kwargs)
 
     def _process_data_map_for_aspiration(self, sim_info, event_type, callbacks, **kwargs):
         if sim_info.aspiration_tracker is None:

@@ -44,20 +44,11 @@ def transfer_entire_inventory(source, recipient, interaction=None, object_tests=
                 interaction.interaction_parameters['picked_item_ids'] = frozenset((obj.id,))
                 resolver = interaction.get_resolver()
                 if not object_tests.run_tests(resolver):
-                    pass
-                elif not source_inventory.try_remove_object_by_id(obj.id, count=obj.stack_count()):
-                    logger.warn('Failed to remove object {} from {} inventory', obj, source)
-                elif recipient_inventory.can_add(obj):
-                    if recipient_is_inventory_type or recipient.is_sim:
-                        obj.update_ownership(recipient)
-                    recipient_inventory.system_add_object(obj)
-                else:
-                    obj.set_household_owner_id(services.active_household_id())
-                    build_buy.move_object_to_household_inventory(obj, object_location_type=ObjectOriginLocation.SIM_INVENTORY)
+                    continue
             elif not source_inventory.try_remove_object_by_id(obj.id, count=obj.stack_count()):
                 logger.warn('Failed to remove object {} from {} inventory', obj, source)
             elif recipient_inventory.can_add(obj):
-                if recipient_is_inventory_type or recipient.is_sim:
+                if not recipient_is_inventory_type and recipient.is_sim:
                     obj.update_ownership(recipient)
                 recipient_inventory.system_add_object(obj)
             else:
@@ -135,9 +126,8 @@ class DestroySpecifiedObjectsFromTargetInventory(XevtTriggeredElement, HasTunabl
         for obj in inventory:
             single_object_resolver = event_testing.resolver.SingleObjectResolver(obj)
             if not self.object_tests.run_tests(single_object_resolver):
-                pass
-            else:
-                objects_to_destroy.add(obj)
+                continue
+            objects_to_destroy.add(obj)
         num_destroyed = 0
         for obj in objects_to_destroy:
             if self.count == self.ALL:
@@ -150,6 +140,7 @@ class DestroySpecifiedObjectsFromTargetInventory(XevtTriggeredElement, HasTunabl
             if not inventory.try_destroy_object(obj, count=count, source=inventory, cause='Destroying specified objects from target inventory extra.'):
                 logger.error('Error trying to destroy object {}.', obj, owner='tastle')
             num_destroyed += count
-            if self.count != self.ALL and num_destroyed >= self.count:
-                break
+            if self.count != self.ALL:
+                if num_destroyed >= self.count:
+                    break
         objects_to_destroy.clear()

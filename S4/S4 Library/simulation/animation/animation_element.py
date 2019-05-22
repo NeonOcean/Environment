@@ -225,15 +225,16 @@ def animate_states(asm, begin_states, end_states=None, sequence=(), require_end=
                     raise
                 if auto_exit_element is not None:
                     sequence = (auto_exit_element, sequence)
-                if asm.current_state != 'exit':
-                    auto_exit_actors = {actor for actor in all_actors if actor.is_sim and not actor.asm_auto_exit.locked}
-                    for actor in auto_exit_actors:
-                        if actor.asm_auto_exit.asm is None:
-                            actor.asm_auto_exit.asm = (asm, auto_exit_actors, asm.context)
-                            asm.context.add_ref(AUTO_EXIT_REF_TAG)
-                        elif actor.asm_auto_exit.asm[0] != asm:
-                            raise RuntimeError('Multiple ASMs in need of auto-exit simultaneously: {} and {}'.format(actor.asm_auto_exit.asm[0], asm))
-                if enable_auto_exit and do_gsi_logging:
+                if enable_auto_exit:
+                    if asm.current_state != 'exit':
+                        auto_exit_actors = {actor for actor in all_actors if actor.is_sim if not actor.asm_auto_exit.locked}
+                        for actor in auto_exit_actors:
+                            if actor.asm_auto_exit.asm is None:
+                                actor.asm_auto_exit.asm = (asm, auto_exit_actors, asm.context)
+                                asm.context.add_ref(AUTO_EXIT_REF_TAG)
+                            elif actor.asm_auto_exit.asm[0] != asm:
+                                raise RuntimeError('Multiple ASMs in need of auto-exit simultaneously: {} and {}'.format(actor.asm_auto_exit.asm[0], asm))
+                if do_gsi_logging:
                     for (prev_state, state, current_arb_str) in gsi_archive_logs:
                         gsi_handlers.interaction_archive_handlers.add_animation_data(interaction, asm, prev_state, state, current_arb_str)
                 if requires_begin_flush:
@@ -247,17 +248,19 @@ def animate_states(asm, begin_states, end_states=None, sequence=(), require_end=
                 for (actor_name, (actor, _, _)) in asm._actors.items():
                     actor = actor()
                     if actor is None:
-                        pass
-                    else:
+                        continue
+                    if actor.is_sim:
                         if actor.asm_last_call_time == cur_ticks:
                             actor.zero_length_asm_calls += 1
                         else:
                             actor.zero_length_asm_calls = 0
                         actor.asm_last_call_time = cur_ticks
-                        if actor.is_sim and actor.zero_length_asm_calls >= MAX_ZERO_LENGTH_ASM_CALLS_FOR_RESET:
+                        if actor.zero_length_asm_calls >= MAX_ZERO_LENGTH_ASM_CALLS_FOR_RESET:
                             raise RuntimeError('ASM {} is being called repeatedly with a zero-length duration.\nInteraction: {}\nPosture: {}\nStates: {} -> {}\n'.format(asm.name, interaction.get_interaction_type(), actor.posture.posture_type, begin_states, end_states))
                 return result
+                yield
             return True
+            yield
 
         def do_end(timeline):
             nonlocal all_actors
@@ -293,7 +296,9 @@ def animate_states(asm, begin_states, end_states=None, sequence=(), require_end=
                     sequence = (auto_exit_element, sequence)
                 result = yield from element_utils.run_child(timeline, sequence)
                 return result
+                yield
             return True
+            yield
 
         if repeat_begin_states:
 
@@ -314,7 +319,7 @@ def animate_states(asm, begin_states, end_states=None, sequence=(), require_end=
 
 class AnimationElement(HasTunableReference, elements.ParentElement, metaclass=TunedInstanceMetaclass, manager=services.animation_manager()):
     ASM_SOURCE = 'asm_key'
-    INSTANCE_TUNABLES = {'base_object_name': OptionalTunable(description='\n            ', tunable=Tunable(description='\n                If enabled this allows you to tune which actor is the base object\n                by  name. This is important if the posture target is not the\n                same as the target of the interaction.\n                \n                For example: The massage table has massage interactions that\n                target the other Sim but the massage therapist must route\n                and stand at the massage table. In this case you would need\n                to enable base_object_name and tune it to the name of the \n                actor you want to target with the posture, or in this case\n                massageTable. This is tuned in massageTable_SocialInteractions.\n                ', tunable_type=str, default=None, source_location='../' + ASM_SOURCE, source_query=SourceQueries.ASMActorAll)), 'repeat': Tunable(description='\n            If this is checked, then the begin_states will loop until the\n            controlling sequence (e.g. the interaction) ends. At that point,\n            end_states will play.\n            \n            This tunable allows you to create looping one-shot states. The\n            effects of this tunable on already looping states is undefined.\n            \n            This changes the interpretation of thought balloons. We will\n            trigger one balloon per loop of the animation. The delay on the\n            balloon is relative to the start of each loop rather than the start\n            of the entire sequence.\n            ', tunable_type=bool, default=False, tuning_filter=FilterTag.EXPERT_MODE), 'end_states': TunableList(description="\n             A list of states to run through at the end of this element. This \n             should generally be one of two values:\n             * empty (default), which means to do no requests. This is best if \n             you don't know what to use here, as auto-exit behavior, which \n             automatically requests the 'exit' state on any ASM that is still \n             active, should handle most cases for you. Note: this is not safe \n             for elements that are used as the staging content for SIs! \n             See below!\n             * 'exit', which requests the content on the way out of the \n             statemachine. This is important to set for SuperInteractions that \n             are set to use staging basic content, as auto-exit behavior is \n             disabled in that case. This means the content on the way to exit \n             will be requested as the SI is finishing. You can put additional \n             state requests here if the ASM is more complex, but that is very \n             rare.\n             ", tunable=str, source_location=ASM_SOURCE, source_query=SourceQueries.ASMState), '_overrides': TunableAnimationOverrides(description='\n            Overrides are for expert-level configuration of Animation Elements. \n            In 95% of cases, the animation element will work perfectly with no \n            overrides.\n            Overrides allow us to customize animations further using things \n            like vfx changes and also to account for some edge cases. \n            ', asm_source=ASM_SOURCE, state_source='begin_states'), 'begin_states': TunableList(description='\n             A list of states in the ASM to run through at the beginning of \n             this element. Generally-speaking, you should always use \n             begin_states for all your state requests. The only time you would \n             need end_states is when you are making a staging-SuperInteraction. \n             In that case, the content in begin_states happens when the SI \n             first runs, before it stages, and the content in end_states will \n             happen as the SI is exiting. When in doubt, put all of your state \n             requests here.\n             ', tunable=str, source_location=ASM_SOURCE, source_query=SourceQueries.ASMState), 'initial_state': OptionalTunable(description="\n             The name of the initial state in the ASM to use when begin_states \n             are requested. \n             If this is untuned, which should be the case almost all the time, \n             it will use the default initial state of 'entry'. Ask your \n             animation partner if you think you want to tune this because you \n             should not have to and it is probably best to just change the \n             structure of the ASM. Remember that ASMs are re-used within a \n             single interaction, so if you are defining an outcome animation, \n             you can rely on the state to persist from the basic content.\n             ", tunable=Tunable(tunable_type=str, default=None, source_location='../' + ASM_SOURCE, source_query=SourceQueries.ASMState), disabled_value=DEFAULT, disabled_name='use_default', enabled_name='custom_state_name'), 'create_target_name': Tunable(description="\n            Create Target Name is the actor name of an object that will be \n            created by this interaction. This is used frequently in the \n            crafting system but rarely elsewhere. If your interaction creates \n            an object in the Sim's hand, use this. \n            ", tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'carry_target_name': Tunable(description='\n            Carry Target Name is the actor name of the carried object in this \n            ASM. This is only relevant if the Target and Carry Target are \n            different. \n            ', tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'target_name': Tunable(description='\n            This determines which actor the target of the interaction will be. \n            In general, this should be the object that will be clicked on to \n            create interactions that use this content.\n            This helps the posture system understand what objects you already \n            know about and which to search for. Sit says its target name is \n            sitTemplate, which means you have to sit in the chair that was \n            clicked on, whereas Eat says its target name is consumable, which \n            means you can sit in any chair in the world to eat. This ends up \n            in the var_map in the runtime. \n            ', tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'actor_name': Tunable(description="\n            Actor Name is the name of the main actor for this animation. In \n            almost every case this will just be 'x', so please be absolutely \n            sure you know what you're doing when changing this value.\n            ", tunable_type=str, default='x', source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorSim), ASM_SOURCE: TunableInteractionAsmResourceKey(description='\n            ASM Key is the Animation State Machine to use for this animation. \n            You are selecting from the ASMs that are in your \n            Assets/InGame/Statemachines folder, and several of the subsequent \n            fields are populated by information from this selection. \n            ', default=None, category='asm')}
+    INSTANCE_TUNABLES = {ASM_SOURCE: TunableInteractionAsmResourceKey(description='\n            ASM Key is the Animation State Machine to use for this animation. \n            You are selecting from the ASMs that are in your \n            Assets/InGame/Statemachines folder, and several of the subsequent \n            fields are populated by information from this selection. \n            ', default=None, category='asm'), 'actor_name': Tunable(description="\n            Actor Name is the name of the main actor for this animation. In \n            almost every case this will just be 'x', so please be absolutely \n            sure you know what you're doing when changing this value.\n            ", tunable_type=str, default='x', source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorSim), 'target_name': Tunable(description='\n            This determines which actor the target of the interaction will be. \n            In general, this should be the object that will be clicked on to \n            create interactions that use this content.\n            This helps the posture system understand what objects you already \n            know about and which to search for. Sit says its target name is \n            sitTemplate, which means you have to sit in the chair that was \n            clicked on, whereas Eat says its target name is consumable, which \n            means you can sit in any chair in the world to eat. This ends up \n            in the var_map in the runtime. \n            ', tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'carry_target_name': Tunable(description='\n            Carry Target Name is the actor name of the carried object in this \n            ASM. This is only relevant if the Target and Carry Target are \n            different. \n            ', tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'create_target_name': Tunable(description="\n            Create Target Name is the actor name of an object that will be \n            created by this interaction. This is used frequently in the \n            crafting system but rarely elsewhere. If your interaction creates \n            an object in the Sim's hand, use this. \n            ", tunable_type=str, default=None, source_location=ASM_SOURCE, source_query=SourceQueries.ASMActorAll), 'initial_state': OptionalTunable(description="\n             The name of the initial state in the ASM to use when begin_states \n             are requested. \n             If this is untuned, which should be the case almost all the time, \n             it will use the default initial state of 'entry'. Ask your \n             animation partner if you think you want to tune this because you \n             should not have to and it is probably best to just change the \n             structure of the ASM. Remember that ASMs are re-used within a \n             single interaction, so if you are defining an outcome animation, \n             you can rely on the state to persist from the basic content.\n             ", tunable=Tunable(tunable_type=str, default=None, source_location='../' + ASM_SOURCE, source_query=SourceQueries.ASMState), disabled_value=DEFAULT, disabled_name='use_default', enabled_name='custom_state_name'), 'begin_states': TunableList(description='\n             A list of states in the ASM to run through at the beginning of \n             this element. Generally-speaking, you should always use \n             begin_states for all your state requests. The only time you would \n             need end_states is when you are making a staging-SuperInteraction. \n             In that case, the content in begin_states happens when the SI \n             first runs, before it stages, and the content in end_states will \n             happen as the SI is exiting. When in doubt, put all of your state \n             requests here.\n             ', tunable=str, source_location=ASM_SOURCE, source_query=SourceQueries.ASMState), '_overrides': TunableAnimationOverrides(description='\n            Overrides are for expert-level configuration of Animation Elements. \n            In 95% of cases, the animation element will work perfectly with no \n            overrides.\n            Overrides allow us to customize animations further using things \n            like vfx changes and also to account for some edge cases. \n            ', asm_source=ASM_SOURCE, state_source='begin_states'), 'end_states': TunableList(description="\n             A list of states to run through at the end of this element. This \n             should generally be one of two values:\n             * empty (default), which means to do no requests. This is best if \n             you don't know what to use here, as auto-exit behavior, which \n             automatically requests the 'exit' state on any ASM that is still \n             active, should handle most cases for you. Note: this is not safe \n             for elements that are used as the staging content for SIs! \n             See below!\n             * 'exit', which requests the content on the way out of the \n             statemachine. This is important to set for SuperInteractions that \n             are set to use staging basic content, as auto-exit behavior is \n             disabled in that case. This means the content on the way to exit \n             will be requested as the SI is finishing. You can put additional \n             state requests here if the ASM is more complex, but that is very \n             rare.\n             ", tunable=str, source_location=ASM_SOURCE, source_query=SourceQueries.ASMState), 'repeat': Tunable(description='\n            If this is checked, then the begin_states will loop until the\n            controlling sequence (e.g. the interaction) ends. At that point,\n            end_states will play.\n            \n            This tunable allows you to create looping one-shot states. The\n            effects of this tunable on already looping states is undefined.\n            \n            This changes the interpretation of thought balloons. We will\n            trigger one balloon per loop of the animation. The delay on the\n            balloon is relative to the start of each loop rather than the start\n            of the entire sequence.\n            ', tunable_type=bool, default=False, tuning_filter=FilterTag.EXPERT_MODE), 'base_object_name': OptionalTunable(description='\n            ', tunable=Tunable(description='\n                If enabled this allows you to tune which actor is the base object\n                by  name. This is important if the posture target is not the\n                same as the target of the interaction.\n                \n                For example: The massage table has massage interactions that\n                target the other Sim but the massage therapist must route\n                and stand at the massage table. In this case you would need\n                to enable base_object_name and tune it to the name of the \n                actor you want to target with the posture, or in this case\n                massageTable. This is tuned in massageTable_SocialInteractions.\n                ', tunable_type=str, default=None, source_location='../' + ASM_SOURCE, source_query=SourceQueries.ASMActorAll))}
     _child_animations = None
     _child_constraints = None
 
@@ -326,24 +331,29 @@ class AnimationElement(HasTunableReference, elements.ParentElement, metaclass=Tu
         self.setup_asm_additional = setup_asm_additional
         if overrides is not None:
             overrides = overrides()
-        if interaction is not None:
-            if interaction.anim_overrides is not None:
-                overrides = interaction.anim_overrides(overrides=overrides)
-            if not interaction.is_super:
-                super_interaction = self.interaction.super_interaction
-                if super_interaction.basic_content.content_set.balloon_overrides is not None:
-                    balloons = super_interaction.basic_content.content_set.balloon_overrides
-                    overrides = overrides(balloons=balloons)
+        if interaction is not UNSET:
+            if interaction is not None:
+                if interaction.anim_overrides is not None:
+                    overrides = interaction.anim_overrides(overrides=overrides)
+                if not interaction.is_super:
+                    super_interaction = self.interaction.super_interaction
+                    if super_interaction is not None:
+                        if super_interaction.basic_content is not None:
+                            if super_interaction.basic_content.content_set is not None:
+                                if super_interaction.basic_content.content_set.balloon_overrides is not None:
+                                    balloons = super_interaction.basic_content.content_set.balloon_overrides
+                                    overrides = overrides(balloons=balloons)
         self.overrides = self._overrides(overrides=overrides)
         self.animate_kwargs = animate_kwargs
         self._use_asm_cache = use_asm_cache
-        if not logged_missing_interaction_callstack:
-            logger.callstack('Attempting to set up animation {} with interaction=None.', self, level=sims4.log.LEVEL_ERROR, owner='jpollak')
-            logged_missing_interaction_callstack = True
+        if interaction is None:
+            if not logged_missing_interaction_callstack:
+                logger.callstack('Attempting to set up animation {} with interaction=None.', self, level=sims4.log.LEVEL_ERROR, owner='jpollak')
+                logged_missing_interaction_callstack = True
 
     @classmethod
     def _verify_tuning_callback(cls):
-        if cls.begin_states or not cls.end_states:
+        if not cls.begin_states and not cls.end_states:
             logger.error('Animation {} specifies neither begin_states nor end_states. This is not supported.', cls)
         if cls.carry_target_name is not None and cls.create_target_name is not None:
             logger.error('Animation {} has specified both a carry target ({}) and a create target ({}).  This is not supported.', cls, cls.carry_target_name, cls.create_target_name, owner='tastle')
@@ -484,20 +494,21 @@ class AnimationElementSet(metaclass=TunedInstanceMetaclass, manager=services.ani
                 surface_target = MATCH_ANY if sim_posture_state.surface_target is not None else MATCH_NONE
                 provided_postures = sim_posture_state.body.get_provided_postures(surface_target=surface_target)
                 best_element_supported_posture = get_best_supported_posture(provided_postures, postures, sim_posture_state.get_carry_state(), ignore_carry=False)
-                if not best_supported_posture is None:
-                    if best_element_supported_posture < best_supported_posture:
-                        best_supported_posture = best_element_supported_posture
-                        best_anim_element_type = anim_element_type
-                        if carry_actor_name:
-                            best_carry_actor_and_object = (carry_actor_name, carry_object)
-                        else:
-                            best_carry_actor_and_object = None
-                best_supported_posture = best_element_supported_posture
-                best_anim_element_type = anim_element_type
-                if carry_actor_name:
-                    best_carry_actor_and_object = (carry_actor_name, carry_object)
-                else:
-                    best_carry_actor_and_object = None
+                if best_element_supported_posture is not None:
+                    if not best_supported_posture is None:
+                        if best_element_supported_posture < best_supported_posture:
+                            best_supported_posture = best_element_supported_posture
+                            best_anim_element_type = anim_element_type
+                            if carry_actor_name:
+                                best_carry_actor_and_object = (carry_actor_name, carry_object)
+                            else:
+                                best_carry_actor_and_object = None
+                    best_supported_posture = best_element_supported_posture
+                    best_anim_element_type = anim_element_type
+                    if carry_actor_name:
+                        best_carry_actor_and_object = (carry_actor_name, carry_object)
+                    else:
+                        best_carry_actor_and_object = None
         if best_carry_actor_and_object is not None:
             setup_asm_additional_override = setup_asm_additional
 

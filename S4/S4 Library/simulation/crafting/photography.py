@@ -229,12 +229,13 @@ class TakePhoto(XevtTriggeredElement):
                     entry.participant_sim_position.x = sim.position.x
                     entry.participant_sim_position.y = sim.position.y
                     entry.participant_sim_position.z = sim.position.z
-                    if self.photo_pose.asm is not None:
-                        entry.animation_pose.asm = get_protobuff_for_key(self.photo_pose.asm)
-                        entry.animation_pose.state_name = self.photo_pose.state_name
-                        actor_name = self._get_actor_name(index)
-                        if actor_name is not None:
-                            entry.animation_pose.actor_name = actor_name
+                    if self.photo_pose is not None:
+                        if self.photo_pose.asm is not None:
+                            entry.animation_pose.asm = get_protobuff_for_key(self.photo_pose.asm)
+                            entry.animation_pose.state_name = self.photo_pose.state_name
+                            actor_name = self._get_actor_name(index)
+                            if actor_name is not None:
+                                entry.animation_pose.actor_name = actor_name
             take_photo_proto.filters_disabled = self.filters_disabled
             take_photo_proto.single_shot_mode = self.single_shot_mode
             take_photo_proto.painting_size = self._get_photo_size()
@@ -319,7 +320,7 @@ class TakePhoto(XevtTriggeredElement):
             return self.canvas_size
 
     class _RotateTargetSelfieMode(_BasePhotoMode):
-        FACTORY_TUNABLES = {'rotate_target_sim': TunableEnumEntry(description='\n                The participant used as the rotate selfie subject.\n                ', tunable_type=ParticipantTypeSingle, default=ParticipantType.TargetSim), 'forward_distance_multiplier_map': TunableMapping(description='\n                Mapping between species and forward distance the camera will be\n                set from the rotate selfie subject. \n                ', key_type=TunableEnumEntry(description='\n                    Species these values are intended for.\n                    ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN), value_type=Tunable(description='\n                    The the forward distance from the rotation target that the\n                    camera will be placed. \n                    ', tunable_type=float, default=1.2)), 'locked_args': {'photo_target_sims': None, 'photo_pose': None}}
+        FACTORY_TUNABLES = {'rotate_target_sim': TunableEnumEntry(description='\n                The participant used as the rotate selfie subject.\n                ', tunable_type=ParticipantTypeSingle, default=ParticipantType.TargetSim), 'forward_distance_multiplier_map': TunableMapping(description='\n                Mapping between species and forward distance the camera will be\n                set from the rotate selfie subject. \n                ', key_type=TunableEnumEntry(description='\n                    Species these values are intended for.\n                    ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,)), value_type=Tunable(description='\n                    The the forward distance from the rotation target that the\n                    camera will be placed. \n                    ', tunable_type=float, default=1.2)), 'locked_args': {'photo_target_sims': None, 'photo_pose': None}}
 
         def _get_camera_mode(self):
             return CameraMode.SELFIE_PHOTO

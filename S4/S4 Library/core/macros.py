@@ -143,7 +143,7 @@ class FunctionMacro(MacroBase):
         return ()
 
     def apply(self, call, statement_context):
-        if statement_context or not self.is_expr:
+        if not statement_context and not self.is_expr:
             raise RuntimeError('Attempting to apply non-expression macro {} in an expression context'.format(self.full_name()))
         mapping = self.get_base_mapping()
         argument_mapping = _get_parameter_mapping(self.name, self.node.args, call, skip=self.get_skip_args())
@@ -156,10 +156,11 @@ class FunctionMacro(MacroBase):
         else:
             extract_body = False
         transformer.visit(new_tree)
-        if self.is_expr:
-            new_tree = ast.Expr(new_tree)
+        if statement_context:
+            if self.is_expr:
+                new_tree = ast.Expr(new_tree)
         result = _fix_all_locations(new_tree, call.lineno, call.col_offset)
-        if statement_context and extract_body:
+        if extract_body:
             result = result.body
         return result
 
@@ -199,22 +200,21 @@ class ClassMacro(MacroBase):
         mapping = {}
         for statement in self._init.body:
             if isinstance(statement, ast.Pass):
-                pass
-            else:
-                if not isinstance(statement, ast.Assign):
-                    raise TypeError('Class macro __init__ must only contain assignments, not {}'.format(type(statement)))
-                if len(statement.targets) != 1:
-                    raise TypeError('Class macro __init__ assignments may only have one target, not {}'.format(len(statement.targets)))
-                target = statement.targets[0]
-                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id != 'self':
-                    raise TypeError('Class macro __init__ body may only assign to self')
-                dest = '{}.{}'.format(target.value.id, target.attr)
-                if not isinstance(statement.value, ast.Name):
-                    raise TypeError('Class macro __init__ body may only assign from arguments')
-                source = statement.value.id
-                if source not in argument_mapping:
-                    raise TypeError("Class macro __init__ assignment source '{}' not found in arguments".format(source))
-                mapping[dest] = argument_mapping[source]
+                continue
+            if not isinstance(statement, ast.Assign):
+                raise TypeError('Class macro __init__ must only contain assignments, not {}'.format(type(statement)))
+            if len(statement.targets) != 1:
+                raise TypeError('Class macro __init__ assignments may only have one target, not {}'.format(len(statement.targets)))
+            target = statement.targets[0]
+            if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name) or target.value.id != 'self':
+                raise TypeError('Class macro __init__ body may only assign to self')
+            dest = '{}.{}'.format(target.value.id, target.attr)
+            if not isinstance(statement.value, ast.Name):
+                raise TypeError('Class macro __init__ body may only assign from arguments')
+            source = statement.value.id
+            if source not in argument_mapping:
+                raise TypeError("Class macro __init__ assignment source '{}' not found in arguments".format(source))
+            mapping[dest] = argument_mapping[source]
         return mapping
 
     def instantiate(self, node, from_module):
@@ -305,7 +305,7 @@ class MacroVisitor(ast.NodeVisitor):
             else:
                 nodes[i] = new_statement
                 i += 1
-        if nodes or first_statement is not None:
+        if not nodes and first_statement is not None:
             pass_node = ast.copy_location(ast.Pass(), first_statement)
             nodes.append(pass_node)
 
@@ -390,12 +390,7 @@ class MacroVisitor(ast.NodeVisitor):
                             if symbol == '.':
                                 for (macro_name, macro_value) in import_macros.items():
                                     if macro_value == MACRO_SYMBOL and name != 'macro':
-                                        pass
-                                    elif isinstance(macro_value, MacroBase) and name != macro_value.from_module:
-                                        pass
-                                    else:
-                                        full_name = sys.intern('{}.{}'.format(name, macro_name))
-                                        self._macros[full_name] = macro_value
+                                        continue
                                     full_name = sys.intern('{}.{}'.format(name, macro_name))
                                     self._macros[full_name] = macro_value
                             elif symbol in import_macros:
@@ -506,14 +501,13 @@ class ModuleSuiteImporter:
     def find_module(self, name, path=None):
         for hook in sys.meta_path:
             if isinstance(hook, ModuleSuiteImporter):
-                pass
-            else:
-                loader = hook.find_module(name, path=path)
-                if loader is not None:
-                    source = loader.get_source(name)
-                    if source is None:
-                        return loader
-                    return ModuleSuiteLoader(self, loader)
+                continue
+            loader = hook.find_module(name, path=path)
+            if loader is not None:
+                source = loader.get_source(name)
+                if source is None:
+                    return loader
+                return ModuleSuiteLoader(self, loader)
 
     def invalidate_caches(self):
         self.ast_cache.clear()
@@ -544,69 +538,40 @@ class ModuleSuiteImporter:
             while pending:
                 fullname = pending.pop(-1)
                 if fullname in imported:
-                    pass
+                    continue
+                imported.add(fullname)
+                if '.' in fullname:
+                    parent = fullname.rpartition('.')[0]
+                    parent_loader = loaders[parent]
+                    if not hasattr(parent_loader, 'path'):
+                        continue
+                    package_path = make_package_path(parent_loader.path)
+                    module_loader = self.find_module(fullname, path=package_path)
                 else:
-                    imported.add(fullname)
-                    if '.' in fullname:
-                        parent = fullname.rpartition('.')[0]
-                        parent_loader = loaders[parent]
-                        if not hasattr(parent_loader, 'path'):
-                            pass
-                        else:
-                            package_path = make_package_path(parent_loader.path)
-                            module_loader = self.find_module(fullname, path=package_path)
-                            loaders[fullname] = module_loader
-                            if fullname in self.ast_cache:
-                                pass
-                            else:
-                                self.ast_cache[fullname] = None
-                                if module_loader is None:
-                                    pass
-                                else:
-                                    source = module_loader.get_source(fullname)
-                                    if source is None:
-                                        pass
-                                    else:
-                                        if hasattr(source, 'read'):
-                                            data = source.read()
-                                            source.close()
-                                        else:
-                                            data = source
-                                        tree = _parse_module(fullname, data, self.opt_level)
-                                        to_process[fullname] = tree
-                                        for (imp_name, imp_level) in _get_module_imports(tree):
-                                            import_name = self._resolve_relative(imp_name, fullname, imp_level)
-                                            if import_name not in imported:
-                                                pending.append(import_name)
-                                            dependents[import_name].add(fullname)
-                                            import_name = import_name.rpartition('.')[0]
-                    else:
-                        module_loader = self.find_module(fullname)
-                    loaders[fullname] = module_loader
-                    if fullname in self.ast_cache:
-                        pass
-                    else:
-                        self.ast_cache[fullname] = None
-                        if module_loader is None:
-                            pass
-                        else:
-                            source = module_loader.get_source(fullname)
-                            if source is None:
-                                pass
-                            else:
-                                if hasattr(source, 'read'):
-                                    data = source.read()
-                                    source.close()
-                                else:
-                                    data = source
-                                tree = _parse_module(fullname, data, self.opt_level)
-                                to_process[fullname] = tree
-                                for (imp_name, imp_level) in _get_module_imports(tree):
-                                    import_name = self._resolve_relative(imp_name, fullname, imp_level)
-                                    if import_name not in imported:
-                                        pending.append(import_name)
-                                    dependents[import_name].add(fullname)
-                                    import_name = import_name.rpartition('.')[0]
+                    module_loader = self.find_module(fullname)
+                loaders[fullname] = module_loader
+                if fullname in self.ast_cache:
+                    continue
+                self.ast_cache[fullname] = None
+                if module_loader is None:
+                    continue
+                source = module_loader.get_source(fullname)
+                if source is None:
+                    continue
+                if hasattr(source, 'read'):
+                    data = source.read()
+                    source.close()
+                else:
+                    data = source
+                tree = _parse_module(fullname, data, self.opt_level)
+                to_process[fullname] = tree
+                for (imp_name, imp_level) in _get_module_imports(tree):
+                    import_name = self._resolve_relative(imp_name, fullname, imp_level)
+                    while import_name:
+                        if import_name not in imported:
+                            pending.append(import_name)
+                        dependents[import_name].add(fullname)
+                        import_name = import_name.rpartition('.')[0]
             relevant = set(to_process.keys())
             sccs = graph_algos.strongly_connected_components(relevant, dependents.get)
             order = []
@@ -625,8 +590,9 @@ class ModuleSuiteImporter:
                         existing.__macros__ = m
         finally:
             for fullname in order:
-                if fullname in self.ast_cache and self.ast_cache[fullname] is None:
-                    del self.ast_cache[fullname]
+                if fullname in self.ast_cache:
+                    if self.ast_cache[fullname] is None:
+                        del self.ast_cache[fullname]
 
     def _exec_module(self, name, tree, loader):
         module = self._get_cached_module(name)
@@ -669,7 +635,7 @@ class ModuleSuiteImporter:
             elif package not in sys.modules and package not in self.ast_cache:
                 msg = 'Parent module {0!r} not loaded, cannot perform relative import'
                 raise SystemError(msg.format(package))
-        if name or level == 0:
+        if not name and level == 0:
             raise ValueError('Empty module name')
         if level > 0:
             dot = len(package)

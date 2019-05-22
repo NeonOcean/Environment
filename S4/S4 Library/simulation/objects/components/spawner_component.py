@@ -147,7 +147,7 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         self._spawn_object(spawn_type=spawn_type, ignore_firemeter=ignore_firemeter, create_slot_obj_count=create_slot_obj_count)
 
     def _spawn_object(self, spawn_type=None, ignore_firemeter=False, create_slot_obj_count=1):
-        spawn_firemeter_value = self.spawn_firemeter(self.owner) if ignore_firemeter or self.spawn_firemeter is not None else None
+        spawn_firemeter_value = self.spawn_firemeter(self.owner) if not ignore_firemeter and self.spawn_firemeter is not None else None
         if spawn_firemeter_value is not None and len(self._spawned_objects) >= spawn_firemeter_value:
             return
         if spawn_type is not None:

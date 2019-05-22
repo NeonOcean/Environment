@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2018 by Rocky Bernstein
+#  Copyright (c) 2015-2019 by Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #  Copyright (c) 1999 John Aycock
@@ -88,7 +88,8 @@ Python.
 #
 #     %p  like %c but sets the operator precedence.
 #         Its argument then is a tuple indicating the node
-#         index and the precidence value, an integer.
+#         index and the precedence value, an integer. If 3 items are given,
+#         the second item is the nonterminal name and the precedence is given last.
 #
 #     %C  evaluate children recursively, with sibling children separated by the
 #         given string.  It needs a 3-tuple: a starting node, the maximimum
@@ -395,7 +396,7 @@ class SourceWalker(GenericASTTraversal, object):
         self.f.write(out)
 
     def println(self, *data):
-        if data and not(len(data) == 1 and data[0] ==''):
+        if data and not(len(data) == 1 and data[0] == ''):
             self.write(*data)
         self.pending_newlines = max(self.pending_newlines, 1)
 
@@ -616,7 +617,7 @@ class SourceWalker(GenericASTTraversal, object):
                 node[-2][0].kind = 'build_tuple2'
         self.default(node)
 
-    n_store_subscr = n_subscript = n_delete_subscr
+    n_store_subscript = n_subscript = n_delete_subscr
 
     # Note: this node is only in Python 2.x
     # FIXME: figure out how to get this into customization
@@ -811,6 +812,7 @@ class SourceWalker(GenericASTTraversal, object):
         self.write(func_name)
 
         self.indent_more()
+
         self.make_function(node, is_lambda=False, code_node=code_node)
 
         if len(self.param_stack) > 1:
@@ -855,7 +857,7 @@ class SourceWalker(GenericASTTraversal, object):
             n = n[0]  # iterate one nesting deeper
             if   n == 'list_for':	n = n[3]
             elif n == 'list_if':	n = n[2]
-            elif n == 'list_if_not': n= n[2]
+            elif n == 'list_if_not': n = n[2]
         assert n == 'lc_body'
         self.write( '[ ')
 
@@ -915,7 +917,7 @@ class SourceWalker(GenericASTTraversal, object):
             n = n[0] # iterate one nesting deeper
             if   n == 'list_for':	n = n[3]
             elif n == 'list_if':	n = n[2]
-            elif n == 'list_if_not': n= n[2]
+            elif n == 'list_if_not': n = n[2]
         assert n == 'lc_body'
         self.write( '[ ')
 
@@ -943,7 +945,7 @@ class SourceWalker(GenericASTTraversal, object):
         # FIXME: clean this up
         if self.version >= 3.0 and node == 'dict_comp':
             cn = node[1]
-        elif self.version < 2.7 and node == 'generator_exp':
+        elif self.version <= 2.7 and node == 'generator_exp':
             if node[0] == 'LOAD_GENEXPR':
                 cn = node[0]
             elif node[0] == 'load_closure':
@@ -1048,7 +1050,7 @@ class SourceWalker(GenericASTTraversal, object):
         while (len(ast) == 1
                or (ast in ('sstmt', 'return')
                    and ast[-1] in ('RETURN_LAST', 'RETURN_VALUE'))):
-            self.prec=100
+            self.prec = 100
             ast = ast[0]
 
         # Pick out important parts of the comprehension:
@@ -1080,7 +1082,7 @@ class SourceWalker(GenericASTTraversal, object):
                     n = (k[3], k[1])
                     pass
                 elif k == 'comp_iter':
-                    n = k[1]
+                    n = k[0]
                     pass
                 pass
         else:
@@ -1188,7 +1190,7 @@ class SourceWalker(GenericASTTraversal, object):
         while (len(ast) == 1
                or (ast in ('sstmt', 'return')
                    and ast[-1] in ('RETURN_LAST', 'RETURN_VALUE'))):
-            self.prec=100
+            self.prec = 100
             ast = ast[0]
 
         n = ast[1]
@@ -1812,10 +1814,6 @@ class SourceWalker(GenericASTTraversal, object):
             node[-2][0].kind = 'unpack_w_parens'
         self.default(node)
 
-    # except_cond3 is only in Python <= 2.6
-    n_except_cond3 = n_except_cond2
-
-
     def template_engine(self, entry, startnode):
         """The format template interpetation engine.  See the comment at the
         beginning of this module for the how we interpret format
@@ -1826,7 +1824,6 @@ class SourceWalker(GenericASTTraversal, object):
         # print(startnode)
         # print(entry[0])
         # print('======')
-
         fmt = entry[0]
         arg = 1
         i = 0
@@ -1839,7 +1836,11 @@ class SourceWalker(GenericASTTraversal, object):
             typ = m.group('type') or '{'
             node = startnode
             if m.group('child'):
-                node = node[int(m.group('child'))]
+                try:
+                    node = node[int(m.group('child'))]
+                except:
+                    from trepan.api import debug; debug()
+                    pass
 
             if   typ == '%':	self.write('%')
             elif typ == '+':
@@ -1861,8 +1862,8 @@ class SourceWalker(GenericASTTraversal, object):
                 index = entry[arg]
                 if isinstance(index, tuple):
                     assert node[index[0]] == index[1], (
-                        "at %s[%d], expected %s node; got %s" % (
-                            node.kind, arg, node[index[0]].kind, index[1])
+                        "at %s[%d], expected '%s' node; got '%s'" % (
+                            node.kind, arg,  index[1], node[index[0]].kind)
                         )
                     index = index[0]
                 assert isinstance(index, int), (
@@ -1873,7 +1874,18 @@ class SourceWalker(GenericASTTraversal, object):
                 arg += 1
             elif typ == 'p':
                 p = self.prec
-                (index, self.prec) = entry[arg]
+                tup = entry[arg]
+                assert isinstance(tup, tuple)
+                if len(tup) == 3:
+                    (index, nonterm_name, self.prec) = tup
+                    assert node[index] == nonterm_name, (
+                        "at %s[%d], expected '%s' node; got '%s'" % (
+                            node.kind, arg,  nonterm_name, node[index].kind)
+                        )
+                else:
+                    assert len(tup) == 2
+                    (index, self.prec) = entry[arg]
+
                 self.preorder(node[index])
                 self.prec = p
                 arg += 1

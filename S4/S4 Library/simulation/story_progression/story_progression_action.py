@@ -42,12 +42,11 @@ class _StoryProgressionFilterAction(_StoryProgressionAction):
             for result in results:
                 sim_info = result.sim_info
                 if sim_info is None:
-                    pass
-                else:
-                    if not self._allow_instanced_sims():
-                        if not sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                            self._apply_action(sim_info)
-                    self._apply_action(sim_info)
+                    continue
+                if not self._allow_instanced_sims():
+                    if not sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                        self._apply_action(sim_info)
+                self._apply_action(sim_info)
             self._post_apply_action()
 
         services.sim_filter_service().submit_filter(self._get_filter(), _on_filter_request_complete, household_id=services.active_household_id(), gsi_source_fn=self.get_sim_filter_gsi_name)

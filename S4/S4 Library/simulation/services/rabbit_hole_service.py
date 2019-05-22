@@ -115,12 +115,9 @@ class RabbitHoleService(Service):
             elif sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
                 result = self._push_affordance(sim_id, rabbit_hole.affordance)
                 if not result:
-                    pass
-                else:
-                    self._register_callback_for_cancel(sim_info, rabbit_hole.affordance)
-                    self._set_up_away_action(sim_info, rabbit_hole.away_action)
-                    self._add_sim_to_blacklist(sim_id)
-                    self._attach_exit_conditions(sim_info.id)
+                    continue
+                self._register_callback_for_cancel(sim_info, rabbit_hole.affordance)
+                self._set_up_away_action(sim_info, rabbit_hole.away_action)
             elif not sim_info.is_at_home:
                 self._move_sim_home_and_setup(sim_info, rabbit_hole.affordance, rabbit_hole.away_action)
             else:
@@ -144,11 +141,10 @@ class RabbitHoleService(Service):
             rabbit_hole_id = entry.rabbit_hole_id
             rabbit_hole_type = services.get_instance_manager(sims4.resources.Types.RABBIT_HOLE).get(rabbit_hole_id)
             if rabbit_hole_type is None:
-                pass
-            else:
-                ticks = entry.time_remaining
-                time = TimeSpan(ticks)
-                self._store_rabbit_hole(sim_id, rabbit_hole_type, time)
+                continue
+            ticks = entry.time_remaining
+            time = TimeSpan(ticks)
+            self._store_rabbit_hole(sim_id, rabbit_hole_type, time)
 
     def _add_sim_to_blacklist(self, sim_id):
         sim_filter_service = services.sim_filter_service()

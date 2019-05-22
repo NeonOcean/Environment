@@ -8,7 +8,7 @@ class ProfileMetrics:
         self.is_test_set = is_test_set
 
     def get_total_time(self, include_test_set=True):
-        if self.is_test_set and include_test_set:
+        if not self.is_test_set or include_test_set:
             return self.resolve_time + self.test_time
         return self.resolve_time
 

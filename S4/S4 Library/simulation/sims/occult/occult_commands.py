@@ -12,9 +12,11 @@ def add_occult_type(occult_type:str, sim_id:OptionalTargetParam=None, _connectio
         except ValueError:
             sims4.commands.output('{} is not a valid occult type. Valid options: {}'.format(occult_type, ', '.join(OccultType.names)), _connection)
             return False
-        occult_tracker = sim.sim_info.occult_tracker
-        occult_tracker.add_occult_type(occult_type)
-        return True
+        else:
+            occult_tracker = sim.sim_info.occult_tracker
+            occult_tracker.add_occult_type(occult_type)
+            return True
+            return False
     return False
 
 @sims4.commands.Command('occult.remove_occult')
@@ -26,9 +28,11 @@ def remove_occult_type(occult_type:str, sim_id:OptionalTargetParam=None, _connec
         except ValueError:
             sims4.commands.output('{} is not a valid occult type. Valid options: {}'.format(occult_type, ', '.join(OccultType.names)), _connection)
             return False
-        occult_tracker = sim.sim_info.occult_tracker
-        occult_tracker.remove_occult_type(occult_type)
-        return True
+        else:
+            occult_tracker = sim.sim_info.occult_tracker
+            occult_tracker.remove_occult_type(occult_type)
+            return True
+            return False
     return False
 
 @sims4.commands.Command('occult.switch_to_occult')
@@ -40,9 +44,11 @@ def switch_to_occult_type(occult_type:str, sim_id:OptionalTargetParam=None, _con
         except ValueError:
             sims4.commands.output('{} is not a valid occult type. Valid options: {}'.format(occult_type, ', '.join(OccultType.names)), _connection)
             return False
-        occult_tracker = sim.sim_info.occult_tracker
-        occult_tracker.switch_to_occult_type(occult_type)
-        return True
+        else:
+            occult_tracker = sim.sim_info.occult_tracker
+            occult_tracker.switch_to_occult_type(occult_type)
+            return True
+            return False
     return False
 
 @sims4.commands.Command('occult.occult_form_available', command_type=CommandType.Automation)

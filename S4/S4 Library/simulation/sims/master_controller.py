@@ -87,8 +87,9 @@ class WorkEntry:
     def remove_from_master_controller(self):
         for sim in self.resources:
             active_work = self.master_controller._active_work.get(sim)
-            if active_work is not None and active_work is self:
-                del self.master_controller._active_work[sim]
+            if active_work is not None:
+                if active_work is self:
+                    del self.master_controller._active_work[sim]
         self._work_element = None
         self._work_entry_element = None
         self._run_work_gen_element = None
@@ -234,7 +235,8 @@ class MasterController(sims4.service_manager.Service):
                 if additional_resource in requested_resources:
                     all_free = False
                     break
-            requested_resources.update(work_entry.additional_resources)
+            else:
+                requested_resources.update(work_entry.additional_resources)
         for required_sim in work_entry.resources:
             self._gsi_add_log_entry(sim, 'PROCESS_WORK_ENTRY', 'Sim Resource: {}: testing if valid resource', required_sim)
             if required_sim not in self._sims:
@@ -291,7 +293,7 @@ class MasterController(sims4.service_manager.Service):
         return sorted(sims, key=lambda sim: (-sim.get_next_work_priority(), self._last_work_timestamps[sim]))
 
     def _process(self, *sims):
-        if self._enabled and (self._processing or self._reset_in_progress):
+        if not self._enabled or self._processing or self._reset_in_progress:
             return
         self._processing = True
         sims_filtered = list(sims)
@@ -304,38 +306,37 @@ class MasterController(sims4.service_manager.Service):
             new_work_accepted = []
             self._gsi_entry_initialize(*sims)
             self._gsi_add_sim_time_line_for_sims(sims, 'Start', 'Begin processing')
-            sims_filtered = [sim for sim in sims if sim not in self._denied_sims and sim in self._sims]
+            sims_filtered = [sim for sim in sims if sim not in self._denied_sims if sim in self._sims]
             for sim in self._sorted_sims(itertools.chain(self._denied_sims, sims_filtered)):
                 self._gsi_add_log_entry(sim, 'PROCESS', '----- START -----')
                 if sim not in self._sims:
-                    pass
-                elif sim in requested_sims:
-                    pass
+                    continue
+                if sim in requested_sims:
+                    continue
+                existing_entry = self._active_work.get(sim)
+                if existing_entry is not None and not existing_entry.cancelable:
+                    continue
+                if sim in self._denied_sims and sim.is_sim:
+                    sim.queue.on_head_changed.remove(self._process)
+                try:
+                    work_request = sim.get_next_work()
+                finally:
+                    if sim in self._denied_sims and sim.is_sim:
+                        sim.queue.on_head_changed.append(self._process)
+                if work_request.work_element is None:
+                    self._gsi_add_log_entry(sim, 'PROCESS', 'No Work Element')
                 else:
-                    existing_entry = self._active_work.get(sim)
-                    if existing_entry is not None and not existing_entry.cancelable:
-                        pass
-                    else:
-                        if sim in self._denied_sims and sim.is_sim:
-                            sim.queue.on_head_changed.remove(self._process)
-                        try:
-                            work_request = sim.get_next_work()
-                        finally:
-                            if sim in self._denied_sims and sim.is_sim:
-                                sim.queue.on_head_changed.append(self._process)
-                        if work_request.work_element is None:
-                            self._gsi_add_log_entry(sim, 'PROCESS', 'No Work Element')
-                        else:
-                            work_entry = WorkEntry(work_element=work_request.work_element, resources=work_request.required_sims, additional_resources=work_request.additional_resources, owner=sim, master_controller=self, on_accept=work_request.on_accept, debug_name=work_request._debug_name)
-                            self._gsi_add_sim_time_line_for_sim(sim, 'Create', 'Work Entry Created')
-                            self._gsi_add_log_entry(sim, 'PROCESS', 'Work Entry Created: required_sims:{}', str(work_request.required_sims))
-                            if sim in self._denied_sims:
-                                if sim.is_sim:
-                                    sim.queue.on_head_changed.remove(self._process)
-                                del self._denied_sims[sim]
-                            new_work_accepted.append((sim, work_entry))
-                            if self._process_work_entry(sim, work_entry, requested_sims, requested_resources) and work_request.set_work_timestamp:
-                                self.set_timestamp_for_sim_to_now(sim)
+                    work_entry = WorkEntry(work_element=work_request.work_element, resources=work_request.required_sims, additional_resources=work_request.additional_resources, owner=sim, master_controller=self, on_accept=work_request.on_accept, debug_name=work_request._debug_name)
+                    self._gsi_add_sim_time_line_for_sim(sim, 'Create', 'Work Entry Created')
+                    self._gsi_add_log_entry(sim, 'PROCESS', 'Work Entry Created: required_sims:{}', str(work_request.required_sims))
+                    if self._process_work_entry(sim, work_entry, requested_sims, requested_resources):
+                        if sim in self._denied_sims:
+                            if sim.is_sim:
+                                sim.queue.on_head_changed.remove(self._process)
+                            del self._denied_sims[sim]
+                        new_work_accepted.append((sim, work_entry))
+                        if work_request.set_work_timestamp:
+                            self.set_timestamp_for_sim_to_now(sim)
             for (sim, work_entry) in new_work_accepted:
                 self._gsi_add_log_entry(sim, 'PROCESS', 'Work Entry Start Called: {}', work_entry)
                 self._gsi_add_sim_time_line_for_sim(sim, 'Start', 'Work Entry Started')
@@ -391,13 +392,12 @@ class MasterController(sims4.service_manager.Service):
         if gsi_handlers.sim_timeline_handlers.archiver.enabled:
             for resource in work_entry.resources:
                 if not resource.is_sim:
-                    pass
+                    continue
+                if resource is work_entry.owner:
+                    message_to_log = '{}: as owner: {}'.format(log_message, resource)
                 else:
-                    if resource is work_entry.owner:
-                        message_to_log = '{}: as owner: {}'.format(log_message, resource)
-                    else:
-                        message_to_log = '{} as resource: {}'.format(log_message, resource, log_message)
-                    gsi_handlers.sim_timeline_handlers.archive_sim_timeline(resource, 'MasterController', status, message_to_log)
+                    message_to_log = '{} as resource: {}'.format(log_message, resource, log_message)
+                gsi_handlers.sim_timeline_handlers.archive_sim_timeline(resource, 'MasterController', status, message_to_log)
 
     def _gsi_entry_finalize(self):
         if gsi_handlers.master_controller_handlers.archiver.enabled:

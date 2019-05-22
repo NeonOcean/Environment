@@ -35,8 +35,8 @@ class ObjectTeleportationComponent(Component, HasTunableFactory, AutoFactoryInit
             random.shuffle(all_objects)
             for obj in all_objects:
                 if obj is self.owner:
-                    pass
-                elif obj.commodity_flags & motives:
+                    continue
+                if obj.commodity_flags & motives:
                     starting_location = placement.create_starting_location(position=obj.position)
                     if self.owner.is_sim:
                         fgl_context = placement.create_fgl_context_for_sim(starting_location, self.owner)

@@ -47,10 +47,11 @@ class LockoutMixin:
         if crafting_lockout is None:
             crafting_lockout_data = None
             for super_affordance in obj.super_affordances():
-                if hasattr(super_affordance, 'crafting_type_requirement') and super_affordance.crafting_type_requirement is not None:
-                    if crafting_lockout_data is None:
-                        crafting_lockout_data = _CraftingLockoutData()
-                    crafting_lockout_data.add_lockout(super_affordance.crafting_type_requirement)
+                if hasattr(super_affordance, 'crafting_type_requirement'):
+                    if super_affordance.crafting_type_requirement is not None:
+                        if crafting_lockout_data is None:
+                            crafting_lockout_data = _CraftingLockoutData()
+                        crafting_lockout_data.add_lockout(super_affordance.crafting_type_requirement)
             if crafting_lockout_data is not None:
                 self._crafting_lockouts[obj] = crafting_lockout_data
 
@@ -169,15 +170,15 @@ class AffordanceCacheMixin:
         affordances_to_skip = set()
         if self._target_provided_affordances_cache is not None:
             for provided_affordance_data in self._target_provided_affordances_cache:
-                if not provided_affordance_data.object_filter is None or provided_affordance_data.allow_self is None:
+                if not not provided_affordance_data.object_filter is None and provided_affordance_data.allow_self is None:
                     yield provided_affordance_data.affordance
-                elif not target.is_sim or not target.sim_info is sim_info or not provided_affordance_data.allow_self:
-                    pass
-                elif provided_affordance_data.affordance in affordances_to_skip:
-                    pass
-                elif not provided_affordance_data.object_filter.is_object_valid(target):
-                    pass
                 else:
+                    if not not target.is_sim and not not (not not target.sim_info is sim_info and not provided_affordance_data.allow_self):
+                        continue
+                    if provided_affordance_data.affordance in affordances_to_skip:
+                        continue
+                    if not provided_affordance_data.object_filter.is_object_valid(target):
+                        continue
                     affordances_to_skip.add(provided_affordance_data.affordance)
                     yield provided_affordance_data.affordance
 

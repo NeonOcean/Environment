@@ -99,13 +99,14 @@ class CraftingQualityLiability(Liability):
                 else:
                     liability_data.crafting_item_name = crafting_process.recipe.get_recipe_name(crafting_process.crafter)
                 phase = crafting_process.phase
-                if phase.is_visible:
-                    if phase.phase_display_name is not None:
-                        liability_data.phase_name = phase.phase_display_name
-                    liability_data.phase_index = crafting_process.phase_index
-                    liability_data.total_phases = crafting_process.recipe.total_visible_phases
-                    liability_data.turn_index = crafting_process.get_progress()
-                    liability_data.total_turns = crafting_process.get_turns_in_current_phase()
+                if phase is not None:
+                    if phase.is_visible:
+                        if phase.phase_display_name is not None:
+                            liability_data.phase_name = phase.phase_display_name
+                        liability_data.phase_index = crafting_process.phase_index
+                        liability_data.total_phases = crafting_process.recipe.total_visible_phases
+                        liability_data.turn_index = crafting_process.get_progress()
+                        liability_data.total_turns = crafting_process.get_turns_in_current_phase()
             add_message_if_selectable(sim, Consts_pb2.MSG_SIM_CRAFTING_LIABILITY_UPDATE, liability_data, False)
 
     def on_add(self, interaction):
@@ -137,9 +138,10 @@ def _record_test_result(aop, autonomy_step, test_result):
         explanation = ''
     else:
         explanation = test_result.reason
-    if autonomy_step.startswith('_'):
-        autonomy_step = 'failed ' + autonomy_step + ' check'
-    if autonomy_step and aop is not None:
+    if autonomy_step:
+        if autonomy_step.startswith('_'):
+            autonomy_step = 'failed ' + autonomy_step + ' check'
+    if aop is not None:
         message = 'Autonomy rejected AOP: {!s:40}\t{!s:40}\t{:20}\t{}'.format(aop.target, aop.affordance.__name__, autonomy_step, explanation)
     else:
         message = 'Autonomy rejected obj: {:20}\t{}'.format(autonomy_step, explanation)
@@ -207,7 +209,7 @@ class CraftingProcess(ComponentContainer):
             return self._original_target_ref()
 
     @classmethod
-    def recipe_test(cls, target, context, recipe, crafting_sim, price, ordering_sim=None, build_error_list=True, first_phase=DEFAULT, from_resume=False, from_autonomy=False, funds_source=None):
+    def recipe_test(cls, target, context, recipe, crafting_sim, price, paying_sim=None, build_error_list=True, first_phase=DEFAULT, from_resume=False, from_autonomy=False, funds_source=None):
         enabled = True
         error_list = []
         if crafting_sim is None:
@@ -217,7 +219,7 @@ class CraftingProcess(ComponentContainer):
         if first_phase is not DEFAULT:
             first_phases = set([first_phase])
         else:
-            paying_sim = crafting_sim if ordering_sim is None else ordering_sim
+            paying_sim = crafting_sim if paying_sim is None else paying_sim
             if funds_source is None:
                 source_funds = paying_sim.family_funds
             else:
@@ -265,10 +267,10 @@ class CraftingProcess(ComponentContainer):
                 if path:
                     for short_phase in path:
                         if short_phase in available_phases:
-                            pass
-                        else:
-                            type_requirement = getattr(short_phase.super_affordance, 'crafting_type_requirement', None)
-                            if type_requirement is not None and type_requirement.unavailable_tooltip is not None:
+                            continue
+                        type_requirement = getattr(short_phase.super_affordance, 'crafting_type_requirement', None)
+                        if type_requirement is not None:
+                            if type_requirement.unavailable_tooltip is not None:
                                 type_requirements.add(type_requirement)
                 else:
                     logger.error('No valid paths through phases defined in recipe tuning: {}', recipe.__name__)
@@ -318,8 +320,11 @@ class CraftingProcess(ComponentContainer):
         ref_count = services.object_manager().crafting_cache.get_ref_count(crafting_type_requirement, from_autonomy=from_autonomy)
         if crafting_ico is not None:
             parent_obj = crafting_ico.parent
-            if parent_obj.state_component is None or parent_obj.state_component.is_object_usable():
-                ref_count += 1
+            if parent_obj is not None:
+                if parent_obj.craftingstation_component is not None:
+                    if crafting_type_requirement in parent_obj.craftingstation_component.crafting_station_types:
+                        if parent_obj.state_component is None or parent_obj.state_component.is_object_usable():
+                            ref_count += 1
         if not ref_count:
             return False
         else:
@@ -384,8 +389,9 @@ class CraftingProcess(ComponentContainer):
         if not self.crafter.is_being_destroyed:
             for ingredient in self._reserved_ingredients:
                 inventory = ingredient.get_inventory()
-                if inventory is not None and not inventory.try_move_hidden_object_to_inventory(ingredient, count=ingredient.stack_count()):
-                    break
+                if inventory is not None:
+                    if not inventory.try_move_hidden_object_to_inventory(ingredient, count=ingredient.stack_count()):
+                        break
 
     def change_crafter(self, crafter):
         if self.crafter is crafter:
@@ -418,7 +424,8 @@ class CraftingProcess(ComponentContainer):
             if order[0] == sim.id:
                 del self.orders[idx]
                 break
-        logger.warn("Attempting to remove an order that isn't being tracked.")
+        else:
+            logger.warn("Attempting to remove an order that isn't being tracked.")
 
     @property
     def current_ico(self):
@@ -520,8 +527,10 @@ class CraftingProcess(ComponentContainer):
         if old_phase != new_phase:
             self._previous_phase = old_phase
             self._phase = new_phase
-            if not old_phase.next_phases:
-                self._previous_phase = None
+            if new_phase is None:
+                if old_phase is not None:
+                    if not old_phase.next_phases:
+                        self._previous_phase = None
             self.get_tracker(CraftingTuning.TURN_STATISTIC).set_value(CraftingTuning.TURN_STATISTIC, 0)
 
     @property
@@ -664,23 +673,26 @@ class CraftingProcess(ComponentContainer):
         modifier = 1
         for (state_value, value_mods) in value_modifiers.items():
             if state_value.state is None:
-                pass
-            elif obj.has_state(state_value.state):
+                continue
+            if obj.has_state(state_value.state):
                 actual_state_value = obj.get_state(state_value.state)
                 if state_value == actual_state_value:
                     modifier *= value_mods.random_float()
-        if obj.get_state(CraftingTuning.MASTERWORK_STATE) == CraftingTuning.MASTERWORK_STATE_VALUE:
-            value_multiplier = self.recipe.masterworks_data.simoleon_value_multiplier
-            modifier *= value_multiplier.random_float()
-        if obj.has_state(CraftingTuning.MASTERWORK_STATE) and self.crafter is not None:
+        if obj.has_state(CraftingTuning.MASTERWORK_STATE):
+            if obj.get_state(CraftingTuning.MASTERWORK_STATE) == CraftingTuning.MASTERWORK_STATE_VALUE:
+                value_multiplier = self.recipe.masterworks_data.simoleon_value_multiplier
+                modifier *= value_multiplier.random_float()
+        if self.crafter is not None:
             simoleon_value_skill_curve = self.recipe.simoleon_value_skill_curve
             if simoleon_value_skill_curve is not None:
                 modifier *= simoleon_value_skill_curve.get_multiplier(SingleSimResolver(self.crafter), self.crafter)
-        if obj.get_state(CraftingTuning.COPY_STATE_VALUE.state) == CraftingTuning.COPY_STATE_VALUE:
-            modifier *= CraftingTuning.COPY_VALUE_MULTIPLIER
+        if obj.has_state(CraftingTuning.COPY_STATE_VALUE.state):
+            if obj.get_state(CraftingTuning.COPY_STATE_VALUE.state) == CraftingTuning.COPY_STATE_VALUE:
+                modifier *= CraftingTuning.COPY_VALUE_MULTIPLIER
         retail_price = self.recipe.retail_price
-        if self.recipe.base_recipe is not None:
-            retail_price = self.recipe.base_recipe.retail_price
+        if single_serving:
+            if self.recipe.base_recipe is not None:
+                retail_price = self.recipe.base_recipe.retail_price
         self.crafted_value = int(retail_price*modifier)
         obj.base_value = self.crafted_value
 
@@ -750,8 +762,9 @@ class CraftingProcess(ComponentContainer):
         ico_progress = 0
         if self.current_ico is not None:
             tracker = self.current_ico.get_tracker(stat_type)
-        if tracker.has_statistic(stat_type):
-            ico_progress = tracker.get_int_value(stat_type, scale=scale)
+        if tracker is not None:
+            if tracker.has_statistic(stat_type):
+                ico_progress = tracker.get_int_value(stat_type, scale=scale)
         tracker = self.get_tracker(stat_type)
         return max(ico_progress, tracker.get_int_value(stat_type, scale=scale))
 
@@ -826,7 +839,7 @@ class CraftingProcess(ComponentContainer):
                 ico_affordance_list.append(affordance)
             else:
                 affordance_list.append(affordance)
-        if affordance_list or not ico_affordance_list:
+        if not affordance_list and not ico_affordance_list:
             logger.error("Couldn't find any interactions to look for for phases: {}", phases)
             return ((), affordance_to_phase)
         if self.original_target is not None and self.original_target is not sim:
@@ -864,7 +877,7 @@ class CraftingProcess(ComponentContainer):
                     inventory_owner = inventoryitem_component.inventory_owner
                     if inventory_owner is not None:
                         required_objects.add(inventory_owner)
-            elif required_objects or sim.posture_state.body_target is not None:
+            elif not required_objects and sim.posture_state.body_target is not None:
                 required_objects.add(sim.posture_state.body_target)
             if required_objects:
                 (result, required_request) = run_request(autonomy_service, affordance_list, required_objects=required_objects)
@@ -903,7 +916,7 @@ class CraftingProcess(ComponentContainer):
         if not getattr(target_affordance, 'handles_go_to_next_recipe_phase', False):
 
             def auto_increment_phase():
-                if self.increment_phase(interaction=previous_phase_si) or phase.target_ico and target is not None:
+                if not self.increment_phase(interaction=previous_phase_si) and phase.target_ico and target is not None:
                     target.on_crafting_process_finished()
 
             exit_behavior = (auto_increment_phase,)
@@ -937,7 +950,7 @@ class CraftingProcess(ComponentContainer):
         if from_resume:
             liabilities = ((CRAFTING_QUALITY_LIABILITY, CraftingQualityLiability(self, created_by='Resume')),)
         if next_phases is None:
-            if from_resume or self.should_repeat_phase or not self.next_phases:
+            if from_resume or not (self.should_repeat_phase or not self.next_phases):
                 phase = None
                 if self.orders:
                     (_, recipe) = self.orders[0]
@@ -956,8 +969,8 @@ class CraftingProcess(ComponentContainer):
             return 1
         for phase in self.recipe.phases.values():
             if not phase.is_visible:
-                pass
-            elif phase.turn_based:
+                continue
+            if phase.turn_based:
                 num_turns = phase.num_turns
                 if shorten_all_phases:
                     num_turns = min(CraftingTuning.MAX_TURNS_FOR_AUTOSMOKE, num_turns)
@@ -1027,14 +1040,16 @@ class CraftingProcess(ComponentContainer):
                 crafting_process_msg.phase_id = self.phase.id
             if self._previous_phase is not None:
                 crafting_process_msg.previous_phase_id = self._previous_phase.id
-        if self.phase is not None:
-            crafting_process_msg.current_ico = self.current_ico.id
-        if self.current_ico is not None and self._crafter_sim_id is not None:
+        if self.current_ico is not None:
+            if self.phase is not None:
+                crafting_process_msg.current_ico = self.current_ico.id
+        if self._crafter_sim_id is not None:
             crafting_process_msg.crafter_sim_id = self._crafter_sim_id
-        if self._crafter_info_data is None:
-            crafter_info_msg = SimInfoNameData.generate_sim_info_name_data_msg(self.crafter.sim_info, use_profanity_filter=True)
-            crafting_process_msg.crafter_info = crafter_info_msg
-        if self.crafter is not None and self.inscription is not None:
+        if self.crafter is not None:
+            if self._crafter_info_data is None:
+                crafter_info_msg = SimInfoNameData.generate_sim_info_name_data_msg(self.crafter.sim_info, use_profanity_filter=True)
+                crafting_process_msg.crafter_info = crafter_info_msg
+        if self.inscription is not None:
             crafting_process_msg.inscription = self.inscription
         if self.crafted_value is not None:
             crafting_process_msg.crafted_value = self.crafted_value

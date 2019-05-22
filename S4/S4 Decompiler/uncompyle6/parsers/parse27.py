@@ -1,9 +1,10 @@
-#  Copyright (c) 2016-2018 Rocky Bernstein
+#  Copyright (c) 2016-2019 Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <hartmut@goebel.noris.de>
 
 from spark_parser import DEFAULT_DEBUG as PARSER_DEFAULT_DEBUG
-from uncompyle6.parser import PythonParserSingle
+from xdis import next_offset
+from uncompyle6.parser import PythonParserSingle, nop_func
 from uncompyle6.parsers.parse2 import Python2Parser
 
 class Python27Parser(Python2Parser):
@@ -40,7 +41,6 @@ class Python27Parser(Python2Parser):
         comp_body ::= set_comp_body
         comp_for ::= expr for_iter store comp_iter JUMP_BACK
 
-        comp_iter     ::= comp_if
         comp_iter     ::= comp_body
 
         dict_comp_body ::= expr expr MAP_ADD
@@ -122,6 +122,7 @@ class Python27Parser(Python2Parser):
         conditional_true ::= expr JUMP_FORWARD expr COME_FROM
 
         conditional      ::= expr jmp_false expr JUMP_FORWARD expr COME_FROM
+        conditional      ::= expr jmp_false expr JUMP_ABSOLUTE expr
         """
 
     def p_stmt27(self, args):
@@ -155,7 +156,13 @@ class Python27Parser(Python2Parser):
 
         while1stmt        ::= SETUP_LOOP returns bp_come_from
         while1stmt        ::= SETUP_LOOP l_stmts_opt JUMP_BACK POP_BLOCK COME_FROM
+
         whilestmt         ::= SETUP_LOOP testexpr l_stmts_opt JUMP_BACK POP_BLOCK _come_froms
+
+        # Should this be JUMP_BACK+ ?
+        # JUMP_BACK should all be to the same location
+        whilestmt         ::= SETUP_LOOP testexpr l_stmts_opt JUMP_BACK JUMP_BACK POP_BLOCK _come_froms
+
         while1elsestmt    ::= SETUP_LOOP l_stmts JUMP_BACK POP_BLOCK
                               else_suitel COME_FROM
         whileelsestmt     ::= SETUP_LOOP testexpr l_stmts_opt JUMP_BACK POP_BLOCK
@@ -196,6 +203,13 @@ class Python27Parser(Python2Parser):
                            POP_BLOCK LOAD_CONST COME_FROM suite_stmts_opt
                            END_FINALLY
         """)
+        if 'PyPy' in customize:
+            # PyPy-specific customizations
+            self.addRule("""
+                        return_if_stmt ::= ret_expr RETURN_END_IF come_froms
+                        """, nop_func)
+
+
         super(Python27Parser, self).customize_grammar_rules(tokens, customize)
         self.check_reduce['and'] = 'AST'
         # self.check_reduce['or'] = 'AST'
@@ -203,14 +217,17 @@ class Python27Parser(Python2Parser):
         self.check_reduce['list_if_not'] = 'AST'
         self.check_reduce['list_if'] = 'AST'
         self.check_reduce['conditional_true'] = 'AST'
+        self.check_reduce['whilestmt'] = 'tokens'
         return
 
     def reduce_is_invalid(self, rule, ast, tokens, first, last):
         invalid = super(Python27Parser,
                         self).reduce_is_invalid(rule, ast,
                                                 tokens, first, last)
+
         if invalid:
             return invalid
+
         if rule == ('and', ('expr', 'jmp_false', 'expr', '\\e_come_from_opt')):
             # Test that jmp_false jumps to the end of "and"
             # or that it jumps to the same place as the end of "and"
@@ -220,6 +237,12 @@ class Python27Parser(Python2Parser):
                         tokens[last].pattr == jmp_false.pattr)
         elif rule[0] == ('raise_stmt1'):
             return ast[0] == 'expr' and ast[0][0] == 'or'
+        elif rule[0] in ('assert', 'assert2'):
+            jump_inst = ast[1][0]
+            jump_target = jump_inst.attr
+            return not (last >= len(tokens)
+                        or jump_target == tokens[last].offset
+                        or jump_target == next_offset(ast[-1].op, ast[-1].opc, ast[-1].offset))
         elif rule == ('list_if_not', ('expr', 'jmp_true', 'list_iter')):
             jump_inst = ast[1][0]
             jump_offset = jump_inst.attr
@@ -235,6 +258,16 @@ class Python27Parser(Python2Parser):
             jmp_target = jmp_true.offset + jmp_true.attr + 3
             return not (jmp_target == tokens[last].offset or
                         tokens[last].pattr == jmp_true.pattr)
+
+        elif (rule[0] == 'whilestmt' and
+              rule[1][0:-2] ==
+                      ('SETUP_LOOP', 'testexpr', 'l_stmts_opt',
+                       'JUMP_BACK', 'JUMP_BACK')):
+            # Make sure that the jump backs all go to the same place
+            i = last-1
+            while (tokens[i] != 'JUMP_BACK'):
+                i -= 1
+            return tokens[i].attr != tokens[i-1].attr
         # elif rule[0] == ('conditional_true'):
         #     # FIXME: the below is a hack: we check expr for
         #     # nodes that could have possibly been a been a Boolean.

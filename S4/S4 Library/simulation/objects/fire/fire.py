@@ -22,11 +22,10 @@ class Fire(objects.game_object.GameObject):
             burning_objects = services.get_fire_service().objects_burning_from_fire_object(self)
             for obj in burning_objects:
                 if obj.routing_context is None:
-                    pass
-                else:
-                    object_footprint_id = obj.routing_context.object_footprint_id
-                    if object_footprint_id is not None:
-                        self._raycast_context.ignore_footprint_contour(object_footprint_id)
+                    continue
+                object_footprint_id = obj.routing_context.object_footprint_id
+                if object_footprint_id is not None:
+                    self._raycast_context.ignore_footprint_contour(object_footprint_id)
             self._raycast_context_dirty = False
         return super().raycast_context(for_carryable=for_carryable)
 

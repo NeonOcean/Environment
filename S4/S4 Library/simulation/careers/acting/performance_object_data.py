@@ -17,11 +17,10 @@ class PerformanceObjectData:
             skip_perk = state_data.skip_with_perk
             state_value = state_data.state_value
             if skip_perk is not None and bucks_tracker is not None and bucks_tracker.is_perk_unlocked(skip_perk):
-                pass
-            else:
-                for obj in self._objects:
-                    if obj.has_state(state_value.state):
-                        obj.set_state(state_value.state, state_value, immediate=True, force_update=True)
+                continue
+            for obj in self._objects:
+                if obj.has_state(state_value.state):
+                    obj.set_state(state_value.state, state_value, immediate=True, force_update=True)
 
     def set_post_performance_states(self):
         self._set_states(self._post_performance_states)

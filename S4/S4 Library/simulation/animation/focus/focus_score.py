@@ -19,7 +19,7 @@ class _FocusScoreGlobal(HasTunableSingletonFactory, AutoFactoryInit):
         self.populate_focus_score_entry_msg(focus_score_msg.global_score)
 
 class _FocusScoreSpecies(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'scores': TunableMapping(description='\n            A mapping of species to the focus score specific to that\n            species.\n            ', key_type=TunableEnumEntry(description='\n                The species associated with this score.\n                ', tunable_type=Species, default=Species.HUMAN), value_type=_FocusScoreGlobal.TunableFactory())}
+    FACTORY_TUNABLES = {'scores': TunableMapping(description='\n            A mapping of species to the focus score specific to that\n            species.\n            ', key_type=TunableEnumEntry(description='\n                The species associated with this score.\n                ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=_FocusScoreGlobal.TunableFactory())}
 
     def populate_focus_score_msg(self, focus_score_msg):
         for (species, focus_score) in self.scores.items():

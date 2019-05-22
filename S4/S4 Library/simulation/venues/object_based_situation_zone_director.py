@@ -28,8 +28,9 @@ class ObjectBasedSituationZoneDirectorMixin:
         object_tags = self.object_based_situations_schedule.keys()
         object_manager = services.object_manager()
         for obj in object_manager.get_valid_objects_gen():
-            if obj.has_component(SITUATION_SCHEDULER_COMPONENT) and not obj.has_any_tag(object_tags):
-                obj.remove_component(SITUATION_SCHEDULER_COMPONENT)
+            if obj.has_component(SITUATION_SCHEDULER_COMPONENT):
+                if not obj.has_any_tag(object_tags):
+                    obj.remove_component(SITUATION_SCHEDULER_COMPONENT)
 
     def _load_affected_objects(self):
         object_manager = services.object_manager()
@@ -37,45 +38,40 @@ class ObjectBasedSituationZoneDirectorMixin:
             object_cap = data.affected_object_cap
             tagged_objects = list(object_manager.get_objects_with_tag_gen(object_tag))
             if not tagged_objects:
-                pass
-            else:
-                affected_objects = []
-                for obj in tagged_objects:
-                    if not obj.has_component(SITUATION_SCHEDULER_COMPONENT):
-                        pass
-                    elif len(affected_objects) == object_cap:
-                        obj.remove_component(SITUATION_SCHEDULER_COMPONENT)
-                    else:
-                        affected_objects.append(obj)
-                        obj.set_situation_scheduler(data.situation_schedule(start_callback=self._start_situations, schedule_immediate=False, extra_data=obj))
-                if affected_objects:
-                    self.affected_objects_map[object_tag] = WeakSet(affected_objects)
+                continue
+            affected_objects = []
+            for obj in tagged_objects:
+                if not obj.has_component(SITUATION_SCHEDULER_COMPONENT):
+                    continue
+                if len(affected_objects) == object_cap:
+                    obj.remove_component(SITUATION_SCHEDULER_COMPONENT)
+                else:
+                    affected_objects.append(obj)
+                    obj.set_situation_scheduler(data.situation_schedule(start_callback=self._start_situations, schedule_immediate=False, extra_data=obj))
+            if affected_objects:
+                self.affected_objects_map[object_tag] = WeakSet(affected_objects)
 
     def _setup_affected_objects(self):
         object_manager = services.object_manager()
         for (object_tag, data) in self.object_based_situations_schedule.items():
             object_cap = data.affected_object_cap
             if object_tag in self.affected_objects_map and len(self.affected_objects_map[object_tag]) >= object_cap:
-                pass
-            else:
-                tagged_objects = list(object_manager.get_objects_with_tag_gen(object_tag))
-                if not tagged_objects:
-                    pass
-                else:
-                    if object_tag not in self.affected_objects_map:
-                        self.affected_objects_map[object_tag] = WeakSet()
-                    affected_objects = self.affected_objects_map[object_tag]
-                    if len(affected_objects) == len(tagged_objects):
-                        pass
-                    else:
-                        for obj in tagged_objects:
-                            if obj in affected_objects:
-                                pass
-                            else:
-                                obj.add_dynamic_component(SITUATION_SCHEDULER_COMPONENT, scheduler=data.situation_schedule(start_callback=self._start_situations, extra_data=obj))
-                                affected_objects.add(obj)
-                                if len(affected_objects) >= object_cap:
-                                    break
+                continue
+            tagged_objects = list(object_manager.get_objects_with_tag_gen(object_tag))
+            if not tagged_objects:
+                continue
+            if object_tag not in self.affected_objects_map:
+                self.affected_objects_map[object_tag] = WeakSet()
+            affected_objects = self.affected_objects_map[object_tag]
+            if len(affected_objects) == len(tagged_objects):
+                continue
+            for obj in tagged_objects:
+                if obj in affected_objects:
+                    continue
+                obj.add_dynamic_component(SITUATION_SCHEDULER_COMPONENT, scheduler=data.situation_schedule(start_callback=self._start_situations, extra_data=obj))
+                affected_objects.add(obj)
+                if len(affected_objects) >= object_cap:
+                    break
 
     def _start_situations(self, scheduler, alarm_data, obj):
         obj.create_situation(alarm_data.entry.situation)

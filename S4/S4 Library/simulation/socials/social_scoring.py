@@ -19,7 +19,7 @@ class SocialGroupCostFunction(CostFunctionBase):
         if group is None:
             return 0.0
         geometry = group.geometry
-        if geometry and len(geometry) == 1 and self._sim in geometry:
+        if not geometry or len(geometry) == 1 and self._sim in geometry:
             ideal_position = group.position
             effective_distance = (position - ideal_position).magnitude_2d()*2.0
             score = socials.geometry.SocialGeometry.GROUP_DISTANCE_CURVE.get(effective_distance)
@@ -28,8 +28,9 @@ class SocialGroupCostFunction(CostFunctionBase):
         transform = sims4.math.Transform(position, orientation)
         multiplier = socials.geometry.score_transform(transform, self._sim, geometry, group.group_radius, base_focus, base_field)
         offset = multiplier*socials.geometry.SocialGeometry.SCORE_STRENGTH_MULTIPLIER
-        if sims4.math.vector3_almost_equal_2d(position, self._sim.position, epsilon=0.01):
-            offset += socials.geometry.SocialGeometry.SCORE_OFFSET_FOR_CURRENT_POSITION
+        if self._sim in geometry:
+            if sims4.math.vector3_almost_equal_2d(position, self._sim.position, epsilon=0.01):
+                offset += socials.geometry.SocialGeometry.SCORE_OFFSET_FOR_CURRENT_POSITION
         return -offset
 
 class PetGroupCostFunction(HasTunableFactory, AutoFactoryInit, CostFunctionBase):

@@ -116,7 +116,7 @@ class GreetedPlayerVisitingNPCSituation(VisitingNPCSituation):
             self._sims_who_left_house = set()
         else:
             self._sims_who_left_house = set(reader.read_uint64s(SIMS_WHO_LEFT, set()))
-        if self._seed.is_loadable or self.initiating_sim_info is not None:
+        if not self._seed.is_loadable and self.initiating_sim_info is not None:
             sim = self.initiating_sim_info.get_sim_instance()
             if sim is not None:
                 self._line_of_sight = self._line_of_sight_factory()

@@ -140,7 +140,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
 
     DEFAULT_THUMBNAIL = TunableResourceKey(None, resource_types=sims4.resources.CompoundTypes.IMAGE, description='Icon to be displayed for the Buff.')
     DEFAULT_GAMEPLAY_OPTIONS = SimInfoGameplayOptions.ALLOW_FAME | SimInfoGameplayOptions.ALLOW_REPUTATION
-    SIM_DEFINITIONS = TunableMapping(description='\n        A Map from Species to base definition object.\n        ', key_type=TunableEnumEntry(description='\n            Species this definition is for.\n            ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN), value_type=TunableReference(description='\n            The definition used to instantiate Sims.\n            ', manager=services.definition_manager(), class_restrictions='Sim', pack_safe=True))
+    SIM_DEFINITIONS = TunableMapping(description='\n        A Map from Species to base definition object.\n        ', key_type=TunableEnumEntry(description='\n            Species this definition is for.\n            ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,)), value_type=TunableReference(description='\n            The definition used to instantiate Sims.\n            ', manager=services.definition_manager(), class_restrictions='Sim', pack_safe=True))
 
     @staticmethod
     def get_sim_definition(species):
@@ -364,6 +364,10 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return services.household_manager().get(self._household_id)
 
     @property
+    def family_funds(self):
+        return self.household.funds
+
+    @property
     def travel_group(self):
         return services.travel_group_manager().get(self._travel_group_id)
 
@@ -438,11 +442,10 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             return
         sim = self.get_sim_instance()
         for affordance in self.SIM_SKEWER_AFFORDANCES:
-            if affordance.simless or sim is None:
-                pass
-            else:
-                for aop in affordance.potential_interactions(sim, context, sim_info=self, **kwargs):
-                    yield aop
+            if not affordance.simless and sim is None:
+                continue
+            for aop in affordance.potential_interactions(sim, context, sim_info=self, **kwargs):
+                yield aop
         if not self.household.missing_pet_tracker.is_pet_missing(self):
             yield self._generate_default_away_action_aop(context, **kwargs)
             yield from self._generate_away_action_affordances(context, **kwargs)
@@ -650,7 +653,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             return
         if self._zone_id == new_zone_id:
             return
-        if skip_instanced_check or self.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+        if not skip_instanced_check and self.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
             logger.error('Trying to inject {} into zone when sim_info is still instanced.', self)
         self._zone_id = new_zone_id
         self.world_id = services.get_persistence_service().get_world_id_from_zone(new_zone_id)
@@ -770,10 +773,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         for statistic in tuple(self.commodity_tracker):
             if isinstance(statistic, LifeSkillStatistic):
                 if statistic.missing_career_decay_rate == 0.0:
-                    pass
-                else:
-                    reduced_value = statistic.get_value() - missed_time_percent*statistic.missing_career_decay_rate
-                    statistic.set_value(reduced_value)
+                    continue
+                reduced_value = statistic.get_value() - missed_time_percent*statistic.missing_career_decay_rate
+                statistic.set_value(reduced_value)
 
     def get_school_data(self):
         sim_definition = self.get_sim_definition(self.extended_species)
@@ -901,17 +903,17 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return sim is not None
 
     def add_topic(self, *args, **kwargs):
-        if self._sim_ref and self._sim_ref() is None:
+        if not self._sim_ref or self._sim_ref() is None:
             return
         return self._sim_ref().add_topic(*args, **kwargs)
 
     def remove_topic(self, *args, **kwargs):
-        if self._sim_ref and self._sim_ref() is None:
+        if not self._sim_ref or self._sim_ref() is None:
             return
         return self._sim_ref().remove_topic(*args, **kwargs)
 
     def set_sub_action_lockout(self, *args, **kwargs):
-        if self._sim_ref and self._sim_ref() is None:
+        if not self._sim_ref or self._sim_ref() is None:
             return
         return self._sim_ref().set_sub_action_lockout(*args, **kwargs)
 
@@ -944,10 +946,11 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                     starting_position = sim_location.transform.translation
                     starting_orientation = sim_location.transform.orientation
                     start_routing_surface = sim_location.routing_surface
-                    if start_routing_surface.primary_id != sim_info.zone_id:
-                        if sim_info.world_id != zone.open_street_id:
-                            logger.warn("Sim {} spawning in zone {} but the sim's startup sim location had zone saved as {}. Setting sim location routing surface to use new zone.", sim_info, sim_info.zone_id, start_routing_surface.primary_id)
-                        start_routing_surface = routing.SurfaceIdentifier(sim_info.zone_id, start_routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
+                    if start_routing_surface.type == routing.SurfaceType.SURFACETYPE_WORLD:
+                        if start_routing_surface.primary_id != sim_info.zone_id:
+                            if sim_info.world_id != zone.open_street_id:
+                                logger.warn("Sim {} spawning in zone {} but the sim's startup sim location had zone saved as {}. Setting sim location routing surface to use new zone.", sim_info, sim_info.zone_id, start_routing_surface.primary_id)
+                            start_routing_surface = routing.SurfaceIdentifier(sim_info.zone_id, start_routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
                 else:
                     logger.info('Sim {} spawning with no sim_location'.format(sim_info))
                     starting_orientation = None
@@ -975,8 +978,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                             lot_id = zone.lot.lot_id
                     else:
                         total_spawner_tags = sim_spawner_tags
-                        if SpawnPoint.ARRIVAL_SPAWN_POINT_TAG in total_spawner_tags or SpawnPoint.VISITOR_ARRIVAL_SPAWN_POINT_TAG in total_spawner_tags:
-                            lot_id = zone.lot.lot_id
+                        if spawn_at_lot:
+                            if SpawnPoint.ARRIVAL_SPAWN_POINT_TAG in total_spawner_tags or SpawnPoint.VISITOR_ARRIVAL_SPAWN_POINT_TAG in total_spawner_tags:
+                                lot_id = zone.lot.lot_id
                     logger.info('Sim {} looking for spawn point relative to lot_id {} tags {}', sim_info, lot_id, total_spawner_tags)
                     if spawn_point_override is None:
                         spawn_point = zone.get_spawn_point(lot_id=lot_id, sim_spawner_tags=total_spawner_tags, spawning_sim_info=self, spawn_point_request_reason=SpawnPointRequestReason.SPAWN)
@@ -1119,7 +1123,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return True
 
     def assign_to_travel_group(self, travel_group):
-        if not (self._travel_group_id != 0 and (travel_group.id != self._travel_group_id or game_services.service_manager.is_traveling)):
+        if not (self._travel_group_id != 0 and (travel_group.id != self._travel_group_id or not game_services.service_manager.is_traveling)):
             logger.error('Attempting to add a Sim to a second travel group. Sim: {}, Travel Group: {}'.format(self, travel_group), owner='rmccord')
             return False
         self._travel_group_id = travel_group.id
@@ -1287,7 +1291,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return False
 
     def set_gameplay_option(self, gameplay_option, value):
-        if value == True if self._gameplay_options & gameplay_option else False:
+        if value == (True if self._gameplay_options & gameplay_option else False):
             return
         if value:
             self._gameplay_options |= gameplay_option
@@ -1347,18 +1351,19 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                 location_data.rot_w = orientation.w
                 location_data.level = level
                 location_data.surface_id = surface_id
-        elif self._transform_on_load is not None:
-            location_data = gameplay_serialization.WorldLocation()
-            transform = self._transform_on_load
-            location_data.x = transform.translation.x
-            location_data.y = transform.translation.y
-            location_data.z = transform.translation.z
-            location_data.rot_x = transform.orientation.x
-            location_data.rot_y = transform.orientation.y
-            location_data.rot_z = transform.orientation.z
-            location_data.rot_w = transform.orientation.w
-            location_data.level = self._level_on_load
-            location_data.surface_id = self._surface_id_on_load
+        elif self._serialization_option != SimSerializationOption.UNDECLARED:
+            if self._transform_on_load is not None:
+                location_data = gameplay_serialization.WorldLocation()
+                transform = self._transform_on_load
+                location_data.x = transform.translation.x
+                location_data.y = transform.translation.y
+                location_data.z = transform.translation.z
+                location_data.rot_x = transform.orientation.x
+                location_data.rot_y = transform.orientation.y
+                location_data.rot_z = transform.orientation.z
+                location_data.rot_w = transform.orientation.w
+                location_data.level = self._level_on_load
+                location_data.surface_id = self._surface_id_on_load
         sim_msg = self._save_sim_base(attributes_msg=attributes_msg, outfit_msg=outfit_msg, inventory_msg=inventory_msg, interactions_msg=interactions_msg, location_data=location_data, for_cloning=for_cloning)
         return sim_msg
 
@@ -1419,7 +1424,6 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         sim_msg.created = services.time_service().sim_now.absolute_ticks()
         sim_msg.gameplay_data.old_household_id = household_id
         sim_msg.gameplay_data.premade_sim_template_id = self.premade_sim_template_id
-        self._report_telemetry(from_load=False)
         if self.lod == SimInfoLODLevel.MINIMUM:
             return sim_msg
         sim_msg.pregnancy_progress = self.pregnancy_progress
@@ -1428,9 +1432,10 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         sim_msg.inventory = inventory_msg
         sim_msg.primary_aspiration = self._primary_aspiration.guid64 if self._primary_aspiration is not None else 0
         (outfit_type, outfit_index) = self._current_outfit
-        if outfit_index == SpecialOutfitIndex.DEFAULT:
-            (outfit_type, outfit_index) = self.get_previous_outfit()
-        if outfit_type == OutfitCategory.SPECIAL and outfit_type == OutfitCategory.BATHING:
+        if outfit_type == OutfitCategory.SPECIAL:
+            if outfit_index == SpecialOutfitIndex.DEFAULT:
+                (outfit_type, outfit_index) = self.get_previous_outfit()
+        if outfit_type == OutfitCategory.BATHING:
             outfit_type = OutfitCategory.EVERYDAY
             outfit_index = 0
         outfit_category_tuning = OutfitTuning.OUTFIT_CATEGORY_TUNING.get(outfit_type)
@@ -1454,10 +1459,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         sim_msg.gameplay_data.build_buy_unlock_list = ResourceKeyList()
         for unlock in self.build_buy_unlocks:
             if isinstance(unlock, int):
-                pass
-            else:
-                key_proto = sims4.resources.get_protobuff_for_key(unlock)
-                sim_msg.gameplay_data.build_buy_unlock_list.resource_keys.append(key_proto)
+                continue
+            key_proto = sims4.resources.get_protobuff_for_key(unlock)
+            sim_msg.gameplay_data.build_buy_unlock_list.resource_keys.append(key_proto)
         if self._whim_tracker is not None:
             sim_msg.gameplay_data.whim_bucks = self._whim_bucks
             self._whim_tracker.save_whims_info_to_proto(sim_msg.gameplay_data.whim_tracker)
@@ -1470,13 +1474,14 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             sim_msg.gameplay_data.zone_time_stamp.time_sim_was_saved = now_time.absolute_ticks()
         elif self._time_sim_was_saved is not None:
             sim_msg.gameplay_data.zone_time_stamp.time_sim_was_saved = self._time_sim_was_saved.absolute_ticks()
-        if household.home_zone_id != self._zone_id:
-            if self.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                time_expire = self._get_time_to_go_home()
-                sim_msg.gameplay_data.zone_time_stamp.game_time_expire = time_expire.absolute_ticks()
-            elif self.game_time_bring_home is not None:
-                sim_msg.gameplay_data.zone_time_stamp.game_time_expire = self.game_time_bring_home
-        if household is not None and location_data is not None:
+        if household is not None:
+            if household.home_zone_id != self._zone_id:
+                if self.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                    time_expire = self._get_time_to_go_home()
+                    sim_msg.gameplay_data.zone_time_stamp.game_time_expire = time_expire.absolute_ticks()
+                elif self.game_time_bring_home is not None:
+                    sim_msg.gameplay_data.zone_time_stamp.game_time_expire = self.game_time_bring_home
+        if location_data is not None:
             sim_msg.gameplay_data.location = location_data
         current_mood = self.get_mood()
         current_mood_intensity = self.get_mood_intensity()
@@ -1536,8 +1541,6 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         attributes_save.statistics_tracker.statistics.extend(regular_statistics)
         attributes_save.skill_tracker.skills.extend(skill_statistics)
         attributes_save.ranked_statistic_tracker.ranked_statistics.extend(ranked_statistics)
-        attributes_save.relic_tracker = self._relic_tracker.save()
-        attributes_save.lifestyle_brand_tracker = self._lifestyle_brand_tracker.save()
         if self._aspiration_tracker is not None:
             self._aspiration_tracker.save(attributes_save.event_data_tracker)
         elif old_attributes_save is not None:
@@ -1558,6 +1561,14 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             attributes_save.royalty_tracker = self._royalty_tracker.save()
         elif old_attributes_save is not None:
             attributes_save.royalty_tracker.MergeFrom(old_attributes_save.royalty_tracker)
+        if self._relic_tracker is not None:
+            attributes_save.relic_tracker = self._relic_tracker.save()
+        elif old_attributes_save is not None:
+            attributes_save.relic_tracker.MergeFrom(old_attributes_save.relic_tracker)
+        if self._lifestyle_brand_tracker is not None:
+            attributes_save.lifestyle_brand_tracker = self._lifestyle_brand_tracker.save()
+        elif old_attributes_save is not None:
+            attributes_save.lifestyle_brand_tracker.MergeFrom(old_attributes_save.lifestyle_brand_tracker)
         attributes_save.appearance_tracker = self.appearance_tracker.save_appearance_tracker()
         attributes_save.sickness_tracker = self.sickness_tracker.sickness_tracker_save_data()
         return attributes_save
@@ -1611,8 +1622,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         location_data.level = level
         location_data.surface_id = surface_id
         sim_msg.gameplay_data.location = location_data
-        if self.household.home_zone_id != self._zone_id:
-            self.game_time_bring_home = self._get_time_to_go_home()
+        if self.household is not None:
+            if self.household.home_zone_id != self._zone_id:
+                self.game_time_bring_home = self._get_time_to_go_home()
 
     def load_for_travel_to_current_zone(self):
         sim_proto = services.get_persistence_service().get_sim_proto_buff(self.sim_id)
@@ -1702,18 +1714,21 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                 key = sims4.resources.Key(key_proto.type, key_proto.instance, key_proto.group)
                 self._build_buy_unlocks.add(key)
         self._primary_aspiration = services.get_instance_manager(sims4.resources.Types.ASPIRATION_TRACK).get(sim_proto.primary_aspiration)
-        if not self.is_toddler_or_younger:
-            available_aspirations = []
-            aspiration_track_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION_TRACK)
-            for aspiration_track in aspiration_track_manager.types.values():
-                if aspiration_track.is_child_aspiration_track:
-                    if self.is_child:
-                        available_aspirations.append(aspiration_track)
-                elif not self.is_child:
-                    available_aspirations.append(aspiration_track)
-            self._primary_aspiration = random.choice(available_aspirations)
+        if not (self._primary_aspiration is None or not self._primary_aspiration.is_available()):
+            if self.is_human:
+                if not self.is_toddler_or_younger:
+                    available_aspirations = []
+                    aspiration_track_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION_TRACK)
+                    for aspiration_track in aspiration_track_manager.types.values():
+                        if not aspiration_track.is_hidden_unlockable:
+                            if aspiration_track.is_child_aspiration_track:
+                                if self.is_child:
+                                    available_aspirations.append(aspiration_track)
+                            elif not self.is_child:
+                                available_aspirations.append(aspiration_track)
+                    self._primary_aspiration = random.choice(available_aspirations)
         self._cached_inventory_value = sim_proto.gameplay_data.inventory_value
-        if self._primary_aspiration is None or self._primary_aspiration.is_available() or not (self.is_human and skip_load):
+        if not skip_load:
             self._away_action_tracker.load_away_action_info_from_proto(sim_proto.gameplay_data.away_action_tracker)
         self.spawn_point_id = sim_proto.gameplay_data.spawn_point_id if sim_proto.gameplay_data.HasField('spawn_point_id') else None
         self.spawn_point_option = SpawnPointOption(sim_proto.gameplay_data.spawn_point_option) if sim_proto.gameplay_data.HasField('spawn_point_option') else SpawnPointOption.SPAWN_ANY_POINT_WITH_CONSTRAINT_TAGS
@@ -1732,7 +1747,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             self.commodity_tracker.load_in_progress = True
             self.on_base_characteristic_changed()
             with services.relationship_service().suppress_client_updates_context_manager():
-                self._trait_tracker.load(sim_attribute_data.trait_tracker)
+                self._trait_tracker.load(sim_attribute_data.trait_tracker, skip_load)
         finally:
             self.Buffs.load_in_progress = False
             self.commodity_tracker.load_in_progress = False
@@ -1747,9 +1762,10 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         self._load_inventory(sim_proto, skip_load)
         self._additional_bonus_days = sim_proto.gameplay_data.additional_bonus_days
         self.load_favorite(sim_proto.gameplay_data.favorite_data)
-        if sim_proto.gameplay_data.zone_time_stamp.HasField('time_sim_was_saved'):
-            self._time_sim_was_saved = DateAndTime(sim_proto.gameplay_data.zone_time_stamp.time_sim_was_saved)
-        if skip_load or sim_proto.gameplay_data.zone_time_stamp.game_time_expire != 0:
+        if not skip_load:
+            if sim_proto.gameplay_data.zone_time_stamp.HasField('time_sim_was_saved'):
+                self._time_sim_was_saved = DateAndTime(sim_proto.gameplay_data.zone_time_stamp.time_sim_was_saved)
+        if sim_proto.gameplay_data.zone_time_stamp.game_time_expire != 0:
             self.game_time_bring_home = sim_proto.gameplay_data.zone_time_stamp.game_time_expire
         if sim_attribute_data:
             try:
@@ -1763,9 +1779,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                 self.statistic_tracker.load(sim_attribute_data.statistics_tracker.statistics, skip_load=skip_load)
                 self.commodity_tracker.load(sim_attribute_data.skill_tracker.skills, update_affordance_cache=False)
                 self.commodity_tracker.load(sim_attribute_data.ranked_statistic_tracker.ranked_statistics, update_affordance_cache=True)
-                self._relic_tracker.load(sim_attribute_data.relic_tracker)
-                self._lifestyle_brand_tracker.load(sim_attribute_data.lifestyle_brand_tracker)
-                skills_to_check_for_unlocks = [commodity for commodity in self.commodity_tracker.get_all_commodities() if commodity.unlocks_skills_on_max() and len(commodity.skill_unlocks_on_max) > 0]
+                skills_to_check_for_unlocks = [commodity for commodity in self.commodity_tracker.get_all_commodities() if commodity.unlocks_skills_on_max() if len(commodity.skill_unlocks_on_max) > 0]
                 if skills_to_check_for_unlocks:
                     self._check_skills_for_unlock(skills_to_check_for_unlocks, sim_attribute_data.skill_tracker.skills)
                 self._pregnancy_tracker.load(sim_attribute_data.pregnancy_tracker)
@@ -1793,22 +1807,28 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                     self._royalty_tracker.load(sim_attribute_data.royalty_tracker)
                 if self._unlock_tracker is not None and not skip_load:
                     self._unlock_tracker.load_unlock(sim_attribute_data.unlock_tracker)
+                if self._relic_tracker is not None and not skip_load:
+                    self._relic_tracker.load(sim_attribute_data.relic_tracker)
+                if self._lifestyle_brand_tracker is not None and not skip_load:
+                    self._lifestyle_brand_tracker.load(sim_attribute_data.lifestyle_brand_tracker)
             except:
                 logger.exception('Failed to load attributes for sim {}.', self._base.first_name)
             finally:
                 self._blacklisted_statistics_cache = None
                 self.Buffs.load_in_progress = False
         self._setup_fitness_commodities()
-        if self._serialization_option != SimSerializationOption.UNDECLARED:
-            world_coord = sims4.math.Transform()
-            location = sim_proto.gameplay_data.location
-            world_coord.translation = sims4.math.Vector3(location.x, location.y, location.z)
-            world_coord.orientation = sims4.math.Quaternion(location.rot_x, location.rot_y, location.rot_z, location.rot_w)
-            self._transform_on_load = world_coord
-            self._level_on_load = location.level
-            self._surface_id_on_load = location.surface_id
+        if not skip_load:
+            if sim_proto.gameplay_data.HasField('location'):
+                if self._serialization_option != SimSerializationOption.UNDECLARED:
+                    world_coord = sims4.math.Transform()
+                    location = sim_proto.gameplay_data.location
+                    world_coord.translation = sims4.math.Vector3(location.x, location.y, location.z)
+                    world_coord.orientation = sims4.math.Quaternion(location.rot_x, location.rot_y, location.rot_z, location.rot_w)
+                    self._transform_on_load = world_coord
+                    self._level_on_load = location.level
+                    self._surface_id_on_load = location.surface_id
         self._si_state = gameplay_serialization.SuperInteractionSaveState()
-        if skip_load or sim_proto.gameplay_data.HasField('location') and sim_proto.gameplay_data.HasField('interaction_state'):
+        if sim_proto.gameplay_data.HasField('interaction_state'):
             self._has_loaded_si_state = True
             self._si_state.MergeFrom(sim_proto.gameplay_data.interaction_state)
         services.sim_info_manager().add_sim_info_if_not_in_manager(self)
@@ -1826,7 +1846,6 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             self.add_sim_info_id_to_squad(squad_member_id)
         self._fix_up_sim_info()
         self._post_load()
-        self._report_telemetry()
 
     def _fix_up_sim_info(self):
         blacklisted_statistics = self.get_blacklisted_statistics()
@@ -1857,14 +1876,14 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             if tracker_type.is_valid_for_lod(lod):
                 setattr(self, tracker_attr, tracker_type(self))
 
-    def _report_telemetry(self, from_load=True):
+    def report_telemetry(self, report_source_string):
         with telemetry_helper.begin_hook(simulation_error_writer, TELEMETRY_SIMULATION_ERROR, sim_info=self, valid_for_npc=True) as hook:
             hook.write_int('smid', self.sim_id)
             hook.write_string('snam', self.full_name)
             hook.write_string('hoid', str(self._household_id))
             hook.write_int('crid', self._sim_creation_path)
             self.creation_source.write_creation_source(hook)
-            hook.write_string('csrc', 'load' if from_load else 'save')
+            hook.write_string('csrc', report_source_string)
 
     def load_from_resource(self, resource_key):
         super().load_from_resource(resource_key)
@@ -1872,13 +1891,13 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         self._setup_fitness_commodities()
         aspiration_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION_TRACK)
         aspiration = aspiration_manager.get(self._base.aspiration_id)
-        if aspiration.is_available():
-            self.primary_aspiration = aspiration
+        if aspiration is not None:
+            if aspiration.is_available():
+                self.primary_aspiration = aspiration
         for trait in tuple(self.trait_tracker):
             if aspiration is None and trait.is_aspiration_trait:
-                pass
-            else:
-                self.remove_trait(trait)
+                continue
+            self.remove_trait(trait)
         trait_manager = services.get_instance_manager(sims4.resources.Types.TRAIT)
         for trait_id in self._base.base_trait_ids:
             trait = trait_manager.get(trait_id)
@@ -1942,14 +1961,13 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             current_skill = open_set.pop()
             closed_set.add(current_skill)
             if not current_skill.reached_max_level:
-                pass
-            else:
-                for skill_to_unlock in current_skill.skill_unlocks_on_max:
-                    if skill_to_unlock not in closed_set:
-                        self.commodity_tracker.add_statistic(skill_to_unlock, force_add=True)
-                        skill_data_object = [sdo for sdo in commodity_loading_data if sdo.name_hash == skill_to_unlock.guid64]
-                        self.commodity_tracker.load(skill_data_object)
-                        open_set.add(skill_to_unlock)
+                continue
+            for skill_to_unlock in current_skill.skill_unlocks_on_max:
+                if skill_to_unlock not in closed_set:
+                    self.commodity_tracker.add_statistic(skill_to_unlock, force_add=True)
+                    skill_data_object = [sdo for sdo in commodity_loading_data if sdo.name_hash == skill_to_unlock.guid64]
+                    self.commodity_tracker.load(skill_data_object)
+                    open_set.add(skill_to_unlock)
 
     def _post_load(self):
         self.refresh_age_settings()
@@ -1975,6 +1993,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         self._career_tracker.on_zone_unload()
         if self._aspiration_tracker is not None:
             self._aspiration_tracker.on_zone_unload()
+        self.trait_tracker.on_zone_unload()
         if self.Buffs is not None:
             self.Buffs.on_zone_unload()
         if game_services.service_manager.is_traveling:
@@ -1988,6 +2007,8 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         if self.lod == SimInfoLODLevel.MINIMUM:
             return
         self.startup_sim_location = self._get_startup_location()
+        if self.Buffs is not None:
+            self.Buffs.on_zone_load()
         if self._aspiration_tracker is not None:
             self._aspiration_tracker.on_zone_load()
         self._career_tracker.on_zone_load()
@@ -1999,6 +2020,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             self.static_commodity_tracker.add_statistic(static_commodity_type)
         if self.commodity_tracker is not None:
             self.commodity_tracker.on_zone_load()
+        self.trait_tracker.on_zone_load()
 
     def _get_startup_location(self):
         current_zone = services.current_zone()
@@ -2046,10 +2068,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
     def publish_all_commodities(self):
         for stat_inst in self.commodity_tracker:
             if self.is_npc and not getattr(stat_inst, 'update_client_for_npcs', False):
-                pass
-            else:
-                stat_value = stat_inst.get_value()
-                self._publish_commodity_update(type(stat_inst), stat_value, stat_value)
+                continue
+            stat_value = stat_inst.get_value()
+            self._publish_commodity_update(type(stat_inst), stat_value, stat_value)
 
     def _publish_commodity_update(self, stat_type, old_value, new_value):
         stat_type.send_commodity_update_message(self, old_value, new_value)
@@ -2079,6 +2100,12 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             for bit in RelationshipGlobalTuning.SIGNIFICANT_OTHER_RELATIONSHIP_BITS:
                 if rel.has_bit(self.sim_id, bit):
                     return rel.get_other_sim_info(self.sim_id)
+
+    def get_fiance_sim_info(self):
+        bit = RelationshipGlobalTuning.ENGAGEMENT_RELATIONSHIP_BIT
+        for rel in self._relationship_tracker:
+            if rel.has_bit(self.sim_id, bit):
+                return rel.get_other_sim_info(self.sim_id)
 
     @property
     def spouse_sim_id(self):
@@ -2123,14 +2150,14 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         if self.creation_source.is_creation_source(SimInfoCreationSource.GALLERY):
             for commodity in list(self.commodity_tracker):
                 if commodity.is_skill:
-                    pass
-                elif not commodity.core:
-                    pass
-                elif isinstance(commodity, ConsumableComponent.FAT_COMMODITY):
-                    pass
-                elif isinstance(commodity, ConsumableComponent.FIT_COMMODITY):
-                    pass
-                elif not commodity.set_to_auto_satisfy_value():
+                    continue
+                if not commodity.core:
+                    continue
+                if isinstance(commodity, ConsumableComponent.FAT_COMMODITY):
+                    continue
+                if isinstance(commodity, ConsumableComponent.FIT_COMMODITY):
+                    continue
+                if not commodity.set_to_auto_satisfy_value():
                     commodity.set_value(commodity.get_initial_value())
         self._sim_creation_path = serialization.SimData.SIMCREATION_NONE
 
@@ -2147,30 +2174,27 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
 
         for house_member in itertools.chain(self.household.sim_info_gen(), self._genealogy_tracker.get_parent_sim_infos_gen()):
             if house_member is self:
-                pass
+                continue
+            house_member_id = house_member.id
+            if self.is_pet == house_member.is_pet:
+                test_track = RelationshipGlobalTuning.REL_INSPECTOR_TRACK
             else:
-                house_member_id = house_member.id
-                if self.is_pet == house_member.is_pet:
-                    test_track = RelationshipGlobalTuning.REL_INSPECTOR_TRACK
-                else:
-                    test_track = RelationshipGlobalTuning.DEFAULT_PET_TO_SIM_TRACK
-                track = relationship_tracker.get_relationship_track(house_member_id, track=test_track, add=False)
-                if track is not None:
-                    if reciprocal:
-                        pass
-                    else:
-                        return
-                family_member = house_member.add_family_link(self, from_load=from_load)
-                relationship_tracker.set_default_tracks(house_member, update_romance=update_romance, family_member=family_member, default_track_overrides=default_track_overrides)
-                add_known_traits(self, house_member)
-                relationship_tracker.add_knows_career(house_member.id, notify_client=False)
-                relationship_tracker.send_relationship_info(house_member_id)
+                test_track = RelationshipGlobalTuning.DEFAULT_PET_TO_SIM_TRACK
+            track = relationship_tracker.get_relationship_track(house_member_id, track=test_track, add=False)
+            if track is not None:
                 if reciprocal:
-                    self.add_family_link(house_member, from_load=from_load)
-                    house_member.relationship_tracker.set_default_tracks(self, update_romance=update_romance, family_member=family_member, bits_only=True)
-                    add_known_traits(house_member, self)
-                    house_member.relationship_tracker.add_knows_career(sim_id, notify_client=False)
-                    house_member.relationship_tracker.send_relationship_info(sim_id)
+                    continue
+            family_member = house_member.add_family_link(self, from_load=from_load)
+            relationship_tracker.set_default_tracks(house_member, update_romance=update_romance, family_member=family_member, default_track_overrides=default_track_overrides)
+            add_known_traits(self, house_member)
+            relationship_tracker.add_knows_career(house_member.id, notify_client=False)
+            relationship_tracker.send_relationship_info(house_member_id)
+            if reciprocal:
+                self.add_family_link(house_member, from_load=from_load)
+                house_member.relationship_tracker.set_default_tracks(self, update_romance=update_romance, family_member=family_member, bits_only=True)
+                add_known_traits(house_member, self)
+                house_member.relationship_tracker.add_knows_career(sim_id, notify_client=False)
+                house_member.relationship_tracker.send_relationship_info(sim_id)
 
     def add_family_link(self, target_sim_info, from_load=False):
         bit = self.genealogy.get_family_relationship_bit(target_sim_info.id)
@@ -2202,21 +2226,19 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             return services.hidden_sim_service().default_away_action(self.id)
         for (commodity, away_action) in SimInfo.DEFAULT_AWAY_ACTION.items():
             if is_instance and not away_action.available_when_instanced:
-                pass
-            else:
-                commodity_instance = self.get_statistic(commodity, add=False)
-                if commodity_instance is None:
-                    pass
-                elif not away_action.test(sim_info=self, target=None):
-                    pass
-                else:
-                    advertising_value = commodity_instance.autonomous_desire
-                    if not highest_advertising_value is None:
-                        if highest_advertising_value < advertising_value:
-                            highest_advertising_value = advertising_value
-                            highest_advertising_away_action = away_action
+                continue
+            commodity_instance = self.get_statistic(commodity, add=False)
+            if commodity_instance is None:
+                continue
+            if not away_action.test(sim_info=self, target=None):
+                continue
+            advertising_value = commodity_instance.autonomous_desire
+            if not highest_advertising_value is None:
+                if highest_advertising_value < advertising_value:
                     highest_advertising_value = advertising_value
                     highest_advertising_away_action = away_action
+            highest_advertising_value = advertising_value
+            highest_advertising_away_action = away_action
         return highest_advertising_away_action
 
     def debug_get_current_situations_string(self):
@@ -2296,10 +2318,11 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         if statistic is ConsumableComponent.FIT_COMMODITY:
             return False
         for init_stat in self.INITIAL_STATISTICS:
-            if not init_stat.tests is None:
-                if init_stat.tests.run_tests(self.get_resolver()):
-                    return False
-            return False
+            if statistic is init_stat.statistic:
+                if not init_stat.tests is None:
+                    if init_stat.tests.run_tests(self.get_resolver()):
+                        return False
+                return False
         return True
 
     def discourage_route_to_join_social_group(self):
@@ -2308,8 +2331,9 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return False
 
     def get_bucks_tracker(self, add_if_none=False):
-        if add_if_none:
-            self._bucks_tracker = SimInfoBucksTracker(self)
+        if self._bucks_tracker is None:
+            if add_if_none:
+                self._bucks_tracker = SimInfoBucksTracker(self)
         return self._bucks_tracker
 
     def transfer_to_hidden_household(self):

@@ -46,16 +46,15 @@ class _PortalTypeDataLocomotion(_PortalTypeDataBase):
             there_exit = portal_entry.location_exit(obj)
             if not self._is_offset_from_object(there_entry, obj):
                 if self._is_offset_from_object(there_exit, obj):
-                    pass
+                    continue
+                entry_angle = sims4.math.vector3_angle(there_exit.position - there_entry.position)
+                there_entry.transform = Transform(there_entry.position, sims4.math.angle_to_yaw_quaternion(entry_angle))
+                exit_angle = sims4.math.vector3_angle(there_entry.position - there_exit.position)
+                there_exit.transform = Transform(there_exit.position, sims4.math.angle_to_yaw_quaternion(exit_angle))
+                if portal_entry.is_bidirectional:
+                    offset_entry = self._get_offset_positions(there_entry, there_exit, entry_angle)
+                    offset_exit = self._get_offset_positions(there_exit, there_entry, exit_angle)
+                    locations.append((offset_entry, offset_exit, there_exit, there_entry, 0))
                 else:
-                    entry_angle = sims4.math.vector3_angle(there_exit.position - there_entry.position)
-                    there_entry.transform = Transform(there_entry.position, sims4.math.angle_to_yaw_quaternion(entry_angle))
-                    exit_angle = sims4.math.vector3_angle(there_entry.position - there_exit.position)
-                    there_exit.transform = Transform(there_exit.position, sims4.math.angle_to_yaw_quaternion(exit_angle))
-                    if portal_entry.is_bidirectional:
-                        offset_entry = self._get_offset_positions(there_entry, there_exit, entry_angle)
-                        offset_exit = self._get_offset_positions(there_exit, there_entry, exit_angle)
-                        locations.append((offset_entry, offset_exit, there_exit, there_entry, 0))
-                    else:
-                        locations.append((there_entry, there_exit, None, None, 0))
+                    locations.append((there_entry, there_exit, None, None, 0))
         return locations

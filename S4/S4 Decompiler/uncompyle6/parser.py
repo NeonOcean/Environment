@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2018 Rocky Bernstein
+#  Copyright (c) 2015-2019 Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #  Copyright (c) 1999 John Aycock
@@ -37,7 +37,9 @@ class ParserError(Exception):
         return "Parse error at or near `%r' instruction at offset %s\n" % \
                (self.token, self.offset)
 
-nop_func = lambda self, args: None
+
+def nop_func(self, args):
+    return None
 
 class PythonParser(GenericASTBuilder):
 
@@ -587,14 +589,14 @@ class PythonParser(GenericASTBuilder):
         ##   designLists ::=
         ## Will need to redo semantic actiion
 
-        store        ::= STORE_FAST
-        store        ::= STORE_NAME
-        store        ::= STORE_GLOBAL
-        store        ::= STORE_DEREF
-        store        ::= expr STORE_ATTR
-        store        ::= store_subscr
-        store_subscr ::= expr expr STORE_SUBSCR
-        store        ::= unpack
+        store           ::= STORE_FAST
+        store           ::= STORE_NAME
+        store           ::= STORE_GLOBAL
+        store           ::= STORE_DEREF
+        store           ::= expr STORE_ATTR
+        store           ::= store_subscript
+        store_subscript ::= expr expr STORE_SUBSCR
+        store           ::= unpack
         '''
 
 
@@ -745,6 +747,12 @@ def get_python_parser(
                 p = parse37.Python37Parser(debug_parser)
             else:
                 p = parse37.Python37ParserSingle(debug_parser)
+        elif version == 3.8:
+            import uncompyle6.parsers.parse38 as parse38
+            if compile_mode == 'exec':
+                p = parse38.Python38Parser(debug_parser)
+            else:
+                p = parse38.Python38ParserSingle(debug_parser)
         else:
             if compile_mode == 'exec':
                 p = parse3.Python3Parser(debug_parser)
@@ -791,6 +799,7 @@ def python_parser(version, co, out=sys.stdout, showasm=False,
     #                 'showstack': 'full'}
     p = get_python_parser(version, parser_debug)
     return parse(p, tokens, customize)
+
 
 if __name__ == '__main__':
     def parse_test(co):

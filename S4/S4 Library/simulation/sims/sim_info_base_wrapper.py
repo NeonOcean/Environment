@@ -90,10 +90,12 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
         sim_info_a.voice_effect = sim_info_b.voice_effect
         sim_info_a.skin_tone = sim_info_b.skin_tone
         sim_info_a.flags = sim_info_b.flags
-        if hasattr(sim_info_b, 'pelt_layers'):
-            sim_info_a.pelt_layers = sim_info_b.pelt_layers
-        if hasattr(sim_info_b, 'base_trait_ids'):
-            sim_info_a.base_trait_ids = list(sim_info_b.base_trait_ids)
+        if hasattr(sim_info_a, 'pelt_layers'):
+            if hasattr(sim_info_b, 'pelt_layers'):
+                sim_info_a.pelt_layers = sim_info_b.pelt_layers
+        if hasattr(sim_info_a, 'base_trait_ids'):
+            if hasattr(sim_info_b, 'base_trait_ids'):
+                sim_info_a.base_trait_ids = list(sim_info_b.base_trait_ids)
         SimInfoBaseWrapper.copy_genetic_data(sim_info_a, sim_info_b)
 
     @staticmethod
@@ -341,7 +343,7 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
                     error_msg += '\n\t\t{}: {}'
                     error_args.append(str(career))
                     error_args.append(str(career.current_level_tuning))
-            logger.callstack(error_msg, error_args, level=sims4.log.LEVEL_ERROR, owner='tingyul')
+            logger.callstack(error_msg, *error_args, level=sims4.log.LEVEL_ERROR, owner='tingyul')
         self.set_previous_outfit(new_outfit=outfit_category_and_index)
         self._current_outfit = outfit_category_and_index
         self.clear_outfit_dirty(self._current_outfit[0])
@@ -353,7 +355,7 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
         self.set_current_outfit((outfit_category, outfit_index))
 
     def set_previous_outfit(self, new_outfit, force=False):
-        if force or new_outfit == self._current_outfit:
+        if not force and new_outfit == self._current_outfit:
             return
         self._previous_outfit = self._current_outfit
 

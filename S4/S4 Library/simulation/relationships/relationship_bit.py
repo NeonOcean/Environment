@@ -1,4 +1,4 @@
-from event_testing.resolver import DoubleSimResolver
+from event_testing.resolver import DoubleSimResolver, SingleSimResolver
 from objects.mixins import SuperAffordanceProviderMixin, MixerProviderMixin
 from relationships.relationship_enums import RelationshipBitCullingPrevention, RelationshipDirection
 from sims4.localization import TunableLocalizedString, TunableLocalizedStringFactory
@@ -43,35 +43,24 @@ class RelationshipBit(HasTunableReference, SuperAffordanceProviderMixin, MixerPr
     def is_collection(cls):
         return False
 
-    def _add_buffs_for_bit_add(self, sim, relationship, from_load):
+    def add_buffs_for_bit_add(self, sim, relationship, from_load):
         for buff_data in self.buffs_on_add_bit:
             buff_type = buff_data.buff_ref.buff_type
             if from_load and buff_type.commodity:
-                pass
+                continue
+            if buff_data.only_add_once:
+                if buff_type.guid64 in relationship.get_bit_added_buffs(sim.sim_id):
+                    continue
+                relationship.add_bit_added_buffs(sim.sim_id, buff_type)
+            if buff_type.commodity:
+                tracker = sim.get_tracker(buff_type.commodity)
+                tracker.add_value(buff_type.commodity, buff_data.amount)
+                sim.set_buff_reason(buff_type, buff_data.buff_ref.buff_reason)
             else:
-                if buff_data.only_add_once:
-                    if buff_type.guid64 in relationship.get_bit_added_buffs(sim.sim_id):
-                        pass
-                    else:
-                        relationship.add_bit_added_buffs(sim.sim_id, buff_type)
-                        if buff_type.commodity:
-                            tracker = sim.get_tracker(buff_type.commodity)
-                            tracker.add_value(buff_type.commodity, buff_data.amount)
-                            sim.set_buff_reason(buff_type, buff_data.buff_ref.buff_reason)
-                        else:
-                            buff_handle = sim.add_buff(buff_type, buff_reason=buff_data.buff_ref.buff_reason)
-                            if self._buff_handles is None:
-                                self._buff_handles = []
-                            self._buff_handles.append((sim.sim_id, buff_handle))
-                if buff_type.commodity:
-                    tracker = sim.get_tracker(buff_type.commodity)
-                    tracker.add_value(buff_type.commodity, buff_data.amount)
-                    sim.set_buff_reason(buff_type, buff_data.buff_ref.buff_reason)
-                else:
-                    buff_handle = sim.add_buff(buff_type, buff_reason=buff_data.buff_ref.buff_reason)
-                    if self._buff_handles is None:
-                        self._buff_handles = []
-                    self._buff_handles.append((sim.sim_id, buff_handle))
+                buff_handle = sim.add_buff(buff_type, buff_reason=buff_data.buff_ref.buff_reason)
+                if self._buff_handles is None:
+                    self._buff_handles = []
+                self._buff_handles.append((sim.sim_id, buff_handle))
 
     def _apply_bit_added_loot(self, sim_info, target_sim_info):
         resolver = DoubleSimResolver(sim_info, target_sim_info)
@@ -79,10 +68,12 @@ class RelationshipBit(HasTunableReference, SuperAffordanceProviderMixin, MixerPr
             loot.apply_to_resolver(resolver)
 
     def on_add_to_relationship(self, sim, target_sim_info, relationship, from_load):
+        if relationship._is_object_rel:
+            return
         target_sim = target_sim_info.get_sim_instance()
-        self._add_buffs_for_bit_add(sim, relationship, from_load)
+        self.add_buffs_for_bit_add(sim, relationship, from_load)
         if target_sim is not None and self.directionality == RelationshipDirection.BIDIRECTIONAL:
-            self._add_buffs_for_bit_add(target_sim, relationship, from_load)
+            self.add_buffs_for_bit_add(target_sim, relationship, from_load)
         if not from_load:
             self._apply_bit_added_loot(sim.sim_info, target_sim_info)
             if self.directionality == RelationshipDirection.BIDIRECTIONAL:
@@ -99,11 +90,12 @@ class RelationshipBit(HasTunableReference, SuperAffordanceProviderMixin, MixerPr
             self._buff_handles = None
 
     def add_appropriateness_buffs(self, sim_info):
-        if self.buffs_to_add_if_on_active_lot:
-            self._appropriate_buffs_handles = []
-            for buff in self.buffs_to_add_if_on_active_lot:
-                handle = sim_info.add_buff(buff.buff_type, buff_reason=buff.buff_reason)
-                self._appropriate_buffs_handles.append(handle)
+        if not self._appropriate_buffs_handles:
+            if self.buffs_to_add_if_on_active_lot:
+                self._appropriate_buffs_handles = []
+                for buff in self.buffs_to_add_if_on_active_lot:
+                    handle = sim_info.add_buff(buff.buff_type, buff_reason=buff.buff_reason)
+                    self._appropriate_buffs_handles.append(handle)
 
     def remove_appropriateness_buffs(self, sim_info):
         if self._appropriate_buffs_handles is not None:

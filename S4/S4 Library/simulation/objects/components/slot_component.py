@@ -41,26 +41,30 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
         self._containment_slot_info_cache = None
 
     def component_reset(self, reset_reason):
-        if not self.owner.is_on_active_lot():
-            household_manager = services.household_manager()
-            for child in list(self.owner.children_recursive_gen()):
-                household_id = child.get_household_owner_id()
-                if household_id is not None:
-                    household = household_manager.get(household_id)
-                    if household is not None:
-                        household.move_object_to_sim_or_household_inventory(child, sort_by_distance=True)
+        if reset_reason == ResetReason.BEING_DESTROYED:
+            if not services.current_zone().is_zone_shutting_down:
+                if self.return_owned_objects:
+                    if not self.owner.is_on_active_lot():
+                        household_manager = services.household_manager()
+                        for child in list(self.owner.children_recursive_gen()):
+                            household_id = child.get_household_owner_id()
+                            if household_id is not None:
+                                household = household_manager.get(household_id)
+                                if household is not None:
+                                    household.move_object_to_sim_or_household_inventory(child, sort_by_distance=True)
 
     def on_child_added(self, child, location):
-        if child.statistic_component is not None:
-            if self._handles is None:
-                self._handles = WeakKeyDictionary()
-            if child not in self._handles:
-                child.add_statistic_component()
-                handles = []
-                for modifier in self.autonomy_modifiers:
-                    handles.append(child.add_statistic_modifier(modifier))
-                self._handles[child] = handles
-        if self.autonomy_modifiers and self.state_values:
+        if self.autonomy_modifiers:
+            if child.statistic_component is not None:
+                if self._handles is None:
+                    self._handles = WeakKeyDictionary()
+                if child not in self._handles:
+                    child.add_statistic_component()
+                    handles = []
+                    for modifier in self.autonomy_modifiers:
+                        handles.append(child.add_statistic_modifier(modifier))
+                    self._handles[child] = handles
+        if self.state_values:
             if self._state_values is None:
                 self._state_values = WeakKeyDictionary()
             if child not in self._state_values:
@@ -68,20 +72,18 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
                 for state_value in self.state_values:
                     state = state_value.state
                     if not child.has_state(state):
-                        pass
-                    else:
-                        current_value = child.get_state(state)
-                        if current_value != state_value:
-                            state_values.append(current_value)
-                            child.set_state(state, state_value)
+                        continue
+                    current_value = child.get_state(state)
+                    if current_value != state_value:
+                        state_values.append(current_value)
+                        child.set_state(state, state_value)
                 self._state_values[child] = state_values
         if self.slot_provided_affordances:
             flags = set()
             for provided_affordance_data in self.slot_provided_affordances:
                 if not provided_affordance_data.object_filter.is_object_valid(child):
-                    pass
-                else:
-                    flags |= provided_affordance_data.affordance.commodity_flags
+                    continue
+                flags |= provided_affordance_data.affordance.commodity_flags
             if flags and not child.is_prop:
                 child.add_dynamic_commodity_flags(self, flags)
         if child.display_component is not None:
@@ -91,16 +93,18 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
             child.state_component.handle_overlapping_slots(child, location)
 
     def on_child_removed(self, child, new_parent=None):
-        if child in self._handles:
-            child.add_statistic_component()
-            handles = self._handles.pop(child)
-            for handle in handles:
-                child.remove_statistic_modifier(handle)
-        if child in self._state_values:
-            state_values = self._state_values.pop(child)
-            for state_value in state_values:
-                child.set_state(state_value.state, state_value)
-        if not (self._handles and self._state_values and child.is_prop):
+        if self._handles:
+            if child in self._handles:
+                child.add_statistic_component()
+                handles = self._handles.pop(child)
+                for handle in handles:
+                    child.remove_statistic_modifier(handle)
+        if self._state_values:
+            if child in self._state_values:
+                state_values = self._state_values.pop(child)
+                for state_value in state_values:
+                    child.set_state(state_value.state, state_value)
+        if not child.is_prop:
             child.remove_dynamic_commodity_flags(self)
         if child.display_component is not None:
             child.display_component.unslotted_from_object(self.owner)
@@ -267,25 +271,19 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
         owner = self.owner
         parts = owner.parts
         for (slot_hash, slot_slot_types) in self.get_containment_slot_infos():
-            if not slot_types is not None or not slot_types.intersection(slot_slot_types):
-                pass
-            elif not bone_name_hash is not None or slot_hash != bone_name_hash:
-                pass
+            if not not slot_types is not None and not not slot_types.intersection(slot_slot_types):
+                continue
+            if not not bone_name_hash is not None and slot_hash != bone_name_hash:
+                continue
+            if not parts:
+                yield RuntimeSlot(owner, slot_hash, slot_slot_types)
+            elif owner_only:
+                continue
+            for p in parts:
+                if p.has_slot(slot_hash):
+                    yield RuntimeSlot(p, slot_hash, slot_slot_types)
+                    break
             else:
-                if not parts:
-                    yield RuntimeSlot(owner, slot_hash, slot_slot_types)
-                elif owner_only:
-                    pass
-                else:
-                    for p in parts:
-                        if p.has_slot(slot_hash):
-                            yield RuntimeSlot(p, slot_hash, slot_slot_types)
-                            break
-                    yield RuntimeSlot(owner, slot_hash, slot_slot_types)
-                for p in parts:
-                    if p.has_slot(slot_hash):
-                        yield RuntimeSlot(p, slot_hash, slot_slot_types)
-                        break
                 yield RuntimeSlot(owner, slot_hash, slot_slot_types)
 
     @componentmethod_with_fallback(lambda parent_slot=None, slotting_object=None, target=None, object_to_ignore=None: False)
@@ -314,9 +312,8 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
         if self.slot_provided_affordances:
             for provided_affordance_data in self.slot_provided_affordances:
                 if not provided_affordance_data.object_filter.is_object_valid(target):
-                    pass
-                else:
-                    yield from provided_affordance_data.affordance.potential_interactions(target, context, **kwargs)
+                    continue
+                yield from provided_affordance_data.affordance.potential_interactions(target, context, **kwargs)
 
     def validate_definition(self):
         if self.owner.parts:

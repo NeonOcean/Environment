@@ -77,6 +77,8 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
         self._precull_telemetry_data['phob'] = player_households
         self._precull_telemetry_data['psib'] = player_sims
         self._precull_telemetry_lod_counts_str = self._get_lod_counts_str_for_telemetry(lod_counts)
+        for sim_info in services.sim_info_manager().get_all():
+            sim_info.report_telemetry('pre-culling')
         self._trigger_creation_source_telemetry()
 
     def _trigger_creation_source_telemetry(self):
@@ -269,10 +271,11 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
         culling_service = services.get_culling_service()
         sorted_households = sorted(household_scores, key=household_scores.get)
         num_to_cull = self._get_num_to_cull(len(sim_infos), cap)
-        while sorted_households and num_to_cull > 0:
-            household = sorted_households.pop(0)
-            num_to_cull -= len(household)
-            culling_service.cull_household(household, is_important_fn=self._has_player_sim_in_family_tree, gsi_archive=gsi_archive)
+        while sorted_households:
+            while num_to_cull > 0:
+                household = sorted_households.pop(0)
+                num_to_cull -= len(household)
+                culling_service.cull_household(household, is_important_fn=self._has_player_sim_in_family_tree, gsi_archive=gsi_archive)
         for sim_info in sim_info_manager.get_all():
             if sim_info.household is None:
                 logger.error('Found sim info {} without household during sim culling.', sim_info)
@@ -333,23 +336,22 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
             played_sim_infos = frozenset(sim_info for sim_info in sim_info_manager.get_all() if sim_info.is_player_sim)
 
             def get_sim_ids_with_played_spouses():
-                return set(sim_info.spouse_sim_id for sim_info in played_sim_infos if sim_info.spouse_sim_id is not None and sim_info.spouse_sim_id in sim_info_manager)
+                return set(sim_info.spouse_sim_id for sim_info in played_sim_infos if sim_info.spouse_sim_id is not None if sim_info.spouse_sim_id in sim_info_manager)
 
             def get_sim_ids_with_played_siblings():
                 sim_ids_with_played_siblings = set()
                 visited_ids = set()
                 for sim_info in played_sim_infos:
                     if sim_info.id in visited_ids:
-                        pass
-                    else:
-                        siblings = set(sim_info.genealogy.get_siblings_sim_infos_gen())
-                        siblings.add(sim_info)
-                        visited_ids.update(sibling.id for sibling in siblings)
-                        played_siblings = set(sibling for sibling in siblings if sibling.is_player_sim)
-                        if len(played_siblings) == 1:
-                            sim_ids_with_played_siblings.update(sibling.id for sibling in siblings if sibling not in played_siblings)
-                        elif len(played_siblings) > 1:
-                            sim_ids_with_played_siblings.update(sibling.id for sibling in siblings)
+                        continue
+                    siblings = set(sim_info.genealogy.get_siblings_sim_infos_gen())
+                    siblings.add(sim_info)
+                    visited_ids.update(sibling.id for sibling in siblings)
+                    played_siblings = set(sibling for sibling in siblings if sibling.is_player_sim)
+                    if len(played_siblings) == 1:
+                        sim_ids_with_played_siblings.update(sibling.id for sibling in siblings if sibling not in played_siblings)
+                    elif len(played_siblings) > 1:
+                        sim_ids_with_played_siblings.update(sibling.id for sibling in siblings)
                 return sim_ids_with_played_siblings
 
             def get_played_relative_distances(up=False):
@@ -369,11 +371,10 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
 
                     for relative in itertools.chain.from_iterable(relatives_gen(sim_info) for sim_info in crawl_set):
                         if relative.id in distances:
-                            pass
-                        else:
-                            distances[relative.id] = step
-                            if relative not in played_sim_infos:
-                                next_crawl_set.add(relative)
+                            continue
+                        distances[relative.id] = step
+                        if relative not in played_sim_infos:
+                            next_crawl_set.add(relative)
                 return distances
 
             zero_distance_sim_ids = get_sim_ids_with_played_spouses() | get_sim_ids_with_played_siblings()

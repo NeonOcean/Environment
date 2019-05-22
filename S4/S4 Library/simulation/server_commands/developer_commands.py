@@ -48,17 +48,16 @@ def common_cheats(flags:str='', enable:bool=None, _connection=None):
     output('{} developer mode:'.format('Enabling' if enable else 'Disabling'))
     for (cmd_flags, client_cmd, enable_cmd, disable_cmd) in commands:
         if flags is not None and cmd_flags and not any(f in flags for f in cmd_flags):
-            pass
+            continue
+        command = enable_cmd if enable else disable_cmd
+        if not command:
+            continue
+        if client_cmd:
+            output('>' + command)
+            sims4.commands.client_cheat(command, _connection)
         else:
-            command = enable_cmd if enable else disable_cmd
-            if not command:
-                pass
-            elif client_cmd:
-                output('>' + command)
-                sims4.commands.client_cheat(command, _connection)
-            else:
-                output('>|' + command)
-                sims4.commands.execute(command, _connection)
+            output('>|' + command)
+            sims4.commands.execute(command, _connection)
     _developer_mode_enabled = enable
     output('Developer mode {}.'.format('enabled' if enable else 'disabled'))
 
@@ -479,7 +478,8 @@ def debug_unhash(hash_value:int, unhash_db=None, _connection=None):
             if index == unhash_db_id:
                 unhash_db = name
                 break
-        unhash_db = '<unknown>'
+        else:
+            unhash_db = '<unknown>'
     try:
         unhashed_value = sims4.hash_util.unhash(hash_value, table_type=unhash_db_id)
     except KeyError:
@@ -498,14 +498,15 @@ def force_neighbors_home(_connection=None):
         blacklist_all_jobs_time = services.time_service().sim_now + date_and_time.create_time_span(days=7)
         for sim_info in services.sim_info_manager().values():
             if sim_info.is_selectable:
-                pass
-            else:
-                sim_info_home_zone_id = sim_info.household.home_zone_id
-                sim_info_home_world_id = services.get_persistence_service().get_world_id_from_zone(sim_info_home_zone_id)
-                if sim_info_home_world_id == active_household_home_world_id:
-                    services.get_zone_situation_manager().add_sim_to_auto_fill_blacklist(sim_info.id, None, blacklist_all_jobs_time=blacklist_all_jobs_time)
-                    if send_home and sim_info.zone_id != active_household_home_zone_id and sim_info.zone_id != sim_info_home_zone_id:
-                        sim_info.inject_into_inactive_zone(sim_info_home_zone_id)
+                continue
+            sim_info_home_zone_id = sim_info.household.home_zone_id
+            sim_info_home_world_id = services.get_persistence_service().get_world_id_from_zone(sim_info_home_zone_id)
+            if sim_info_home_world_id == active_household_home_world_id:
+                services.get_zone_situation_manager().add_sim_to_auto_fill_blacklist(sim_info.id, None, blacklist_all_jobs_time=blacklist_all_jobs_time)
+                if send_home:
+                    if sim_info.zone_id != active_household_home_zone_id:
+                        if sim_info.zone_id != sim_info_home_zone_id:
+                            sim_info.inject_into_inactive_zone(sim_info_home_zone_id)
 
 @sims4.commands.Command('debug.toggle_initial_story_progression')
 def toggle_initial_story_progression(enable:bool=None, _connection=None):

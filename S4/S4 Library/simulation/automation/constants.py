@@ -337,7 +337,7 @@ class Constants:
         NUM_TRAVEL_FAILURES = Tunable(int, default=3, description='\n            This value is used to tune the number of acceptable failures for automated tests that care about the number\n            of times travel can fail.\n        ')
 
 IGNORED_ATTRIBUTES = ['MODULE_TUNABLES']
-prefix_map = {Constants.Buffs: 'BUFF', Constants.Recipes: 'RECIPE', Constants.ClubSeeds: 'CLUBSEED', Constants.LotDescriptions: 'LOTDESC', Constants.ResourceIds: 'RESOURCE', Constants.Misc: 'MISC', Constants.ObjectDefinitions: 'OBJ', Constants.Interactions: 'CLASSN', Constants.LocalizationStrings: 'LOCSTR'}
+prefix_map = {Constants.LocalizationStrings: 'LOCSTR', Constants.Interactions: 'CLASSN', Constants.ObjectDefinitions: 'OBJ', Constants.Misc: 'MISC', Constants.ResourceIds: 'RESOURCE', Constants.LotDescriptions: 'LOTDESC', Constants.ClubSeeds: 'CLUBSEED', Constants.Recipes: 'RECIPE', Constants.Buffs: 'BUFF'}
 
 @sims4.commands.Command('qa.automation.get_constants', command_type=sims4.commands.CommandType.Automation)
 def get_constants(_connection=None):
@@ -349,43 +349,42 @@ def get_constants(_connection=None):
         for attribute in dir(group):
             if not attribute in IGNORED_ATTRIBUTES:
                 if attribute.startswith('__'):
-                    pass
-                else:
-                    original_value = getattr(group, attribute)
-                    list_values = (original_value,) if not isinstance(original_value, (tuple, frozenset)) else original_value
-                    if not list_values:
-                        pass
+                    continue
+                original_value = getattr(group, attribute)
+                list_values = (original_value,) if not isinstance(original_value, (tuple, frozenset)) else original_value
+                if not list_values:
+                    continue
+                string_value = 'Key:{}, NumItems:{}'.format(attribute, len(list_values))
+                for (idx, raw_value) in enumerate(list_values):
+                    if isinstance(raw_value, (int, str, float, bool)) or raw_value is None:
+                        string_value += ', Value{}:{}'.format(idx, raw_value)
+                    elif isinstance(raw_value, LocalizedString):
+                        string_value += ', Value{}:{}'.format(idx, raw_value.hash)
+                    elif isinstance(raw_value, Definition):
+                        string_value += ', Value{}:{}'.format(idx, raw_value.definition.id)
+                    elif isinstance(raw_value, TunedInstanceMetaclass):
+                        string_value += ', ClassName{}:{}'.format(idx, raw_value.__name__)
+                        if hasattr(raw_value, 'display_name'):
+                            if raw_value.display_name is not None:
+                                string_value += ', DisplayName{}:{}'.format(idx, raw_value.display_name._string_id)
+                        additional_display_names = []
+                        display_name_overrides = getattr(raw_value, 'display_name_overrides', None)
+                        if display_name_overrides is not None:
+                            additional_display_names.extend(display_name_overrides.get_display_names_gen())
+                        display_name_in_queue = getattr(raw_value, 'display_name_in_queue', None)
+                        if display_name_in_queue is not None:
+                            additional_display_names.append(display_name_in_queue)
+                        visual_type_override_data = getattr(raw_value, 'visual_type_override_data', None)
+                        if visual_type_override_data is not None and visual_type_override_data.tooltip_text is not None:
+                            additional_display_names.append(visual_type_override_data.tooltip_text)
+                        single_choice_picker_display_override = getattr(raw_value, 'single_choice_display_name', None)
+                        if single_choice_picker_display_override is not None:
+                            additional_display_names.append(single_choice_picker_display_override)
+                        string_value += ', NumOverrides{}:{}'.format(idx, len(additional_display_names))
+                        for (override_idx, override) in enumerate(additional_display_names):
+                            string_value += ', OverrideName{}_{}:{}'.format(idx, override_idx, override._string_id)
+                        string_value += ', Value{}:{}'.format(idx, raw_value.guid64)
                     else:
-                        string_value = 'Key:{}, NumItems:{}'.format(attribute, len(list_values))
-                        for (idx, raw_value) in enumerate(list_values):
-                            if isinstance(raw_value, (int, str, float, bool)) or raw_value is None:
-                                string_value += ', Value{}:{}'.format(idx, raw_value)
-                            elif isinstance(raw_value, LocalizedString):
-                                string_value += ', Value{}:{}'.format(idx, raw_value.hash)
-                            elif isinstance(raw_value, Definition):
-                                string_value += ', Value{}:{}'.format(idx, raw_value.definition.id)
-                            elif isinstance(raw_value, TunedInstanceMetaclass):
-                                string_value += ', ClassName{}:{}'.format(idx, raw_value.__name__)
-                                if raw_value.display_name is not None:
-                                    string_value += ', DisplayName{}:{}'.format(idx, raw_value.display_name._string_id)
-                                additional_display_names = []
-                                display_name_overrides = getattr(raw_value, 'display_name_overrides', None)
-                                if hasattr(raw_value, 'display_name') and display_name_overrides is not None:
-                                    additional_display_names.extend(display_name_overrides.get_display_names_gen())
-                                display_name_in_queue = getattr(raw_value, 'display_name_in_queue', None)
-                                if display_name_in_queue is not None:
-                                    additional_display_names.append(display_name_in_queue)
-                                visual_type_override_data = getattr(raw_value, 'visual_type_override_data', None)
-                                if visual_type_override_data is not None and visual_type_override_data.tooltip_text is not None:
-                                    additional_display_names.append(visual_type_override_data.tooltip_text)
-                                single_choice_picker_display_override = getattr(raw_value, 'single_choice_display_name', None)
-                                if single_choice_picker_display_override is not None:
-                                    additional_display_names.append(single_choice_picker_display_override)
-                                string_value += ', NumOverrides{}:{}'.format(idx, len(additional_display_names))
-                                for (override_idx, override) in enumerate(additional_display_names):
-                                    string_value += ', OverrideName{}_{}:{}'.format(idx, override_idx, override._string_id)
-                                string_value += ', Value{}:{}'.format(idx, raw_value.guid64)
-                            else:
-                                string_value += ', Value{}:UNKNOWN_DATA_TYPE_{}'.format(idx, type(raw_value).__name__)
-                        sims4.commands.automation_output('[ddConstants]AutomationConstants; Data:{}, {}'.format(prefix_map[group], string_value), _connection)
+                        string_value += ', Value{}:UNKNOWN_DATA_TYPE_{}'.format(idx, type(raw_value).__name__)
+                sims4.commands.automation_output('[ddConstants]AutomationConstants; Data:{}, {}'.format(prefix_map[group], string_value), _connection)
     sims4.commands.automation_output('[ddConstants]AutomationConstants; Data:End', _connection)

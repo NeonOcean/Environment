@@ -27,6 +27,8 @@ def PrintMessage(message, out, indent=0, as_utf8=False, as_one_line=False):
         if field.label == descriptor.FieldDescriptor.LABEL_REPEATED:
             for element in value:
                 PrintField(field, element, out, indent, as_utf8, as_one_line)
+            else:
+                PrintField(field, value, out, indent, as_utf8, as_one_line)
         else:
             PrintField(field, value, out, indent, as_utf8, as_one_line)
 
@@ -107,11 +109,14 @@ def _MergeField(tokenizer, message):
         field = message_descriptor.fields_by_name.get(name, None)
         if not field:
             field = message_descriptor.fields_by_name.get(name.lower(), None)
-            if field.type != descriptor.FieldDescriptor.TYPE_GROUP:
-                field = None
-        if field.message_type.name != name:
-            field = None
-        if not (field and field.type == descriptor.FieldDescriptor.TYPE_GROUP and field):
+            if field:
+                if field.type != descriptor.FieldDescriptor.TYPE_GROUP:
+                    field = None
+        if field:
+            if field.type == descriptor.FieldDescriptor.TYPE_GROUP:
+                if field.message_type.name != name:
+                    field = None
+        if not field:
             raise tokenizer.ParseErrorPreviousToken('Message type "%s" has no field named "%s".' % (message_descriptor.full_name, name))
     if field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_MESSAGE:
         tokenizer.TryConsume(':')
@@ -131,10 +136,11 @@ def _MergeField(tokenizer, message):
             else:
                 sub_message = getattr(message, field.name)
             sub_message.SetInParent()
-        if not tokenizer.TryConsume(end_token):
-            if tokenizer.AtEnd():
-                raise tokenizer.ParseErrorPreviousToken('Expected "%s".' % end_token)
-            _MergeField(tokenizer, sub_message)
+        while True:
+            if not tokenizer.TryConsume(end_token):
+                if tokenizer.AtEnd():
+                    raise tokenizer.ParseErrorPreviousToken('Expected "%s".' % end_token)
+                _MergeField(tokenizer, sub_message)
     else:
         _MergeScalarField(tokenizer, message, field)
 
@@ -225,9 +231,7 @@ class _Tokenizer(object):
         if not self.token:
             return False
         c = self.token[0]
-        if c >= '0':
-            pass
-        return c == '-' or c == '+'
+        return c >= '0' and c <= '9' or (c == '-' or c == '+')
 
     def ConsumeIdentifier(self):
         result = self.token
@@ -293,8 +297,9 @@ class _Tokenizer(object):
 
     def ConsumeByteString(self):
         the_list = [self._ConsumeSingleByteString()]
-        while self.token and self.token[0] in ("'", '"'):
-            the_list.append(self._ConsumeSingleByteString())
+        while self.token:
+            while self.token[0] in ("'", '"'):
+                the_list.append(self._ConsumeSingleByteString())
         return ''.encode('latin1').join(the_list)
 
     def _ConsumeSingleByteString(self):
@@ -332,7 +337,7 @@ class _Tokenizer(object):
         self._previous_column = self._column
         self._column += len(self.token)
         self._SkipWhitespace()
-        if self._lines or len(self._current_line) <= self._column:
+        if not self._lines and len(self._current_line) <= self._column:
             self.token = ''
             return
         match = self._TOKEN.match(self._current_line, self._column)
@@ -358,7 +363,7 @@ def _CEscape(text, as_utf8):
             return '\\"'
         if o == 92:
             return '\\\\'
-        elif as_utf8 or o >= 127 or o < 32:
+        elif not as_utf8 and (o >= 127 or o < 32):
             return '\\%03o' % o
         return c
 
@@ -420,7 +425,8 @@ def ParseEnum(field, value):
         enum_value = enum_descriptor.values_by_name.get(value, None)
         if enum_value is None:
             raise ValueError('Enum type "%s" has no value named %s.' % (enum_descriptor.full_name, value))
-    enum_value = enum_descriptor.values_by_number.get(number, None)
-    if enum_value is None:
-        raise ValueError('Enum type "%s" has no value with number %d.' % (enum_descriptor.full_name, number))
+    else:
+        enum_value = enum_descriptor.values_by_number.get(number, None)
+        if enum_value is None:
+            raise ValueError('Enum type "%s" has no value with number %d.' % (enum_descriptor.full_name, number))
     return enum_value.number

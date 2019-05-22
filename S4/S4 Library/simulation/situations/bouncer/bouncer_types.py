@@ -21,7 +21,7 @@ class BouncerRequestPriority(enum.Int):
     EVENT_DEFAULT_JOB = 8
     LEAVE = 9
 
-class RequestSpawningOption(enum.Int, export=False):
+class RequestSpawningOption(enum.Int):
     MUST_SPAWN = 1
     CANNOT_SPAWN = 2
     DONT_CARE = 3
@@ -48,6 +48,9 @@ class BouncerExclusivityCategory(enum.IntFlags):
     NON_WALKBY_BACKGROUND = 524288
     VENUE_GOER = 1048576
     SQUAD = 2097152
+    INFECTED = 4194304
+    NEUTRAL_UNPOSSESSABLE = 8388608
+    NORMAL_UNPOSSESSABLE = 16777216
 
 class BouncerExclusivityOption(enum.Int):
     NONE = 0

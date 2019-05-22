@@ -81,6 +81,7 @@ def build_outcome_actions(interaction, actions, setup_asm_override=DEFAULT):
         def parameterized_autonomy_gen(timeline):
             if should_prevent_continuations(interaction):
                 return True
+                yield
             for (participant_type, request_data) in actions.parameterized_autonomy.items():
                 yield from interaction.super_interaction._parameterized_autonomy_helper_gen(timeline, request_data.requests, InteractionBucketType.DEFAULT, participant_type=participant_type, fallback_notification=request_data.fallback_notification, push_on_success_or_fail=request_data.push_on_success_or_fail)
 
@@ -275,8 +276,9 @@ class InteractionOutcome:
 
     def _process_actions_for_basic_extra_validation(self, actions, interaction_name):
         for basic_extra in actions.basic_extras:
-            if hasattr(basic_extra.factory, 'ON_XEVT') and basic_extra._tuned_values.timing.timing == XevtTriggeredElement.ON_XEVT:
-                basic_extra.factory.validate_tuning_outcome(actions, basic_extra, interaction_name)
+            if hasattr(basic_extra.factory, 'ON_XEVT'):
+                if basic_extra._tuned_values.timing.timing == XevtTriggeredElement.ON_XEVT:
+                    basic_extra.factory.validate_tuning_outcome(actions, basic_extra, interaction_name)
 
 class InteractionOutcomeNone(InteractionOutcome):
 
@@ -474,41 +476,38 @@ class InteractionOutcomeTestBased(InteractionOutcome):
                 if outcome_tuple.tests.run_tests(resolver):
                     for outcome in outcome_tuple.potential_outcomes:
                         if cheat_active and not self.cheat_outcome_style_test(curr_debug_style, outcome.outcome):
-                            pass
-                        else:
-                            if not interaction.allow_outcomes:
-                                if outcome.outcome.force_outcome_on_exit:
-                                    weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                                    if weight > 0:
-                                        weights.append((weight, outcome.outcome))
-                            weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                            if weight > 0:
-                                weights.append((weight, outcome.outcome))
+                            continue
+                        if not interaction.allow_outcomes:
+                            if outcome.outcome.force_outcome_on_exit:
+                                weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                                if weight > 0:
+                                    weights.append((weight, outcome.outcome))
+                        weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                        if weight > 0:
+                            weights.append((weight, outcome.outcome))
             for outcome in outcome_tuple.potential_outcomes:
                 if cheat_active and not self.cheat_outcome_style_test(curr_debug_style, outcome.outcome):
-                    pass
-                else:
-                    if not interaction.allow_outcomes:
-                        if outcome.outcome.force_outcome_on_exit:
-                            weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                            if weight > 0:
-                                weights.append((weight, outcome.outcome))
-                    weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                    if weight > 0:
-                        weights.append((weight, outcome.outcome))
-        if self._use_fallback_as_default or weights and cheat_active:
+                    continue
+                if not interaction.allow_outcomes:
+                    if outcome.outcome.force_outcome_on_exit:
+                        weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                        if weight > 0:
+                            weights.append((weight, outcome.outcome))
+                weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                if weight > 0:
+                    weights.append((weight, outcome.outcome))
+        if self._use_fallback_as_default or not weights or cheat_active:
             for outcome in self._fallback_outcomes:
                 if cheat_active and not self.cheat_outcome_style_test(curr_debug_style, outcome.outcome):
-                    pass
-                else:
-                    if not interaction.allow_outcomes:
-                        if outcome.outcome.force_outcome_on_exit:
-                            weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                            if weight > 0:
-                                weights.append((weight, outcome.outcome))
-                    weight = outcome.weight.get_multiplier(interaction.get_resolver())
-                    if weight > 0:
-                        weights.append((weight, outcome.outcome))
+                    continue
+                if not interaction.allow_outcomes:
+                    if outcome.outcome.force_outcome_on_exit:
+                        weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                        if weight > 0:
+                            weights.append((weight, outcome.outcome))
+                weight = outcome.weight.get_multiplier(interaction.get_resolver())
+                if weight > 0:
+                    weights.append((weight, outcome.outcome))
         if weights:
             self._selected_outcome = sims4.random.weighted_random_item(weights)
             interaction.store_result_for_outcome(self, self._selected_outcome.outcome_result)
@@ -524,6 +523,7 @@ class InteractionOutcomeTestBased(InteractionOutcome):
     def _get_loot_gen(self):
         if self._selected_outcome is None:
             return super()._get_loot_gen()
+            yield
         for outcome_tuple in self._tested_outcomes:
             for outcome_weight_pair in outcome_tuple.potential_outcomes:
                 yield outcome_weight_pair.outcome.loot_list
@@ -647,7 +647,7 @@ class InteractionOutcomePartial(InteractionOutcome):
                         text = interaction.create_localized_string(self._all_success_string)
                         self._send_notification(text, actor)
                 else:
-                    bullet_text = LocalizationHelperTuning.get_bulleted_list((None,), bullet_points)
+                    bullet_text = LocalizationHelperTuning.get_bulleted_list(None, *bullet_points)
                     if valid_sim_count == 0:
                         if sims.sim_log.outcome_archiver.enabled or sims.sim_log.sim_outcome_archiver.enabled:
                             sims.sim_log.log_interaction_outcome(interaction, self, 'partial Outcome: multiple total failure')
@@ -661,7 +661,7 @@ class InteractionOutcomePartial(InteractionOutcome):
                             text = self._partial_success_string(bullet_text)
                             self._send_notification(text, actor)
             interaction.interaction_parameters['picked_item_ids'] = valid_sim_ids
-            if valid_sim_ids or self._total_failure is not None:
+            if not valid_sim_ids and self._total_failure is not None:
                 self._actions = self._total_failure
         elif sims.sim_log.outcome_archiver.enabled or sims.sim_log.sim_outcome_archiver.enabled:
             sims.sim_log.log_interaction_outcome(interaction, self, 'partial Outcome: No picked sims')
@@ -703,8 +703,9 @@ class InteractionOutcomePartial(InteractionOutcome):
         if self._actions is not None:
             return self._get_associated_skill(self._actions)
         skill_stat_type = self._get_associated_skill(self._default_actions)
-        if self._total_failure is not None:
-            skill_stat_type = self._get_associated_skill(self._total_failure)
+        if skill_stat_type is None:
+            if self._total_failure is not None:
+                skill_stat_type = self._get_associated_skill(self._total_failure)
         return skill_stat_type
 
     def validate_basic_extra_tuning(self, interaction_name):
@@ -767,28 +768,28 @@ class TunableResponseSelector(TunableVariant):
                         best_participant_type = interaction.get_participant_type(sim, restrict_to_participant_types=participant_types)
                         response_animation = animations.get(best_participant_type)
                         if response_animation is None:
-                            pass
+                            continue
+                        if sim is not interaction.sim or setup_asm_override is DEFAULT:
+                            setup_asm = generate_setup_asm(sim, response_animation.factory.actor_name)
                         else:
-                            if sim is not interaction.sim or setup_asm_override is DEFAULT:
-                                setup_asm = generate_setup_asm(sim, response_animation.factory.actor_name)
-                            else:
-                                setup_asm = setup_asm_override
-                            arb = animation.arb.Arb()
-                            response = response_animation(interaction, setup_asm_override=setup_asm, use_asm_cache=False, **kwargs)
-                            response_asm = response.get_asm()
-                            if response_asm is None:
-                                logger.error('Failed to get response ASM {} for interaction {} outcome.', response_animation.name, interaction, owner='rmccord')
-                                return
-                            response.append_to_arb(response_asm, arb)
-                            if sim.posture.rerequests_idles:
-                                posture_idle = sim.posture.idle_animation(sim.posture.source_interaction)
-                                posture_asm = posture_idle.get_asm()
-                                posture_idle.append_to_arb(posture_asm, arb)
-                            arb_accumulator.add_arb(arb)
+                            setup_asm = setup_asm_override
+                        arb = animation.arb.Arb()
+                        response = response_animation(interaction, setup_asm_override=setup_asm, use_asm_cache=False, **kwargs)
+                        response_asm = response.get_asm()
+                        if response_asm is None:
+                            logger.error('Failed to get response ASM {} for interaction {} outcome.', response_animation.name, interaction, owner='rmccord')
+                            return
+                        response.append_to_arb(response_asm, arb)
+                        if sim.posture.rerequests_idles:
+                            posture_idle = sim.posture.idle_animation(sim.posture.source_interaction)
+                            posture_asm = posture_idle.get_asm()
+                            posture_idle.append_to_arb(posture_asm, arb)
+                        arb_accumulator.add_arb(arb)
 
             work = do_responses
-            if not actor_in_sims:
-                work = (flush_all_animations, work)
+            if work:
+                if not actor_in_sims:
+                    work = (flush_all_animations, work)
             return work
 
         FACTORY_TYPE = _create_response

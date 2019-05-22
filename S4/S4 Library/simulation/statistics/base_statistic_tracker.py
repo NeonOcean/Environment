@@ -151,8 +151,9 @@ class BaseStatisticTracker(SimInfoTracker):
             stat = self._statistics.get(stat_type)
         else:
             stat = None
-        if add:
-            stat = self.add_statistic(stat_type)
+        if stat is None:
+            if add:
+                stat = self.add_statistic(stat_type)
         return stat
 
     def has_statistic(self, stat_type):
@@ -223,10 +224,13 @@ class BaseStatisticTracker(SimInfoTracker):
     def set_all_commodities_to_max(self, visible_only=False, core_only=False):
         for stat_type in list(self._statistics):
             stat = self.get_statistic(stat_type)
-            if not stat.is_visible:
-                if core_only and stat.core:
-                    self.set_value(stat_type, stat_type.max_value)
-            self.set_value(stat_type, stat_type.max_value)
+            if stat is not None:
+                if core_only:
+                    if not stat.is_visible:
+                        if core_only:
+                            if stat.core:
+                                self.set_value(stat_type, stat_type.max_value)
+                self.set_value(stat_type, stat_type.max_value)
 
     def save(self):
         save_list = []
@@ -252,11 +256,12 @@ class BaseStatisticTracker(SimInfoTracker):
         try:
             for (stat_type_name, value) in load_list:
                 stat_cls = services.get_instance_manager(sims4.resources.Types.STATISTIC).get(stat_type_name)
-                if stat_cls is not None and self._sim_info.lod >= stat_cls.min_lod_value:
-                    if stat_cls.persisted:
-                        self.set_value(stat_cls, value)
-                    else:
-                        logger.info('Trying to load unavailable STATISTIC resource: {}', stat_type_name)
+                if stat_cls is not None:
+                    if self._sim_info.lod >= stat_cls.min_lod_value:
+                        if stat_cls.persisted:
+                            self.set_value(stat_cls, value)
+                        else:
+                            logger.info('Trying to load unavailable STATISTIC resource: {}', stat_type_name)
         except ValueError:
             logger.error('Attempting to load old data in BaseStatisticTracker.load()')
 
@@ -268,7 +273,9 @@ class BaseStatisticTracker(SimInfoTracker):
     def debug_set_all_to_max_except(self, stat_to_exclude, core=True):
         for stat_type in list(self._statistics):
             if core:
-                pass
+                if self.get_statistic(stat_type).core:
+                    if stat_type != stat_to_exclude:
+                        self.set_value(stat_type, stat_type.max_value)
             if stat_type != stat_to_exclude:
                 self.set_value(stat_type, stat_type.max_value)
 
@@ -293,5 +300,6 @@ class BaseStatisticTracker(SimInfoTracker):
             raise NotImplementedError('LOD is updating from {} to {} on an non-sim object. This is not supported.'.format(old_lod, new_lod))
         for stat_type in tuple(self._statistics):
             stat_to_test = self.get_statistic(stat_type)
-            if stat_to_test is not None and stat_to_test.min_lod_value > new_lod:
-                self.remove_statistic(stat_type)
+            if stat_to_test is not None:
+                if stat_to_test.min_lod_value > new_lod:
+                    self.remove_statistic(stat_type)

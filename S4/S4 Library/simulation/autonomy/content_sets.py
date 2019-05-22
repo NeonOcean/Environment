@@ -1,7 +1,7 @@
 import collections
 import re
 from balloon.tunable_balloon import TunableBalloon
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, AffordanceResolver
 from interactions import ParticipantType
 from interactions.context import InteractionContext
 from interactions.utils.tunable import TunableAffordanceLinkList
@@ -20,6 +20,7 @@ logger = sims4.log.Logger('Content Sets')
 with sims4.reload.protected(globals()):
     _mixer_name_list = []
 CONTENT_SET_GENERATION_CACHE_GROUP = 'CSG'
+MINIMUM_TARGETS_TO_TEST_AFFORDANCE_EARLY = 2
 
 class ContentSet(HasTunableFactory):
 
@@ -135,16 +136,14 @@ def any_content_set_available(sim, super_affordance, super_interaction, context,
             if affordance.is_super:
                 logger.error('Content set contains a super affordance: {} has {}', si_or_sa, affordance, owner='msantander')
             if for_pie_menu and not affordance.allow_user_directed:
-                pass
-            else:
-                targets = _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim)
-                if targets is None:
-                    pass
-                else:
-                    for target in targets:
-                        for (_, test_result) in get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip):
-                            if test_result:
-                                return True
+                continue
+            targets = _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim)
+            if targets is None:
+                continue
+            for target in targets:
+                for (_, test_result) in get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip):
+                    if test_result:
+                        return True
     return False
 
 def generate_content_set(sim, super_affordance, super_interaction, context, potential_targets=(), scoring_gsi_handler=None, include_failed_aops_with_tooltip=False, push_super_on_prepare=False, mixer_interaction_group=DEFAULT, check_posture_compatibility=False, aop_kwargs=frozendict()):
@@ -154,10 +153,11 @@ def generate_content_set(sim, super_affordance, super_interaction, context, pote
     else:
         yield_to_irq()
         phase_index = None
-        if not _mixer_name_list:
-            phase_index = super_interaction.phase_index
+        if super_interaction:
+            if not _mixer_name_list:
+                phase_index = super_interaction.phase_index
         valid = collections.defaultdict(list)
-        if super_interaction and gsi_handlers.content_set_handlers.archiver.enabled:
+        if gsi_handlers.content_set_handlers.archiver.enabled:
             gsi_considered = {}
         else:
             gsi_considered = None
@@ -165,7 +165,7 @@ def generate_content_set(sim, super_affordance, super_interaction, context, pote
             show_posture_incompatible_icon = True
         else:
             show_posture_incompatible_icon = False
-        if si_or_sa.is_social and potential_targets:
+        if not si_or_sa.is_social or potential_targets:
             for_pie_menu = context.source == InteractionContext.SOURCE_PIE_MENU
             with sims4.callback_utils.invoke_enter_exit_callbacks(sims4.callback_utils.CallbackEvent.CONTENT_SET_GENERATE_ENTER, sims4.callback_utils.CallbackEvent.CONTENT_SET_GENERATE_EXIT):
                 target_to_posture_icon_info = {}
@@ -176,12 +176,17 @@ def generate_content_set(sim, super_affordance, super_interaction, context, pote
                         if gsi_considered is not None:
                             gsi_considered[affordance] = {'affordance': str(affordance), 'target': 'Skipped look up', 'test': 'Not allowed user directed'}
                             if mixer_interaction_group is not DEFAULT and affordance.sub_action.mixer_group != mixer_interaction_group:
-                                pass
-                            else:
-                                targets = _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim, considered=gsi_considered)
-                                if targets is None:
-                                    pass
-                                else:
+                                continue
+                            targets = _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim, considered=gsi_considered)
+                            if targets is None:
+                                continue
+                            if not include_failed_aops_with_tooltip and len(targets) >= MINIMUM_TARGETS_TO_TEST_AFFORDANCE_EARLY:
+                                resolver = AffordanceResolver(affordance, sim)
+                                if affordance.test_globals.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                    if not affordance.tests.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                        continue
+                                    if context.source == InteractionContext.SOURCE_AUTONOMY and not affordance.test_autonomous.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                        continue
                                     for target in targets:
                                         valid_aops_gen = get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip, push_super_on_prepare=push_super_on_prepare, considered=gsi_considered, aop_kwargs=aop_kwargs)
                                         for (aop, test_result) in valid_aops_gen:
@@ -200,12 +205,56 @@ def generate_content_set(sim, super_affordance, super_interaction, context, pote
                                             else:
                                                 mixer_weight = 0
                                             valid[affordance].append((mixer_weight, aop, test_result))
-                    elif mixer_interaction_group is not DEFAULT and affordance.sub_action.mixer_group != mixer_interaction_group:
-                        pass
+                            else:
+                                for target in targets:
+                                    valid_aops_gen = get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip, push_super_on_prepare=push_super_on_prepare, considered=gsi_considered, aop_kwargs=aop_kwargs)
+                                    for (aop, test_result) in valid_aops_gen:
+                                        if not aop.affordance.is_super:
+                                            aop_show_posture_incompatible_icon = False
+                                            if show_posture_incompatible_icon:
+                                                aop_show_posture_incompatible_icon = show_posture_incompatible_icon
+                                                if target not in target_to_posture_icon_info:
+                                                    if aop.compatible_with_current_posture_state(sim):
+                                                        aop_show_posture_incompatible_icon = False
+                                                    target_to_posture_icon_info[target] = aop_show_posture_incompatible_icon
+                                                else:
+                                                    aop_show_posture_incompatible_icon = target_to_posture_icon_info[target]
+                                            aop.show_posture_incompatible_icon = aop_show_posture_incompatible_icon
+                                            mixer_weight = aop.affordance.calculate_autonomy_weight(sim)
+                                        else:
+                                            mixer_weight = 0
+                                        valid[affordance].append((mixer_weight, aop, test_result))
                     else:
+                        if mixer_interaction_group is not DEFAULT and affordance.sub_action.mixer_group != mixer_interaction_group:
+                            continue
                         targets = _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim, considered=gsi_considered)
                         if targets is None:
-                            pass
+                            continue
+                        if not include_failed_aops_with_tooltip and len(targets) >= MINIMUM_TARGETS_TO_TEST_AFFORDANCE_EARLY:
+                            resolver = AffordanceResolver(affordance, sim)
+                            if affordance.test_globals.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                if not affordance.tests.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                    continue
+                                if context.source == InteractionContext.SOURCE_AUTONOMY and not affordance.test_autonomous.run_tests(resolver, skip_safe_tests=False, search_for_tooltip=False):
+                                    continue
+                                for target in targets:
+                                    valid_aops_gen = get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip, push_super_on_prepare=push_super_on_prepare, considered=gsi_considered, aop_kwargs=aop_kwargs)
+                                    for (aop, test_result) in valid_aops_gen:
+                                        if not aop.affordance.is_super:
+                                            aop_show_posture_incompatible_icon = False
+                                            if show_posture_incompatible_icon:
+                                                aop_show_posture_incompatible_icon = show_posture_incompatible_icon
+                                                if target not in target_to_posture_icon_info:
+                                                    if aop.compatible_with_current_posture_state(sim):
+                                                        aop_show_posture_incompatible_icon = False
+                                                    target_to_posture_icon_info[target] = aop_show_posture_incompatible_icon
+                                                else:
+                                                    aop_show_posture_incompatible_icon = target_to_posture_icon_info[target]
+                                            aop.show_posture_incompatible_icon = aop_show_posture_incompatible_icon
+                                            mixer_weight = aop.affordance.calculate_autonomy_weight(sim)
+                                        else:
+                                            mixer_weight = 0
+                                        valid[affordance].append((mixer_weight, aop, test_result))
                         else:
                             for target in targets:
                                 valid_aops_gen = get_valid_aops_gen(target, affordance, super_affordance, super_interaction, context, include_failed_aops_with_tooltip, push_super_on_prepare=push_super_on_prepare, considered=gsi_considered, aop_kwargs=aop_kwargs)
@@ -239,21 +288,19 @@ def get_buff_aops(sim, buff, super_interaction, context, potential_targets=(), g
     for buff_affordance in buff.interactions.interaction_items:
         targets = _test_affordance_and_get_targets(buff_affordance, super_interaction, actual_potential_targets, sim, considered=gsi_considered)
         if targets is None:
-            pass
-        else:
-            for target in targets:
-                for (aop, test_result) in get_valid_aops_gen(target, buff_affordance, super_interaction.super_affordance, super_interaction, context, False, considered=gsi_considered):
-                    interaction_constraint = aop.constraint_intersection(sim=sim, posture_state=None)
-                    posture_constraint = sim.posture_state.posture_constraint_strict
-                    constraint_intersection = interaction_constraint.intersect(posture_constraint)
-                    if not constraint_intersection.valid:
-                        pass
-                    else:
-                        si_weight = buff.interactions.weight
-                        if buff_affordance not in valid:
-                            valid[buff_affordance] = [(si_weight, aop, test_result)]
-                        else:
-                            valid[buff_affordance].append((si_weight, aop, test_result))
+            continue
+        for target in targets:
+            for (aop, test_result) in get_valid_aops_gen(target, buff_affordance, super_interaction.super_affordance, super_interaction, context, False, considered=gsi_considered):
+                interaction_constraint = aop.constraint_intersection(sim=sim, posture_state=None)
+                posture_constraint = sim.posture_state.posture_constraint_strict
+                constraint_intersection = interaction_constraint.intersect(posture_constraint)
+                if not constraint_intersection.valid:
+                    continue
+                si_weight = buff.interactions.weight
+                if buff_affordance not in valid:
+                    valid[buff_affordance] = [(si_weight, aop, test_result)]
+                else:
+                    valid[buff_affordance].append((si_weight, aop, test_result))
     return valid
 
 def _test_affordance_and_get_targets(affordance, super_interaction, potential_targets, sim, considered=None):
@@ -278,7 +325,7 @@ def _test_affordance_and_get_targets(affordance, super_interaction, potential_ta
 def _select_affordances_gen(sim, super_interaction, valid, show_posture_incompatible_icon, gsi_considered, scoring_gsi_handler=None, **kwargs):
     gsi_results = {}
     scored = {}
-    if gsi_handlers.content_set_handlers.archiver.enabled and super_interaction is not None:
+    if not gsi_handlers.content_set_handlers.archiver.enabled or super_interaction is not None:
         resolver = super_interaction.get_resolver()
     else:
         resolver = SingleSimResolver(sim)

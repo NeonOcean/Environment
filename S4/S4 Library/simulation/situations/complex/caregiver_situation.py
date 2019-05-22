@@ -30,7 +30,7 @@ class CaregiverSituation(SituationComplexCommon):
         return ((cls.caregiver_data.caregiver_job, cls.caregiver_data.caregiver_rolestate),)
 
     def _is_valid_caregiver(self, care_dependent, caregiver, ignore_zone=False):
-        if ignore_zone or care_dependent.zone_id != caregiver.zone_id:
+        if not ignore_zone and care_dependent.zone_id != caregiver.zone_id:
             return False
         if caregiver.is_toddler_or_younger:
             return False
@@ -65,9 +65,9 @@ class CaregiverSituation(SituationComplexCommon):
             sim = potential_caregiver.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             if sim is None or sim.is_being_destroyed:
                 eligible_caregivers.discard(potential_caregiver)
-            elif sim in current_caregivers:
-                pass
             else:
+                if sim in current_caregivers:
+                    continue
                 self.invite_sim_to_job(sim, job=self.caregiver_data.caregiver_job)
                 self._pending_caregivers.add(sim)
                 care_dependent.relationship_tracker.add_relationship_bit(potential_caregiver.sim_id, self.caregiver_data.care_dependent_bit)
@@ -102,22 +102,18 @@ class CaregiverSituation(SituationComplexCommon):
                         if excluding_interaction_types is not None:
                             other_sim = relationship.get_other_sim(care_dependent.sim_id)
                             if other_sim is None:
-                                pass
-                            elif other_sim.has_any_interaction_running_or_queued_of_types(excluding_interaction_types):
-                                pass
-                            else:
-                                return
+                                continue
+                            if other_sim.has_any_interaction_running_or_queued_of_types(excluding_interaction_types):
+                                continue
                         else:
                             return
             elif relationship.has_bit(care_dependent.sim_id, self.caregiver_data.care_dependent_bit):
                 if excluding_interaction_types is not None:
                     other_sim = relationship.get_other_sim(care_dependent.sim_id)
                     if other_sim is None:
-                        pass
-                    elif other_sim.has_any_interaction_running_or_queued_of_types(excluding_interaction_types):
-                        pass
-                    else:
-                        return
+                        continue
+                    if other_sim.has_any_interaction_running_or_queued_of_types(excluding_interaction_types):
+                        continue
                 else:
                     return
         return care_dependent

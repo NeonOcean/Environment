@@ -78,7 +78,7 @@ class HasFootprintComponent:
         if self.parent is None:
             return self
         raycast_parent = self
-        if raycast_parent.parent is not None:
+        while raycast_parent.parent is not None:
             if raycast_parent.parent.footprint_polygon is not None and not raycast_parent.parent.footprint_polygon.contains(self.position):
                 return raycast_parent
             raycast_parent = raycast_parent.parent
@@ -122,19 +122,18 @@ class HasFootprintComponent:
             if obj is not owner_object:
                 obj._raycast_context = None
             if obj.is_sim:
-                pass
-            else:
-                routing_context = obj.routing_context
+                continue
+            routing_context = obj.routing_context
+            if routing_context is None:
                 if obj.is_part:
                     routing_context = obj.part_owner.routing_context
-                if routing_context is None and routing_context is None:
-                    pass
-                elif for_carryable or not (self.footprint_polygon is not None and self.footprint_polygon.contains(obj.position)):
-                    pass
-                else:
-                    override_id = routing_context.object_footprint_id
-                    if override_id is not None:
-                        self._raycast_context.ignore_footprint_contour(override_id)
+            if routing_context is None:
+                continue
+            if not for_carryable and not not (self.footprint_polygon is not None and self.footprint_polygon.contains(obj.position)):
+                continue
+            override_id = routing_context.object_footprint_id
+            if override_id is not None:
+                self._raycast_context.ignore_footprint_contour(override_id)
 
     def clear_raycast_context(self):
         root = self.get_raycast_root()
@@ -258,10 +257,11 @@ class FootprintComponent(NativeComponent, component_name=FOOTPRINT_COMPONENT, ke
                 self._placement_footprint_added = True
         else:
             routing_context = self.owner.routing_context
-            if routing_context.object_footprint_id is not None:
-                routing.remove_footprint(routing_context.object_footprint_id)
-                routing_context.object_footprint_id = None
-            if routing_context is not None and self._placement_footprint_added:
+            if routing_context is not None:
+                if routing_context.object_footprint_id is not None:
+                    routing.remove_footprint(routing_context.object_footprint_id)
+                    routing_context.object_footprint_id = None
+            if self._placement_footprint_added:
                 placement.remove_placement_footprint(self.owner)
                 self._placement_footprint_added = False
         if not from_remove:

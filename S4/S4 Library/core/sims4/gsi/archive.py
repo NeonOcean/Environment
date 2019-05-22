@@ -105,10 +105,11 @@ class Archiver(BaseArchiver):
             archive_list = archive_data[self._type_name]
         archive_list.append(record)
         num_max_records = ARCHIVE_MAX_RECORDS
-        if num_max_records < self._max_records:
-            num_max_records = self._max_records
+        if self._max_records is not None:
+            if num_max_records < self._max_records:
+                num_max_records = self._max_records
         num_records = len(archive_list)
-        if self._max_records is not None and num_records > num_max_records:
+        if num_records > num_max_records:
             diff = num_records - num_max_records
             archive_list = archive_list[diff:]
             if self._sim_specific:
@@ -149,6 +150,8 @@ def register_archive_type(type_name, schema, partition_by_obj=False):
         if key == 'definition':
             for definition_entry in entry:
                 actual_schema['definition'].append(definition_entry)
+            else:
+                actual_schema[key] = entry
         else:
             actual_schema[key] = entry
     for (key, value) in schema.items():
@@ -157,9 +160,10 @@ def register_archive_type(type_name, schema, partition_by_obj=False):
     archive_schemas[type_name] = actual_schema
 
     def archive_handler(zone_id:int=None, object_id:int=None, sim_id:int=None, timestamp:int=None, uid:int=None, uncompress:bool=True):
-        if sim_id is not None:
-            object_id = sim_id
-        if object_id is None and partition_by_obj:
+        if object_id is None:
+            if sim_id is not None:
+                object_id = sim_id
+        if partition_by_obj:
             archive_data_list = archive_data[type_name].get(object_id)
             if archive_data_list is None:
                 return '[]'
@@ -170,20 +174,15 @@ def register_archive_type(type_name, schema, partition_by_obj=False):
             record_data = []
             for record in archive_data_list:
                 if zone_id is not None and zone_id != record.zone_id:
-                    pass
-                elif object_id is not None and object_id != record.object_id:
-                    pass
-                else:
-                    if sims4.gsi.dispatcher.gsi_client_version < CLIENT_GSI_ARCHIVE_UID_FIX:
-                        if timestamp is not None and timestamp >= record.timestamp:
-                            pass
-                        else:
-                            record_data.append(record.compressed_json)
-                    elif uid is not None and uid >= record.uid:
-                        pass
-                    else:
-                        record_data.append(record.compressed_json)
-                    record_data.append(record.compressed_json)
+                    continue
+                if object_id is not None and object_id != record.object_id:
+                    continue
+                if sims4.gsi.dispatcher.gsi_client_version < CLIENT_GSI_ARCHIVE_UID_FIX:
+                    if timestamp is not None and timestamp >= record.timestamp:
+                        continue
+                elif uid is not None and uid >= record.uid:
+                    continue
+                record_data.append(record.compressed_json)
             if uncompress:
                 json_output = '[{}]'.format(','.join(zlib.decompress(record).decode('utf-8') for record in record_data))
             else:

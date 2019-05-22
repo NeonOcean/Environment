@@ -109,12 +109,15 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
         if self._full_autonomy_request is not None and self._full_autonomy_request.valid:
             logger.debug('Ignoring full autonomy request for {} due to pending request in the queue.', self.owner)
             return False
+            yield
         if self.to_skip_autonomy():
             if gsi_handlers.autonomy_handlers.archiver.enabled:
                 gsi_handlers.autonomy_handlers.archive_autonomy_data(self.owner, 'None - Running SIs are preventing autonomy from running: {}'.format(self._autonomy_skip_sis), 'FullAutonomy', None)
             return False
+            yield
         if not self._test_full_autonomy():
             return False
+            yield
         try:
             selected_interaction = None
             try:
@@ -130,25 +133,29 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
                 if gsi_handlers.autonomy_handlers.archiver.enabled:
                     gsi_handlers.autonomy_handlers.archive_autonomy_data(self.owner, 'None - Autonomy Disabled', 'FullAutonomy', None)
                 return False
+                yield
             if not self._test_full_autonomy():
                 if selected_interaction:
                     selected_interaction.invalidate()
                 return False
+                yield
             if selected_interaction is not None:
                 if selected_interaction.transition is not None and self.owner.routing_master is not None and self.owner.routing_master.transition_controller is not None:
                     selected_interaction.transition.derail(DerailReason.PREEMPTED, self.owner)
                 result = self._push_interaction(selected_interaction)
-                if result or gsi_handlers.autonomy_handlers.archiver.enabled:
+                if not result and gsi_handlers.autonomy_handlers.archiver.enabled:
                     gsi_handlers.autonomy_handlers.archive_autonomy_data(self.owner, 'Failed - interaction failed to be pushed {}.'.format(selected_interaction), 'FullAutonomy', None)
                 if result:
                     if gsi_handlers.autonomy_handlers.archiver.enabled:
                         gsi_handlers.autonomy_handlers.archive_autonomy_data(self._full_autonomy_request.sim, selected_interaction, self._full_autonomy_request.autonomy_mode_label, self._full_autonomy_request.gsi_data)
                         self._full_autonomy_request.gsi_data = None
                     return True
+                    yield
             elif gsi_handlers.autonomy_handlers.archiver.enabled:
                 gsi_handlers.autonomy_handlers.archive_autonomy_data(self._full_autonomy_request.sim, 'None', self._full_autonomy_request.autonomy_mode_label, self._full_autonomy_request.gsi_data)
                 self._full_autonomy_request.gsi_data = None
             return False
+            yield
         finally:
             if selected_interaction is not None:
                 selected_interaction.invalidate()
@@ -561,8 +568,9 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
             self._cached_mixer_interactions.append(interaction)
             autonomy_request.skipped_affordance_list.clear()
             autonomy_request.skip_adding_request_record = True
-            if interaction.lock_out_time is not None and not interaction.lock_out_time.target_based_lock_out:
-                autonomy_request.skipped_affordance_list.append(interaction.affordance)
+            if interaction.lock_out_time is not None:
+                if not interaction.lock_out_time.target_based_lock_out:
+                    autonomy_request.skipped_affordance_list.append(interaction.affordance)
         if caching_info is not None:
             caching_info.append('Caching: Mixers - DONE')
         if autonomy.autonomy_util.info_start_time is not None:
@@ -643,9 +651,10 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
                 time_until_buff_alarm = time_span_until_wakeup - create_time_span(hours=sleep_schedule_entry.time_from_work_start)
                 alarm_handle = alarms.add_alarm(self, time_until_buff_alarm, self._add_buff_callback, True, create_time_span(hours=date_and_time.HOURS_PER_DAY))
                 self._sleep_buff_alarms[alarm_handle] = sleep_schedule_entry.buff
-        if most_appropriate_buff.buff_type:
-            self._sleep_buff_handle = self.owner.add_buff(most_appropriate_buff.buff_type)
-        if most_appropriate_buff and self._sleep_buff_reset:
+        if most_appropriate_buff:
+            if most_appropriate_buff.buff_type:
+                self._sleep_buff_handle = self.owner.add_buff(most_appropriate_buff.buff_type)
+        if self._sleep_buff_reset:
             alarms.cancel_alarm(self._sleep_buff_reset)
         self._sleep_buff_reset = alarms.add_alarm(self, time_span_until_wakeup, self._reset_alarms_callback)
 
@@ -682,8 +691,9 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
             logger.error("Couldn't find alarm handle in _sleep_buff_alarms dict for sim:{}.", self.owner, owner='rez')
             return
         self._remove_sleep_schedule_buff()
-        if buff.buff_type:
-            self._sleep_buff_handle = self.owner.add_buff(buff.buff_type)
+        if buff:
+            if buff.buff_type:
+                self._sleep_buff_handle = self.owner.add_buff(buff.buff_type)
 
     def _reset_alarms_callback(self, _):
         self.update_sleep_schedule()

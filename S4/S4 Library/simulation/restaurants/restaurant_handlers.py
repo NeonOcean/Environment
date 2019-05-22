@@ -72,28 +72,27 @@ def generate_restaurant_seat_data(zone_id:int=None):
     for (table_id, dining_spots) in zone_director._dining_spots.items():
         table = object_manager.get(table_id)
         if table is None:
-            pass
-        else:
-            situation_str = ''
-            situations = zone_director.get_situations_by_table(table_id)
-            if situations:
-                situation = situations[0]
-                situation_str = '{}'.format(situation)
-            dining_spot_data = []
-            seated_sim_num = 0
-            for (part_index, dining_spot) in dining_spots.items():
-                seat_object = object_manager.get(dining_spot.seat_id)
-                sim_id = zone_director.get_sim_in_seat(table_id, part_index)
-                sim_name = ''
-                if sim_id is not None:
-                    sim_name = str(sim_info_manager.get(sim_id))
-                    seated_sim_num += 1
-                food_and_drink_objects = []
-                for runtime_slot in table.parts[part_index].get_runtime_slots_gen(slot_types={RestaurantTuning.TABLE_DRINK_SLOT_TYPE, RestaurantTuning.TABLE_FOOD_SLOT_TYPE}):
-                    food_and_drink_objects.extend([str(child_object) for child_object in runtime_slot.children])
-                chair_part_str = ''
-                if dining_spot.chair_part_index is not None:
-                    chair_part_str = '[{}]'.format(dining_spot.chair_part_index)
-                dining_spot_data.append({'part_index': str(part_index), 'seat': str(seat_object) + chair_part_str, 'seated_sim': sim_name, 'food_and_drink': ','.join(food_and_drink_objects)})
-            all_tables.append({'table': str(table), 'dining_spots_num': str(len(dining_spots)), 'situation': situation_str, 'seated_sim_num': str(seated_sim_num), 'DiningSpots': dining_spot_data})
+            continue
+        situation_str = ''
+        situations = zone_director.get_situations_by_table(table_id)
+        if situations:
+            situation = situations[0]
+            situation_str = '{}'.format(situation)
+        dining_spot_data = []
+        seated_sim_num = 0
+        for (part_index, dining_spot) in dining_spots.items():
+            seat_object = object_manager.get(dining_spot.seat_id)
+            sim_id = zone_director.get_sim_in_seat(table_id, part_index)
+            sim_name = ''
+            if sim_id is not None:
+                sim_name = str(sim_info_manager.get(sim_id))
+                seated_sim_num += 1
+            food_and_drink_objects = []
+            for runtime_slot in table.parts[part_index].get_runtime_slots_gen(slot_types={RestaurantTuning.TABLE_DRINK_SLOT_TYPE, RestaurantTuning.TABLE_FOOD_SLOT_TYPE}):
+                food_and_drink_objects.extend([str(child_object) for child_object in runtime_slot.children])
+            chair_part_str = ''
+            if dining_spot.chair_part_index is not None:
+                chair_part_str = '[{}]'.format(dining_spot.chair_part_index)
+            dining_spot_data.append({'part_index': str(part_index), 'seat': str(seat_object) + chair_part_str, 'seated_sim': sim_name, 'food_and_drink': ','.join(food_and_drink_objects)})
+        all_tables.append({'table': str(table), 'dining_spots_num': str(len(dining_spots)), 'situation': situation_str, 'seated_sim_num': str(seated_sim_num), 'DiningSpots': dining_spot_data})
     return all_tables

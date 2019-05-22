@@ -2,6 +2,7 @@ from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from build_buy import get_object_has_tag
 from objects.components import Component, componentmethod
 from objects.components.types import LIGHTING_COMPONENT
+from objects.object_enums import ResetReason
 from sims.household_utilities.utility_types import Utilities
 from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableReference, TunableEnumEntry, AutoFactoryInit, OptionalTunable, Tunable, TunableRange
 from singletons import DEFAULT
@@ -115,9 +116,9 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
         self._visual_effect = self.visual_effect(self.owner, auto_on_effect=auto_on_effect)
         self._visual_effect.start()
 
-    def _stop_visual_effect(self):
+    def _stop_visual_effect(self, immediate=False):
         if self._visual_effect is not None:
-            self._visual_effect.stop()
+            self._visual_effect.stop(immediate=immediate)
             self._visual_effect = None
 
     @componentmethod
@@ -146,7 +147,7 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
 
     def is_power_off(self):
         household = services.owning_household_of_active_lot()
-        if household is not None and not (services.utilities_manager(household.id).is_utility_active(Utilities.POWER) or get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG)):
+        if household is not None and not services.utilities_manager(household.id).is_utility_active(Utilities.POWER) and not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
             return True
         return False
 
@@ -157,10 +158,11 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
             self.set_light_dimmer_value(self.LIGHT_DIMMER_VALUE_OFF)
 
     def on_power_on(self):
-        if self._pending_dimmer_value is not None:
-            self._light_dimmer = self._pending_dimmer_value
-            self._resend_lighting()
-            self._pending_dimmer_value = None
+        if not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
+            if self._pending_dimmer_value is not None:
+                self._light_dimmer = self._pending_dimmer_value
+                self._resend_lighting()
+                self._pending_dimmer_value = None
 
     def component_super_affordances_gen(self, **kwargs):
         yield from self.component_interactions
@@ -193,6 +195,10 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
 
     def on_restock(self):
         self.on_power_on()
+
+    def component_reset(self, reset_reason):
+        if reset_reason == ResetReason.BEING_DESTROYED:
+            self._stop_visual_effect(immediate=True)
 
     def save(self, persistence_master_message):
         persistable_data = protocols.PersistenceMaster.PersistableData()

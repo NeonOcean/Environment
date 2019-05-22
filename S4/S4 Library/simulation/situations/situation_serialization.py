@@ -158,8 +158,9 @@ class GoalSeedling:
 
     @property
     def reader(self):
-        if self._custom_data is not None:
-            self._reader = DefaultPropertyStreamReader(self._custom_data)
+        if self._reader is None:
+            if self._custom_data is not None:
+                self._reader = DefaultPropertyStreamReader(self._custom_data)
         return self._reader
 
     def finalize_creation_for_save(self):
@@ -531,14 +532,13 @@ class SituationSeed:
         for (sim_id, blacklist_data) in blacklist_data.items():
             blacklist_info = blacklist_data.get_blacklist_info()
             if not blacklist_info:
-                pass
-            else:
-                with ProtocolBufferRollback(zone_data_msg.gameplay_zone_data.situations_data.blacklist_data) as blacklist_proto:
-                    blacklist_proto.sim_id = sim_id
-                    for (blacklist_tag, time_left) in blacklist_info:
-                        with ProtocolBufferRollback(blacklist_proto.tag_data) as blacklist_tag_proto:
-                            blacklist_tag_proto.tag = int(blacklist_tag)
-                            blacklist_tag_proto.time = time_now + time_left.in_ticks()
+                continue
+            with ProtocolBufferRollback(zone_data_msg.gameplay_zone_data.situations_data.blacklist_data) as blacklist_proto:
+                blacklist_proto.sim_id = sim_id
+                for (blacklist_tag, time_left) in blacklist_info:
+                    with ProtocolBufferRollback(blacklist_proto.tag_data) as blacklist_tag_proto:
+                        blacklist_tag_proto.tag = int(blacklist_tag)
+                        blacklist_tag_proto.time = time_now + time_left.in_ticks()
 
     @classmethod
     def serialize_seeds_to_open_street(cls, open_street_seeds=None, open_street_data_msg=None):
@@ -649,12 +649,11 @@ class SituationSeed:
         for assignment in seed_proto.assignments:
             job_type = services.situation_job_manager().get(assignment.job_type_id)
             if job_type is None:
-                pass
-            else:
-                role_state_type = services.role_state_manager().get(assignment.role_state_type_id)
-                guest_info = SituationGuestInfo(assignment.sim_id, job_type, RequestSpawningOption(assignment.spawning_option), BouncerRequestPriority(assignment.request_priority), assignment.expectation_preference, assignment.accept_alternate_sim, SituationCommonBlacklistCategory(assignment.common_blacklist_categories), elevated_importance_override=assignment.elevated_importance_override, reservation=assignment.reservation)
-                guest_info._set_persisted_role_state_type(role_state_type)
-                guest_list.add_guest_info(guest_info)
+                continue
+            role_state_type = services.role_state_manager().get(assignment.role_state_type_id)
+            guest_info = SituationGuestInfo(assignment.sim_id, job_type, RequestSpawningOption(assignment.spawning_option), BouncerRequestPriority(assignment.request_priority), assignment.expectation_preference, assignment.accept_alternate_sim, SituationCommonBlacklistCategory(assignment.common_blacklist_categories), elevated_importance_override=assignment.elevated_importance_override, reservation=assignment.reservation)
+            guest_info._set_persisted_role_state_type(role_state_type)
+            guest_list.add_guest_info(guest_info)
         if seed_proto.HasField('duration'):
             duration = seed_proto.duration
         else:
@@ -666,16 +665,14 @@ class SituationSeed:
         for job_data in seed_proto.jobs_and_role_states:
             job_type = services.situation_job_manager().get(job_data.job_type_id)
             if job_type is None:
-                pass
-            else:
-                role_state_type = services.role_state_manager().get(job_data.role_state_type_id)
-                if role_state_type is None:
-                    pass
-                else:
-                    emotional_loot_actions_type = None
-                    if job_data.HasField('emotional_loot_actions_type_id'):
-                        emotional_loot_actions_type = services.action_manager().get(job_data.emotional_loot_actions_type_id)
-                    seed.add_job_data(job_type, role_state_type, emotional_loot_actions_type)
+                continue
+            role_state_type = services.role_state_manager().get(job_data.role_state_type_id)
+            if role_state_type is None:
+                continue
+            emotional_loot_actions_type = None
+            if job_data.HasField('emotional_loot_actions_type_id'):
+                emotional_loot_actions_type = services.action_manager().get(job_data.emotional_loot_actions_type_id)
+            seed.add_job_data(job_type, role_state_type, emotional_loot_actions_type)
         if seed_proto.HasField('simple_data'):
             seed.add_situation_simple_data(seed_proto.simple_data.phase_index, seed_proto.simple_data.remaining_phase_time)
         elif seed_proto.HasField('complex_data'):

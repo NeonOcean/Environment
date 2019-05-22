@@ -149,7 +149,8 @@ class GameComponent(Component, HasTunableFactory, component_name=types.GAME_COMP
             for (actor_team, team) in enumerate(self._teams):
                 if actor_sim in team.players:
                     break
-            return
+            else:
+                return
         random_team = random.randrange(self.number_of_teams - 1)
         if random_team >= actor_team:
             random_team += 1
@@ -243,13 +244,15 @@ class GameComponent(Component, HasTunableFactory, component_name=types.GAME_COMP
         if gsi_handlers.game_component_handlers.game_log_archiver.enabled:
             player_str = 'Added player: ' + str(sim)
             gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, player_str)
-        if not self.has_started:
-            self.requires_setup = True
+        if self.game_state_dirty:
+            if not self.has_started:
+                self.requires_setup = True
         self._game_targets[sim] = target
         self.current_game.add_player(sim)
-        if source == InteractionSource.PIE_MENU:
-            self.has_user_directed = True
-        if self.game_state_dirty and source is not None and self.current_game.clear_score_on_player_join:
+        if source is not None:
+            if source == InteractionSource.PIE_MENU:
+                self.has_user_directed = True
+        if self.current_game.clear_score_on_player_join:
             self.clear_scores()
         if self.current_game.additional_game_behavior is not None:
             self.current_game.additional_game_behavior.on_player_added(sim, target)
@@ -265,14 +268,15 @@ class GameComponent(Component, HasTunableFactory, component_name=types.GAME_COMP
         self.current_game.remove_player(sim)
         if sim in self._game_targets:
             del self._game_targets[sim]
-        if self.number_of_players < self.current_game.players_per_game.lower_bound:
-            self.has_started = False
-            self.has_user_directed = False
-            self.active_team = None
-            del self.active_sims[:]
-            if self.game_state_dirty:
-                self.requires_setup = True
-        if not (self.has_started and self.current_game is not None and self.number_of_teams):
+        if not self.has_started or self.current_game is not None:
+            if self.number_of_players < self.current_game.players_per_game.lower_bound:
+                self.has_started = False
+                self.has_user_directed = False
+                self.active_team = None
+                del self.active_sims[:]
+                if self.game_state_dirty:
+                    self.requires_setup = True
+        if not self.number_of_teams:
             self.end_game()
         elif self.active_team is not None and self.active_team <= self.number_of_teams:
             self.active_team = random.randrange(self.number_of_teams)
@@ -298,11 +302,11 @@ class GameComponent(Component, HasTunableFactory, component_name=types.GAME_COMP
         team_len = self.number_of_teams
         player_len = self.number_of_players
         teams_per_game = self.current_game.teams_per_game
-        if not (teams_per_game.lower_bound <= team_len and team_len <= teams_per_game.upper_bound):
+        if not teams_per_game.lower_bound <= team_len <= teams_per_game.upper_bound:
             return False
         else:
             players_per_game = self.current_game.players_per_game
-            if not (players_per_game.lower_bound <= player_len and player_len <= players_per_game.upper_bound):
+            if not players_per_game.lower_bound <= player_len <= players_per_game.upper_bound:
                 return False
         return True
 
@@ -354,33 +358,32 @@ class GameComponent(Component, HasTunableFactory, component_name=types.GAME_COMP
             return
         for (team_number, team) in enumerate(self._teams):
             if sim not in team.players:
-                pass
-            else:
-                score_info = self.current_game.score_info
-                if score_info.allow_scoring_for_non_active_teams or self.active_team is not None and team_number != self.active_team:
-                    return
-                team.score += score_increase
-                if gsi_handlers.game_component_handlers.game_log_archiver.enabled:
-                    team_name = self.get_team_name(team_number)
-                    increase_str = str(sim) + ' scored ' + str(score_increase) + ' points for ' + team_name
-                    gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, increase_str)
-                    if score_info.ending_condition.end_condition == GameRules.ENDING_CONDITION_SCORE:
-                        score_str = 'Score for ' + team_name + ' is now ' + str(team.score) + ' / ' + str(score_info.ending_condition.winning_score)
-                    else:
-                        score_str = 'Score for ' + team_name + ' is now ' + str(team.score)
-                    gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, score_str)
-                if score_info.ending_condition.end_condition == GameRules.ENDING_CONDITION_SCORE:
-                    if team.score >= score_info.ending_condition.winning_score:
-                        self.winning_team = self._teams[team_number]
-                        self.losing_team = min(self._teams, key=operator.attrgetter('score'))
-                        if gsi_handlers.game_component_handlers.game_log_archiver.enabled:
-                            team_name = self.get_team_name(team_number)
-                            win_str = team_name + ' has won the game'
-                            gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, win_str)
-                    self.update_high_score()
-                    if score_info.progress_stat is not None:
-                        self.target_object.statistic_tracker.set_value(score_info.progress_stat, self.progress_stat)
+                continue
+            score_info = self.current_game.score_info
+            if not score_info.allow_scoring_for_non_active_teams and self.active_team is not None and team_number != self.active_team:
                 return
+            team.score += score_increase
+            if gsi_handlers.game_component_handlers.game_log_archiver.enabled:
+                team_name = self.get_team_name(team_number)
+                increase_str = str(sim) + ' scored ' + str(score_increase) + ' points for ' + team_name
+                gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, increase_str)
+                if score_info.ending_condition.end_condition == GameRules.ENDING_CONDITION_SCORE:
+                    score_str = 'Score for ' + team_name + ' is now ' + str(team.score) + ' / ' + str(score_info.ending_condition.winning_score)
+                else:
+                    score_str = 'Score for ' + team_name + ' is now ' + str(team.score)
+                gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, score_str)
+            if score_info.ending_condition.end_condition == GameRules.ENDING_CONDITION_SCORE:
+                if team.score >= score_info.ending_condition.winning_score:
+                    self.winning_team = self._teams[team_number]
+                    self.losing_team = min(self._teams, key=operator.attrgetter('score'))
+                    if gsi_handlers.game_component_handlers.game_log_archiver.enabled:
+                        team_name = self.get_team_name(team_number)
+                        win_str = team_name + ' has won the game'
+                        gsi_handlers.game_component_handlers.archive_game_log_entry(self.target_object, win_str)
+                self.update_high_score()
+                if score_info.progress_stat is not None:
+                    self.target_object.statistic_tracker.set_value(score_info.progress_stat, self.progress_stat)
+            return
         logger.error('The given Sim {} is not a member of any team, so we cannot increase its score.', sim, owner='tastle')
 
     def increase_score(self, sim):
@@ -584,7 +587,8 @@ class GameOver(BaseGameLootOperation):
         for selectable_sim in itertools.chain(winner_sims, loser_sims):
             if selectable_sim.is_selectable:
                 break
-        return
+        else:
+            return
         winning_score = game.winning_team.score
         losing_score = game.losing_team.score
         if len(winner_sims) == 1 and len(loser_sims) == 1:
@@ -613,7 +617,8 @@ class GameOver(BaseGameLootOperation):
         for selectable_sim in itertools.chain.from_iterable([team.players for team in game._teams]):
             if selectable_sim.is_selectable:
                 break
-        return
+        else:
+            return
         game.winning_team = max(game._teams, key=operator.attrgetter('score'))
         winner_sims = tuple(game.winning_team.players)
         winning_score = game.winning_team.score

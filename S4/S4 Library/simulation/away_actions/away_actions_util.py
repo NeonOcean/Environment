@@ -24,9 +24,10 @@ class PeriodicStatisticChange(HasTunableFactory):
             operation.apply_to_resolver(resolver)
 
     def run(self):
-        if self._alarm_handle is None:
-            time_span = clock.interval_in_sim_minutes(StatisticOperation.STATIC_CHANGE_INTERVAL)
-            self._alarm_handle = alarms.add_alarm(self, time_span, self._do_statistic_gain, repeating=True)
+        if self._operations:
+            if self._alarm_handle is None:
+                time_span = clock.interval_in_sim_minutes(StatisticOperation.STATIC_CHANGE_INTERVAL)
+                self._alarm_handle = alarms.add_alarm(self, time_span, self._do_statistic_gain, repeating=True)
 
     def stop(self):
         if self._alarm_handle is not None:

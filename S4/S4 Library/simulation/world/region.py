@@ -78,7 +78,7 @@ def get_region_description_id_from_zone_id(zone_id):
         return
     return neighborhood_proto.region_id
 
-def get_region_description_id_from_world_id(world_id):
+def get_region_instance_from_world_id(world_id):
     for zone_pb in services.get_persistence_service().zone_proto_buffs_gen():
         if zone_pb.world_id == world_id:
-            return get_region_description_id_from_zone_id(zone_pb.zone_id)
+            return get_region_instance_from_zone_id(zone_pb.zone_id)

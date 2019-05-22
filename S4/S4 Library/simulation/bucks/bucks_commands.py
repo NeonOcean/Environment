@@ -17,9 +17,8 @@ def get_bucks_tracker(bucks_type, owner_id, _connection, add_if_none=False):
 def get_bucks_types_without_invalid_gen():
     for bucks_type in BucksType:
         if bucks_type == BucksType.INVALID:
-            pass
-        else:
-            yield bucks_type
+            continue
+        yield bucks_type
 
 @sims4.commands.Command('bucks.request_perks_list', command_type=CommandType.Live)
 def request_perks_list(bucks_type:BucksType, owner_id:int=None, sort_by_timestamp:bool=False, _connection=None):
@@ -43,7 +42,7 @@ def unlock_perk_by_name_or_id(bucks_perk:TunableInstanceParam(sims4.resources.Ty
         tracker.pay_for_and_unlock_perk(bucks_perk)
 
 @sims4.commands.Command('bucks.unlock_multiple_perks', command_type=CommandType.Live)
-def unlock_multiple_perks_with_buck_type(bucks_type:BucksType, owner_id:int, unlock_for_free:bool, *buck_perks, _connection=None):
+def unlock_multiple_perks_with_buck_type(bucks_type:BucksType, owner_id:int, unlock_for_free:bool, *buck_perks:TunableInstanceParam(sims4.resources.Types.BUCKS_PERK), _connection=None):
     tracker = get_bucks_tracker(bucks_type, owner_id, _connection, add_if_none=True)
     if tracker is None:
         sims4.commands.output('FAILURE\nUnable to create tracker for {} on {}.'.format(bucks_type, owner_id))

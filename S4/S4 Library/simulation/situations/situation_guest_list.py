@@ -34,15 +34,18 @@ class SituationGuestInfo:
             request_priority = BouncerRequestPriority.EVENT_DEFAULT_JOB
         spawning_option = RequestSpawningOption.DONT_CARE
         common_blacklist_categories = 0
-        if invitation_purpose == SituationInvitationPurpose.HIRED or invitation_purpose == SituationInvitationPurpose.AUTO_FILL or invitation_purpose == SituationInvitationPurpose.WALKBY:
-            if not (invitation_purpose == SituationInvitationPurpose.AUTO_FILL and job_type.sim_auto_invite_allow_instanced_sim):
-                spawning_option = RequestSpawningOption.MUST_SPAWN
-            common_blacklist_categories = situations.situation_types.SituationCommonBlacklistCategory.ACTIVE_HOUSEHOLD | situations.situation_types.SituationCommonBlacklistCategory.ACTIVE_LOT_HOUSEHOLD
+        if sim_id == 0:
+            if invitation_purpose == SituationInvitationPurpose.HIRED or invitation_purpose == SituationInvitationPurpose.AUTO_FILL or invitation_purpose == SituationInvitationPurpose.WALKBY:
+                if not (invitation_purpose == SituationInvitationPurpose.AUTO_FILL and job_type.sim_auto_invite_allow_instanced_sim):
+                    spawning_option = RequestSpawningOption.MUST_SPAWN
+                common_blacklist_categories = situations.situation_types.SituationCommonBlacklistCategory.ACTIVE_HOUSEHOLD | situations.situation_types.SituationCommonBlacklistCategory.ACTIVE_LOT_HOUSEHOLD
         expectation_preference = invitation_purpose == SituationInvitationPurpose.INVITED
         accept_alternate_sim = False
-        if invitation_purpose == SituationInvitationPurpose.PREFERRED or invitation_purpose == SituationInvitationPurpose.HIRED:
-            accept_alternate_sim = True
-        if sim_id == 0 and sim_id != 0 and job_type.no_show_action == situations.situation_types.JobHolderNoShowAction.REPLACE_THEM and invitation_purpose == SituationInvitationPurpose.HIRED:
+        if sim_id != 0:
+            if job_type.no_show_action == situations.situation_types.JobHolderNoShowAction.REPLACE_THEM:
+                if invitation_purpose == SituationInvitationPurpose.PREFERRED or invitation_purpose == SituationInvitationPurpose.HIRED:
+                    accept_alternate_sim = True
+        if invitation_purpose == SituationInvitationPurpose.HIRED:
             elevated_importance_override = True
         else:
             elevated_importance_override = False
@@ -83,6 +86,9 @@ class SituationGuestList:
         self._host_sim_id = host_sim_id
         self.filter_requesting_sim_id = filter_requesting_sim_id
 
+    def __len__(self):
+        return len(self._job_type_to_guest_infos)
+
     def _destroy(self):
         self._job_type_to_guest_infos = None
 
@@ -122,11 +128,10 @@ class SituationGuestList:
         for guest_infos in self._job_type_to_guest_infos.values():
             for guest_info in guest_infos:
                 if guest_info.sim_id == 0:
-                    pass
-                else:
-                    sim = services.object_manager().get(guest_info.sim_id)
-                    if sim is not None and sim.is_selectable:
-                        return sim
+                    continue
+                sim = services.object_manager().get(guest_info.sim_id)
+                if sim is not None and sim.is_selectable:
+                    return sim
 
     def get_other_travelers(self, traveling_sim):
         traveling_sim_ids = set()
@@ -136,14 +141,13 @@ class SituationGuestList:
             for guest_info in guest_infos:
                 if not guest_info.sim_id == 0:
                     if guest_info.sim_id == traveling_sim.id:
-                        pass
-                    else:
-                        sim_info = sim_info_manager.get(guest_info.sim_id)
-                        if sim_info is not None:
-                            if sim_info.is_selectable:
-                                traveling_sim_ids.add(guest_info.sim_id)
-                            else:
-                                npc_guest_infos.append(guest_info)
+                        continue
+                    sim_info = sim_info_manager.get(guest_info.sim_id)
+                    if sim_info is not None:
+                        if sim_info.is_selectable:
+                            traveling_sim_ids.add(guest_info.sim_id)
+                        else:
+                            npc_guest_infos.append(guest_info)
         if not traveling_sim.sim_info.lives_here:
             potential_toddler_caregivers = set()
             potential_pet_caregivers = set()
@@ -152,8 +156,8 @@ class SituationGuestList:
             for active_sim in services.active_household().instanced_sims_gen():
                 if not active_sim.id == traveling_sim.id:
                     if active_sim.sim_info.id in traveling_sim_ids:
-                        pass
-                    elif active_sim.sim_info.is_pet:
+                        continue
+                    if active_sim.sim_info.is_pet:
                         travel_pet_ids.add(active_sim.sim_info.id)
                     elif active_sim.sim_info.is_toddler:
                         travel_toddlers_ids.add(active_sim.sim_info.id)
@@ -162,10 +166,12 @@ class SituationGuestList:
                             potential_toddler_caregivers.add(active_sim.sim_info)
                         if active_sim.sim_info.is_child_or_older:
                             potential_pet_caregivers.add(active_sim.sim_info)
-            if not potential_toddler_caregivers:
-                traveling_sim_ids = traveling_sim_ids | travel_toddlers_ids
-            if not potential_pet_caregivers:
-                traveling_sim_ids = traveling_sim_ids | travel_pet_ids
+            if travel_toddlers_ids:
+                if not potential_toddler_caregivers:
+                    traveling_sim_ids = traveling_sim_ids | travel_toddlers_ids
+            if travel_pet_ids:
+                if not potential_pet_caregivers:
+                    traveling_sim_ids = traveling_sim_ids | travel_pet_ids
         max_allowed = WorldSpawnPoint.SPAWN_POINT_SLOTS - 1
         npc_guest_infos.sort(key=lambda guest_info: guest_info.request_priority)
         for guest_info in npc_guest_infos:

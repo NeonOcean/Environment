@@ -30,10 +30,13 @@ class LiveDragTargetComponent(Component, HasTunableFactory, AutoFactoryInit, com
         if not self.drop_tests_and_actions:
             return (can_add_to_inventory, None)
         for entry in self.drop_tests_and_actions:
-            if not entry.destroy_live_drag_object:
-                if can_add_to_inventory:
+            if inventoryitem_component.can_go_in_inventory_type(entry.drop_type):
+                if entry.test_set.run_tests(resolver):
+                    if not entry.actions:
+                        if not entry.destroy_live_drag_object:
+                            if can_add_to_inventory:
+                                return (True, entry)
                     return (True, entry)
-            return (True, entry)
         return (False, None)
 
     def remove_drag_object_and_add(self, drag_object, remove_entire_stack=False):
@@ -79,8 +82,9 @@ class LiveDragTargetComponent(Component, HasTunableFactory, AutoFactoryInit, com
         if test_result:
             if action_entry.actions or action_entry.destroy_live_drag_object:
                 (success, next_object_id) = self.apply_live_drag_actions(live_drag_obj, action_entry)
-            elif live_drag_obj.inventoryitem_component is not None:
-                (success, next_object_id) = self.remove_drag_object_and_add(live_drag_obj, remove_entire_stack=is_stack)
+            elif self.owner.inventory_component is not None:
+                if live_drag_obj.inventoryitem_component is not None:
+                    (success, next_object_id) = self.remove_drag_object_and_add(live_drag_obj, remove_entire_stack=is_stack)
         return (success, next_object_id)
 
     def apply_live_drag_actions(self, live_drag_obj, action_entry=None):
@@ -90,12 +94,13 @@ class LiveDragTargetComponent(Component, HasTunableFactory, AutoFactoryInit, com
         else:
             valid = True
             entry = action_entry
-        if entry is not None:
-            resolver = DoubleObjectResolver(live_drag_obj, self.owner)
-            for action in entry.actions:
-                action.apply_to_resolver(resolver)
-            if entry.destroy_live_drag_object:
-                next_object_id = self._destroy_object(live_drag_obj)
+        if valid:
+            if entry is not None:
+                resolver = DoubleObjectResolver(live_drag_obj, self.owner)
+                for action in entry.actions:
+                    action.apply_to_resolver(resolver)
+                if entry.destroy_live_drag_object:
+                    next_object_id = self._destroy_object(live_drag_obj)
         return (valid, next_object_id)
 
     def can_add(self, obj):

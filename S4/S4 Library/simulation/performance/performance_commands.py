@@ -79,10 +79,9 @@ def log_object_statistics_summary(_connection=None):
     ignore.add(consts.COUNT_OBJECTS_PROPS)
     for (name, value) in result:
         if name in ignore:
-            pass
-        else:
-            budget = consts.BUDGETS.get(name, '')
-            output(f.format(name, value, budget))
+            continue
+        budget = consts.BUDGETS.get(name, '')
+        output(f.format(name, value, budget))
     output('\nDetailed info in GSI: Performance Metrics panel, |performance.log_object_statistics, |performance.posture_graph_summary, RedDwarf: World Coverage Report')
 
 @sims4.commands.Command('performance.add_automation_profiling_marker', command_type=CommandType.Automation)
@@ -144,10 +143,9 @@ def dump_tests_profile(sort:SortStyle=SortStyle.ALL, _connection=None):
         for (tname, tmetrics) in event_testing.resolver.test_profile.items():
             interaction_resolver = tmetrics.resolvers.get('InteractionResolver')
             if interaction_resolver is None:
-                pass
-            else:
-                for (interaction, metrics) in interaction_resolver.items():
-                    interactions[interaction].append((tname, metrics))
+                continue
+            for (interaction, metrics) in interaction_resolver.items():
+                interactions[interaction].append((tname, metrics))
         filename = 'test_profile_interactions'
         create_csv(filename, callback=interaction_callback, connection=_connection)
 
@@ -168,10 +166,9 @@ def dump_tests_profile(sort:SortStyle=SortStyle.ALL, _connection=None):
                 datum_prefix = 'DoubleSimResolver:'
                 sim_resolver = tmetrics.resolvers.get('DoubleSimResolver')
             if sim_resolver is None:
-                pass
-            else:
-                for (resolver_datum, metrics) in sim_resolver.items():
-                    sim_resolvers[datum_prefix + resolver_datum].append((tname, metrics))
+                continue
+            for (resolver_datum, metrics) in sim_resolver.items():
+                sim_resolvers[datum_prefix + resolver_datum].append((tname, metrics))
         filename = 'test_profile_sim_resolvers'
         create_csv(filename, callback=sim_resolver_callback, connection=_connection)
 
@@ -272,13 +269,12 @@ def get_relationship_decay_metrics(output=None):
             else:
                 active_counter = metrics['unplayed']
             if active_counter is None:
-                pass
-            else:
-                active_counter += decay_metrics
-                active_counter[RelationshipDecayMetricKeys.RELS] += 1
-                long_term_tracks_decaying = decay_metrics[RelationshipDecayMetricKeys.LONG_TERM_TRACKS_DECAYING]
-                if long_term_tracks_decaying > 0:
-                    active_counter[RelationshipDecayMetricKeys.RELS_WITH_DECAY] += 1
+                continue
+            active_counter += decay_metrics
+            active_counter[RelationshipDecayMetricKeys.RELS] += 1
+            long_term_tracks_decaying = decay_metrics[RelationshipDecayMetricKeys.LONG_TERM_TRACKS_DECAYING]
+            if long_term_tracks_decaying > 0:
+                active_counter[RelationshipDecayMetricKeys.RELS_WITH_DECAY] += 1
     return (total_relationships, metrics)
 
 @sims4.commands.Command('performance.relationship_decay_metrics')
@@ -596,15 +592,13 @@ def print_commodity_census(predicate=lambda x: x, most_common=10, _connection=No
     initial_counter = collections.Counter()
     for sim_info in services.sim_info_manager().values():
         if sim_info.commodity_tracker is None:
-            pass
-        else:
-            for commodity in sim_info.commodity_tracker:
-                if not predicate(commodity):
-                    pass
-                else:
-                    counter[commodity.stat_type] += 1
-                    if hasattr(commodity, 'initial_value') and commodity.get_value() == commodity.initial_value:
-                        initial_counter[commodity.stat_type] += 1
+            continue
+        for commodity in sim_info.commodity_tracker:
+            if not predicate(commodity):
+                continue
+            counter[commodity.stat_type] += 1
+            if commodity.get_value() == commodity.initial_value:
+                initial_counter[commodity.stat_type] += 1
     dump = []
     num_commodities = sum(counter.values())
     num_commodities_initial = sum(initial_counter.values())
@@ -684,27 +678,25 @@ def _score_all_objects(object_score_counter):
     all_objects = list(services.object_manager().objects)
     for obj in all_objects:
         if obj.is_sim:
-            pass
+            continue
+        if obj.is_on_active_lot():
+            on_lot_objects[type(obj)] += 1
         else:
-            if obj.is_on_active_lot():
-                on_lot_objects[type(obj)] += 1
-            else:
-                off_lot_objects[type(obj)] += 1
-            obj_type = type(obj)
-            if obj_type in object_score_counter:
-                pass
-            else:
-                for super_affordance in obj.super_affordances():
-                    object_score_counter[obj_type]['interaction'] += POINTS_PER_INTERACTION
-                    if super_affordance.allow_autonomous:
-                        object_score_counter[obj_type]['autonomous'] += POINTS_PER_AUTONOMOUS_INTERACTION
-                    if super_affordance.provided_posture_type is not None:
-                        object_score_counter[obj_type]['provided_posture'] += POINTS_PER_PROVIDED_POSTURE_INTERACTION
-                if obj.has_component(STATE_COMPONENT):
-                    object_score_counter[obj_type]['state_component'] += 1
-                    object_score_counter[obj_type]['state_component'] += len(obj.get_component(STATE_COMPONENT)._client_states)*POINTS_PER_CLIENT_STATE_TUNING
-                if obj.parts:
-                    object_score_counter[type(obj)]['parts'] += len(obj.parts)*POINTS_PER_OBJECT_PART
+            off_lot_objects[type(obj)] += 1
+        obj_type = type(obj)
+        if obj_type in object_score_counter:
+            continue
+        for super_affordance in obj.super_affordances():
+            object_score_counter[obj_type]['interaction'] += POINTS_PER_INTERACTION
+            if super_affordance.allow_autonomous:
+                object_score_counter[obj_type]['autonomous'] += POINTS_PER_AUTONOMOUS_INTERACTION
+            if super_affordance.provided_posture_type is not None:
+                object_score_counter[obj_type]['provided_posture'] += POINTS_PER_PROVIDED_POSTURE_INTERACTION
+        if obj.has_component(STATE_COMPONENT):
+            object_score_counter[obj_type]['state_component'] += 1
+            object_score_counter[obj_type]['state_component'] += len(obj.get_component(STATE_COMPONENT)._client_states)*POINTS_PER_CLIENT_STATE_TUNING
+        if obj.parts:
+            object_score_counter[type(obj)]['parts'] += len(obj.parts)*POINTS_PER_OBJECT_PART
     return (on_lot_objects, off_lot_objects)
 
 def _get_total_object_score(counter, scores, output, verbose):

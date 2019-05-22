@@ -25,8 +25,9 @@ def InitMessage(descriptor, cls):
     cls._decoders_by_tag = {}
     cls._extensions_by_name = {}
     cls._extensions_by_number = {}
-    if descriptor.GetOptions().message_set_wire_format:
-        cls._decoders_by_tag[decoder.MESSAGE_SET_ITEM_TAG] = decoder.MessageSetItemDecoder(cls._extensions_by_number)
+    if descriptor.has_options:
+        if descriptor.GetOptions().message_set_wire_format:
+            cls._decoders_by_tag[decoder.MESSAGE_SET_ITEM_TAG] = decoder.MessageSetItemDecoder(cls._extensions_by_number)
     for field in descriptor.fields:
         _AttachFieldHelpers(cls, field)
     _AddEnumValues(descriptor, cls)
@@ -253,8 +254,7 @@ def _AddStaticMethods(cls):
         extension_handle.containing_type = cls.DESCRIPTOR
         _AttachFieldHelpers(cls, extension_handle)
         actual_handle = cls._extensions_by_number.setdefault(extension_handle.number, extension_handle)
-        if actual_handle is not extension_handle:
-            raise AssertionError('Extensions "%s" and "%s" both try to extend message type "%s" with field number %d.' % (extension_handle.full_name, actual_handle.full_name, cls.DESCRIPTOR.full_name, extension_handle.number))
+        assert not actual_handle is not extension_handle
         cls._extensions_by_name[extension_handle.full_name] = extension_handle
         handle = extension_handle
         if _IsMessageSetExtension(handle):
@@ -355,7 +355,7 @@ def _AddHasExtensionMethod(cls):
 def _AddEqualsMethod(message_descriptor, cls):
 
     def __eq__(self, other):
-        if isinstance(other, message_mod.Message) and other.DESCRIPTOR != self.DESCRIPTOR:
+        if not isinstance(other, message_mod.Message) or other.DESCRIPTOR != self.DESCRIPTOR:
             return False
         if self is other:
             return True
@@ -493,10 +493,11 @@ def _AddIsInitializedMethod(message_descriptor, cls):
     def IsInitialized(self, errors=None):
         for field in required_fields:
             if not field not in self._fields:
-                if field.cpp_type == _FieldDescriptor.CPPTYPE_MESSAGE and not self._fields[field]._is_present_in_parent:
-                    if errors is not None:
-                        errors.extend(self.FindInitializationErrors())
-                    return False
+                if field.cpp_type == _FieldDescriptor.CPPTYPE_MESSAGE:
+                    if not self._fields[field]._is_present_in_parent:
+                        if errors is not None:
+                            errors.extend(self.FindInitializationErrors())
+                        return False
             if errors is not None:
                 errors.extend(self.FindInitializationErrors())
             return False
@@ -508,10 +509,17 @@ def _AddIsInitializedMethod(message_descriptor, cls):
                             if errors is not None:
                                 errors.extend(self.FindInitializationErrors())
                             return False
-                elif value._is_present_in_parent and not value.IsInitialized():
-                    if errors is not None:
-                        errors.extend(self.FindInitializationErrors())
-                    return False
+                    else:
+                        if value._is_present_in_parent:
+                            if not value.IsInitialized():
+                                if errors is not None:
+                                    errors.extend(self.FindInitializationErrors())
+                                return False
+                elif value._is_present_in_parent:
+                    if not value.IsInitialized():
+                        if errors is not None:
+                            errors.extend(self.FindInitializationErrors())
+                        return False
         return True
 
     cls.IsInitialized = IsInitialized
@@ -532,6 +540,10 @@ def _AddIsInitializedMethod(message_descriptor, cls):
                         element = value[i]
                         prefix = '%s[%d].' % (name, i)
                         sub_errors = element.FindInitializationErrors()
+                        errors += [prefix + error for error in sub_errors]
+                    else:
+                        prefix = name + '.'
+                        sub_errors = value.FindInitializationErrors()
                         errors += [prefix + error for error in sub_errors]
                 else:
                     prefix = name + '.'

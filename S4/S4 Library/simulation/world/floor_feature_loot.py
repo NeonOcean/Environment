@@ -19,8 +19,9 @@ class FloorFeatureRemoveOp(BaseLootOperation):
         radius_squared = radius*radius
         ff_locations = build_buy.list_floor_features(zone_id, ff_type)
         for (ff_pos, ff_level) in ff_locations:
-            if ff_level == level and (location - ff_pos).magnitude_squared() <= radius_squared:
-                found_ff.add(ff_pos)
+            if ff_level == level:
+                if (location - ff_pos).magnitude_squared() <= radius_squared:
+                    found_ff.add(ff_pos)
         return found_ff
 
     def _apply_to_subject_and_target(self, subject, target, resolver):

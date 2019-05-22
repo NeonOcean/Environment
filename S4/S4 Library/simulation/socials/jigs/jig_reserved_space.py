@@ -4,7 +4,7 @@ from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, TunableTuple,
 class TunableReservedSpacePerSpecies(TunableMapping):
 
     def __init__(self, **kwargs):
-        super().__init__(key_type=TunableEnumEntry(description='\n                 Species these reserved spaces are intended for.\n                 ', tunable_type=Species, default=Species.HUMAN), value_type=TunableReservedSpace(), **kwargs)
+        super().__init__(key_type=TunableEnumEntry(description='\n                Species these reserved spaces are intended for.\n                ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunableReservedSpace(), **kwargs)
 
 class TunableReservedSpace(TunableTuple):
 

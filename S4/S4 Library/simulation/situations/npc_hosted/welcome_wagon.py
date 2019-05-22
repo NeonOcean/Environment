@@ -144,10 +144,9 @@ class _PartySituationState(CommonSituationState):
             return
         for sim in self.owner.all_sims_in_situation_gen():
             if sim.is_selectable:
-                pass
-            else:
-                context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, Priority.High, insert_strategy=QueueInsertStrategy.NEXT)
-                sim.push_super_affordance(self._interaction_to_push, sim, context)
+                continue
+            context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, Priority.High, insert_strategy=QueueInsertStrategy.NEXT)
+            sim.push_super_affordance(self._interaction_to_push, sim, context)
 
 class WelcomeWagon(SituationComplexCommon):
     INSTANCE_TUNABLES = {'wait_to_be_let_in_state': _WaitToBeLetInState.TunableFactory(description='\n                Second state of the situation.  In this state the sims should\n                be waiting to be let into the house.\n                ', tuning_group=GroupNames.STATE), 'party_situation_state': _PartySituationState.TunableFactory(description='\n                The third situation state.  In this state everyone parties!\n                ', tuning_group=GroupNames.STATE), '_door_knocker_situation_job': TunableReference(description='\n                The job for the situation door knocker.  This sim will end up\n                being the host for the situation.\n                ', manager=services.situation_job_manager()), '_fruitcake_bearer_situation_job': TunableReference(description='\n                The job for the bearing of the vile nastiness known as...\n                \n                \n                ...fruitcake...\n                ', manager=services.situation_job_manager()), '_other_neighbors_job': TunableReference(description='\n                The job for all of the other neighbors in the situation.\n                ', manager=services.situation_job_manager()), '_player_sim_job': TunableReference(description='\n                The job for all of the player sims.\n                ', manager=services.situation_job_manager())}

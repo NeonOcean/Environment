@@ -54,9 +54,10 @@ static_commodity.add_field('name', label='Name')
 def generate_sim_static_commodity_view_data(sim_id:int=None):
     stat_data = []
     cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info.static_commodity_tracker is not None:
-        for stat in list(cur_sim_info.static_commodity_tracker):
-            stat_data.append({'name': type(stat).__name__})
+    if cur_sim_info is not None:
+        if cur_sim_info.static_commodity_tracker is not None:
+            for stat in list(cur_sim_info.static_commodity_tracker):
+                stat_data.append({'name': type(stat).__name__})
     return stat_data
 
 def generate_all_commodities():
@@ -107,13 +108,13 @@ def generate_sim_commodity_view_data(sim_id:int=None, filter=None):
         filter_list.extend(f for f in FILTER_WORKING_SET_FILTERS if f not in filter_list)
     commodity_data = []
     cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info.static_commodity_tracker is not None:
-        for statistic in list(cur_sim_info.commodity_tracker):
-            if not isinstance(statistic, statistics.commodity.Commodity):
-                pass
-            elif filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
-                pass
-            else:
+    if cur_sim_info is not None:
+        if cur_sim_info.static_commodity_tracker is not None:
+            for statistic in list(cur_sim_info.commodity_tracker):
+                if not isinstance(statistic, statistics.commodity.Commodity):
+                    continue
+                if filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
+                    continue
                 commodity_data.append({'simId': str(sim_id), 'commodityName': type(statistic).__name__, 'commodityValue': statistic.get_value(), 'percentFull': statistic.get_value()/statistic.max_value*100 if statistic.max_value != 0 else 0})
     return sorted(commodity_data, key=lambda entry: entry['commodityName'])
 
@@ -150,11 +151,12 @@ services.get_instance_manager(Types.STATISTIC).add_on_load_complete(add_stat_che
 def generate_sim_statistic_view_data(sim_id:int=None):
     statistic_data = []
     cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info.statistic_tracker is not None:
-        for stat in list(cur_sim_info.statistic_tracker):
-            statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': (stat.get_value() - stat.min_value)/(stat.max_value - stat.min_value)*100})
-        for stat in cur_sim_info.all_skills():
-            statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': stat.get_value()/stat.max_value*100})
+    if cur_sim_info is not None:
+        if cur_sim_info.statistic_tracker is not None:
+            for stat in list(cur_sim_info.statistic_tracker):
+                statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': (stat.get_value() - stat.min_value)/(stat.max_value - stat.min_value)*100})
+            for stat in cur_sim_info.all_skills():
+                statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': stat.get_value()/stat.max_value*100})
     return sorted(statistic_data, key=lambda entry: entry['statName'])
 
 skill_schema = GsiGridSchema(label='Statistics/Skill', sim_specific=True)
@@ -229,10 +231,11 @@ def generate_sim_commodity_data_view_data(sim_id:int=None):
             if stat._distress_buff_handle is not None:
                 buff_type = cur_sim_info.get_buff_type(stat._distress_buff_handle)
                 entry['distress_buff'] = buff_type.__name__
-        elif stat._skill_level_buff is not None:
-            buff_type = cur_sim_info.get_buff_type(stat._skill_level_buff)
-            if buff_type is not None:
-                entry['state_buff'] = buff_type.__name__
+        elif hasattr(stat, '_skill_level_buff'):
+            if stat._skill_level_buff is not None:
+                buff_type = cur_sim_info.get_buff_type(stat._skill_level_buff)
+                if buff_type is not None:
+                    entry['state_buff'] = buff_type.__name__
         modifier_entries = []
         add_modifier_entry(modifier_entries, 'persisted', 'x' if stat.persisted else '')
         add_modifier_entry(modifier_entries, 'remove_on_covergence', 'x' if stat.remove_on_convergence else '')
@@ -358,7 +361,7 @@ def generate_sim_info_toolbar_data(*args, zone_id:int=None, **kwargs):
     instanced_sims = []
     uninstanced_sims = []
     for sim_info in list(sim_info_manager.objects):
-        if sim_info.first_name or not sim_info.last_name:
+        if not sim_info.first_name and not sim_info.last_name:
             full_name = sim_info.full_name
         else:
             full_name = sim_info.first_name + ' ' + sim_info.last_name
@@ -378,6 +381,7 @@ sim_info_schema = GsiGridSchema(label='Sim Info')
 sim_info_schema.add_field('simId', label='Sim ID', width=1, unique_field=True)
 sim_info_schema.add_field('householdId', label='Household ID', width=1)
 sim_info_schema.add_field('home_zone_id', label='Home zone ID', width=1, hidden=True)
+sim_info_schema.add_field('home_world_id', label='Home world ID', width=1, hidden=True)
 sim_info_schema.add_field('zone_id', label='Zone ID', width=1)
 sim_info_schema.add_field('firstName', label='First Name', width=1)
 sim_info_schema.add_field('lastName', label='Last Name', width=1)
@@ -487,15 +491,18 @@ def generate_sim_info_data(*args, zone_id:int=None, **kwargs):
             entry['householdId'] = 'None'
             entry['householdFunds'] = '0'
             entry['home_zone_id'] = ''
+            entry['home_world_id'] = ''
         else:
             entry['householdId'] = str(hex(household_id))
             sim_info_household = sim_info.household
             if sim_info_household:
                 entry['householdFunds'] = str(sim_info_household.funds.money)
                 entry['home_zone_id'] = str(hex(sim_info_household.home_zone_id))
+                entry['home_world_id'] = str(hex(sim_info_household.get_home_world_id()))
             else:
                 entry['householdFunds'] = 'Pending'
                 entry['home_zone_id'] = ''
+                entry['home_world_id'] = ''
         sim = sim_info.get_sim_instance()
         if sim is not None:
             entry['active_mood'] = str(sim.get_mood().__name__)
@@ -609,6 +616,9 @@ def create_state_info_entry(interaction, interaction_pos):
                     if hasattr(sub_element, '_debug_run_list'):
                         for sub_element_result in sub_element._debug_run_list:
                             append_element(sub_element_result, depth=depth + 1)
+                        else:
+                            name = '+'*depth + str(sub_element)
+                            entry['running_elements'].append({'name': name, 'result': 'Pending'})
                     else:
                         name = '+'*depth + str(sub_element)
                         entry['running_elements'].append({'name': name, 'result': 'Pending'})
@@ -1033,11 +1043,10 @@ def generate_sim_commodity_and_stat_view_data(sim_id:int=None, filter=None):
         if cur_sim_info.static_commodity_tracker is not None:
             for statistic in list(cur_sim_info.commodity_tracker):
                 if not isinstance(statistic, statistics.commodity.Commodity):
-                    pass
-                elif filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
-                    pass
-                else:
-                    data.append({'simId': str(sim_id), 'name': type(statistic).__name__, 'value': statistic.get_value(), 'percentFull': statistic.get_value()/statistic.max_value*100 if statistic.max_value != 0 else 0})
+                    continue
+                if filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
+                    continue
+                data.append({'simId': str(sim_id), 'name': type(statistic).__name__, 'value': statistic.get_value(), 'percentFull': statistic.get_value()/statistic.max_value*100 if statistic.max_value != 0 else 0})
         if cur_sim_info.statistic_tracker is not None:
             for stat in list(cur_sim_info.statistic_tracker):
                 data.append({'simId': str(sim_id), 'name': type(stat).__name__, 'value': stat.get_value(), 'percentFull': (stat.get_value() - stat.min_value)/(stat.max_value - stat.min_value)*100})

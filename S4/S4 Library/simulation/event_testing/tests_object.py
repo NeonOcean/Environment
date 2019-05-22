@@ -11,18 +11,18 @@ class NumberTaggedObjectsOwnedFactory(TunableFactory):
         items = []
         for obj in services.object_manager().values():
             if required_household_owner_id is not None and obj.get_household_owner_id() != required_household_owner_id:
-                pass
-            elif not obj.has_state(desired_state.state):
-                pass
-            elif obj.get_state(desired_state.state) is not desired_state:
-                pass
-            else:
-                object_tags = set(obj.get_tags())
-                if test_type == TagTestType.CONTAINS_ANY_TAG_IN_SET and object_tags & tag_set:
-                    items.append(obj)
-                if test_type == TagTestType.CONTAINS_ALL_TAGS_IN_SET and object_tags & tag_set == tag_set:
-                    items.append(obj)
-                if test_type == TagTestType.CONTAINS_NO_TAGS_IN_SET and not object_tags & tag_set:
+                continue
+            if not obj.has_state(desired_state.state):
+                continue
+            if desired_state is not None and obj.get_state(desired_state.state) is not desired_state:
+                continue
+            object_tags = set(obj.get_tags())
+            if test_type == TagTestType.CONTAINS_ANY_TAG_IN_SET and object_tags & tag_set:
+                items.append(obj)
+            if test_type == TagTestType.CONTAINS_ALL_TAGS_IN_SET and object_tags & tag_set == tag_set:
+                items.append(obj)
+            if test_type == TagTestType.CONTAINS_NO_TAGS_IN_SET:
+                if not object_tags & tag_set:
                     items.append(obj)
         return items
 

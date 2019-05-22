@@ -21,34 +21,37 @@ class SlotTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
     def __call__(self, test_targets=()):
         for target in test_targets:
             if target.is_sim:
-                pass
-            else:
+                continue
+            if self.check_part_owner:
                 if target.is_part:
                     target = target.part_owner
-                valid_count = 0
-                if self.check_part_owner and self.slot_test_type.test_type == self.TEST_EMPTY_SLOT:
-                    if isinstance(self.child_slot, str):
-                        runtime_slot = RuntimeSlot(target, sims4.hash_util.hash32(self.child_slot), singletons.EMPTY_SET)
+            valid_count = 0
+            if self.slot_test_type.test_type == self.TEST_EMPTY_SLOT:
+                if isinstance(self.child_slot, str):
+                    runtime_slot = RuntimeSlot(target, sims4.hash_util.hash32(self.child_slot), singletons.EMPTY_SET)
+                    if runtime_slot is not None:
                         if runtime_slot.empty:
                             return TestResult.TRUE
-                    elif self.slot_test_type.check_all_slots:
-                        if all(runtime_slot.empty for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None)):
-                            return TestResult.TRUE
-                    else:
-                        for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
-                            if runtime_slot.empty:
-                                valid_count += 1
-                                if valid_count >= self.slot_count_required:
-                                    return TestResult.TRUE
-                elif self.slot_test_type.test_type == self.TEST_USED_SLOT:
-                    if isinstance(self.child_slot, str):
-                        runtime_slot = RuntimeSlot(target, sims4.hash_util.hash32(self.child_slot), singletons.EMPTY_SET)
+                elif self.slot_test_type.check_all_slots:
+                    if all(runtime_slot.empty for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None)):
+                        return TestResult.TRUE
+                else:
+                    for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
+                        if runtime_slot.empty:
+                            valid_count += 1
+                            if valid_count >= self.slot_count_required:
+                                return TestResult.TRUE
+            elif self.slot_test_type.test_type == self.TEST_USED_SLOT:
+                if isinstance(self.child_slot, str):
+                    runtime_slot = RuntimeSlot(target, sims4.hash_util.hash32(self.child_slot), singletons.EMPTY_SET)
+                    if runtime_slot is not None:
                         if not runtime_slot.empty:
                             if self.slot_test_type.object_type is not None:
                                 for child in runtime_slot.children:
                                     if self.slot_test_type.object_type(child):
                                         break
-                                return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test.object_type, runtime_slot.children)
+                                else:
+                                    return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test.object_type, runtime_slot.children)
                             return TestResult.TRUE
                             if self.slot_test_type.check_all_slots:
                                 if all(not runtime_slot.empty for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None)):
@@ -58,9 +61,10 @@ class SlotTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
                                             for child in runtime_slot.children:
                                                 if self.slot_test_type.object_type(child):
                                                     break
-                                            return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
+                                            else:
+                                                return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
                                         valid_count += 1
-                                        if runtime_slot.empty or valid_count >= self.slot_count_required:
+                                        if not runtime_slot.empty and valid_count >= self.slot_count_required:
                                             return TestResult.TRUE
                             else:
                                 for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
@@ -68,32 +72,35 @@ class SlotTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
                                         for child in runtime_slot.children:
                                             if self.slot_test_type.object_type(child):
                                                 break
-                                        return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
+                                        else:
+                                            return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
                                     valid_count += 1
-                                    if runtime_slot.empty or valid_count >= self.slot_count_required:
+                                    if not runtime_slot.empty and valid_count >= self.slot_count_required:
                                         return TestResult.TRUE
-                    elif self.slot_test_type.check_all_slots:
-                        if all(not runtime_slot.empty for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None)):
-                            return TestResult.TRUE
-                            for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
-                                if self.slot_test_type.object_type is not None:
-                                    for child in runtime_slot.children:
-                                        if self.slot_test_type.object_type(child):
-                                            break
-                                    return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
-                                valid_count += 1
-                                if runtime_slot.empty or valid_count >= self.slot_count_required:
-                                    return TestResult.TRUE
-                    else:
+                elif self.slot_test_type.check_all_slots:
+                    if all(not runtime_slot.empty for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None)):
+                        return TestResult.TRUE
                         for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
                             if self.slot_test_type.object_type is not None:
                                 for child in runtime_slot.children:
                                     if self.slot_test_type.object_type(child):
                                         break
-                                return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
+                                else:
+                                    return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
                             valid_count += 1
-                            if runtime_slot.empty or valid_count >= self.slot_count_required:
+                            if not runtime_slot.empty and valid_count >= self.slot_count_required:
                                 return TestResult.TRUE
+                else:
+                    for runtime_slot in target.get_runtime_slots_gen(slot_types={self.child_slot}, bone_name_hash=None):
+                        if self.slot_test_type.object_type is not None:
+                            for child in runtime_slot.children:
+                                if self.slot_test_type.object_type(child):
+                                    break
+                            else:
+                                return TestResult(False, 'None of the children objects were of the specified type. {} children={}', self.slot_test_type.object_type, runtime_slot.children)
+                        valid_count += 1
+                        if not runtime_slot.empty and valid_count >= self.slot_count_required:
+                            return TestResult.TRUE
         return TestResult(False, "SlotTest: participant doesn't meet slot availability requirements", tooltip=self.tooltip)
 
 TunableSlotTest = TunableSingletonFactory.create_auto_factory(SlotTest)
@@ -108,15 +115,17 @@ class RelatedSlotsTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
         for entry in self.slot_tests:
             valid_count = 0
             for runtime_slot in part.get_runtime_slots_gen(slot_types={entry.slot}, bone_name_hash=None):
-                if entry.requires_child is not None and entry.requires_child.object_type is not None:
-                    for obj in runtime_slot.children:
-                        if entry.requires_child.object_type(obj):
-                            valid_count += 1
-                else:
-                    valid_count += 1
-                if entry.requires_child is None == runtime_slot.empty and valid_count >= entry.count_required:
-                    break
-            return False
+                if (entry.requires_child is None) == runtime_slot.empty:
+                    if entry.requires_child is not None and entry.requires_child.object_type is not None:
+                        for obj in runtime_slot.children:
+                            if entry.requires_child.object_type(obj):
+                                valid_count += 1
+                    else:
+                        valid_count += 1
+                    if valid_count >= entry.count_required:
+                        break
+            else:
+                return False
         return True
 
     @cached_test

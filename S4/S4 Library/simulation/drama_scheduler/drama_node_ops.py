@@ -29,5 +29,7 @@ class CancelScheduledDramaNodeLoot(BaseLootOperation):
         dss = services.drama_scheduler_service()
         for node in tuple(dss.scheduled_nodes_gen()):
             sender_passed = self._sender_type is None or node.get_sender_sim_info() is sender
-            if type(node) in self._drama_nodes and node.get_receiver_sim_info() is receiver and sender_passed:
-                dss.cancel_scheduled_node(node.uid)
+            if type(node) in self._drama_nodes:
+                if node.get_receiver_sim_info() is receiver:
+                    if sender_passed:
+                        dss.cancel_scheduled_node(node.uid)

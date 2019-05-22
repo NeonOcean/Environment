@@ -23,6 +23,6 @@ class SeasonParameters(enum.Int):
     FOLIAGE_COLORSHIFT = 4
 
 class SeasonSetSource(enum.Int, export=False):
-    PROGRESSION = object
-    CHEAT = object
-    LOOT = object
+    PROGRESSION = ...
+    CHEAT = ...
+    LOOT = ...

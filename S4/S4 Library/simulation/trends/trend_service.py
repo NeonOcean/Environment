@@ -55,13 +55,12 @@ class TrendService(Service):
         sorted_thresholds = sorted(TrendTuning.TREND_TIME_REMAINING_DESCRIPTION.items(), key=operator.itemgetter(0))
         for (threshold, loc_string) in sorted_thresholds:
             if threshold <= hours_remaining:
-                pass
-            else:
-                return loc_string
+                continue
+            return loc_string
 
     def get_current_trends_loc_string(self):
         self._update_trends()
-        trend_list = LocalizationHelperTuning.get_bulleted_list((None,), (trend.trend_name for trend in self._current_trends))
+        trend_list = LocalizationHelperTuning.get_bulleted_list(None, *(trend.trend_name for trend in self._current_trends))
         return LocalizationHelperTuning.get_new_line_separated_strings(trend_list, self._get_description_string())
 
     def get_current_trend_tags(self):

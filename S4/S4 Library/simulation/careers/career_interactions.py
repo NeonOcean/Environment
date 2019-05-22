@@ -167,6 +167,7 @@ class CareerPickerSuperInteraction(PickerSingleChoiceSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.target)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):
@@ -190,7 +191,7 @@ class CareerProxyInteractionMixin:
         if context.sim is None:
             return
         career = context.sim.sim_info.career_tracker.career_currently_within_hours
-        if career is not None and not (career.currently_at_work or career.on_assignment):
+        if career is not None and not career.currently_at_work and not career.on_assignment:
             affordance = career.get_work_affordance()
             if affordance is not None:
                 yield AffordanceObjectPair(affordance, target, affordance, None, **kwargs)
@@ -225,6 +226,7 @@ class CareerLeaveWorkEarlyInteraction(SimInfoInteraction):
         if career is not None:
             career.leave_work_early()
         return True
+        yield
 
 class CareerTone(AwayAction):
     INSTANCE_TUNABLES = {'dominant_tone_loot_actions': TunableList(description='\n            Loot to apply at the end of a work period if this tone ran for the\n            most amount of time out of all tones.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions', 'RandomWeightedLoot'))), 'performance_multiplier': Tunable(description='\n            Performance multiplier applied to work performance gain.\n            ', tunable_type=float, default=1), 'periodic_sim_filter_loot': TunableList(description='\n            Loot to apply periodically to between the working Sim and other\n            Sims, specified via a Sim filter.\n            \n            Example Usages:\n            -Gain relationship with 2 coworkers every hour.\n            -Every hour, there is a 5% chance of meeting a new coworker.\n            ', tunable=TunableTuple(chance=SuccessChance.TunableFactory(description='\n                    Chance per hour of loot being applied.\n                    '), sim_filter=TunableSimFilter.TunableReference(description='\n                    Filter for specifying who to set at target Sims for loot\n                    application.\n                    '), max_sims=OptionalTunable(description='\n                    If enabled and the Sim filter finds more than the specified\n                    number of Sims, the loot will only be applied a random\n                    selection of this many Sims.\n                    ', tunable=TunableRange(tunable_type=int, default=1, minimum=1)), loot=LootActions.TunableReference(description='\n                    Loot actions to apply to the two Sims. The Sim in the \n                    career is Actor, and if Targeted is enabled those Sims\n                    will be TargetSim.\n                    ')))}
@@ -277,9 +279,8 @@ class CareerTone(AwayAction):
         for entry in self.periodic_sim_filter_loot:
             chance = entry.chance.get_chance(resolver)*elapsed.in_hours()
             if random.random() > chance:
-                pass
-            else:
-                services.sim_filter_service().submit_filter(entry.sim_filter, self._sim_filter_loot_response, callback_event_data=entry, requesting_sim_info=self.sim_info, gsi_source_fn=self.get_sim_filter_gsi_name)
+                continue
+            services.sim_filter_service().submit_filter(entry.sim_filter, self._sim_filter_loot_response, callback_event_data=entry, requesting_sim_info=self.sim_info, gsi_source_fn=self.get_sim_filter_gsi_name)
 
     def get_sim_filter_gsi_name(self):
         return str(self)

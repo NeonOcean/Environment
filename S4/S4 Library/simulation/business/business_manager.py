@@ -219,13 +219,15 @@ class BusinessManager:
         employee_wages = self._employee_manager.get_total_employee_wages_per_hour()*hours_since_last_sim
         advertising_cost = self._advertising_manager.get_advertising_cost_per_hour()*hours_since_last_sim
         net_profit = total_profit - employee_wages - advertising_cost
-        if not self._off_lot_negative_profit_notification_shown:
-            zone_data = services.get_persistence_service().get_zone_proto_buff(self._zone_id)
-            active_sim_info = services.active_sim_info()
-            if active_sim_info is not None:
-                notification = self.tuning_data.off_lot_net_loss_notification(active_sim_info, resolver=SingleSimResolver(active_sim_info))
-                notification.show_dialog(additional_tokens=(zone_data.name,))
-                self._off_lot_negative_profit_notification_shown = True
+        if net_profit < 0:
+            if not self._off_lot_negative_profit_notification_shown:
+                zone_data = services.get_persistence_service().get_zone_proto_buff(self._zone_id)
+                active_sim_info = services.active_sim_info()
+                if zone_data is not None:
+                    if active_sim_info is not None:
+                        notification = self.tuning_data.off_lot_net_loss_notification(active_sim_info, resolver=SingleSimResolver(active_sim_info))
+                        notification.show_dialog(additional_tokens=(zone_data.name,))
+                        self._off_lot_negative_profit_notification_shown = True
 
     def set_open(self, is_open):
         if self._is_open == is_open:
@@ -338,8 +340,9 @@ class BusinessManager:
     def get_funds_category_entries_gen(self):
         for (funds_category, amount) in self._funds_category_tracker.items():
             funds_category_data = self.tuning_data.funds_category_data.get(funds_category)
-            if funds_category_data is not None and funds_category_data.summary_dialog_entry is not None:
-                yield (funds_category_data.summary_dialog_entry, amount)
+            if funds_category_data is not None:
+                if funds_category_data.summary_dialog_entry is not None:
+                    yield (funds_category_data.summary_dialog_entry, amount)
 
     def potential_manage_outfit_interactions_gen(self, context, **kwargs):
         for affordance in self.tuning_data.manage_outfit_affordances:
@@ -519,8 +522,9 @@ class BusinessManager:
         star_rating_delta = customer_star_rating - self.get_star_rating()
         star_rating_value_change = self.tuning_data.customer_rating_delta_to_business_star_rating_value_change_curve.get(star_rating_delta)
         critic_tuning = self.tuning_data.critic
-        if customer_sim_info.has_trait(critic_tuning.critic_trait):
-            star_rating_value_change *= critic_tuning.critic_star_rating_application_count
+        if critic_tuning is not None:
+            if customer_sim_info.has_trait(critic_tuning.critic_trait):
+                star_rating_value_change *= critic_tuning.critic_star_rating_application_count
         for (bucket, value) in customer_buff_bucket_totals.items():
             self._buff_bucket_totals[bucket] += self.get_interpolated_buff_bucket_value(bucket, value)
         self._buff_bucket_size += 1
@@ -680,7 +684,7 @@ class BusinessManager:
         self._off_lot_negative_profit_notification_shown = False
 
     def get_timespan_since_open(self, is_from_close=False):
-        if (self.is_open or is_from_close) and self._open_time is None:
+        if not (self.is_open or is_from_close) or self._open_time is None:
             return
         return services.game_clock_service().now() - self._open_time
 
@@ -771,8 +775,8 @@ class BusinessManager:
         for (buff_bucket, delta) in sorted_buckets:
             buff_bucket_data = self.tuning_data.customer_star_rating_buff_bucket_data[buff_bucket]
             if delta < buff_bucket_data.bucket_growth_opportunity_threshold:
-                pass
-            elif not top_growth_filled:
+                continue
+            if not top_growth_filled:
                 self._fill_review_data(False, buff_bucket_data, top_growth_msg, delta)
                 top_growth_filled = True
             else:
@@ -850,7 +854,10 @@ class BusinessManager:
         if self.is_owner_household_active:
             active_household = services.active_household()
             bucks_tracker = active_household.bucks_tracker
-            self._quality_unlocked = bucks_tracker.is_perk_unlocked(self.tuning_data.quality_unlock_perk)
+            quality_unlocked = bucks_tracker.is_perk_unlocked(self.tuning_data.quality_unlock_perk)
+            if self._quality_unlocked != quality_unlocked:
+                self._quality_unlocked = quality_unlocked
+                self.send_data_to_client()
             if not self._quality_unlocked:
                 active_household.bucks_tracker.add_perk_unlocked_callback(self.tuning_data.bucks, self._business_perk_unlocked_callback)
                 current_zone = services.current_zone()

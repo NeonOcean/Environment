@@ -52,20 +52,20 @@ def _create_all_timeline_stacks(timeline):
     for element_handle in sorted(local_timeline):
         if not element_handle.element is None:
             if isinstance(element_handle.element, AlarmElement):
-                pass
-            else:
-                all_stacks.append(_create_stack(element_handle))
+                continue
+            all_stacks.append(_create_stack(element_handle))
     return all_stacks
 
 def _create_stack(scheduled_handle):
     stack = []
     stack.append(_Node(scheduled_handle))
     child_handle = scheduled_handle
-    while child_handle is not None and child_handle.element is not None and child_handle.element._parent_handle is not None:
-        parent_handle = child_handle.element._parent_handle
-        node = _Node(parent_handle)
-        stack.insert(0, node)
-        child_handle = parent_handle
+    while child_handle is not None:
+        while child_handle.element is not None and child_handle.element._parent_handle is not None:
+            parent_handle = child_handle.element._parent_handle
+            node = _Node(parent_handle)
+            stack.insert(0, node)
+            child_handle = parent_handle
     for (i, node) in enumerate(stack):
         node.level = i
     return stack

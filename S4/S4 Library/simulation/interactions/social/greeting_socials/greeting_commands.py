@@ -11,9 +11,8 @@ def make_sim_ungreeted(source_sim:OptionalSimInfoParam=None, _connection=None):
     sim_info_manager = services.sim_info_manager()
     for other_sim in sim_info_manager.instanced_sims_gen():
         if other_sim.sim_info is source_sim_info:
-            pass
-        else:
-            greetings.remove_greeted_rel_bit(source_sim_info, other_sim.sim_info)
+            continue
+        greetings.remove_greeted_rel_bit(source_sim_info, other_sim.sim_info)
 
 @sims4.commands.Command('greetings.make_all_sims_ungreeted')
 def make_all_sims_ungreeted(_connection=None):
@@ -22,9 +21,8 @@ def make_all_sims_ungreeted(_connection=None):
     for source_sim in instanced_sims:
         for other_sim in instanced_sims:
             if other_sim is source_sim:
-                pass
-            else:
-                greetings.remove_greeted_rel_bit(source_sim.sim_info, other_sim.sim_info)
+                continue
+            greetings.remove_greeted_rel_bit(source_sim.sim_info, other_sim.sim_info)
 
 @sims4.commands.Command('greetings.toggle_greeted_rel_bit')
 def toggle_greeted_rel_bit(_connection=None):

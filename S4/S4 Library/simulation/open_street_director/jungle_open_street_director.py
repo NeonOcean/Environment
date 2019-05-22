@@ -71,14 +71,15 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
             for (tag, status, progress) in path_obstacle_data:
                 obstacles = object_manager.get_objects_matching_tags((tag,))
                 for obstacle in obstacles:
-                    if not obstacle.state_value_active(self.TEMPLE_PATH_OBSTACLE_UNLOCK_STATE):
-                        self._update_temple_lock_commodity()
-                        if obstacle.state_value_active(self.TEMPLE_PATH_OBSTACLE_UNLOCK_STATE):
-                            status = JungleOpenStreetDirector.PATH_LOCKED
-                        else:
-                            status = JungleOpenStreetDirector.PATH_UNAVAILABLE
-                        progress = 0
-                    if tag == self.TEMPLE_PATH_OBSTACLE and status == JungleOpenStreetDirector.PATH_LOCKED:
+                    if tag == self.TEMPLE_PATH_OBSTACLE:
+                        if not obstacle.state_value_active(self.TEMPLE_PATH_OBSTACLE_UNLOCK_STATE):
+                            self._update_temple_lock_commodity()
+                            if obstacle.state_value_active(self.TEMPLE_PATH_OBSTACLE_UNLOCK_STATE):
+                                status = JungleOpenStreetDirector.PATH_LOCKED
+                            else:
+                                status = JungleOpenStreetDirector.PATH_UNAVAILABLE
+                            progress = 0
+                    if status == JungleOpenStreetDirector.PATH_LOCKED:
                         self._lock_path_obstacle(obstacle, tag)
                     elif status == JungleOpenStreetDirector.PATH_UNAVAILABLE:
                         self._permanently_lock_path_obstacle(obstacle, tag)
@@ -92,8 +93,8 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
                 for (obj_id, status) in treasure_chest_data:
                     chest = object_manager.get(obj_id)
                     if chest is None:
-                        pass
-                    elif status == JungleOpenStreetDirector.TREASURE_CHEST_OPEN:
+                        continue
+                    if status == JungleOpenStreetDirector.TREASURE_CHEST_OPEN:
                         chest.set_state(self.treasure_chest_open_state.state, self.treasure_chest_open_state)
                     else:
                         chest.set_state(self.treasure_chest_closed_state.state, self.treasure_chest_closed_state)
@@ -117,12 +118,12 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
             travel_groups = travel_group_manager.get_travel_group_ids_in_region()
             for group_id in travel_groups:
                 if group_id == self._current_travel_group_id:
-                    pass
-                else:
-                    group = travel_group_manager.get(group_id)
-                    if group.played:
-                        break
-            self._setup_for_first_travel_group()
+                    continue
+                group = travel_group_manager.get(group_id)
+                if group.played:
+                    break
+            else:
+                self._setup_for_first_travel_group()
         if self._temple_needs_reset():
             self.reset_temple()
 
@@ -212,13 +213,12 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
         clear_progress = []
         for (group_id, path_obstacle_data) in self._obstacle_status.items():
             if group_id == self._current_travel_group_id:
-                pass
-            else:
-                for (tag, status, progress) in path_obstacle_data:
-                    group_ids.append(group_id)
-                    tags.append(tag)
-                    tag_status.append(status)
-                    clear_progress.append(progress)
+                continue
+            for (tag, status, progress) in path_obstacle_data:
+                group_ids.append(group_id)
+                tags.append(tag)
+                tag_status.append(status)
+                clear_progress.append(progress)
         if self._current_travel_group_id is None:
             return
         for (path_obstacle, tag) in self._path_obstacles.items():
@@ -255,12 +255,11 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
         last_time_saved = reader.read_uint64(LAST_TIME_SAVED, 0)
         for (index, group_id) in enumerate(group_ids):
             if not travel_group_manager.get(group_id):
-                pass
-            else:
-                if group_id not in self._obstacle_status:
-                    self._obstacle_status[group_id] = []
-                path_obstacles = self._obstacle_status[group_id]
-                path_obstacles.append((tags[index], tag_status[index], clear_progress[index]))
+                continue
+            if group_id not in self._obstacle_status:
+                self._obstacle_status[group_id] = []
+            path_obstacles = self._obstacle_status[group_id]
+            path_obstacles.append((tags[index], tag_status[index], clear_progress[index]))
         self._last_time_saved = DateAndTime(last_time_saved)
         self._load_treasure_chest_data(reader)
 
@@ -323,21 +322,19 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
         status_ids = []
         for (group_id, treasure_chest_data) in self._treasure_chest_status.items():
             if group_id == self._current_travel_group_id:
-                pass
-            else:
-                for (obj_id, curr_status) in treasure_chest_data:
-                    group_ids.append(group_id)
-                    obj_ids.append(obj_id)
-                    status_ids.append(curr_status)
+                continue
+            for (obj_id, curr_status) in treasure_chest_data:
+                group_ids.append(group_id)
+                obj_ids.append(obj_id)
+                status_ids.append(curr_status)
         if self._current_travel_group_id is None:
             return
         for chest in services.object_manager().get_objects_matching_tags((self.treasure_chest_tag,)):
             if chest.is_on_active_lot():
-                pass
-            else:
-                group_ids.append(self._current_travel_group_id)
-                obj_ids.append(chest.id)
-                status_ids.append(self._get_treasure_chest_status(chest))
+                continue
+            group_ids.append(self._current_travel_group_id)
+            obj_ids.append(chest.id)
+            status_ids.append(self._get_treasure_chest_status(chest))
         writer.write_uint64s(TREASURE_CHEST_GROUP, group_ids)
         writer.write_uint64s(TREASURE_CHEST_ID, obj_ids)
         writer.write_uint64s(TREASURE_CHEST_STATUS, status_ids)
@@ -356,9 +353,8 @@ class JungleOpenStreetDirector(OpenStreetDirectorBase):
         status = reader.read_uint64s(TREASURE_CHEST_STATUS, [])
         for (index, group_id) in enumerate(group_ids):
             if not travel_group_manager.get(group_id):
-                pass
-            else:
-                if group_id not in self._treasure_chest_status:
-                    self._treasure_chest_status[group_id] = []
-                treasure_chest = self._treasure_chest_status[group_id]
-                treasure_chest.append((obj_ids[index], status[index]))
+                continue
+            if group_id not in self._treasure_chest_status:
+                self._treasure_chest_status[group_id] = []
+            treasure_chest = self._treasure_chest_status[group_id]
+            treasure_chest.append((obj_ids[index], status[index]))

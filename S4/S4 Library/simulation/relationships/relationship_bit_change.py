@@ -30,7 +30,7 @@ class RelationshipBitChange(BaseLootOperation):
         return interactions.utils.LootType.RELATIONSHIP_BIT
 
     def apply_to_resolver(self, resolver, skip_test=False):
-        if skip_test or not self.test_resolver(resolver):
+        if not skip_test and not self.test_resolver(resolver):
             return (False, None)
         participant_cache = dict()
         for bit_operation in self._bit_operations:
@@ -42,13 +42,17 @@ class RelationshipBitChange(BaseLootOperation):
             for recipient in participant_cache[bit_operation.recipients]:
                 for target in participant_cache[bit_operation.targets]:
                     if recipient == target:
-                        pass
-                    elif recipient == ParticipantType.AllRelationships:
+                        continue
+                    if recipient == ParticipantType.AllRelationships:
                         for recipient_sim_info in target.relationship_tracker.get_target_sim_infos():
                             self._perform_bit_operation(recipient_sim_info, target, bit_operation)
+                        else:
+                            self._perform_bit_operation(recipient, target, bit_operation)
                     elif target == ParticipantType.AllRelationships:
                         for target_sim_info in recipient.relationship_tracker.get_target_sim_infos():
                             self._perform_bit_operation(recipient, target_sim_info, bit_operation)
+                        else:
+                            self._perform_bit_operation(recipient, target, bit_operation)
                     else:
                         self._perform_bit_operation(recipient, target, bit_operation)
         return (True, None)

@@ -225,6 +225,10 @@ except ImportError:
             pass
 
         @staticmethod
+        def set_client_conditional_layer_active(*_, **__):
+            pass
+
+        @staticmethod
         def get_location_plex_id(*_, **__):
             pass
 
@@ -299,6 +303,7 @@ get_highest_level_allowed = _buildbuy.get_highest_level_allowed
 get_object_pack_by_key = _buildbuy.get_object_pack_by_key
 load_conditional_objects = _buildbuy.load_conditional_objects
 mark_conditional_objects_loaded = _buildbuy.mark_conditional_objects_loaded
+set_client_conditional_layer_active = _buildbuy.set_client_conditional_layer_active
 get_variant_group_id = _buildbuy.get_variant_group_id
 is_household_inventory_available = _buildbuy.is_household_inventory_available
 get_location_plex_id = _buildbuy.get_location_plex_id
@@ -364,8 +369,9 @@ def move_object_to_household_inventory(obj, failure_flags=0, object_location_typ
         if household_msg is not None:
             for i in range(stack_count):
                 object_data = obj.save_object(household_msg.inventory.objects)
-                if object_data is not None and i != 0:
-                    object_data.id = id_generator.generate_object_id()
+                if object_data is not None:
+                    if i != 0:
+                        object_data.id = id_generator.generate_object_id()
             obj.destroy(cause='Add to household inventory')
         else:
             return False
@@ -455,9 +461,8 @@ def get_object_buy_category_flags(*args, **kwargs):
 def get_all_objects_with_flags_gen(objs, buy_category_flags):
     for obj in objs:
         if not get_object_buy_category_flags(obj.definition.id) & buy_category_flags:
-            pass
-        else:
-            yield obj
+            continue
+        yield obj
 
 @sims4.utils.exception_protected
 def c_api_wall_contour_update(zone_id, wall_type):

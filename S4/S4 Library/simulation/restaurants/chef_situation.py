@@ -167,9 +167,10 @@ class ChefSituation(BusinessEmployeeSituationMixin, StaffedObjectSituationMixin,
             return
         if self._zone_director is not None:
             self._current_order = self._zone_director.get_group_order_with_status_for_chef(OrderStatus.ORDER_GIVEN_TO_CHEF, chef)
-        if self._direct_orders:
-            self._current_order = self._direct_orders.pop()
-        if self._current_order is None and self._current_order is not None:
+        if self._current_order is None:
+            if self._direct_orders:
+                self._current_order = self._direct_orders.pop()
+        if self._current_order is not None:
             chef.add_buff(ChefTuning.CHEF_HAS_ORDER_BUFF)
 
     def _chef_remove_order(self):
@@ -209,9 +210,8 @@ class ChefSituation(BusinessEmployeeSituationMixin, StaffedObjectSituationMixin,
         for buff in chef_buff_component:
             buff_tuning = RestaurantTuning.COOKING_SPEED_DATA_MAPPING.get(buff.buff_type)
             if not buff_tuning:
-                pass
-            else:
-                cooking_states_before_deliver += buff_tuning.active_cooking_states_delta
+                continue
+            cooking_states_before_deliver += buff_tuning.active_cooking_states_delta
         if self._has_order_state_count >= max(1, cooking_states_before_deliver) and self._chef_station_has_available_serve_slot():
             self._has_order_state_count = 0
             return True
@@ -235,11 +235,10 @@ class ChefSituation(BusinessEmployeeSituationMixin, StaffedObjectSituationMixin,
         if find_existing:
             for slot_info in chef_station.get_runtime_slots_gen():
                 if type(slot) is str and not slot_info.slot_name_hash == SlotComponent.to_slot_hash(slot):
-                    pass
-                else:
-                    for child in slot_info.children:
-                        if child.definition == cooking_object:
-                            return child
+                    continue
+                for child in slot_info.children:
+                    if child.definition == cooking_object:
+                        return child
         cooking_object_instance = system.create_object(cooking_object)
         if cooking_object_instance is None:
             logger.error('Failed to create a cooking object for the chef station. Please ensure the tuning in the restaurants.chef_tuning instance in Object Editor looks correct for the various cooking objects.')
@@ -265,7 +264,7 @@ class ChefSituation(BusinessEmployeeSituationMixin, StaffedObjectSituationMixin,
     def _find_cooking_object_on_slot(self, chef_station, parent_slot):
         slot_hash = sims4.hash_util.hash32(parent_slot)
         for child in chef_station.children:
-            if slot_hash == child.location.slot_hash or child.location.joint_name_hash:
+            if slot_hash == (child.location.slot_hash or child.location.joint_name_hash):
                 return child
 
     def _find_and_assign_cooking_objects(self):

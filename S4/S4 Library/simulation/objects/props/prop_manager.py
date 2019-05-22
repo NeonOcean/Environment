@@ -22,13 +22,13 @@ class PropManager(DistributableObjectManager, GameObjectManagerMixin):
     def destroy_prop(self, prop, **kwargs):
         for (key, (shared_prop, counter)) in self._shared_props.items():
             if shared_prop is not prop:
-                pass
+                continue
+            counter = counter - 1
+            if not counter:
+                prop.destroy(**kwargs)
+                del self._shared_props[key]
             else:
-                counter = counter - 1
-                if not counter:
-                    prop.destroy(**kwargs)
-                    del self._shared_props[key]
-                else:
-                    self._shared_props[key] = (prop, counter)
-                break
-        prop.destroy(**kwargs)
+                self._shared_props[key] = (prop, counter)
+            break
+        else:
+            prop.destroy(**kwargs)

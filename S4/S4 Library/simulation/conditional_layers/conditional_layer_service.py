@@ -1,5 +1,5 @@
 from protocolbuffers import GameplaySaveData_pb2 as gameplay_serialization
-from build_buy import mark_conditional_objects_loaded, load_conditional_objects, test_location_for_object, move_object_to_household_inventory, HouseholdInventoryFlags
+from build_buy import mark_conditional_objects_loaded, load_conditional_objects, test_location_for_object, move_object_to_household_inventory, HouseholdInventoryFlags, set_client_conditional_layer_active
 from conditional_layers.conditional_layer_handlers import is_archive_enabled, archive_layer_request_culling, LayerRequestAction
 from crafting.crafting_tunable import CraftingTuning
 from date_and_time import TimeSpan, create_time_span
@@ -93,23 +93,21 @@ class LoadConditionalLayerRequest(ConditionalLayerRequest):
                             blocking_obj_id = blocking_obj_id[0]
                             blocking_obj = object_manager.get(blocking_obj_id)
                             if blocking_obj is None:
-                                pass
+                                continue
+                            household_id = blocking_obj.get_household_owner_id()
+                            if household_id is None:
+                                continue
+                            active_household_id = services.active_household_id()
+                            if blocking_obj.has_component(objects.components.types.CRAFTING_COMPONENT):
+                                blocking_obj.destroy(source=self, cause='Destroying object with Crafting Component from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
                             else:
-                                household_id = blocking_obj.get_household_owner_id()
-                                if household_id is None:
-                                    pass
+                                tracker = blocking_obj.get_tracker(CraftingTuning.SERVINGS_STATISTIC)
+                                if tracker is not None and tracker.has_statistic(CraftingTuning.SERVINGS_STATISTIC):
+                                    blocking_obj.destroy(source=self, cause='Destroying object with servings statistic from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
                                 else:
-                                    active_household_id = services.active_household_id()
-                                    if blocking_obj.has_component(objects.components.types.CRAFTING_COMPONENT):
-                                        blocking_obj.destroy(source=self, cause='Destroying object with Crafting Component from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
-                                    else:
-                                        tracker = blocking_obj.get_tracker(CraftingTuning.SERVINGS_STATISTIC)
-                                        if tracker is not None and tracker.has_statistic(CraftingTuning.SERVINGS_STATISTIC):
-                                            blocking_obj.destroy(source=self, cause='Destroying object with servings statistic from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
-                                        else:
-                                            if household_id == active_household_id:
-                                                should_show_blocking_object_notification = True
-                                            move_object_to_household_inventory(blocking_obj)
+                                    if household_id == active_household_id:
+                                        should_show_blocking_object_notification = True
+                                    move_object_to_household_inventory(blocking_obj)
                     if self.fade_in:
                         obj.opacity = 0
                         obj.fade_in()
@@ -149,8 +147,15 @@ class LoadConditionalLayerRequest(ConditionalLayerRequest):
 
         self.alarm_handle = alarms.add_alarm(self, TimeSpan.ZERO, load_objects_callback, repeating=True, repeating_time_span=create_time_span(minutes=self.timer_interval))
 
+    def _load_layer_as_client_only(self):
+        conditional_layer_service = services.conditional_layer_service()
+        conditional_layer_service._set_client_layer(self.conditional_layer, True)
+        conditional_layer_service.complete_current_request()
+
     def execute_request(self):
-        if self.speed == ConditionalLayerRequestSpeedType.GRADUALLY:
+        if self.conditional_layer.client_only:
+            self._load_layer_as_client_only()
+        elif self.speed == ConditionalLayerRequestSpeedType.GRADUALLY:
             self._load_layer_gradually()
         elif self.speed == ConditionalLayerRequestSpeedType.IMMEDIATELY:
             self._load_layer_immediately()
@@ -190,7 +195,7 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
         now = services.time_service().sim_now
         timeout_time = now + create_time_span(minutes=DestroyConditionalLayerRequest.DESTRUCTION_TIMEOUT)
         objects_loaded = list(layer_info.objects_loaded)
-        if objects_destroyed < self.timer_object_count:
+        while objects_destroyed < self.timer_object_count:
             if not objects_loaded:
                 alarms.cancel_alarm(self.alarm_handle)
                 self.alarm_handle = None
@@ -214,24 +219,16 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
                     if users:
                         objects_index += 1
                         if object_id in self._destory_object_timeouts:
-                            pass
-                        else:
-                            for sim in users:
-                                for interaction in sim.si_state:
-                                    if interaction.target is None:
-                                        pass
-                                    else:
-                                        if not interaction.target is obj:
-                                            if interaction.target.is_part and interaction.target.part_owner is obj:
-                                                interaction.cancel(FinishingType.TARGET_DELETED, cancel_reason_msg='Removing conditional object.')
+                            continue
+                        for sim in users:
+                            for interaction in sim.si_state:
+                                if interaction.target is None:
+                                    continue
+                                if not interaction.target is obj:
+                                    if interaction.target.is_part and interaction.target.part_owner is obj:
                                         interaction.cancel(FinishingType.TARGET_DELETED, cancel_reason_msg='Removing conditional object.')
-                            self._destory_object_timeouts[object_id] = timeout_time
-                            obj.destroy(source=self, cause='Destroying object from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
-                            del objects_loaded[objects_index]
-                            layer_info.objects_loaded.remove(object_id)
-                            if object_id in self._destory_object_timeouts:
-                                del self._destory_object_timeouts[object_id]
-                            objects_destroyed += 1
+                                interaction.cancel(FinishingType.TARGET_DELETED, cancel_reason_msg='Removing conditional object.')
+                        self._destory_object_timeouts[object_id] = timeout_time
                     else:
                         obj.destroy(source=self, cause='Destroying object from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
                         del objects_loaded[objects_index]
@@ -243,8 +240,15 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
     def _destroy_layer_gradually(self):
         self.alarm_handle = alarms.add_alarm(self, TimeSpan.ZERO, self._destroy_objects_callback, repeating=True, repeating_time_span=create_time_span(minutes=self.timer_interval))
 
+    def _destroy_layer_as_client_only(self):
+        conditional_layer_service = services.conditional_layer_service()
+        conditional_layer_service._set_client_layer(self.conditional_layer, False)
+        conditional_layer_service.complete_current_request()
+
     def execute_request(self):
-        if self.speed == ConditionalLayerRequestSpeedType.GRADUALLY:
+        if self.conditional_layer.client_only:
+            self._destroy_layer_as_client_only()
+        elif self.speed == ConditionalLayerRequestSpeedType.GRADUALLY:
             self._destroy_layer_gradually()
         elif self.speed == ConditionalLayerRequestSpeedType.IMMEDIATELY:
             self._destroy_layer_immediately()
@@ -285,11 +289,10 @@ class ConditionalLayerService(Service):
         open_street_data.conditional_layer_service = gameplay_serialization.ConditionalLayerServiceData()
         for (conditional_layer, layer_info) in self._layer_infos.items():
             if not layer_info.objects_loaded:
-                pass
-            else:
-                with ProtocolBufferRollback(open_street_data.conditional_layer_service.layer_infos) as layer_data:
-                    layer_data.conditional_layer = conditional_layer.guid64
-                    layer_data.object_ids.extend(list(layer_info.objects_loaded))
+                continue
+            with ProtocolBufferRollback(open_street_data.conditional_layer_service.layer_infos) as layer_data:
+                layer_data.conditional_layer = conditional_layer.guid64
+                layer_data.object_ids.extend(list(layer_info.objects_loaded))
 
     def load(self, zone_data=None, **kwargs):
         open_street_id = services.current_zone().open_street_id
@@ -302,7 +305,8 @@ class ConditionalLayerService(Service):
                 for conditional_layer in conditional_layers:
                     if conditional_layer.layer_name == layer_data.layer_hash:
                         break
-                conditional_layer = None
+                else:
+                    conditional_layer = None
                 if conditional_layer is None:
                     logger.error('Trying to load a conditional_layer via the layer_hash but one was not found. layer_hash = {}', layer_data.layer_hash)
                 else:
@@ -313,6 +317,11 @@ class ConditionalLayerService(Service):
                 conditional_layer = conditional_layer_manager.get(layer_data.conditional_layer)
                 layer_info = self._get_layer_info(conditional_layer)
             layer_info.objects_loaded = set(layer_data.object_ids)
+
+    def on_zone_load(self):
+        for conditional_layer in self._layer_infos:
+            if conditional_layer.client_only:
+                self._set_client_layer(conditional_layer, True)
 
     def _execute_next_request(self):
         while self._requests:
@@ -362,6 +371,18 @@ class ConditionalLayerService(Service):
         if conditional_layer not in self._layer_infos:
             self._layer_infos[conditional_layer] = ConditionalLayerInfo()
         return self._layer_infos[conditional_layer]
+
+    def _set_client_layer(self, conditional_layer, is_load):
+        zone_id = services.current_zone_id()
+        client = services.client_manager().get_first_client()
+        if client is None:
+            if is_load:
+                logger.error('Adding client layer but there is no client.')
+            elif not services.current_zone().is_zone_shutting_down:
+                logger.error('Removing client layer but there is no client.')
+            return
+        account_id = services.client_manager().get_first_client().account.id
+        set_client_conditional_layer_active(zone_id, account_id, conditional_layer.layer_name, is_load)
 
     def get_layer_objects(self, conditional_layer):
         layer_info = self._get_layer_info(conditional_layer)

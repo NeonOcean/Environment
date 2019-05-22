@@ -33,12 +33,11 @@ class BabyTuning:
     def get_default_definition(sim_info):
         for entry in BabyTuning.BABY_DEFAULT_BASSINETS:
             if not entry.bassinets:
-                pass
-            else:
-                if entry.traits:
-                    if any(sim_info.has_trait(trait) for trait in entry.traits):
-                        return random.choice(entry.bassinets)
-                return random.choice(entry.bassinets)
+                continue
+            if entry.traits:
+                if any(sim_info.has_trait(trait) for trait in entry.traits):
+                    return random.choice(entry.bassinets)
+            return random.choice(entry.bassinets)
         return next(iter(BabyTuning.BABY_BASSINET_DEFINITION_MAP), None)
 
     @staticmethod

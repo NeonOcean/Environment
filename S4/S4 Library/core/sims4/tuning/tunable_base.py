@@ -75,6 +75,7 @@ class GroupNames:
     ROLES = 'Roles'
     ROUTING = 'Routing'
     SCORING = 'Scoring'
+    SIM_FILTER = 'Sim Filter'
     SITUATION = 'Situation'
     SPECIAL_CASES = 'Special Cases'
     TELEMETRY = 'Telemetry'
@@ -88,6 +89,7 @@ class GroupNames:
     TRAVEL = 'Travel'
     UI = 'UI'
     VENUES = 'Venues'
+    GIG = 'Gig'
 
 class RateDescriptions:
     PER_SIM_MINUTE = 'per Sim minute'
@@ -240,7 +242,7 @@ class BoolWrapper:
         else:
             return bool(data)
 
-tunable_type_mapping = {sims4.resources.ResourceKeyWrapper: sims4.resources.ResourceKeyWrapper, sims4.resources.Key: sims4.resources.ResourceKeyWrapper, BoolWrapper: BoolWrapper, bool: BoolWrapper, str: str, float: float, int: int}
+tunable_type_mapping = {int: int, float: float, str: str, bool: BoolWrapper, BoolWrapper: BoolWrapper, sims4.resources.Key: sims4.resources.ResourceKeyWrapper, sims4.resources.ResourceKeyWrapper: sims4.resources.ResourceKeyWrapper}
 
 def get_default_display_name(name):
     if name is None:
@@ -266,8 +268,7 @@ class TdescFragMetaClass(type):
         self_cls = super().__new__(cls, name, *args, **kwargs)
         self_cls.is_fragment = is_fragment
         if is_fragment:
-            if DISABLE_FRAG_DUP_NAME_CHECK or not (name in TDESC_FRAG_DICT_GLOBAL and sims4.reload.currently_reloading):
-                raise AssertionError('Frag Class with name {} already exists'.format(name))
+            assert not (not DISABLE_FRAG_DUP_NAME_CHECK and not not (name in TDESC_FRAG_DICT_GLOBAL and sims4.reload.currently_reloading))
             TDESC_FRAG_DICT_GLOBAL[name] = self_cls
             self_cls.frag_desc = self_cls.export_desc
             self_cls.FRAG_TAG_NAME = self_cls.TAGNAME
@@ -341,7 +342,7 @@ class TunableBase(metaclass=TdescFragMetaClass):
             else:
                 description = inspect.cleandoc(description)
                 CLEANDOC_DICT[self.description] = description
-        export_dict = {Attributes.Deprecated: self._deprecated, Attributes.Group: self.group, Attributes.Filter: self.tuning_filter, Attributes.Class: self.export_class, Attributes.Description: description, Attributes.DisplayName: self.display_name, Attributes.Name: self.name}
+        export_dict = {Attributes.Name: self.name, Attributes.DisplayName: self.display_name, Attributes.Description: description, Attributes.Class: self.export_class, Attributes.Filter: self.tuning_filter, Attributes.Group: self.group, Attributes.Deprecated: self._deprecated}
         if self._category:
             export_dict[Attributes.ValidationCategory] = self._category
         if self.needs_tuning:

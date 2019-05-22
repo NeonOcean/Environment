@@ -21,6 +21,7 @@ from objects.components import componentmethod, Component, componentmethod_with_
 from objects.components.types import CARRYABLE_COMPONENT
 from placement import FGLSearchFlag, FGLSearchFlagsDefaultForSim
 from routing.portals.portal_tuning import PortalFlags
+from sims.sim_info_types import Species
 from sims4.tuning.tunable import TunableReference, TunableVariant, OptionalTunable, TunableList, Tunable, TunableMapping, AutoFactoryInit, HasTunableFactory, HasTunableSingletonFactory, TunableEnumFlags, TunableRange
 from sims4.utils import classproperty, flexmethod
 from singletons import DEFAULT
@@ -55,7 +56,7 @@ class PutDownLiability(Liability):
         if target_object.parent is not self._parent:
             carry_component.reset_put_down_count()
             return
-        if carry_component.attempted_putdown and carry_component.attempted_alternative_putdown and target_object.transient:
+        if not carry_component.attempted_putdown or not carry_component.attempted_alternative_putdown or target_object.transient:
             new_context = self._interaction.context.clone_for_continuation(self._interaction)
             aop = target_object.get_put_down_aop(self._interaction, new_context)
             aop.test_and_execute(new_context)
@@ -158,12 +159,14 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
     def get_put_down_strategy(self, parent=DEFAULT):
         if self._cached_put_down_strategy is None:
             parent = self.owner.parent if parent is DEFAULT else parent
+            species = parent.species if parent is not None else Species.HUMAN
             for (state_value, put_down_strategy) in self.state_based_put_down_tuning.items():
                 if self.owner.state_value_active(state_value):
-                    self._cached_put_down_strategy = put_down_strategy.get(parent.species)
+                    self._cached_put_down_strategy = put_down_strategy.get(species)
                     break
-            if self.put_down_tuning is not None:
-                self._cached_put_down_strategy = self.put_down_tuning.get(parent.species)
+            else:
+                if self.put_down_tuning is not None:
+                    self._cached_put_down_strategy = self.put_down_tuning.get(species)
             if self._cached_put_down_strategy is None:
                 put_down_strategy = parent.get_default_put_down_strategy()
                 self._cached_put_down_strategy = put_down_strategy
@@ -221,25 +224,26 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
     def get_provided_aops_gen(self, target, context, **kwargs):
         for provided_affordance_data in self.provided_affordances:
             if not provided_affordance_data.affordance.is_affordance_available(context=context):
-                pass
-            elif not provided_affordance_data.object_filter.is_object_valid(target):
-                pass
+                continue
+            if not provided_affordance_data.object_filter.is_object_valid(target):
+                continue
+            if provided_affordance_data.affordance.is_social and not target.is_sim:
+                affordance = provided_affordance_data.affordance
+                interaction_target = self.owner
+                preferred_objects = (target,)
             else:
-                if provided_affordance_data.affordance.is_social and not target.is_sim:
-                    affordance = provided_affordance_data.affordance
-                    interaction_target = self.owner
-                    preferred_objects = (target,)
-                else:
-                    affordance = CarryTargetInteraction.generate(provided_affordance_data.affordance, self.owner)
-                    interaction_target = target
-                    preferred_objects = ()
-                depended_on_si = None
-                parent = self.owner.parent
+                affordance = CarryTargetInteraction.generate(provided_affordance_data.affordance, self.owner)
+                interaction_target = target
+                preferred_objects = ()
+            depended_on_si = None
+            parent = self.owner.parent
+            if parent is not None:
                 if parent.is_sim:
                     carry_posture = parent.posture_state.get_carry_posture(self.owner)
-                    if provided_affordance_data.is_linked:
-                        depended_on_si = carry_posture.source_interaction
-                yield from affordance.potential_interactions(interaction_target, context, depended_on_si=depended_on_si, preferred_objects=preferred_objects, **kwargs)
+                    if carry_posture is not None:
+                        if provided_affordance_data.is_linked:
+                            depended_on_si = carry_posture.source_interaction
+            yield from affordance.potential_interactions(interaction_target, context, depended_on_si=depended_on_si, preferred_objects=preferred_objects, **kwargs)
 
     def component_super_affordances_gen(self, **kwargs):
         if self.carry_affordances is None:
@@ -252,7 +256,7 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
     def component_interactable_gen(self):
         yield self
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         if new_value in self.state_based_put_down_tuning or old_value in self.state_based_put_down_tuning:
             self._cached_put_down_strategy = None
 
@@ -300,7 +304,7 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
             object_inventory_cost = None
         if not put_down_strategy.affordances:
             self._attempted_alternative_putdown = True
-        if self._attempted_alternative_putdown and self.owner.is_sim:
+        if not self._attempted_alternative_putdown or self.owner.is_sim:
             self._attempted_alternative_putdown = True
             scored_aops = []
             for scored_aop in self._gen_affordance_score_and_aops(interaction, slot_types_and_costs=slot_types_and_costs, world_cost=world_cost, sim_inventory_cost=sim_inventory_cost, object_inventory_cost=object_inventory_cost, terrain_transform=terrain_transform, terrain_routing_surface=terrain_routing_surface, objects_with_inventory=objects, visibility_override=visibility_override, display_name_override=display_name_override, additional_post_run_autonomy_commodities=additional_post_run_autonomy_commodities, multiplier=alternative_multiplier, add_putdown_liability=add_putdown_liability):
@@ -346,7 +350,7 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
         return slot_types_and_costs
 
     def _get_terrain_transform(self, interaction):
-        if self.owner.is_sim or self.owner.footprint_component is None:
+        if not self.owner.is_sim and self.owner.footprint_component is None:
             return (None, None)
         else:
             sim = interaction.sim
@@ -376,9 +380,10 @@ class CarryableComponent(Component, HasTunableFactory, AutoFactoryInit, componen
     def _get_objects_with_inventory(self, interaction):
         objects = []
         inventory_item = self.owner.inventoryitem_component
-        if CarryableComponent.PUT_IN_INVENTORY_AFFORDANCE is not None:
-            for obj in inventory_item.valid_object_inventory_gen():
-                objects.append(obj)
+        if inventory_item is not None:
+            if CarryableComponent.PUT_IN_INVENTORY_AFFORDANCE is not None:
+                for obj in inventory_item.valid_object_inventory_gen():
+                    objects.append(obj)
         return objects
 
     def _get_destroy_aop(self, sim, **kwargs):

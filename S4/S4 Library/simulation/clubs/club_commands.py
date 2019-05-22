@@ -156,7 +156,7 @@ def start_gathering_by_club_id(club_id:int, _connection=None):
         hangout_region = get_region_instance_from_zone_id(zone_id)
         if not current_region.is_region_compatible(hangout_region):
             zone_id = 0
-    if zone_id and (zone_id == current_zone_id or persistence_service.is_save_locked()):
+    if not zone_id or zone_id == current_zone_id or persistence_service.is_save_locked():
         _start_gathering()
     else:
 
@@ -275,7 +275,7 @@ def request_club_building_info(_connection=None):
     club_service.send_club_building_info()
 
 @sims4.commands.Command('clubs.validate_sims_against_criteria', command_type=CommandType.Live)
-def validate_sims_against_criteria(criteria_data:str, *sim_ids, _connection=None):
+def validate_sims_against_criteria(criteria_data:str, *sim_ids:int, _connection=None):
     club_service = _get_club_service(_connection)
     if club_service is None:
         return
@@ -284,7 +284,7 @@ def validate_sims_against_criteria(criteria_data:str, *sim_ids, _connection=None
     club_service.send_club_criteria_validation(sim_ids, proto)
 
 @sims4.commands.Command('clubs.show_add_member_picker', command_type=CommandType.Live)
-def show_add_club_member_picker(criteria_data:str, max_selectable:int=8, *excluded_sim_ids, _connection=None):
+def show_add_club_member_picker(criteria_data:str, max_selectable:int=8, *excluded_sim_ids:int, _connection=None):
     club_service = _get_club_service(_connection)
     if club_service is None:
         return False
@@ -301,19 +301,18 @@ def show_add_club_member_picker(criteria_data:str, max_selectable:int=8, *exclud
     valid_sim_infos = []
     for sim_info in services.sim_info_manager().get_all():
         if sim_info.sim_id in excluded_sim_ids:
-            pass
-        elif sim_info.is_baby:
-            pass
-        elif sim_info.is_ghost and not sim_info.is_selectable:
-            pass
-        elif not club_service.can_sim_info_join_more_clubs(sim_info):
-            pass
-        elif not all(criteria.test_sim_info(sim_info) for criteria in criterias):
-            pass
-        else:
-            results = sim_filter_service.submit_filter(ClubTunables.CLUB_ADD_MEMBER_FILTER, callback=None, requesting_sim_info=active_sim_info, sim_constraints=(sim_info.sim_id,), allow_yielding=False, gsi_source_fn=get_sim_filter_gsi_name)
-            if results:
-                valid_sim_infos.append((sim_info, results[0].score))
+            continue
+        if sim_info.is_baby:
+            continue
+        if sim_info.is_ghost and not sim_info.is_selectable:
+            continue
+        if not club_service.can_sim_info_join_more_clubs(sim_info):
+            continue
+        if not all(criteria.test_sim_info(sim_info) for criteria in criterias):
+            continue
+        results = sim_filter_service.submit_filter(ClubTunables.CLUB_ADD_MEMBER_FILTER, callback=None, requesting_sim_info=active_sim_info, sim_constraints=(sim_info.sim_id,), allow_yielding=False, gsi_source_fn=get_sim_filter_gsi_name)
+        if results:
+            valid_sim_infos.append((sim_info, results[0].score))
     for (sim_info, _) in sorted(valid_sim_infos, key=operator.itemgetter(1), reverse=True)[:ClubTunables.CLUB_ADD_MEMBER_CAP]:
         dialog_row = ClubSimPickerRow(sim_info.sim_id)
         dialog.add_row(dialog_row)
@@ -321,7 +320,7 @@ def show_add_club_member_picker(criteria_data:str, max_selectable:int=8, *exclud
     return True
 
 @sims4.commands.Command('clubs.validate_sim_against_clubs', command_type=CommandType.Live)
-def validate_sim_against_clubs(sim_id:int, *club_ids, _connection=None):
+def validate_sim_against_clubs(sim_id:int, *club_ids:int, _connection=None):
     club_service = _get_club_service(_connection)
     if club_service is None:
         return

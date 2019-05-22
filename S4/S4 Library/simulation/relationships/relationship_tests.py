@@ -17,7 +17,7 @@ class RelationshipTestEvents(enum.Int):
     AddRelationshipBit = TestEvent.AddRelationshipBit
     RemoveRelationshipBit = TestEvent.RemoveRelationshipBit
 
-class RelationshipTest(BaseTest):
+class BaseRelationshipTest(BaseTest):
     UNIQUE_TARGET_TRACKING_AVAILABLE = True
     MIN_RELATIONSHIP_VALUE = -100.0
     MAX_RELATIONSHIP_VALUE = 100.0
@@ -32,51 +32,68 @@ class RelationshipTest(BaseTest):
         if overlapping_bits:
             logger.error('Tuning error in {}. Cannot have overlapping required and prohibited relationship bits: {}'.format(instance_class, overlapping_bits))
 
-    FACTORY_TUNABLES = {'description': 'Gate availability by a relationship status.', 'subject': TunableEnumFlags(description='\n            Owner(s) of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'target_sim': TunableEnumFlags(description='\n            Target(s) of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.TargetSim), 'required_relationship_bits': TunableTuple(match_any=TunableSet(description='\n                Any of these relationship bits will pass the test.\n                ', tunable=TunableReference(services.relationship_bit_manager(), pack_safe=True)), match_all=TunableSet(description='\n                All of these relationship bits must be present to pass the\n                test.\n                ', tunable=TunablePackSafeReference(services.relationship_bit_manager()), allow_none=True)), 'prohibited_relationship_bits': TunableTuple(match_any=TunableSet(description='\n                If any of these relationship bits match the test will fail.\n                ', tunable=TunableReference(services.relationship_bit_manager(), pack_safe=True)), match_all=TunableSet(description='\n                All of these relationship bits must match to fail the test.\n                ', tunable=TunableReference(services.relationship_bit_manager()))), 'track': TunableReference(description='\n            If set, the test will use the relationship score between sims for\n            this track. If unset, the track defaults to the global module\n            tunable REL_INSPECTOR_TRACK.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack', allow_none=True, pack_safe=True), 'relationship_score_interval': TunableInterval(description='\n            The range that the relationship score must be within in order for\n            this test to pass.\n            ', tunable_type=float, default_lower=MIN_RELATIONSHIP_VALUE, default_upper=MAX_RELATIONSHIP_VALUE, minimum=MIN_RELATIONSHIP_VALUE, maximum=MAX_RELATIONSHIP_VALUE), 'test_incest': TunableVariant(description="\n            Test for incest status. Test passes if this matches the two Sim's\n            incest status.\n            ", locked_args={'disabled': None, 'is incestuous': True, 'is not incestuous': False}, default='disabled'), 'num_relations': Tunable(description='\n            Number of Sims with specified relationships required to pass,\n            default(0) is all known relations.\n            \n            If value set to 1 or greater, then test is looking at least that\n            number of relationship to match the criteria.\n            \n            If value is set to 0, then test will pass if relationships being\n            tested must match all criteria of the test to succeed.  For\n            example, if interaction should not appear if any relationship\n            contains a relationship bit, this value should be 0.\n            ', tunable_type=int, default=0), 'test_event': TunableEnumEntry(description='\n            The event that we want to trigger this instance of the tuned test\n            on.\n            ', tunable_type=RelationshipTestEvents, default=RelationshipTestEvents.AllRelationshipEvents), 'verify_tunable_callback': _verify_tunable_callback}
-    __slots__ = ('test_events', 'subject', 'target_sim', 'required_relationship_bits', 'prohibited_relationship_bits', 'track', 'relationship_score_interval', 'test_incest', 'num_relations', 'initiated')
+    FACTORY_TUNABLES = {'subject': TunableEnumFlags(description='\n            Owner(s) of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'required_relationship_bits': TunableTuple(match_any=TunableSet(description='\n                Any of these relationship bits will pass the test.\n                ', tunable=TunableReference(services.relationship_bit_manager(), pack_safe=True)), match_all=TunableSet(description='\n                All of these relationship bits must be present to pass the\n                test.\n                ', tunable=TunablePackSafeReference(services.relationship_bit_manager()), allow_none=True)), 'prohibited_relationship_bits': TunableTuple(match_any=TunableSet(description='\n                If any of these relationship bits match the test will fail.\n                ', tunable=TunableReference(services.relationship_bit_manager(), pack_safe=True)), match_all=TunableSet(description='\n                All of these relationship bits must match to fail the test.\n                ', tunable=TunableReference(services.relationship_bit_manager()))), 'relationship_score_interval': TunableInterval(description='\n            The range that the relationship score must be within in order for\n            this test to pass.\n            ', tunable_type=float, default_lower=MIN_RELATIONSHIP_VALUE, default_upper=MAX_RELATIONSHIP_VALUE, minimum=MIN_RELATIONSHIP_VALUE, maximum=MAX_RELATIONSHIP_VALUE), 'test_event': TunableEnumEntry(description='\n            The event that we want to trigger this instance of the tuned test\n            on.\n            ', tunable_type=RelationshipTestEvents, default=RelationshipTestEvents.AllRelationshipEvents), 'verify_tunable_callback': _verify_tunable_callback}
+    __slots__ = ('test_events', 'subject', 'required_relationship_bits', 'prohibited_relationship_bits', 'track', 'relationship_score_interval', 'initiated')
 
-    def __init__(self, subject, target_sim, required_relationship_bits, prohibited_relationship_bits, track, relationship_score_interval, test_incest, num_relations, test_event, initiated=True, **kwargs):
+    def __init__(self, subject, required_relationship_bits, prohibited_relationship_bits, track, relationship_score_interval, test_event, initiated=True, **kwargs):
         super().__init__(**kwargs)
         if test_event == RelationshipTestEvents.AllRelationshipEvents:
             self.test_events = (TestEvent.RelationshipChanged, TestEvent.AddRelationshipBit, TestEvent.RemoveRelationshipBit)
         else:
             self.test_events = (test_event,)
         self.subject = subject
-        self.target_sim = target_sim
         self.required_relationship_bits = required_relationship_bits
         self.prohibited_relationship_bits = prohibited_relationship_bits
         self.track = track
         self.relationship_score_interval = relationship_score_interval
-        self.test_incest = test_incest
-        self.num_relations = num_relations
         self.initiated = initiated
 
-    def get_expected_args(self):
-        return {'source_sims': self.subject, 'target_sims': self.target_sim}
+    @cached_test
+    def __call__(self, targets=None):
+        if not self.initiated:
+            return TestResult.TRUE
+        if targets is None:
+            return TestResult(False, 'Currently Actor-only relationship tests are unsupported, valid on zone load.')
+        if self.track is None:
+            self.track = singletons.DEFAULT
+
+    def goal_value(self):
+        if self.num_relations:
+            return self.num_relations
+        return 1
+
+class RelationshipTest(BaseRelationshipTest):
+    FACTORY_TUNABLES = {'description': 'Gate availability by a relationship status.', 'target_sim': TunableEnumFlags(description='\n            Target(s) of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.TargetSim), 'test_incest': TunableVariant(description="\n            Test for incest status. Test passes if this matches the two Sim's\n            incest status.\n            ", locked_args={'disabled': None, 'is incestuous': True, 'is not incestuous': False}, default='disabled'), 'track': TunableReference(description='\n            If set, the test will use the relationship score between sims for\n            this track. If unset, the track defaults to the global module\n            tunable REL_INSPECTOR_TRACK.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack', allow_none=True, pack_safe=True), 'num_relations': Tunable(description='\n            Number of Sims with specified relationships required to pass,\n            default(0) is all known relations.\n            \n            If value set to 1 or greater, then test is looking at least that\n            number of relationship to match the criteria.\n            \n            If value is set to 0, then test will pass if relationships being\n            tested must match all criteria of the test to succeed.  For\n            example, if interaction should not appear if any relationship\n            contains a relationship bit, this value should be 0.\n            ', tunable_type=int, default=0)}
+    __slots__ = ('target_sim', 'test_incest', 'num_relations')
+
+    def __init__(self, target_sim, test_incest, num_relations, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target_sim = target_sim
+        self.test_incest = test_incest
+        self.num_relations = num_relations
 
     def get_target_id(self, source_sims=None, target_sims=None, id_type=None):
         if source_sims is None or target_sims is None:
             return
         for target_sim in target_sims:
-            if target_sim and target_sim.is_sim:
-                if id_type == TargetIdTypes.HOUSEHOLD:
-                    return target_sim.household.id
-                return target_sim.id
+            if target_sim:
+                if target_sim.is_sim:
+                    if id_type == TargetIdTypes.HOUSEHOLD:
+                        return target_sim.household.id
+                    return target_sim.id
+
+    def get_expected_args(self):
+        return {'source_sims': self.subject, 'target_sims': self.target_sim}
 
     @cached_test
     def __call__(self, source_sims=None, target_sims=None):
-        if not self.initiated:
-            return TestResult.TRUE
-        if target_sims is None:
-            return TestResult(False, 'Currently Actor-only relationship tests are unsupported, valid on zone load.')
+        super().__call__(targets=target_sims)
         if self.num_relations:
             use_threshold = True
             threshold_count = 0
             count_it = True
         else:
             use_threshold = False
-        if self.track is None:
-            self.track = singletons.DEFAULT
         if self.target_sim == ParticipantType.AllRelationships:
             targets_id_gen = self._all_related_sims_and_id_gen
         else:
@@ -85,57 +102,58 @@ class RelationshipTest(BaseTest):
             rel_tracker = sim_a.relationship_tracker
             for (sim_b, sim_b_id) in targets_id_gen(sim_a, target_sims):
                 if sim_b is None:
-                    pass
-                else:
-                    rel_score = rel_tracker.get_relationship_score(sim_b_id, self.track)
-                    if rel_score is None:
-                        logger.error('{} and {} do not have a relationship score in TunableRelationshipTest.', sim_a, sim_b)
-                    if rel_score < self.relationship_score_interval.lower_bound or rel_score > self.relationship_score_interval.upper_bound:
-                        if use_threshold:
-                            count_it = False
-                        else:
-                            return TestResult(False, 'Inadequate relationship level ({} not within [{},{}]) between {} and {}.', rel_score, self.relationship_score_interval.lower_bound, self.relationship_score_interval.upper_bound, sim_a, sim_b, tooltip=self.tooltip)
-                    if self.required_relationship_bits.match_any:
-                        for bit in self.required_relationship_bits.match_any:
-                            if rel_tracker.has_bit(sim_b_id, bit):
-                                break
+                    continue
+                rel_score = rel_tracker.get_relationship_score(sim_b_id, self.track)
+                if rel_score is None:
+                    logger.error('{} and {} do not have a relationship score in TunableRelationshipTest.', sim_a, sim_b)
+                if rel_score < self.relationship_score_interval.lower_bound or rel_score > self.relationship_score_interval.upper_bound:
+                    if use_threshold:
+                        count_it = False
+                    else:
+                        return TestResult(False, 'Inadequate relationship level ({} not within [{},{}]) between {} and {}.', rel_score, self.relationship_score_interval.lower_bound, self.relationship_score_interval.upper_bound, sim_a, sim_b, tooltip=self.tooltip)
+                if self.required_relationship_bits.match_any:
+                    for bit in self.required_relationship_bits.match_any:
+                        if rel_tracker.has_bit(sim_b_id, bit):
+                            break
+                    else:
                         if use_threshold:
                             count_it = False
                         else:
                             return TestResult(False, 'Missing all of the match_any required relationship bits between {} and {}.', sim_a, sim_b, tooltip=self.tooltip)
-                    for bit in self.required_relationship_bits.match_all:
-                        if bit is None:
-                            return TestResult(False, 'Missing pack, so relationship bit is None.', tooltip=self.tooltip)
-                        if not rel_tracker.has_bit(sim_b_id, bit):
+                for bit in self.required_relationship_bits.match_all:
+                    if bit is None:
+                        return TestResult(False, 'Missing pack, so relationship bit is None.', tooltip=self.tooltip)
+                    if not rel_tracker.has_bit(sim_b_id, bit):
+                        if use_threshold:
+                            count_it = False
+                            break
+                        else:
+                            return TestResult(False, 'Missing relationship bit ({}) between {} and {}.', bit, sim_a, sim_b, tooltip=self.tooltip)
+                if self.prohibited_relationship_bits.match_any:
+                    for bit in self.prohibited_relationship_bits.match_any:
+                        if rel_tracker.has_bit(sim_b_id, bit):
                             if use_threshold:
                                 count_it = False
                                 break
                             else:
-                                return TestResult(False, 'Missing relationship bit ({}) between {} and {}.', bit, sim_a, sim_b, tooltip=self.tooltip)
-                    if self.prohibited_relationship_bits.match_any:
-                        for bit in self.prohibited_relationship_bits.match_any:
-                            if rel_tracker.has_bit(sim_b_id, bit):
-                                if use_threshold:
-                                    count_it = False
-                                    break
-                                else:
-                                    return TestResult(False, 'Prohibited Relationship ({}) between {} and {}.', bit, sim_a, sim_b, tooltip=self.tooltip)
-                    if self.prohibited_relationship_bits.match_all:
-                        for bit in self.prohibited_relationship_bits.match_all:
-                            if not rel_tracker.has_bit(sim_b_id, bit):
-                                break
+                                return TestResult(False, 'Prohibited Relationship ({}) between {} and {}.', bit, sim_a, sim_b, tooltip=self.tooltip)
+                if self.prohibited_relationship_bits.match_all:
+                    for bit in self.prohibited_relationship_bits.match_all:
+                        if not rel_tracker.has_bit(sim_b_id, bit):
+                            break
+                    else:
                         if use_threshold:
                             count_it = False
                         else:
                             return TestResult(False, '{} has all  the match_all prohibited bits with {}.', sim_a, sim_b, tooltip=self.tooltip)
-                    if self.test_incest is not None:
-                        is_incestuous = not sim_a.incest_prevention_test(sim_b)
-                        if is_incestuous != self.test_incest:
-                            return TestResult(False, 'Incest test failed. Needed {}.', self.test_incest, tooltip=self.tooltip)
-                    if use_threshold:
-                        if count_it:
-                            threshold_count += 1
-                        count_it = True
+                if self.test_incest is not None:
+                    is_incestuous = not sim_a.incest_prevention_test(sim_b)
+                    if is_incestuous != self.test_incest:
+                        return TestResult(False, 'Incest test failed. Needed {}.', self.test_incest, tooltip=self.tooltip)
+                if use_threshold:
+                    if count_it:
+                        threshold_count += 1
+                    count_it = True
         if not use_threshold:
             if target_sims == ParticipantType.AllRelationships or len(target_sims) > 0:
                 return TestResult.TRUE
@@ -156,12 +174,66 @@ class RelationshipTest(BaseTest):
             else:
                 yield (sim, sim.sim_id)
 
-    def goal_value(self):
-        if self.num_relations:
-            return self.num_relations
-        return 1
-
 TunableRelationshipTest = TunableSingletonFactory.create_auto_factory(RelationshipTest)
+
+class ObjectTypeRelationshipTest(BaseRelationshipTest):
+    FACTORY_TUNABLES = {'description': 'Gate availability by a relationship status.\n        \n            Note: \n            This is different than the instance-based Object Relationship Component\n            and applies only to the relationships of Object Based Tracks tuned under\n            relationship tracker module tuning.\n            \n            If object rel does not exist, the test will treat the rel_track value \n            with an assumed value of 0 with no rel-bits.\n            ', 'target_object': TunableEnumFlags(description='\n            Target Object of the relationship.\n            ', enum_type=ParticipantType, default=ParticipantType.Object), 'track': TunableReference(description='\n            The object relationship track on which to check for bits and threshold values.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='ObjectRelationshipTrack')}
+    __slots__ = 'target_object'
+
+    def __init__(self, target_object, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target_object = target_object
+
+    def get_expected_args(self):
+        return {'source_sims': self.subject, 'target_objects': self.target_object}
+
+    @cached_test
+    def __call__(self, source_sims=None, target_objects=None):
+        super().__call__(targets=target_objects)
+        if self.target_object == ParticipantType.AllRelationships:
+            logger.error('Object Relationships do not support the All Relationships participant. Failed to test against relationship between source:{} and target:{}', source_sims, target_objects)
+            return
+        for sim_a in source_sims:
+            sim_a_id = sim_a.id
+            rel_tracker = self.track
+            relationship_service = services.relationship_service()
+            for target_object in target_objects:
+                obj_tag_set = relationship_service.get_mapped_tag_set_of_id(target_object.definition.id)
+                if obj_tag_set is None:
+                    logger.error('{} does not have object relationship tuning. Update the object relationship map.', target_object)
+                    return TestResult(False, 'Relationship between {} and {} does not exist.', sim_a, target_object, tooltip=self.tooltip)
+                rel_score = relationship_service.get_object_relationship_score(sim_a_id, obj_tag_set, track=rel_tracker, target_def_id=target_object.definition.id)
+                actual_rel = 0 if rel_score is None else rel_score
+                if actual_rel not in self.relationship_score_interval:
+                    return TestResult(False, 'Inadequate relationship level ({} not within [{},{}]) between {} and {}.', rel_score, self.relationship_score_interval.lower_bound, self.relationship_score_interval.upper_bound, sim_a, target_object, tooltip=self.tooltip)
+                if self.required_relationship_bits.match_any:
+                    if rel_score is None:
+                        return TestResult(False, 'No relationship between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
+                    for bit in self.required_relationship_bits.match_any:
+                        if relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                            break
+                    return TestResult(False, 'Missing all of the match_any required relationship bits between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
+                for bit in self.required_relationship_bits.match_all:
+                    if rel_score is None:
+                        return TestResult(False, 'No relationship between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
+                    if bit is None:
+                        return TestResult(False, 'Missing pack, so relationship bit is None.', tooltip=self.tooltip)
+                    if not relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                        return TestResult(False, 'Missing relationship bit ({}) between {} and {}.', bit, sim_a, target_object, tooltip=self.tooltip)
+                if self.prohibited_relationship_bits.match_any:
+                    if rel_score is not None:
+                        for bit in self.prohibited_relationship_bits.match_any:
+                            if relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                                return TestResult(False, 'Prohibited Relationship ({}) between {} and {}.', bit, sim_a, target_object, tooltip=self.tooltip)
+                if self.prohibited_relationship_bits.match_all:
+                    if rel_score is not None:
+                        for bit in self.prohibited_relationship_bits.match_all:
+                            if not relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                                break
+                        return TestResult(False, '{} has all  the match_all prohibited bits with {}.', sim_a, target_object, tooltip=self.tooltip)
+            return TestResult.TRUE
+
+TunableObjectTypeRelationshipTest = TunableSingletonFactory.create_auto_factory(ObjectTypeRelationshipTest)
 
 class ComparativeRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     FACTORY_TUNABLES = {'subject_a': TunableEnumFlags(description='\n            Owner(s) of the relationship(s) to be compared with subject_b.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'subject_b': TunableEnumFlags(description='\n            Owner(s) of the relationship(s) to be compared with subject_a.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'target': TunableEnumFlags(description='\n            Target of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.TargetSim), 'track': TunableReference(description='\n            The relationship track to compare.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack'), 'fallback': TunableVariant(description='\n            The fallback winner in case subjects a and b have the exact same\n            average relationship with the target.\n            ', locked_args={'Subject A': True, 'Subject B': False}, default='Subject A'), 'expected_result': TunableVariant(description='\n            The expected result of this relationship comparison.\n            ', locked_args={'Subject A has higher relationship with target.': True, 'Subject B has higher relationship with target.': False}, default='Subject A has higher relationship with target.')}
@@ -177,10 +249,9 @@ class ComparativeRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, B
             tracker = target_sim.relationship_tracker
             for subject_sim in subjects:
                 if target_sim == subject_sim:
-                    pass
-                else:
-                    num_subjects += 1
-                    rel += tracker.get_relationship_score(subject_sim.id, self.track)
+                    continue
+                num_subjects += 1
+                rel += tracker.get_relationship_score(subject_sim.id, self.track)
             if num_subjects > 0:
                 final_rel += rel/num_subjects
         final_rel /= len(targets)
@@ -191,9 +262,10 @@ class ComparativeRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, B
         a_average = self.get_average_relationship(subject_a, target)
         b_average = self.get_average_relationship(subject_b, target)
         a_higher = a_average > b_average
-        if self.fallback:
-            a_higher = True
-        if a_average == b_average and a_higher or self.expected_result:
+        if a_average == b_average:
+            if self.fallback:
+                a_higher = True
+        if not a_higher and self.expected_result:
             return TestResult(False, 'Sims {} expected to have a higher average relationship with Sims {} than Sims {}, but that is not the case.', subject_a, target, subject_b)
         if a_higher and not self.expected_result:
             return TestResult(False, 'Sims {} expected to have a lower average relationship with Sims {} than Sims {}, but that is not the case.', subject_a, target, subject_b)
@@ -230,18 +302,17 @@ class RelationshipModifiedByStatisticTest(HasTunableSingletonFactory, AutoFactor
             rel_tracker = sim_a.relationship_tracker
             for sim_b in target_sims:
                 if sim_b is None:
-                    pass
-                else:
-                    sim_b_id = sim_b.sim_id
-                    for track_pair in self.relationship_tracks:
-                        score = rel_tracker.get_relationship_score(sim_b_id, track_pair.track)
-                        if score is not None:
-                            value += score*track_pair.multiplier
-                    value += RelationshipModifiedByStatisticTest._sum_modified_statistics(sim_a, self.subject_statistics)
-                    value += RelationshipModifiedByStatisticTest._sum_modified_statistics(sim_b, self.target_statistics)
-                    if value < self.score_interval.lower_bound or value >= self.score_interval.upper_bound:
-                        return TestResult(False, 'Inadequate statistic modified relationship level ({} not within [{},{}]) between {} and {}.', value, self.score_interval.lower_bound, self.score_interval.upper_bound, sim_a, sim_b, tooltip=self.tooltip)
-                    return TestResult(True)
+                    continue
+                sim_b_id = sim_b.sim_id
+                for track_pair in self.relationship_tracks:
+                    score = rel_tracker.get_relationship_score(sim_b_id, track_pair.track)
+                    if score is not None:
+                        value += score*track_pair.multiplier
+                value += RelationshipModifiedByStatisticTest._sum_modified_statistics(sim_a, self.subject_statistics)
+                value += RelationshipModifiedByStatisticTest._sum_modified_statistics(sim_b, self.target_statistics)
+                if value < self.score_interval.lower_bound or value >= self.score_interval.upper_bound:
+                    return TestResult(False, 'Inadequate statistic modified relationship level ({} not within [{},{}]) between {} and {}.', value, self.score_interval.lower_bound, self.score_interval.upper_bound, sim_a, sim_b, tooltip=self.tooltip)
+                return TestResult(True)
         return TestResult(False, 'No valid actor or target in StatisticModifiedRelationshipTest')
 
     @staticmethod

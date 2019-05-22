@@ -73,13 +73,16 @@ class LampContestFestivalSituationState(SituationState, HasTunableFactory):
 
     def handle_event(self, sim_info, event, resolver):
         interaction = resolver.interaction
-        if sim_info is interaction.sim.sim_info:
-            if self.owner.sim_has_job(interaction.sim, self._light_sim_job_and_default_role_state.job):
-                self.current_score_delta += 1
-            if self.owner.sim_has_job(interaction.sim, self._dark_sim_job_and_default_role_state.job):
-                self.current_score_delta -= 1
-            if self._light_tags & interaction.get_category_tags() and self._dark_tags & interaction.get_category_tags() and self.score_range is not None:
-                self.current_score_delta = sims4.math.clamp(self.score_range.lower_bound, self.current_score_delta, self.score_range.upper_bound)
+        if interaction.sim is not None:
+            if sim_info is interaction.sim.sim_info:
+                if self._light_tags & interaction.get_category_tags():
+                    if self.owner.sim_has_job(interaction.sim, self._light_sim_job_and_default_role_state.job):
+                        self.current_score_delta += 1
+                if self._dark_tags & interaction.get_category_tags():
+                    if self.owner.sim_has_job(interaction.sim, self._dark_sim_job_and_default_role_state.job):
+                        self.current_score_delta -= 1
+                if self.score_range is not None:
+                    self.current_score_delta = sims4.math.clamp(self.score_range.lower_bound, self.current_score_delta, self.score_range.upper_bound)
 
     def _score_tns(self):
         self._create_or_load_alarm(LAMP_CONTEST_TNS_ALARM, self._notification_interval, lambda _: self._score_tns())
@@ -126,17 +129,19 @@ class LampContestFestivalSituation(BaseGenericFestivalSituation):
             end_notification = self._light_win_end_notification(services.active_sim_info())
             end_notification.show_dialog()
             for sim in self.all_sims_in_situation_gen():
-                if sim.sim_info.is_selectable and self.sim_has_job(sim, self._cur_state._light_sim_job_and_default_role_state.job):
-                    resolver = SingleSimResolver(sim.sim_info)
-                    self._light_win_rewards.apply_to_resolver(resolver)
+                if sim.sim_info.is_selectable:
+                    if self.sim_has_job(sim, self._cur_state._light_sim_job_and_default_role_state.job):
+                        resolver = SingleSimResolver(sim.sim_info)
+                        self._light_win_rewards.apply_to_resolver(resolver)
             self._change_state(self._light_win_state())
         elif delta < 0:
             end_notification = self._dark_win_end_notification(services.active_sim_info())
             end_notification.show_dialog()
             for sim in self.all_sims_in_situation_gen():
-                if sim.sim_info.is_selectable and self.sim_has_job(sim, self._cur_state._dark_sim_job_and_default_role_state.job):
-                    resolver = SingleSimResolver(sim.sim_info)
-                    self._dark_win_rewards.apply_to_resolver(resolver)
+                if sim.sim_info.is_selectable:
+                    if self.sim_has_job(sim, self._cur_state._dark_sim_job_and_default_role_state.job):
+                        resolver = SingleSimResolver(sim.sim_info)
+                        self._dark_win_rewards.apply_to_resolver(resolver)
             self._change_state(self._dark_win_state())
         else:
             end_notification = self._tie_end_notification(services.active_sim_info())

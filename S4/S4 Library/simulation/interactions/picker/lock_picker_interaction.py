@@ -22,13 +22,9 @@ class LockHouseholdSimsPickerInteraction(SimPickerInteraction):
             sim_locked = target.test_lock(filter_result.sim_info)
             if cls.lock_operation == LockOperationType.LOCK:
                 if sim_locked:
-                    pass
-                else:
-                    yield filter_result
+                    continue
             elif not sim_locked:
-                pass
-            else:
-                yield filter_result
+                continue
             yield filter_result
 
     def _on_successful_picker_selection(self, results=()):
@@ -36,8 +32,8 @@ class LockHouseholdSimsPickerInteraction(SimPickerInteraction):
         for sim_id in results:
             sim_info = sim_info_manager.get(sim_id)
             if sim_info is None:
-                pass
-            elif self.lock_operation == LockOperationType.LOCK:
+                continue
+            if self.lock_operation == LockOperationType.LOCK:
                 lock_data = IndividualSimDoorLockData(lock_sim=sim_info, lock_priority=LockPriority.PLAYER_LOCK, lock_sides=LockSide.LOCK_BOTH, should_persist=True)
                 self.target.add_lock_data(lock_data, replace_same_lock_type=False, clear_existing_locks=ClearLock.CLEAR_OTHER_LOCK_TYPES)
             else:

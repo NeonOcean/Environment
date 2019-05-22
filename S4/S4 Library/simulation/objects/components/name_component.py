@@ -122,10 +122,11 @@ class NameComponent(Component, HasTunableFactory, component_name=types.NAME_COMP
 
     @componentmethod_with_fallback(lambda *_, **__: None)
     def remove_name_changed_callback(self, callback):
-        if callback in self._on_name_changed:
-            self._on_name_changed.remove(callback)
-            if not self._on_name_changed:
-                self._on_name_changed = None
+        if self._on_name_changed is not None:
+            if callback in self._on_name_changed:
+                self._on_name_changed.remove(callback)
+                if not self._on_name_changed:
+                    self._on_name_changed = None
 
     def _call_name_changed_callback(self):
         if self._on_name_changed is not None:

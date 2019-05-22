@@ -48,18 +48,19 @@ def deserialize(client=None, active_sim=None):
     return False
 
 def serialize(save_slot_data=None):
-    if _household_id is not None:
-        camera_data = save_slot_data.gameplay_data.camera_data
-        camera_data.target_id = _sim_id
-        camera_data.target_position.x = _target_position.x
-        camera_data.target_position.y = _target_position.y
-        camera_data.target_position.z = _target_position.z
-        camera_data.camera_position.x = _camera_position.x
-        camera_data.camera_position.y = _camera_position.y
-        camera_data.camera_position.z = _camera_position.z
-        camera_data.follow_mode = _follow_mode
-        camera_data.zone_id = _zone_id
-        camera_data.household_id = _household_id
+    if _sim_id is not None:
+        if _household_id is not None:
+            camera_data = save_slot_data.gameplay_data.camera_data
+            camera_data.target_id = _sim_id
+            camera_data.target_position.x = _target_position.x
+            camera_data.target_position.y = _target_position.y
+            camera_data.target_position.z = _target_position.z
+            camera_data.camera_position.x = _camera_position.x
+            camera_data.camera_position.y = _camera_position.y
+            camera_data.camera_position.z = _camera_position.z
+            camera_data.follow_mode = _follow_mode
+            camera_data.zone_id = _zone_id
+            camera_data.household_id = _household_id
 
 def update(sim_id=None, target_position=None, camera_position=None, follow_mode=None):
     global _sim_id, _target_position, _camera_position, _follow_mode, _zone_id, _household_id

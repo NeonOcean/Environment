@@ -39,12 +39,13 @@ class _MixerProvider:
             best_stat_type = None
             for stat_type in self._mixer_provider.commodity_flags:
                 score = motive_scores.get(stat_type)
-                if not best_score is None:
-                    if score.score > best_score:
-                        best_score = score.score
-                        best_stat_type = stat_type
-                best_score = score.score
-                best_stat_type = stat_type
+                if score is not None:
+                    if not best_score is None:
+                        if score.score > best_score:
+                            best_score = score.score
+                            best_stat_type = stat_type
+                    best_score = score.score
+                    best_stat_type = stat_type
             return best_stat_type
         elif self._type == _MixerProviderType.BUFF:
             if self._mixer_provider.interactions.scored_commodity:

@@ -199,8 +199,9 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
             if table_id not in table_id_dict.keys():
                 table_ids_removed.append(table_id)
         for table_id in self._table_group:
-            if table_id not in table_id_dict.keys() and table_id not in table_ids_removed:
-                table_ids_removed.append(table_id)
+            if table_id not in table_id_dict.keys():
+                if table_id not in table_ids_removed:
+                    table_ids_removed.append(table_id)
         for table_id_remove in table_ids_removed:
             table_ids_dirty.add(table_id_remove)
             if table_id_remove in self._dining_spots:
@@ -226,17 +227,18 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
                             else:
                                 dining_spot = DiningSpot(table.id, child.id, part.part_group_index, child_part_index)
                             break
+                if not seat_found:
+                    if dining_spot is not None:
+                        sim_id = self.get_sim_in_seat(dining_spot.table_id, dining_spot.table_part_index)
+                        if sim_id is not None:
+                            sim = services.object_manager().get(sim_id)
+                            if sim is not None:
+                                dining_groups = self.get_dining_groups_by_sim(sim)
+                                current_tables = self.get_tables_by_group_id(dining_groups[0].id)
+                                if not self.assign_empty_seat_at_group_table(sim, current_tables):
+                                    table_ids_dirty.add(table.id)
+                        dining_spot = None
                 if dining_spot is not None:
-                    sim_id = self.get_sim_in_seat(dining_spot.table_id, dining_spot.table_part_index)
-                    if sim_id is not None:
-                        sim = services.object_manager().get(sim_id)
-                        if sim is not None:
-                            dining_groups = self.get_dining_groups_by_sim(sim)
-                            current_tables = self.get_tables_by_group_id(dining_groups[0].id)
-                            if not self.assign_empty_seat_at_group_table(sim, current_tables):
-                                table_ids_dirty.add(table.id)
-                    dining_spot = None
-                if seat_found or dining_spot is not None:
                     dining_spot_dict[part.part_group_index] = dining_spot
                 elif part.part_group_index in dining_spot_dict:
                     del dining_spot_dict[part.part_group_index]
@@ -268,17 +270,19 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
                 course_recipe_id = self._daily_special_recipe_ids[course]
                 if any(valid_item.guid64 == course_recipe_id for valid_item in valid_items):
                     pass
-                elif valid_items and len(valid_items) >= self.MIN_REQUIRED_ITEMS_FOR_DAILY_SPECIAL:
+                elif valid_items:
+                    if len(valid_items) >= self.MIN_REQUIRED_ITEMS_FOR_DAILY_SPECIAL:
+                        self._daily_special_recipe_ids[course] = random.choice(tuple(valid_items)).guid64
+            elif valid_items:
+                if len(valid_items) >= self.MIN_REQUIRED_ITEMS_FOR_DAILY_SPECIAL:
                     self._daily_special_recipe_ids[course] = random.choice(tuple(valid_items)).guid64
-            elif valid_items and len(valid_items) >= self.MIN_REQUIRED_ITEMS_FOR_DAILY_SPECIAL:
-                self._daily_special_recipe_ids[course] = random.choice(tuple(valid_items)).guid64
 
     def _update_dirty_tables(self, table_ids_dirty):
         table_ids_handled = []
         for table_id in table_ids_dirty:
             if table_id in table_ids_handled:
-                pass
-            elif table_id not in self._table_group:
+                continue
+            if table_id not in self._table_group:
                 table_ids_handled.append(table_id)
             else:
                 table_released = self.release_table(release_table_id=table_id)
@@ -367,7 +371,7 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
             if self.business_manager is None:
                 group_order._order_status = OrderStatus.ORDER_READY_FOR_REMOVAL
         current_bucket_list = self._order_bucket[group_order.current_bucket]
-        if current_bucket_list or group_order.current_bucket != OrderStatus.ORDER_INIT:
+        if not current_bucket_list and group_order.current_bucket != OrderStatus.ORDER_INIT:
             logger.warn('Order {} is not in its current bucket {}', group_order.order_id, group_order.current_bucket)
         elif group_order.order_id in current_bucket_list:
             current_bucket_list.remove(group_order.order_id)
@@ -400,8 +404,9 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
 
     def get_unclaimed_group_order_with_status(self, order_status):
         for group_order in self._group_orders.values():
-            if group_order._order_status == order_status and group_order.assigned_waitstaff is None:
-                return group_order
+            if group_order._order_status == order_status:
+                if group_order.assigned_waitstaff is None:
+                    return group_order
 
     def get_group_order_with_status_for_waitstaff(self, order_status, waitstaff):
         if order_status != OrderStatus.ORDER_READY:
@@ -480,19 +485,19 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
         for group_order in self._group_orders.values():
             if not group_order.order_status == OrderStatus.ORDER_DELIVERED:
                 if group_order.order_status == OrderStatus.ORDER_READY_FOR_REMOVAL:
-                    pass
-                elif sim_id in group_order.sim_ids:
+                    continue
+                if sim_id in group_order.sim_ids:
                     return group_order
 
     def get_delivered_orders_for_sim(self, sim_id):
-        return [order for order in self._group_orders.values() if order.order_status == OrderStatus.ORDER_DELIVERED and sim_id in order.sim_ids]
+        return [order for order in self._group_orders.values() if order.order_status == OrderStatus.ORDER_DELIVERED if sim_id in order.sim_ids]
 
     def get_active_group_order_for_table(self, table_id):
         for group_order in self._group_orders.values():
             if not group_order.order_status == OrderStatus.ORDER_DELIVERED:
                 if group_order.order_status == OrderStatus.ORDER_READY_FOR_REMOVAL:
-                    pass
-                elif table_id in group_order.table_ids:
+                    continue
+                if table_id in group_order.table_ids:
                     return group_order
 
     def create_food_for_group_order(self, group_order):
@@ -567,13 +572,14 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
             if sim_info is None:
                 logger.error("Trying to show the food delivered notification for sim id {} which doesn't have a sim info. Group Order = {}", sim_id, group_order)
                 return
-            if sim_info.is_selectable and sim_info.is_instanced():
-                waitstaff = group_order.assigned_waitstaff
-                if waitstaff is not None:
-                    resolver = SingleSimResolver(waitstaff)
-                    dialog = RestaurantTuning.FOOD_DELIVERED_TO_TABLE_NOTIFICATION(waitstaff, resolver)
-                    dialog.show_dialog()
-                    return
+            if sim_info.is_selectable:
+                if sim_info.is_instanced():
+                    waitstaff = group_order.assigned_waitstaff
+                    if waitstaff is not None:
+                        resolver = SingleSimResolver(waitstaff)
+                        dialog = RestaurantTuning.FOOD_DELIVERED_TO_TABLE_NOTIFICATION(waitstaff, resolver)
+                        dialog.show_dialog()
+                        return
 
     def trigger_recommendation_interaction(self, restaurant_owner, customer_sim):
         context = InteractionContext(restaurant_owner, InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, Priority.High)
@@ -621,51 +627,51 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
 
     def claim_table(self, sim, table=None):
         dining_groups = self.get_dining_groups_by_sim(sim)
-        if dining_groups:
-            current_tables = self.get_tables_by_group_id(dining_groups[0].id)
-            if not self.assign_empty_seat_at_group_table(sim, current_tables):
-                for current_table in current_tables:
-                    self.release_table(None, current_table)
-            table_to_claim = None
-            if table is not None:
-                if self.table_has_been_claimed(table.id):
-                    self.release_table(None, table.id)
-                table_to_claim = table
-            if table_to_claim is not None and table_to_claim.id not in self._dining_spots:
-                logger.error('Try to claim {} with no dining spots', table_to_claim)
-                return
-            invited_sim_ids = set()
-            for situation in dining_groups:
-                invited_sim_ids.update(situation.invited_sim_ids)
-            sim_num = len(invited_sim_ids)
-            tables_found = []
-            table_id_to_claim = None
-            if table_to_claim is not None:
-                table_id_to_claim = table_to_claim.id
-                sim_num -= len(self._dining_spots[table_id_to_claim])
-                tables_found.append(table_id_to_claim)
-            (sim_num_left, extra_tables) = self._find_tables_by_sim_num(sim_num, table_id_to_claim, tables_found)
-            tables_found.extend(extra_tables)
-            if sim_num_left > 0:
-                (_, released_extra_tables) = self._find_tables_by_sim_num(sim_num_left, table_id_to_claim, tables_found, consider_occupied=True)
-                tables_found.extend(released_extra_tables)
-            if not tables_found:
-                tables_available = self._find_tables_by_sim_num(sim_num, table_id_to_claim, tables_found, consider_occupied=False, search_only=True)
-                logger.error('No table could be claimed by {}. Tables Available? {} Number of Sims: {} Number of Sims left {}', sim, tables_available, sim_num, sim_num_left)
-                return
-            for table_id in tables_found:
-                dining_spots = self._dining_spots[table_id]
-                sim_spot_list = []
-                for dining_spot in dining_spots.values():
-                    if dining_spot is None:
-                        pass
-                    else:
+        if not self.has_claimed_table(sim):
+            if dining_groups:
+                current_tables = self.get_tables_by_group_id(dining_groups[0].id)
+                if not self.assign_empty_seat_at_group_table(sim, current_tables):
+                    for current_table in current_tables:
+                        self.release_table(None, current_table)
+                table_to_claim = None
+                if table is not None:
+                    if self.table_has_been_claimed(table.id):
+                        self.release_table(None, table.id)
+                    table_to_claim = table
+                if table_to_claim is not None and table_to_claim.id not in self._dining_spots:
+                    logger.error('Try to claim {} with no dining spots', table_to_claim)
+                    return
+                invited_sim_ids = set()
+                for situation in dining_groups:
+                    invited_sim_ids.update(situation.invited_sim_ids)
+                sim_num = len(invited_sim_ids)
+                tables_found = []
+                table_id_to_claim = None
+                if table_to_claim is not None:
+                    table_id_to_claim = table_to_claim.id
+                    sim_num -= len(self._dining_spots[table_id_to_claim])
+                    tables_found.append(table_id_to_claim)
+                (sim_num_left, extra_tables) = self._find_tables_by_sim_num(sim_num, table_id_to_claim, tables_found)
+                tables_found.extend(extra_tables)
+                if sim_num_left > 0:
+                    (_, released_extra_tables) = self._find_tables_by_sim_num(sim_num_left, table_id_to_claim, tables_found, consider_occupied=True)
+                    tables_found.extend(released_extra_tables)
+                if not tables_found:
+                    tables_available = self._find_tables_by_sim_num(sim_num, table_id_to_claim, tables_found, consider_occupied=False, search_only=True)
+                    logger.error('No table could be claimed by {}. Tables Available? {} Number of Sims: {} Number of Sims left {}', sim, tables_available, sim_num, sim_num_left)
+                    return
+                for table_id in tables_found:
+                    dining_spots = self._dining_spots[table_id]
+                    sim_spot_list = []
+                    for dining_spot in dining_spots.values():
+                        if dining_spot is None:
+                            continue
                         if not invited_sim_ids:
                             break
                         sim_id = invited_sim_ids.pop()
                         sim_spot_list.append((sim_id, dining_spot.table_part_index))
-                if sim_spot_list:
-                    self._table_group[table_id] = sim_spot_list
+                    if sim_spot_list:
+                        self._table_group[table_id] = sim_spot_list
         for situation in dining_groups:
             self.remove_group_waiting_to_be_seated(situation.id)
             if not self.host_working():
@@ -728,8 +734,9 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
             for (_, table_part_id) in seated_sims:
                 if dining_spot.table_part_index == table_part_id:
                     break
-            seated_sims.append((sim.id, dining_spot.table_part_index))
-            return True
+            else:
+                seated_sims.append((sim.id, dining_spot.table_part_index))
+                return True
         return False
 
     def claimed_table_test(self, sim_or_obj):
@@ -799,27 +806,25 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
         dining_number_list = sorted(self._table_dict_by_dining_num.keys())
         for dining_num in dining_number_list:
             if dining_num < sim_num:
-                pass
-            else:
-                closest_table_id = self._find_closest_table(table_id_to_claim, self._table_dict_by_dining_num[dining_num], tables_found, consider_occupied=consider_occupied, search_only=search_only)
-                if closest_table_id is not None:
-                    table_result.append(closest_table_id)
-                    return (0, table_result)
+                continue
+            closest_table_id = self._find_closest_table(table_id_to_claim, self._table_dict_by_dining_num[dining_num], tables_found, consider_occupied=consider_occupied, search_only=search_only)
+            if closest_table_id is not None:
+                table_result.append(closest_table_id)
+                return (0, table_result)
         for dining_num in reversed(dining_number_list):
             if dining_num >= sim_num:
-                pass
-            else:
-                closest_table_id = self._find_closest_table(table_id_to_claim, self._table_dict_by_dining_num[dining_num], tables_found, consider_occupied=consider_occupied, search_only=search_only)
-                if closest_table_id is not None:
-                    table_result.append(closest_table_id)
-                    if table_id_to_claim is None:
-                        table_id_to_claim = closest_table_id
-                    temp_tables_found = []
-                    temp_tables_found.append(closest_table_id)
-                    temp_tables_found.extend(tables_found)
-                    (sim_num_left, small_tables_found) = self._find_tables_by_sim_num(sim_num - dining_num, table_id_to_claim, temp_tables_found, consider_occupied=consider_occupied)
-                    table_result.extend(small_tables_found)
-                    return (sim_num_left, table_result)
+                continue
+            closest_table_id = self._find_closest_table(table_id_to_claim, self._table_dict_by_dining_num[dining_num], tables_found, consider_occupied=consider_occupied, search_only=search_only)
+            if closest_table_id is not None:
+                table_result.append(closest_table_id)
+                if table_id_to_claim is None:
+                    table_id_to_claim = closest_table_id
+                temp_tables_found = []
+                temp_tables_found.append(closest_table_id)
+                temp_tables_found.extend(tables_found)
+                (sim_num_left, small_tables_found) = self._find_tables_by_sim_num(sim_num - dining_num, table_id_to_claim, temp_tables_found, consider_occupied=consider_occupied)
+                table_result.extend(small_tables_found)
+                return (sim_num_left, table_result)
         if not search_only:
             logger.error('Find nothing when try to claim {} for {} sims', table_id_to_claim, sim_num)
         return (sim_num, table_result)
@@ -836,45 +841,27 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
         for table_id in table_ids:
             table_obj = object_manager.get(table_id)
             if table_obj is None:
-                pass
-            elif table_id in tables_found:
-                pass
+                continue
+            if table_id in tables_found:
+                continue
+            table_occupied = table_id in self._table_group
+            table_dirty = self.table_has_dishes(table_obj)
+            if table_occupied:
+                if not consider_occupied:
+                    continue
             else:
-                table_occupied = table_id in self._table_group
-                table_dirty = self.table_has_dishes(table_obj)
-                if table_occupied:
-                    if not consider_occupied:
-                        pass
+                if original_table is None:
+                    if table_occupied:
+                        found_occupied_table_id = table_id
+                    elif table_dirty:
+                        found_table_dirty_id = table_id
                     else:
-                        dining_groups = self.get_situations_by_table(table_id)
-                        if dining_groups is not None and any(group.is_player_group() for group in dining_groups):
-                            pass
-                        else:
-                            if original_table is None:
-                                if table_occupied:
-                                    found_occupied_table_id = table_id
-                                elif table_dirty:
-                                    found_table_dirty_id = table_id
-                                else:
-                                    found_table_id = table_id
-                                    break
-                            distance = (original_table.position - table_obj.position).magnitude_squared()
-                            if distance < shortest_distance:
-                                shortest_distance = distance
-                                found_table_id = table_id
-                else:
-                    if original_table is None:
-                        if table_occupied:
-                            found_occupied_table_id = table_id
-                        elif table_dirty:
-                            found_table_dirty_id = table_id
-                        else:
-                            found_table_id = table_id
-                            break
-                    distance = (original_table.position - table_obj.position).magnitude_squared()
-                    if distance < shortest_distance:
-                        shortest_distance = distance
                         found_table_id = table_id
+                        break
+                distance = (original_table.position - table_obj.position).magnitude_squared()
+                if distance < shortest_distance:
+                    shortest_distance = distance
+                    found_table_id = table_id
         if found_table_id is not None:
             return found_table_id
         if found_table_dirty_id is not None:
@@ -989,23 +976,15 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
                     if use_table_as_seat and seat_id == dining_spot.table_id:
                         if use_table_as_seat:
                             if not dining_spot.table_part_index == chair_part_index:
-                                pass
-                            else:
-                                return dining_spot
+                                continue
                         elif not dining_spot.chair_part_index == chair_part_index:
-                            pass
-                        else:
-                            return dining_spot
+                            continue
                         return dining_spot
                 if use_table_as_seat:
                     if not dining_spot.table_part_index == chair_part_index:
-                        pass
-                    else:
-                        return dining_spot
+                        continue
                 elif not dining_spot.chair_part_index == chair_part_index:
-                    pass
-                else:
-                    return dining_spot
+                    continue
                 return dining_spot
 
     def _get_table_part_by_sim_id(self, sim_id):
@@ -1022,7 +1001,8 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
                 for (sim_id, table_part_index) in seat_data:
                     if table_part_index == dining_spot.table_part_index:
                         break
-                sim_id = None
+                else:
+                    sim_id = None
                 if sim_id is not None:
                     seat_data.remove((sim_id, table_part_index))
                 if new_sim_id is not None:
@@ -1201,24 +1181,24 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
 
     def _load_custom_zone_director(self, zone_director_proto, reader):
         restaurant_data = zone_director_proto.restaurant_data
-        if not services.current_zone().active_household_changed_between_save_and_load():
-            for table_group_data in restaurant_data.table_group:
-                if table_group_data.table_id not in self._dining_spots:
-                    pass
-                else:
+        if not services.current_zone().time_has_passed_in_world_since_zone_save():
+            if not services.current_zone().active_household_changed_between_save_and_load():
+                for table_group_data in restaurant_data.table_group:
+                    if table_group_data.table_id not in self._dining_spots:
+                        continue
                     sim_seat_list = []
                     for sim_seat in table_group_data.sim_seats:
                         sim_seat_list.append((sim_seat.sim_id, sim_seat.part_index))
                     self._table_group[table_group_data.table_id] = sim_seat_list
-            for group_order_data in restaurant_data.group_orders:
-                group_order = GroupOrder()
-                group_order.load_order(group_order_data)
-                self._group_orders[group_order.order_id] = group_order
-                self._order_bucket[group_order.current_bucket].append(group_order.order_id)
-                for (sim_id, _) in group_order:
-                    self._sim_order_cache[sim_id] = group_order.order_id
+                for group_order_data in restaurant_data.group_orders:
+                    group_order = GroupOrder()
+                    group_order.load_order(group_order_data)
+                    self._group_orders[group_order.order_id] = group_order
+                    self._order_bucket[group_order.current_bucket].append(group_order.order_id)
+                    for (sim_id, _) in group_order:
+                        self._sim_order_cache[sim_id] = group_order.order_id
         logger.debug('Restaurant Loaded, {} seats and {} orders', len(self._table_group), len(self._group_orders))
-        if services.current_zone().time_has_passed_in_world_since_zone_save() or self._daily_special_recipe_ids is not None:
+        if self._daily_special_recipe_ids is not None:
             self._last_daily_special_aboslute_day = restaurant_data.last_daily_special_absolute_day
             for saved_daily_special in restaurant_data.saved_daily_specials:
                 self._daily_special_recipe_ids[saved_daily_special.course_tag] = saved_daily_special.recipe_id
@@ -1273,9 +1253,10 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
 
     def _get_ideal_customer_count(self):
         ideal_count = self._business_manager.get_ideal_customer_count()
-        if self.business_manager.owner_household_id is not None:
-            tracker = services.business_service().get_business_tracker_for_household(self.business_manager.owner_household_id, self.business_manager.business_type)
-            ideal_count += tracker.addtitional_customer_count
+        if self.business_manager is not None:
+            if self.business_manager.owner_household_id is not None:
+                tracker = services.business_service().get_business_tracker_for_household(self.business_manager.owner_household_id, self.business_manager.business_type)
+                ideal_count += tracker.addtitional_customer_count
         return min(ideal_count, self.get_dining_spot_count())
 
     def handle_event(self, sim_info, event, resolver):

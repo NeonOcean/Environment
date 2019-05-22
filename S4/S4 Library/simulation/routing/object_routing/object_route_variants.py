@@ -34,7 +34,7 @@ class _ObjectRoutingBehaviorBase(HasTunableFactory, AutoFactoryInit):
 
     def do_route_fail_gen(self, timeline):
         if self.route_fail is None:
-            return
+            yield
         target = self.get_target()
         if target is None:
             resolver = SingleObjectResolver(self._obj)
@@ -42,13 +42,13 @@ class _ObjectRoutingBehaviorBase(HasTunableFactory, AutoFactoryInit):
             resolver = DoubleObjectResolver(self._obj, target)
         balloons = self.route_fail.get_balloon_icons(resolver)
         if not balloons:
-            return
+            yield
         balloon = weighted_random_item(balloons)
         if balloon is None:
-            return
+            yield
         icon_info = balloon.icon(resolver, balloon_target_override=None)
         if icon_info[0] is None and icon_info[1] is None:
-            return
+            yield
         category_icon = None
         if balloon.category_icon is not None:
             category_icon = balloon.category_icon(resolver, balloon_target_override=None)
@@ -75,16 +75,17 @@ class ObjectRoutingBehaviorFromWaypointGenerator(_ObjectRoutingBehaviorBase):
         for constraint in constraints:
             goals = list(itertools.chain.from_iterable(h.get_goals() for h in constraint.get_connectivity_handles(self._obj)))
             if not goals:
-                pass
-            else:
-                waypoints.append(goals)
+                continue
+            waypoints.append(goals)
         if not (self.return_to_starting_point is not None and waypoints):
             return False
+            yield
         routing_context = self._obj.get_routing_context()
         for route_waypoints in self.waypoint_stitching(waypoints, waypoint_generator.loops):
             route = routing.Route(self._obj.routing_location, route_waypoints[-1], waypoints=route_waypoints[:-1], routing_context=routing_context)
             yield route
         return True
+        yield
 
 class ObjectRoutingBehaviorFromRoutingSlotConstraint(_ObjectRoutingBehaviorBase):
     _unavailable_objects = WeakSet()
@@ -98,24 +99,19 @@ class ObjectRoutingBehaviorFromRoutingSlotConstraint(_ObjectRoutingBehaviorBase)
             objects = sorted(objects, key=lambda o: o is not object_routing_component.previous_parent)
         for target in objects:
             if not target.is_connected(self._obj):
-                pass
-            else:
-                if self.parent_relation:
-                    if target.children:
-                        pass
-                    elif target in self._unavailable_objects:
-                        pass
-                    else:
-                        target.register_for_on_children_changed_callback(self._on_target_changed)
-                        target.register_on_location_changed(self._on_target_changed)
-                        self._target = target
-                        self._unavailable_objects.add(target)
-                        break
-                target.register_on_location_changed(self._on_target_changed)
-                self._target = target
-                self._unavailable_objects.add(target)
-                break
-        self._target = None
+                continue
+            if self.parent_relation:
+                if target.children:
+                    continue
+                if target in self._unavailable_objects:
+                    continue
+                target.register_for_on_children_changed_callback(self._on_target_changed)
+            target.register_on_location_changed(self._on_target_changed)
+            self._target = target
+            self._unavailable_objects.add(target)
+            break
+        else:
+            self._target = None
 
     def _on_target_changed(self, child, *_, **__):
         self._target.unregister_for_on_children_changed_callback(self._on_target_changed)
@@ -128,6 +124,7 @@ class ObjectRoutingBehaviorFromRoutingSlotConstraint(_ObjectRoutingBehaviorBase)
     def get_routes_gen(self):
         if self._target is None:
             return False
+            yield
         routing_slot_constraint = self.constraint.create_constraint(self._obj, self._target)
         goals = list(itertools.chain.from_iterable(h.get_goals() for h in routing_slot_constraint.get_connectivity_handles(self._obj)))
         routing_context = self._obj.get_routing_context()
@@ -149,9 +146,11 @@ class ObjectRouteFromRoutingFormation(_ObjectRoutingBehaviorBase):
     def get_routes_gen(self):
         if self._target is None:
             return False
+            yield
         slave_data = self._target.get_formation_data_for_slave(self._obj)
         if slave_data is None:
             return False
+            yield
         starting_location = self._target.intended_location
         transform = slave_data.find_good_location_for_slave(starting_location)
         goal = Goal(routing.Location(transform.translation, transform.orientation, starting_location.routing_surface))
@@ -170,8 +169,10 @@ class ObjectRouteFromFGL(_ObjectRoutingBehaviorBase):
         (position, orientation) = find_good_location(fgl_context)
         if self.surface_type_override is not None and position is None or orientation is None:
             return False
+            yield
         if vector3_almost_equal(position, starting_location.position):
             return True
+            yield
         goal = Goal(routing.Location(position, orientation, starting_location.routing_surface))
         routing_context = self._obj.get_routing_context()
         route = routing.Route(self._obj.routing_location, (goal,), routing_context=routing_context)

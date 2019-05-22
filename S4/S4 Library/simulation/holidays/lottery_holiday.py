@@ -63,11 +63,10 @@ class LotteryDramaNode(BaseDramaNode):
             for sim_id in self._lottery_sims:
                 sim_info = sim_info_manager.get(sim_id)
                 if sim_info is None:
-                    pass
-                else:
-                    lottery_candidates.append(sim_info)
-                    if sim_info.is_selectable:
-                        active_household_candidates.append(sim_info)
+                    continue
+                lottery_candidates.append(sim_info)
+                if sim_info.is_selectable:
+                    active_household_candidates.append(sim_info)
             if len(lottery_candidates) < self.minimum_sims:
                 sims_to_get = self.minimum_sims - len(lottery_candidates)
                 additional_candidates = [sim_info for sim_info in sim_info_manager.values() if self._check_lottery_sim_criteria(sim_info)]

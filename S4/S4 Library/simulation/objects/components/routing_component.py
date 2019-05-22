@@ -2,6 +2,7 @@ from _collections import defaultdict
 from contextlib import contextmanager
 import itertools
 import operator
+import weakref
 from protocolbuffers import Routing_pb2
 from animation.animation_interaction import AnimationInteraction
 from distributor.rollback import ProtocolBufferRollback
@@ -36,7 +37,7 @@ ROUTE_EVENT_WINDOW_DURATION = 10
 
 class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_name=types.ROUTING_COMPONENT):
     _pathplan_context = None
-    FACTORY_TUNABLES = {'plan_context_data': TunableTuple(description='\n            Data used to populate fields on the path plan context.\n            ', default_context=PathPlanContextWrapper.TunableFactory(description="\n                If no age override is specified, the default path plan data to\n                use for this agent's path planning.\n                "), context_age_species_overrides=TunableList(description='\n                List of age-species path plan context overrides for a specific\n                routing agent.\n                ', tunable=TunableTuple(description='\n                    Overrides to the path plan context of the agent defined by a\n                    combination of age and species.\n                    ', age=TunableEnumEntry(description='\n                        The age this override applies to.\n                        ', tunable_type=Age, default=Age.ADULT), species=TunableEnumEntry(description='\n                        The species this override applies to.\n                        ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN), context_override=PathPlanContextWrapper.TunableFactory()))), 'walkstyle_behavior': WalksStyleBehavior.TunableFactory(description='\n            Define the walkstyle behavior for owners of this component.\n            '), 'object_routing_component': OptionalTunable(description='\n            If enabled, this object will have an Object Routing component, which\n            controls an object routing behavior based on triggered states.\n            ', tunable=ObjectRoutingComponent.TunableFactory())}
+    FACTORY_TUNABLES = {'plan_context_data': TunableTuple(description='\n            Data used to populate fields on the path plan context.\n            ', default_context=PathPlanContextWrapper.TunableFactory(description="\n                If no age override is specified, the default path plan data to\n                use for this agent's path planning.\n                "), context_age_species_overrides=TunableList(description='\n                List of age-species path plan context overrides for a specific\n                routing agent.\n                ', tunable=TunableTuple(description='\n                    Overrides to the path plan context of the agent defined by a\n                    combination of age and species.\n                    ', age=TunableEnumEntry(description='\n                        The age this override applies to.\n                        ', tunable_type=Age, default=Age.ADULT), species=TunableEnumEntry(description='\n                        The species this override applies to.\n                        ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,)), context_override=PathPlanContextWrapper.TunableFactory()))), 'walkstyle_behavior': WalksStyleBehavior.TunableFactory(description='\n            Define the walkstyle behavior for owners of this component.\n            '), 'object_routing_component': OptionalTunable(description='\n            If enabled, this object will have an Object Routing component, which\n            controls an object routing behavior based on triggered states.\n            ', tunable=ObjectRoutingComponent.TunableFactory())}
 
     def __init__(self, owner, **kwargs):
         super().__init__(owner, **kwargs)
@@ -50,6 +51,7 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         self._path_plan_context_map = {}
         self.on_slot = None
         self.stand_slot_reservation_removed_callbacks = CallableList()
+        self._active_follow_path_weakref = None
         self.on_follow_path = CallableList()
         self.on_plan_path = CallableList()
         self.on_intended_location_changed = CallableList()
@@ -149,7 +151,7 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
 
     @componentmethod
     def request_walkstyle(self, walkstyle_request, uid):
-        if walkstyle_request.priority != WalkStylePriority.COMBO and not has_walkstyle_info(walkstyle_request.walkstyle, self._get_walkstyle_key()):
+        if walkstyle_request.priority != WalkStylePriority.COMBO and not has_walkstyle_info(walkstyle_request.walkstyle, *self._get_walkstyle_key()):
             return
         self._walkstyle_requests.append(walkstyle_request)
         self._walkstyle_requests.sort(reverse=True, key=operator.attrgetter('priority'))
@@ -195,9 +197,10 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         if combined_override_key in self._path_plan_context_map:
             return self._path_plan_context_map[combined_override_key]
         for override in self.plan_context_data.context_age_species_overrides:
-            if override.age == age_key and override.species == species_key:
-                self._path_plan_context_map[combined_override_key] = override.context_override(self.owner)
-                return self._path_plan_context_map[combined_override_key]
+            if override.age == age_key:
+                if override.species == species_key:
+                    self._path_plan_context_map[combined_override_key] = override.context_override(self.owner)
+                    return self._path_plan_context_map[combined_override_key]
         if DEFAULT not in self._path_plan_context_map:
             self._path_plan_context_map[DEFAULT] = self.plan_context_data.default_context(self.owner)
         return self._path_plan_context_map[DEFAULT]
@@ -333,34 +336,32 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         for slave_data in self.get_routing_slave_data():
             if slave_data.should_slave_for_path(path):
                 if slave_data.slave in transitioning_sims:
-                    pass
-                else:
-                    (slave_actor, slave_msg) = slave_data.add_routing_slave_to_pb(route_msg, path=path)
-                    slave_actor.write_slave_data_msg(slave_msg, path=path)
+                    continue
+                (slave_actor, slave_msg) = slave_data.add_routing_slave_to_pb(route_msg, path=path)
+                slave_actor.write_slave_data_msg(slave_msg, path=path)
         for slave_actor in self.owner.children:
             if not slave_actor.is_sim:
-                pass
-            else:
-                carry_walkstyle_behavior = slave_actor.get_walkstyle_behavior().carry_walkstyle_behavior
-                if carry_walkstyle_behavior is None:
-                    pass
-                else:
-                    with ProtocolBufferRollback(route_msg.slaves) as slave_msg:
-                        slave_msg.id = slave_actor.id
-                        slave_msg.type = Routing_pb2.SlaveData.SLAVE_PAIRED_CHILD
-                        walkstyle_override_msg = slave_msg.walkstyle_overrides.add()
-                        walkstyle_override_msg.from_walkstyle = 0
-                        walkstyle_override_msg.to_walkstyle = carry_walkstyle_behavior.default_carry_walkstyle
-                        for (walkstyle, carry_walkstyle) in carry_walkstyle_behavior.carry_walkstyle_overrides.items():
-                            walkstyle_override_msg = slave_msg.walkstyle_overrides.add()
-                            walkstyle_override_msg.from_walkstyle = walkstyle
-                            walkstyle_override_msg.to_walkstyle = carry_walkstyle
-                        slave_actor.write_slave_data_msg(slave_msg, path=path)
+                continue
+            carry_walkstyle_behavior = slave_actor.get_walkstyle_behavior().carry_walkstyle_behavior
+            if carry_walkstyle_behavior is None:
+                continue
+            with ProtocolBufferRollback(route_msg.slaves) as slave_msg:
+                slave_msg.id = slave_actor.id
+                slave_msg.type = Routing_pb2.SlaveData.SLAVE_PAIRED_CHILD
+                walkstyle_override_msg = slave_msg.walkstyle_overrides.add()
+                walkstyle_override_msg.from_walkstyle = 0
+                walkstyle_override_msg.to_walkstyle = carry_walkstyle_behavior.default_carry_walkstyle
+                for (walkstyle, carry_walkstyle) in carry_walkstyle_behavior.carry_walkstyle_overrides.items():
+                    walkstyle_override_msg = slave_msg.walkstyle_overrides.add()
+                    walkstyle_override_msg.from_walkstyle = walkstyle
+                    walkstyle_override_msg.to_walkstyle = carry_walkstyle
+                slave_actor.write_slave_data_msg(slave_msg, path=path)
 
     def _restore_agent_radius(self):
-        if len(self._routing_slave_data) == 0:
-            self._pathplan_context.agent_radius = self._default_agent_radius
-            self._default_agent_radius = None
+        if self._default_agent_radius is not None:
+            if len(self._routing_slave_data) == 0:
+                self._pathplan_context.agent_radius = self._default_agent_radius
+                self._default_agent_radius = None
 
     def contains_slave(self, slave):
         return any(slave.id == slave_data.slave.id for slave_data in self._routing_slave_data)
@@ -445,6 +446,24 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         for slave_data in self.get_routing_slave_data():
             slave_data.slave.routing_component.cancel_route_interaction()
 
+    def set_follow_path(self, follow_path):
+        self._active_follow_path_weakref = weakref.ref(follow_path)
+
+    def clear_follow_path(self):
+        self._active_follow_path_weakref = None
+
+    def _get_active_follow_path(self):
+        if self._active_follow_path_weakref is not None:
+            return self._active_follow_path_weakref()
+
+    def get_approximate_cancel_location(self):
+        follow_path = self._get_active_follow_path()
+        if follow_path is not None:
+            ret = follow_path.get_approximate_cancel_location()
+            if ret is not None:
+                return ret
+        return (self.owner.intended_transform, self.owner.intended_routing_surface)
+
     @componentmethod
     def set_routing_path(self, path):
         if path is None:
@@ -479,13 +498,13 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     @componentmethod
     def update_slave_positions_for_path(self, path, transform, orientation, routing_surface, distribute=True):
         transitioning_sims = ()
-        if self.owner.transition_controller is not None:
-            transitioning_sims = self.owner.transition_controller.get_transitioning_sims()
+        if self.owner.is_sim:
+            if self.owner.transition_controller is not None:
+                transitioning_sims = self.owner.transition_controller.get_transitioning_sims()
         for slave_data in self.get_routing_slave_data():
             if slave_data.slave in transitioning_sims:
-                pass
-            else:
-                slave_data.update_slave_position(transform, orientation, routing_surface, distribute=distribute, path=path)
+                continue
+            slave_data.update_slave_position(transform, orientation, routing_surface, distribute=distribute, path=path)
 
     def route_event_executed(self, event_id):
         if self._route_event_context is None:

@@ -244,8 +244,8 @@ class HolidayDramaNode(BaseDramaNode):
             drama_scheduler_service = services.drama_scheduler_service()
             for drama_node in drama_scheduler_service.scheduled_nodes_gen():
                 if drama_node.drama_node_type != DramaNodeType.HOLIDAY and drama_node.drama_node_type != DramaNodeType.PLAYER_PLANNED:
-                    pass
-                elif drama_node.day == self.day:
+                    continue
+                if drama_node.day == self.day:
                     return False
             return True
         holiday_start_time = specific_time.time_of_next_day_time(HolidayTuning.MAIN_HOLIDAY_START_TIME)
@@ -271,6 +271,8 @@ class HolidayDramaNode(BaseDramaNode):
         holiday_end_time_ticks = reader.read_uint64(HOLIDAY_END_TIME_TOKEN, None)
         if holiday_end_time_ticks is not None:
             self._holiday_end_time = DateAndTime(holiday_end_time_ticks)
+        if self._holiday_start_time and not self._holiday_end_time and self._holiday_start_time + HolidayTuning.HOLIDAY_DURATION() < services.time_service().sim_now:
+            return False
         return True
 
     def resume(self):

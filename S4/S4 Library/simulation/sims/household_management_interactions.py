@@ -15,6 +15,7 @@ class MoveInMoveOutSuperInteraction(SuperInteraction):
         msg = InteractionOps_pb2.MoveInMoveOutInfo()
         distributor.system.Distributor.instance().add_event(Consts_pb2.MSG_MOVE_IN_MOVE_OUT, msg)
         return True
+        yield
 
 class MoveInSuperInteraction(ImmediateSuperInteraction):
     INSTANCE_TUNABLES = {'dialog': UiDialogOkCancel.TunableFactory(description='\n            The dialog box presented to ask if the player should move their Sims in together.'), 'situation_blacklist': event_testing.test_variants.TunableSituationRunningTest()}
@@ -24,10 +25,13 @@ class MoveInSuperInteraction(ImmediateSuperInteraction):
         resolver = DataResolver(self.sim.sim_info)
         if not resolver(self.situation_blacklist):
             return True
+            yield
         if not self.target.is_sim:
             return True
+            yield
         if self.sim.household_id == self.target.household_id:
             return True
+            yield
 
         def on_response(dialog):
             if not dialog.accepted:
@@ -54,3 +58,4 @@ class MoveInSuperInteraction(ImmediateSuperInteraction):
         dialog = self.dialog(self.sim, self.get_resolver())
         dialog.show_dialog(on_response=on_response)
         return True
+        yield

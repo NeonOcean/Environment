@@ -152,8 +152,9 @@ class SetStateSetup(HasTunableSingletonFactory, AutoFactoryInit):
             routing_context = routing.PathPlanContext()
             routing_context.set_key_mask(routing.FOOTPRINT_KEY_ON_LOT | routing.FOOTPRINT_KEY_OFF_LOT)
             for parent in obj.parenting_hierarchy_gen():
-                if parent.routing_context and parent.routing_context.object_footprint_id:
-                    routing_context.ignore_footprint_contour(parent.routing_context.object_footprint_id)
+                if parent.routing_context:
+                    if parent.routing_context.object_footprint_id:
+                        routing_context.ignore_footprint_contour(parent.routing_context.object_footprint_id)
             source_handles = [_get_connectivity_source_handle()]
             (reference_pt, _) = Constraint.get_validated_routing_position(obj)
             dest_handles = [routing.connectivity.Handle(reference_pt, obj.routing_surface)]
@@ -207,12 +208,11 @@ class CreateScorchSetup(HasTunableSingletonFactory, AutoFactoryInit):
             z = lot.center.z + random.uniform(-lot.size_z/2, lot.size_z/2)
             position = sims4.math.Vector3(x, 0, z)
             if not FireService.add_scorch_mark(position, level):
-                pass
-            else:
-                setup_log.append({'action': 'Create Scorch Mark', 'description': 'Position:{0}, Level:{1}'.format(position, level)})
-                cleanup_actions.append(CleanScorchMark(position, level))
-                if len(cleanup_actions) >= count:
-                    break
+                continue
+            setup_log.append({'action': 'Create Scorch Mark', 'description': 'Position:{0}, Level:{1}'.format(position, level)})
+            cleanup_actions.append(CleanScorchMark(position, level))
+            if len(cleanup_actions) >= count:
+                break
         return cleanup_actions
 
 class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.ZONE_DIRECTOR)):
@@ -269,29 +269,26 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
             num_changes = 0
             target_num_changes = lot_preparation.number_of_changes.random_int()
             if target_num_changes <= 0:
-                pass
-            else:
-                all_objects = list(services.object_manager().values())
-                random.shuffle(all_objects)
-                for obj in all_objects:
-                    if obj.is_sim:
-                        pass
-                    elif lot_preparation.on_lot_only and not obj.is_on_active_lot():
-                        pass
-                    else:
-                        resolver = SingleObjectResolver(obj)
-                        if not lot_preparation.tests.run_tests(resolver):
-                            pass
-                        else:
-                            cleanup_action = lot_preparation.action.apply(obj, lot_preparation_log)
-                            if cleanup_action is not None:
-                                cleanup_actions.append(cleanup_action)
-                                num_changes += 1
-                                if num_changes == target_num_changes:
-                                    break
-                if target_num_changes != num_changes:
-                    new_actions = lot_preparation.action.fill_quota(target_num_changes - num_changes, lot_preparation_log)
-                    cleanup_actions.extend(new_actions)
+                continue
+            all_objects = list(services.object_manager().values())
+            random.shuffle(all_objects)
+            for obj in all_objects:
+                if obj.is_sim:
+                    continue
+                if lot_preparation.on_lot_only and not obj.is_on_active_lot():
+                    continue
+                resolver = SingleObjectResolver(obj)
+                if not lot_preparation.tests.run_tests(resolver):
+                    continue
+                cleanup_action = lot_preparation.action.apply(obj, lot_preparation_log)
+                if cleanup_action is not None:
+                    cleanup_actions.append(cleanup_action)
+                    num_changes += 1
+                    if num_changes == target_num_changes:
+                        break
+            if target_num_changes != num_changes:
+                new_actions = lot_preparation.action.fill_quota(target_num_changes - num_changes, lot_preparation_log)
+                cleanup_actions.extend(new_actions)
         spawn_objects_log = []
         spawn_cleanup_action = self._spawn_objects(spawn_objects_log)
         if spawn_cleanup_action is not None:
@@ -348,6 +345,9 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
     def _save_custom_zone_director(self, zone_director_proto, writer):
         pass
 
+    def handle_command(self, command, *_, **__):
+        pass
+
     def add_cleanup_action(self, action):
         self._cleanup_actions.append(action)
 
@@ -396,7 +396,8 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
         for runtime_slot in parent.get_runtime_slots_gen(slot_types=slot_types, bone_name_hash=bone_name_hash):
             if runtime_slot.is_valid_for_placement(definition=definition):
                 break
-        return
+        else:
+            return
         child = create_object(definition)
         runtime_slot.add_child(child)
         for state_value in state_values:
@@ -413,27 +414,26 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
             world_transform = lot.convert_to_world_coordinates(lot_transform)
             obj = self._create_object(info.definition, world_transform.translation, orientation=world_transform.orientation, state_values=info.init_state_values)
             if obj is None:
-                pass
-            else:
-                spawned_objects.append(obj)
-                spawn_objects_log.append({'obj_id': str(obj.id), 'obj_def': info.definition.name, 'parent_id': 0, 'position': str(world_transform), 'states': str(info.init_state_values)})
-                for child_info in info.children:
-                    slot_owner = obj
-                    if child_info.part_index is not None:
-                        for obj_part in obj.parts:
-                            if obj_part.subroot_index == child_info.part_index:
-                                slot_owner = obj_part
-                                break
-                    if isinstance(child_info.parent_slot, str):
-                        slot_types = None
-                        bone_name_hash = hash32(child_info.parent_slot)
-                    else:
-                        slot_types = {child_info.parent_slot}
-                        bone_name_hash = None
-                    child = self._create_child_object(child_info.definition, slot_owner, slot_types=slot_types, bone_name_hash=bone_name_hash, state_values=child_info.init_state_values)
-                    if child is not None:
-                        spawned_objects.append(child)
-                        spawn_objects_log.append({'obj_id': str(child.id), 'obj_def': child_info.definition.name, 'parent_id': str(obj.id), 'position': 0, 'states': str(child_info.init_state_values)})
+                continue
+            spawned_objects.append(obj)
+            spawn_objects_log.append({'obj_id': str(obj.id), 'obj_def': info.definition.name, 'parent_id': 0, 'position': str(world_transform), 'states': str(info.init_state_values)})
+            for child_info in info.children:
+                slot_owner = obj
+                if child_info.part_index is not None:
+                    for obj_part in obj.parts:
+                        if obj_part.subroot_index == child_info.part_index:
+                            slot_owner = obj_part
+                            break
+                if isinstance(child_info.parent_slot, str):
+                    slot_types = None
+                    bone_name_hash = hash32(child_info.parent_slot)
+                else:
+                    slot_types = {child_info.parent_slot}
+                    bone_name_hash = None
+                child = self._create_child_object(child_info.definition, slot_owner, slot_types=slot_types, bone_name_hash=bone_name_hash, state_values=child_info.init_state_values)
+                if child is not None:
+                    spawned_objects.append(child)
+                    spawn_objects_log.append({'obj_id': str(child.id), 'obj_def': child_info.definition.name, 'parent_id': str(obj.id), 'position': 0, 'states': str(child_info.init_state_values)})
         if spawned_objects:
             return DestroyObjects(objects_to_destroy=reversed(spawned_objects))
 
@@ -470,7 +470,7 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
             self._process_open_street_saved_sim(sim_info)
 
     def _determine_zone_saved_sim_op(self):
-        if self.was_loaded or self.init_actions.send_saved_npcs_home:
+        if not self.was_loaded and self.init_actions.send_saved_npcs_home:
             return _ZoneSavedSimOp.CLEAR
         current_zone = services.current_zone()
         if current_zone.lot_owner_household_changed_between_save_and_load() or current_zone.venue_type_changed_between_save_and_load():
@@ -480,7 +480,7 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
         return _ZoneSavedSimOp.MAINTAIN
 
     def _determine_open_street_saved_sim_op(self):
-        if self.was_loaded or self.init_actions.send_saved_npcs_home:
+        if not self.was_loaded and self.init_actions.send_saved_npcs_home:
             return _OpenStreetSavedSimOp.CLEAR
         current_zone = services.current_zone()
         if current_zone.time_has_passed_in_world_since_open_street_save():
@@ -499,12 +499,13 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
     def _request_spawning_of_sim_at_spawn_point(self, sim_info, sim_spawn_reason, spawner_tags=DEFAULT, spawn_point_option=SpawnPointOption.SPAWN_SAME_POINT, spawn_action=None, spin_up_action=SimZoneSpinUpAction.NONE):
         if spawner_tags is DEFAULT:
             spawner_tags = (SpawnPoint.ARRIVAL_SPAWN_POINT_TAG,)
-            if not sim_info.is_npc:
-                is_greeted = services.get_zone_situation_manager().is_player_greeted()
-                if is_greeted:
-                    spawner_tags = (self.arrival_spawn_point_override.player_greeted_spawn_point,)
-                else:
-                    spawner_tags = (self.arrival_spawn_point_override.player_ungreeted_spawn_point,)
+            if self.arrival_spawn_point_override is not None:
+                if not sim_info.is_npc:
+                    is_greeted = services.get_zone_situation_manager().is_player_greeted()
+                    if is_greeted:
+                        spawner_tags = (self.arrival_spawn_point_override.player_greeted_spawn_point,)
+                    else:
+                        spawner_tags = (self.arrival_spawn_point_override.player_ungreeted_spawn_point,)
         if sim_info.is_baby:
             run_baby_spawn_behavior(sim_info)
         else:
@@ -611,8 +612,10 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
 
     def _on_maintain_open_street_saved_sim(self, sim_info):
         spin_up_action = SimZoneSpinUpAction.RESTORE_SI
-        if sim_info not in self._traveled_sim_infos:
-            spin_up_action = SimZoneSpinUpAction.PUSH_GO_HOME
+        if self._traveled_sim_infos:
+            if sim_info.is_selectable:
+                if sim_info not in self._traveled_sim_infos:
+                    spin_up_action = SimZoneSpinUpAction.PUSH_GO_HOME
         self._request_spawning_of_sim_at_location(sim_info, sims.sim_spawner_service.SimSpawnReason.SAVED_ON_OPEN_STREETS, spin_up_action=spin_up_action)
 
     def determine_which_situations_to_load(self):
@@ -645,12 +648,12 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
         return True
 
     def _decide_whether_to_load_zone_situation_seed(self, seed):
-        if self.was_loaded or self.init_actions.stop_saved_situations:
+        if not self.was_loaded and self.init_actions.stop_saved_situations:
             return False
         return seed.situation_type.should_seed_be_loaded(seed)
 
     def _decide_whether_to_load_open_street_situation_seed(self, seed):
-        if self.was_loaded or self.init_actions.stop_saved_situations:
+        if not self.was_loaded and self.init_actions.stop_saved_situations:
             return False
         return seed.situation_type.should_seed_be_loaded(seed)
 
@@ -671,8 +674,11 @@ class ZoneDirectorBase(HasTunableReference, metaclass=HashedTunedInstanceMetacla
             sim_infos_to_fix_up = []
             for sim_info in self._zone_saved_sim_infos:
                 sim = sim_info.get_sim_instance()
-                if sim is not None and sim_info.is_npc and not (sim_info.lives_here or situation_manager.get_situations_sim_is_in(sim)):
-                    sim_infos_to_fix_up.append(sim_info)
+                if sim is not None:
+                    if sim_info.is_npc:
+                        if not sim_info.lives_here:
+                            if not situation_manager.get_situations_sim_is_in(sim):
+                                sim_infos_to_fix_up.append(sim_info)
             if sim_infos_to_fix_up:
                 logger.debug('Fixing up npcs {} during zone fixup', sim_infos_to_fix_up, owner='sscholl')
                 services.current_zone().venue_service.venue.zone_fixup(sim_infos_to_fix_up, purpose=NPCSummoningPurpose.ZONE_FIXUP)
@@ -859,17 +865,14 @@ class SetStateCleanup(CleanupAction):
         for ((object_id, state_guid64), state_value_guid64) in self.object_and_state_to_value.items():
             obj = object_manager.get(object_id) or inventory_manager.get(object_id)
             if obj is None:
-                pass
-            else:
-                state = state_manager.get(state_guid64)
-                if state is None:
-                    pass
-                else:
-                    state_value = state_manager.get(state_value_guid64)
-                    if state_value is None:
-                        pass
-                    else:
-                        obj.set_state(state, state_value, immediate=True)
+                continue
+            state = state_manager.get(state_guid64)
+            if state is None:
+                continue
+            state_value = state_manager.get(state_value_guid64)
+            if state_value is None:
+                continue
+            obj.set_state(state, state_value, immediate=True)
 
     def save(self, cleanup_action_proto):
         super().save(cleanup_action_proto)

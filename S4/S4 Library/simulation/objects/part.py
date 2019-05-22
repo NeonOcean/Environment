@@ -150,10 +150,11 @@ class Part(ProxyObject, ReservationMixin):
             for child in self.part_owner.children:
                 if self.has_slot(child.location.slot_hash or child.location.joint_name_hash):
                     self._children_cache.add(child)
-                elif self.part_owner.has_slot(child.location.slot_hash or child.location.joint_name_hash) and child.parts is not None:
-                    for part in child.parts:
-                        if part.attempt_to_remap_parent(part.location.parent) == self:
-                            self._children_cache.add(part)
+                elif self.part_owner.has_slot(child.location.slot_hash or child.location.joint_name_hash):
+                    if child.parts is not None:
+                        for part in child.parts:
+                            if part.attempt_to_remap_parent(part.location.parent) == self:
+                                self._children_cache.add(part)
         return self._children_cache
 
     @property
@@ -167,7 +168,7 @@ class Part(ProxyObject, ReservationMixin):
     @property
     def _anim_overrides_internal(self):
         params = {}
-        if any(p.in_use for p in self.part_owner.parts if p is not self and p.part_definition is self.part_definition):
+        if any(p.in_use for p in self.part_owner.parts if p is not self if p.part_definition is self.part_definition):
             params['otherSimPresent'] = True
         overrides = super()._anim_overrides_internal
         if self._data.anim_overrides:
@@ -205,11 +206,10 @@ class Part(ProxyObject, ReservationMixin):
         if check_overlapping_parts:
             for overlapping_part in self.get_overlapping_parts():
                 if overlapping_part is self:
-                    pass
-                else:
-                    reserve_result = overlapping_part.may_reserve(sim, check_overlapping_parts=False)
-                    if not reserve_result:
-                        return reserve_result
+                    continue
+                reserve_result = overlapping_part.may_reserve(sim, check_overlapping_parts=False)
+                if not reserve_result:
+                    return reserve_result
         return super().may_reserve(sim, *args, **kwargs)
 
     def is_mirrored(self, part=None):
@@ -242,7 +242,7 @@ class Part(ProxyObject, ReservationMixin):
     def supports_affordance(self, affordance_or_aop):
         affordance = affordance_or_aop.affordance
         supported_affordance_data = self.part_definition.supported_affordance_data
-        if affordance.is_super or not supported_affordance_data.consider_mixers:
+        if not affordance.is_super and not supported_affordance_data.consider_mixers:
             return True
         return supported_affordance_data.compatibility(affordance, allow_ignore_exclude_all=True)
 
@@ -267,20 +267,24 @@ class Part(ProxyObject, ReservationMixin):
                 return False
             is_sim_putdown = interaction.is_putdown and (interaction.carry_target is not None and interaction.carry_target.is_sim)
             buff_test_sim = sim or interaction.sim
-            if is_sim_putdown and interaction.carry_target is buff_test_sim and not self._supports_sim_buffs(buff_test_sim):
+            if (not is_sim_putdown or interaction.carry_target is buff_test_sim) and not self._supports_sim_buffs(buff_test_sim):
                 return False
         part_supported_posture_types = None
         if self.part_definition:
             part_supported_posture_types = self.part_definition.supported_posture_types
-        if posture_spec[BODY_INDEX] is not None:
-            for supported_posture_info in part_supported_posture_types:
-                if posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX] is supported_posture_info.posture_type:
-                    posture_providing_interactions = [affordance for affordance in self.super_affordances() if affordance.provided_posture_type is posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]]
-                    for interaction in posture_providing_interactions:
-                        tests = self.affordancetuning_component.get_affordance_tests(interaction)
-                        if tests is not None and not tests.run_tests(DoubleObjectResolver(sim, self.part_owner)):
-                            return False
-                    break
+        if part_supported_posture_types:
+            if self.part_owner.affordancetuning_component is not None:
+                if sim is not None:
+                    if posture_spec[BODY_INDEX] is not None:
+                        for supported_posture_info in part_supported_posture_types:
+                            if posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX] is supported_posture_info.posture_type:
+                                posture_providing_interactions = [affordance for affordance in self.super_affordances() if affordance.provided_posture_type is posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]]
+                                for interaction in posture_providing_interactions:
+                                    tests = self.affordancetuning_component.get_affordance_tests(interaction)
+                                    if tests is not None:
+                                        if not tests.run_tests(DoubleObjectResolver(sim, self.part_owner)):
+                                            return False
+                                break
         return True
 
     @property
@@ -295,11 +299,11 @@ class Part(ProxyObject, ReservationMixin):
 
     def get_runtime_slots_gen(self, slot_types=None, bone_name_hash=None, owner_only=False):
         for (slot_hash, slot_slot_types) in self.get_containment_slot_infos():
-            if not slot_types is not None or not slot_types.intersection(slot_slot_types):
-                pass
-            elif not bone_name_hash is not None or slot_hash != bone_name_hash:
-                pass
-            elif self.has_slot(slot_hash):
+            if not not slot_types is not None and not not slot_types.intersection(slot_slot_types):
+                continue
+            if not not bone_name_hash is not None and slot_hash != bone_name_hash:
+                continue
+            if self.has_slot(slot_hash):
                 yield RuntimeSlot(self, slot_hash, slot_slot_types)
 
     def slot_object(self, parent_slot=None, slotting_object=None, objects_to_ignore=None):

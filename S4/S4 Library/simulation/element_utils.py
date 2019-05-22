@@ -17,6 +17,7 @@ def run_child(timeline, sequence):
         return
     result = yield timeline.run_child(element)
     return result
+    yield
 
 def build_element(sequence, critical=CleanupType.NotCritical):
     if critical == CleanupType.NotCritical:
@@ -77,7 +78,7 @@ def _build_from_iterable(elem_iterable, sequence_wrapper=None):
 
 def _build_with_finally(sequence):
     (prefix, final) = _split_sequence(sequence)
-    if not (final is not None and (inspect.isgeneratorfunction(final) or inspect.isroutine(final))):
+    if not (final is not None and (inspect.isgeneratorfunction(final) or not inspect.isroutine(final))):
         raise ValueError('{} not a function in _build_element'.format(final))
     child = _build_from_iterable(prefix)
     if final is None:

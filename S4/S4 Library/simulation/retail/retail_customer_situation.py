@@ -160,8 +160,9 @@ class RetailCustomerSituation(BusinessSituationMixin, SituationComplexCommon):
             purchase_intent = random.randint(self.initial_purchase_intent.lower_bound, self.initial_purchase_intent.upper_bound)
             if self.purchase_intent_extension_tunables is not None:
                 active_household = services.active_household()
-                if active_household.bucks_tracker.is_perk_unlocked(self.purchase_intent_extension_tunables.extension_perk):
-                    purchase_intent += self.purchase_intent_extension_tunables.purchase_intent_extension
+                if active_household is not None:
+                    if active_household.bucks_tracker.is_perk_unlocked(self.purchase_intent_extension_tunables.extension_perk):
+                        purchase_intent += self.purchase_intent_extension_tunables.purchase_intent_extension
             purchase_intent = sims4.math.clamp(self.PURCHASE_INTENT_STATISTIC.min_value + 1, purchase_intent, self.PURCHASE_INTENT_STATISTIC.max_value - 1)
         else:
             purchase_intent = self._saved_purchase_intent
@@ -214,7 +215,7 @@ class RetailCustomerSituation(BusinessSituationMixin, SituationComplexCommon):
             self._change_state(new_buy_state)
 
     def _set_purchase_intent_visibility(self, toggle):
-        if self._showing_purchase_intent is not toggle and toggle and isinstance(self._cur_state, _BrowseState):
+        if self._showing_purchase_intent is not toggle and (not toggle or isinstance(self._cur_state, _BrowseState)):
             self._showing_purchase_intent = toggle
             stat = self._customer.get_statistic(self.PURCHASE_INTENT_STATISTIC, add=False)
             if stat is not None:
@@ -310,8 +311,9 @@ class _BrowseState(SituationState):
         browse_time_extension_tunables = self.owner.role_state_browse.browse_time_extension_tunables
         if browse_time_extension_tunables is not None:
             active_household = services.active_household()
-            if active_household.bucks_tracker.is_perk_unlocked(browse_time_extension_tunables.extension_perk):
-                browse_time += browse_time_extension_tunables.time_extension
+            if active_household is not None:
+                if active_household.bucks_tracker.is_perk_unlocked(browse_time_extension_tunables.extension_perk):
+                    browse_time += browse_time_extension_tunables.time_extension
         self._create_or_load_alarm(_BrowseState.BROWSE_STATE_TIMEOUT, browse_time, lambda _: self._timer_expired(), should_persist=True, reader=reader)
 
     def _timer_expired(self):
@@ -363,7 +365,7 @@ class _BuyState(SituationState):
                 (object_to_buy, result) = self._test_execute_buy_affordance(object_to_buy)
         else:
             object_to_buy = None
-        if not (object_to_buy is None or result):
+        if not (object_to_buy is None or not result):
             (object_to_buy, result) = self._try_find_object_and_push_buy_affordance()
         if object_to_buy is None or not result:
             self.owner._self_destruct()
@@ -424,13 +426,12 @@ class _BuyState(SituationState):
         other_potential_objects = []
         for found_object in RetailUtils.all_retail_objects_gen(allow_sold=False):
             if found_object.in_use and not found_object.in_use_by(self.owner._customer):
-                pass
+                continue
+            sell_price = found_object.retail_component.get_sell_price()
+            if min_price <= sell_price <= max_price:
+                objects_in_price_range.append(found_object)
             else:
-                sell_price = found_object.retail_component.get_sell_price()
-                if min_price <= sell_price and sell_price <= max_price:
-                    objects_in_price_range.append(found_object)
-                else:
-                    other_potential_objects.append(found_object)
+                other_potential_objects.append(found_object)
         random.shuffle(objects_in_price_range)
         for price_range_object in objects_in_price_range:
             (_, result) = self._test_execute_buy_affordance(price_range_object)
@@ -454,7 +455,7 @@ class _BuyState(SituationState):
         if self.object_id is not None:
             current_zone = services.current_zone()
             object_to_buy = current_zone.find_object(self.object_id)
-            if not (object_to_buy is None or any(interaction.sim is self.owner._customer for interaction in list(object_to_buy.interaction_refs))):
+            if not (object_to_buy is None or not any(interaction.sim is self.owner._customer for interaction in list(object_to_buy.interaction_refs))):
                 should_restart = True
         if should_restart:
             new_buy_state = _BuyState()

@@ -20,14 +20,12 @@ class RouteNearObjectInteraction(SitOrStandSuperInteraction):
         for obj in all_objects:
             if not obj.is_sim:
                 if not obj.is_on_active_lot():
-                    pass
-                else:
-                    resolver = SingleObjectResolver(obj)
-                    if not self.object_tests.run_tests(resolver):
-                        pass
-                    else:
-                        constraint = self.circle_constraint_around_chosen_object.create_constraint(context.sim, obj)
-                        if constraint.valid:
-                            return constraint
+                    continue
+                resolver = SingleObjectResolver(obj)
+                if not self.object_tests.run_tests(resolver):
+                    continue
+                constraint = self.circle_constraint_around_chosen_object.create_constraint(context.sim, obj)
+                if constraint.valid:
+                    return constraint
         logger.warn('No objects were found for this interaction to route the Sim near. Interaction = {}', type(self))
         return Anywhere()

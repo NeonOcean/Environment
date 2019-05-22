@@ -140,7 +140,7 @@ class SituationGoalMultipleSimsInMood(SituationGoal):
         super()._decommision()
 
     def _run_goal_completion_tests(self, sim_info, event, resolver):
-        if self._situation is not None and not (self._select_sims_outside_of_situation or self._situation.is_sim_in_situation(sim_info.get_sim_instance())):
+        if self._situation is not None and not self._select_sims_outside_of_situation and not self._situation.is_sim_in_situation(sim_info.get_sim_instance()):
             return False
         else:
             if sim_info.get_mood() is self._goal_test.mood:

@@ -11,11 +11,12 @@ import sims4
 logger = sims4.log.Logger('BreedPickerSuperInteraction')
 
 class BreedPickerSuperInteraction(PickerSuperInteraction):
-    INSTANCE_TUNABLES = {'picker_dialog': TunablePickerDialogVariant(description='\n            The item picker dialog.\n            ', available_picker_flags=ObjectPickerTuningFlags.ITEM, default='item_picker', tuning_group=GroupNames.PICKERTUNING), 'species_name': TunableMapping(description="\n            If specified, for a particular species, include this text in the\n            breed's name.\n            ", key_type=TunableEnumEntry(tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN), value_type=TunableLocalizedString(), tuning_group=GroupNames.PICKERTUNING)}
+    INSTANCE_TUNABLES = {'picker_dialog': TunablePickerDialogVariant(description='\n            The item picker dialog.\n            ', available_picker_flags=ObjectPickerTuningFlags.ITEM, default='item_picker', tuning_group=GroupNames.PICKERTUNING), 'species_name': TunableMapping(description="\n            If specified, for a particular species, include this text in the\n            breed's name.\n            ", key_type=TunableEnumEntry(tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,)), value_type=TunableLocalizedString(), tuning_group=GroupNames.PICKERTUNING)}
 
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):
@@ -23,6 +24,8 @@ class BreedPickerSuperInteraction(PickerSuperInteraction):
             breed_species = []
             species = inst.interaction_parameters['species']
             for species_extended in SpeciesExtended:
+                if species_extended == SpeciesExtended.INVALID:
+                    continue
                 if SpeciesExtended.get_species(species_extended) == species:
                     breed_species.append(species_extended)
         else:

@@ -55,15 +55,19 @@ class ClubGatheringTest(event_testing.test_base.BaseTest):
                 sim_inst = subject.get_sim_instance()
                 if (sim_inst is None or sim_inst not in gathering_members) and self.subject_club_gathering_status:
                     return TestResult(False, 'Subject {} not in Gathering for Club {} but should be.', subject, club_to_test, tooltip=self.tooltip)
-                if sim_inst is not None and sim_inst in gathering_members and not self.subject_club_gathering_status:
-                    return TestResult(False, "Subject {} in Gathering for Club {} but shouldn't be.", subject, club_to_test, tooltip=self.tooltip)
+                if sim_inst is not None:
+                    if sim_inst in gathering_members:
+                        if not self.subject_club_gathering_status:
+                            return TestResult(False, "Subject {} in Gathering for Club {} but shouldn't be.", subject, club_to_test, tooltip=self.tooltip)
         if self.target_club_gathering_status is not None:
             for target in test_targets:
                 sim_inst = target.get_sim_instance()
                 if (sim_inst is None or sim_inst not in gathering_members) and self.target_club_gathering_status:
                     return TestResult(False, 'Target {} not in Gathering for Club {} but should be.', target, club_to_test, tooltip=self.tooltip)
-                if sim_inst is not None and sim_inst in gathering_members and not self.target_club_gathering_status:
-                    return TestResult(False, "Target {} in Gathering for Club {} but shouldn't be.", target, club_to_test, tooltip=self.tooltip)
+                if sim_inst is not None:
+                    if sim_inst in gathering_members:
+                        if not self.target_club_gathering_status:
+                            return TestResult(False, "Target {} in Gathering for Club {} but shouldn't be.", target, club_to_test, tooltip=self.tooltip)
         return TestResult.TRUE
 
     def __call__(self, test_subjects=None, test_targets=None, associated_clubs=None):
@@ -138,94 +142,20 @@ class ClubTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
             is_leader = subject is club.leader
             if self.club_status == MEMBER and not in_members_list:
                 if self.pass_if_any_clubs_pass:
-                    pass
-                else:
-                    return TestResult(False, 'Subject {} not a member of Club {} but should be.', subject, club, tooltip=self.tooltip)
-                    if self.club_status == NOT_MEMBER and in_members_list:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, "Subject {} is a member of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                            if self.club_status == LEADER and not is_leader:
-                                if self.pass_if_any_clubs_pass:
-                                    pass
-                                else:
-                                    return TestResult(False, 'Subject {} is not the leader of Club {} but should be.', subject, club, tooltip=self.tooltip)
-                                    if self.club_status == NOT_LEADER and is_leader:
-                                        if self.pass_if_any_clubs_pass:
-                                            pass
-                                        else:
-                                            return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                                            passing_clubs += 1
-                                    passing_clubs += 1
-                            if self.club_status == NOT_LEADER and is_leader:
-                                if self.pass_if_any_clubs_pass:
-                                    pass
-                                else:
-                                    return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                                    passing_clubs += 1
-                            passing_clubs += 1
-                    if self.club_status == LEADER and not is_leader:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, 'Subject {} is not the leader of Club {} but should be.', subject, club, tooltip=self.tooltip)
-                            if self.club_status == NOT_LEADER and is_leader:
-                                if self.pass_if_any_clubs_pass:
-                                    pass
-                                else:
-                                    return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                                    passing_clubs += 1
-                            passing_clubs += 1
-                    if self.club_status == NOT_LEADER and is_leader:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                            passing_clubs += 1
-                    passing_clubs += 1
+                    continue
+                return TestResult(False, 'Subject {} not a member of Club {} but should be.', subject, club, tooltip=self.tooltip)
             if self.club_status == NOT_MEMBER and in_members_list:
                 if self.pass_if_any_clubs_pass:
-                    pass
-                else:
-                    return TestResult(False, "Subject {} is a member of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                    if self.club_status == LEADER and not is_leader:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, 'Subject {} is not the leader of Club {} but should be.', subject, club, tooltip=self.tooltip)
-                            if self.club_status == NOT_LEADER and is_leader:
-                                if self.pass_if_any_clubs_pass:
-                                    pass
-                                else:
-                                    return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                                    passing_clubs += 1
-                            passing_clubs += 1
-                    if self.club_status == NOT_LEADER and is_leader:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                            passing_clubs += 1
-                    passing_clubs += 1
+                    continue
+                return TestResult(False, "Subject {} is a member of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
             if self.club_status == LEADER and not is_leader:
                 if self.pass_if_any_clubs_pass:
-                    pass
-                else:
-                    return TestResult(False, 'Subject {} is not the leader of Club {} but should be.', subject, club, tooltip=self.tooltip)
-                    if self.club_status == NOT_LEADER and is_leader:
-                        if self.pass_if_any_clubs_pass:
-                            pass
-                        else:
-                            return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                            passing_clubs += 1
-                    passing_clubs += 1
+                    continue
+                return TestResult(False, 'Subject {} is not the leader of Club {} but should be.', subject, club, tooltip=self.tooltip)
             if self.club_status == NOT_LEADER and is_leader:
                 if self.pass_if_any_clubs_pass:
-                    pass
-                else:
-                    return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
-                    passing_clubs += 1
+                    continue
+                return TestResult(False, "Subject {} is the leader of Club {} but shouldn't be.", subject, club, tooltip=self.tooltip)
             passing_clubs += 1
         if self.pass_if_any_clubs_pass and passing_clubs == 0:
             return TestResult(False, 'Subject {} not in any clubs that pass the criteria.', subject, tooltip=self.tooltip)
@@ -241,7 +171,7 @@ class ClubTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
             club_has_room = len(club.members) < club.get_member_cap()
             if self.room_for_new_members and not club_has_room:
                 return TestResult(False, 'Club {} has no room for new members but is required to.', club, tooltip=self.tooltip)
-            if self.room_for_new_members or club_has_room:
+            if not self.room_for_new_members and club_has_room:
                 return TestResult(False, 'Club {} has room for new members but is required not to.', club, tooltip=self.tooltip)
         if self.invite_only is not None and club.invite_only != self.invite_only:
             return TestResult(False, "Club {}'s invite_only status is expected to be {} but isn't.", club, self.invite_only, tooltip=self.tooltip)
@@ -249,7 +179,7 @@ class ClubTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
             subject_result = club.validate_sim_info(subject)
             if subject_result and not self.subject_passes_membership_criteria:
                 return TestResult(False, 'Subject {} passes the membership criteria for Club {} but is required not to.', subject, club, tooltip=self.tooltip)
-            if subject_result or self.subject_passes_membership_criteria:
+            if not subject_result and self.subject_passes_membership_criteria:
                 return TestResult(False, 'Subject {} does not pass the membership criteria for Club {} but is required to.', subject, club, tooltip=self.tooltip)
         if self.subject_relationship_with_leader is not None:
             if subject is club.leader:
@@ -260,6 +190,8 @@ class ClubTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
         if self.required_sim_count is not None and not self.required_sim_count.compare(len(club.members)):
             return TestResult(False, "The club {} doesn't meet the required sim count of {}", club, self.required_sim_count, tooltip=self.tooltip)
         if self.affordance_rule is not None:
+            if club_service is None:
+                return TestResult(False, 'Affordance {} does not satisfy the required Club rules requirements. There is no club service.', affordance_data.affordance, tooltip=self.tooltip)
             (rule_status, _) = club_service.get_interaction_encouragement_status_and_rules_for_sim_info(subject, affordance_data)
             if self.affordance_rule == self.AFFORDANCE_RULE_ENCOURAGED:
                 if rule_status != ClubRuleEncouragementStatus.ENCOURAGED:
@@ -291,17 +223,18 @@ class ClubTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
                 can_join_new_club = club_service.can_sim_info_join_more_clubs(subject) if club_service is not None else False
                 if can_join_new_club and not self.subject_can_join_more_clubs:
                     return TestResult(False, "Subject {} is allowed to join more Clubs but shouldn't be.", subject, tooltip=self.tooltip)
-                if can_join_new_club or self.subject_can_join_more_clubs:
+                if not can_join_new_club and self.subject_can_join_more_clubs:
                     return TestResult(False, 'Subject {} is not allowed to join more Clubs but should be.', subject, tooltip=self.tooltip)
             clubs = get_clubs_for_subject(subject)
             result = self._club_status_test(subject, clubs)
             if not result:
                 return result
-            if common_test_subjects:
-                common_test_clubs = set(club for s in common_test_subjects for club in get_clubs_for_subject(s))
-                if not set(clubs) & common_test_clubs:
-                    return TestResult(False, "Subject {} and {} don't share an appropriate common Club", subject, common_test_subjects, tooltip=self.tooltip)
-            affordance_data = self._AffordanceData(affordance, next(iter(affordance_targets), None))
-            if not (self._club_test_enabled() and any(self._test_club(subject, club, affordance_data=affordance_data) for club in clubs)):
-                return TestResult(False, 'Subject {} fails Club test for {}', subject, clubs, tooltip=self.tooltip)
+            if self._club_test_enabled():
+                if common_test_subjects:
+                    common_test_clubs = set(club for s in common_test_subjects for club in get_clubs_for_subject(s))
+                    if not set(clubs) & common_test_clubs:
+                        return TestResult(False, "Subject {} and {} don't share an appropriate common Club", subject, common_test_subjects, tooltip=self.tooltip)
+                affordance_data = self._AffordanceData(affordance, next(iter(affordance_targets), None))
+                if not any(self._test_club(subject, club, affordance_data=affordance_data) for club in clubs):
+                    return TestResult(False, 'Subject {} fails Club test for {}', subject, clubs, tooltip=self.tooltip)
         return TestResult.TRUE

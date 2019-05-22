@@ -65,9 +65,11 @@ class NPCHostedSituationService(Service):
         for sim_info in active_household.can_live_alone_info_gen():
             if sim_info.is_instanced():
                 break
-        self._schedule_welcome_wagon()
-        return
-        welcome_wagon_situation = NPCHostedSituationService.WELCOME_WAGON_TUNING.situation
+        else:
+            self._schedule_welcome_wagon()
+            return
+        narrative_service = services.narrative_service()
+        welcome_wagon_situation = narrative_service.get_possible_replacement_situation(NPCHostedSituationService.WELCOME_WAGON_TUNING.situation)
         guest_list = welcome_wagon_situation.get_predefined_guest_list()
         if guest_list is None:
             active_household.needs_welcome_wagon = False

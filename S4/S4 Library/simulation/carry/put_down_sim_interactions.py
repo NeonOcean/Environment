@@ -32,13 +32,12 @@ class _PutDownBehaviorRunInteraction(HasTunableSingletonFactory, AutoFactoryInit
             for running_interaction in sim.get_all_running_and_queued_interactions():
                 if not running_interaction.transition is None:
                     if running_interaction.is_finishing:
-                        pass
-                    elif running_interaction.get_interaction_type() is not self.affordance:
-                        pass
-                    elif running_interaction.target is not interaction.target:
-                        pass
-                    else:
-                        return (running_interaction, TestResult.TRUE)
+                        continue
+                    if running_interaction.get_interaction_type() is not self.affordance:
+                        continue
+                    if running_interaction.target is not interaction.target:
+                        continue
+                    return (running_interaction, TestResult.TRUE)
             context = interaction.context.clone_for_sim(sim, carry_target=None, continuation_id=None)
             aop = AffordanceObjectPair(self.affordance, interaction.target, self.affordance, None)
             interaction = aop.interaction_factory(context).interaction

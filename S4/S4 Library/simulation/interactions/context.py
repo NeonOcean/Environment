@@ -75,10 +75,9 @@ class InteractionContext:
         result = copy.copy(self)
         for (name, value) in overrides.items():
             if value is DEFAULT:
-                pass
-            else:
-                getattr(result, name)
-                setattr(result, name, value)
+                continue
+            getattr(result, name)
+            setattr(result, name, value)
         return result
 
     @property

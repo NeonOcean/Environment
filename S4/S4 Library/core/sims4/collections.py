@@ -206,21 +206,21 @@ class enumdict(collections.MutableMapping):
         if key_type not in self._key_maps:
             self._key_maps[key_type] = frozendict({value: index for (index, value) in enumerate(key_type)})
         self._key_type = key_type
-        self._values = [self._enumdict__unset]*len(self._key_maps[key_type])
+        self._values = [self.__unset]*len(self._key_maps[key_type])
         self.update(*args, **kwargs)
 
     def __len__(self):
-        return sum(1 for v in self._values if v is not self._enumdict__unset)
+        return sum(1 for v in self._values if v is not self.__unset)
 
     def __iter__(self):
         for (k, i) in self._key_maps[self._key_type].items():
-            if self._values[i] is not self._enumdict__unset:
+            if self._values[i] is not self.__unset:
                 yield k
 
     def items(self):
         for (k, i) in self._key_maps[self._key_type].items():
             v = self._values[i]
-            if v is not self._enumdict__unset:
+            if v is not self.__unset:
                 yield (k, v)
 
     def update(self, *args, **kwargs):
@@ -234,7 +234,7 @@ class enumdict(collections.MutableMapping):
     def __getitem__(self, key):
         index = self._key_maps[self._key_type][key]
         v = self._values[index]
-        if v is self._enumdict__unset:
+        if v is self.__unset:
             raise KeyError
         return v
 
@@ -245,10 +245,10 @@ class enumdict(collections.MutableMapping):
     def __delitem__(self, key):
         index = self._key_maps[self._key_type][key]
         v = self._values[index]
-        if v is self._enumdict__unset:
+        if v is self.__unset:
             raise KeyError
-        self._values[index] = self._enumdict__unset
+        self._values[index] = self.__unset
 
     def __contains__(self, key):
         index = self._key_maps[self._key_type][key]
-        return self._values[index] is not self._enumdict__unset
+        return self._values[index] is not self.__unset

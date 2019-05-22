@@ -181,12 +181,11 @@ class SkillHasUnlockedAll(HasTunableSingletonFactory, AutoFactoryInit, event_tes
             for skill_cls in skill_manager.get_ordered_types(only_subclasses_of=Skill):
                 if not target.age not in skill_cls.ages:
                     if skill_cls.hidden:
-                        pass
-                    else:
-                        available_skills.add(skill_cls)
-                        if self.include_unlocked_by_max:
-                            for unlocked_by_max_skill in skill_cls.skill_unlocks_on_max:
-                                available_skills.add(unlocked_by_max_skill)
+                        continue
+                    available_skills.add(skill_cls)
+                    if self.include_unlocked_by_max:
+                        for unlocked_by_max_skill in skill_cls.skill_unlocks_on_max:
+                            available_skills.add(unlocked_by_max_skill)
             for skill_cls in available_skills:
                 if not any(type(skill) is skill_cls for skill in target_skills):
                     if self.negate:

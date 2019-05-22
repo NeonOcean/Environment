@@ -226,10 +226,9 @@ def _get_nearby_items_gen(position, surface_id, radius=None, exclude=None, flags
     query = services.sim_quadtree().query(bounds, surface_id, filter=query_filter, flags=flags, exclude=exclude_ids)
     for q in query:
         obj = q[0]
-        if not exclude or obj in exclude:
-            pass
-        else:
-            yield q[0]
+        if not not exclude and obj in exclude:
+            continue
+        yield q[0]
 
 def get_nearby_sims_gen(position, surface_id, radius=None, exclude=None, stop_at_first_result=False, only_sim_position=False, only_sim_intended_position=False, check_all_surfaces_on_level=False):
     query_filter = (ItemType.SIM_POSITION, ItemType.SIM_INTENDED_POSITION)
@@ -242,9 +241,8 @@ def get_nearby_sims_gen(position, surface_id, radius=None, exclude=None, stop_at
     flags |= sims4.geometry.ObjectQuadTreeQueryFlag.IGNORE_SURFACE_TYPE
     for obj in _get_nearby_items_gen(position=position, surface_id=surface_id, radius=radius, exclude=exclude, flags=flags, query_filter=query_filter):
         if not obj.is_sim:
-            pass
-        else:
-            yield obj
+            continue
+        yield obj
 
 fgl_id = 0
 
@@ -329,13 +327,14 @@ class FindGoodLocationContext:
         if scoring_functions is not None:
             for sf in scoring_functions:
                 self.search_strategy.add_scoring_function(sf)
-        if offset_distance > 0:
-            self.search_strategy.offset_distance = offset_distance
-            self.search_strategy.start_offset_orientation = sims4.math.angle_to_yaw_quaternion(0.0)
-            if offset_restrictions is not None:
-                for r in offset_restrictions:
-                    self.search_strategy.add_offset_restriction(r)
-        if offset_distance is not None and additional_avoid_sim_radius > 0:
+        if offset_distance is not None:
+            if offset_distance > 0:
+                self.search_strategy.offset_distance = offset_distance
+                self.search_strategy.start_offset_orientation = sims4.math.angle_to_yaw_quaternion(0.0)
+                if offset_restrictions is not None:
+                    for r in offset_restrictions:
+                        self.search_strategy.add_offset_restriction(r)
+        if additional_avoid_sim_radius > 0:
             self.search_strategy.avoid_sim_radius = additional_avoid_sim_radius
         self.result_strategy.max_results = max_results
         self.search_strategy.max_steps = max_steps

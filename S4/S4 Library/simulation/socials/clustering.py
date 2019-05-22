@@ -85,7 +85,8 @@ class ObjectClusterService(Service):
             for cluster_request in self._cluster_requests:
                 if not cluster_request.timeslice_cache_generation(end_time):
                     break
-            self._dirty_cluster_cache = False
+            else:
+                self._dirty_cluster_cache = False
 
 class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'density_epsilon': TunableDistanceSquared(description='\n            A constant that defines whether or not two objects are reachable.\n            ', default=2.82), 'facing_angle': OptionalTunable(description='\n            If set, then objects in a cluster must satisfy facing requirements.\n            ', tunable=TunableAngle(description='\n                An angle that defines the facing requirements for the purposes\n                of clustering and centroid facing.\n                ', default=sims4.math.PI)), 'minimum_size': TunableRange(description='\n            The minimum required size for clusters. Group of objects less than\n            this constant will not form clusters.\n            ', tunable_type=int, minimum=2, default=3), 'line_of_sight_constraint': TunableLineOfSightData(description='\n            The line of sight parameters for generated clusters.\n            '), 'radius_buffer': TunableRange(description='\n            An additional distance (in meters) that will be added to the radius\n            of a cluster. The size of a cluster is based on the objects in it.\n            We need to add an additional amount to ensure that the object is\n            included in the (non-exact) circle constraint.\n            ', tunable_type=float, minimum=0, default=0.5)}
@@ -136,21 +137,19 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
         for cluster in self.get_clusters_gen():
             for sub_constraint in constraint:
                 if sub_constraint.routing_surface != cluster.routing_surface:
-                    pass
-                else:
-                    constraint_position = sub_constraint.average_position
-                    if radius is not None and (constraint_position - cluster.position).magnitude_2d() > radius:
-                        pass
-                    elif not sub_constraint.intersect(cluster.constraint).valid:
-                        pass
-                    else:
-                        score = self._get_score(cluster, constraint_position)
-                        if not best_score is None:
-                            if score < best_score:
-                                best_score = score
-                                best_cluster = cluster
+                    continue
+                constraint_position = sub_constraint.average_position
+                if radius is not None and (constraint_position - cluster.position).magnitude_2d() > radius:
+                    continue
+                if not sub_constraint.intersect(cluster.constraint).valid:
+                    continue
+                score = self._get_score(cluster, constraint_position)
+                if not best_score is None:
+                    if score < best_score:
                         best_score = score
                         best_cluster = cluster
+                best_score = score
+                best_cluster = cluster
         return best_cluster
 
     def set_dirty(self, full_update=False):
@@ -215,8 +214,9 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
         else:
             reachable_objects = set()
             for other_obj in self._get_reachable_objects_candidates(obj, objects):
-                if other_obj is not obj and self._is_reachable(obj, other_obj):
-                    reachable_objects.add(other_obj)
+                if other_obj is not obj:
+                    if self._is_reachable(obj, other_obj):
+                        reachable_objects.add(other_obj)
         if can_cache:
             self._cache[obj] = reachable_objects.copy()
         return reachable_objects
@@ -231,10 +231,11 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
                         return True
             return len(reachable_objects & neighbor_objects) >= count
         for other_obj in self._get_reachable_objects_candidates(obj, neighbor_objects):
-            if other_obj is not obj and self._is_reachable(obj, other_obj):
-                count -= 1
-                if count == 0:
-                    return True
+            if other_obj is not obj:
+                if self._is_reachable(obj, other_obj):
+                    count -= 1
+                    if count == 0:
+                        return True
         return False
 
     def _get_reachable_objects_candidates(self, obj, objects):
@@ -251,6 +252,10 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
                     dist_sq = (part.position - position).magnitude_2d_squared()
                     if dist_sq > max_obj_dist_sq:
                         max_obj_dist_sq = dist_sq
+                else:
+                    dist_sq = (obj.position - position).magnitude_2d_squared()
+                    if dist_sq > max_obj_dist_sq:
+                        max_obj_dist_sq = dist_sq
             else:
                 dist_sq = (obj.position - position).magnitude_2d_squared()
                 if dist_sq > max_obj_dist_sq:
@@ -264,6 +269,8 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
             if obj.parts:
                 for part in obj.parts:
                     hull_points.append(part.position)
+                else:
+                    hull_points.append(obj.position)
             else:
                 hull_points.append(obj.position)
         polygon = Polygon(hull_points)
@@ -295,7 +302,8 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
                     if test_point_in_polygon(obj.lineofsight_component.default_position, polygon):
                         valid_objects.append(obj)
                         break
-                rejects.append(obj)
+                else:
+                    rejects.append(obj)
         else:
             rejects = objects
         if not valid_objects:
@@ -366,9 +374,10 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
                             is_facing = facing in interval
                         else:
                             is_facing = True
-                        if is_facing or not vector3_almost_equal_2d(centroid, obj.position, epsilon=0.01):
-                            cluster.remove(obj)
-                            facing_rejects.append(obj)
+                        if not is_facing:
+                            if not vector3_almost_equal_2d(centroid, obj.position, epsilon=0.01):
+                                cluster.remove(obj)
+                                facing_rejects.append(obj)
                     if len(cluster) >= self.minimum_size:
                         rejected_sets = self._generate_cluster(centroid, cluster)
                         for rejected_set in itertools.chain((facing_rejects,), rejected_sets):

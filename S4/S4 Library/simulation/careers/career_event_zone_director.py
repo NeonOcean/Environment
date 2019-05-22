@@ -108,8 +108,9 @@ class CareerEventZoneDirector(SchedulingZoneDirector):
         requested_types.sort(key=lambda s: s.guid64)
         self._background_situation_ids.clear()
         for requested_type in reversed(requested_types):
-            while existing and existing[-1].guid64 > requested_type.guid64:
-                existing.pop()
+            while existing:
+                while existing[-1].guid64 > requested_type.guid64:
+                    existing.pop()
             if existing and existing[-1].guid64 == requested_type.guid64:
                 situation = existing.pop()
                 self._background_situation_ids.append(situation.id)

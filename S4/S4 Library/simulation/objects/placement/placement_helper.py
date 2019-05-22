@@ -47,11 +47,12 @@ class _PlacementStrategy(HasTunableSingletonFactory, AutoFactoryInit):
 
     def try_place_object(self, obj, resolver, **kwargs):
         for target_obj in self._get_reference_objects_gen(obj, resolver, **kwargs):
-            if target_obj.is_sim:
-                target_obj = target_obj.sim_info.get_sim_instance()
-            if target_obj is not None and target_obj is None:
-                pass
-            elif self._try_place_object_internal(obj, target_obj, resolver, **kwargs):
+            if target_obj is not None:
+                if target_obj.is_sim:
+                    target_obj = target_obj.sim_info.get_sim_instance()
+            if target_obj is None:
+                continue
+            if self._try_place_object_internal(obj, target_obj, resolver, **kwargs):
                 return True
         return False
 
@@ -104,7 +105,7 @@ class _PlacementStrategyLocation(_PlacementStrategy):
             obj.location = sims4.math.Location(sims4.math.Transform(start_position, start_orientation), routing_surface)
             starting_location = create_starting_location(position=start_position, orientation=start_orientation, routing_surface=routing_surface)
             context = create_fgl_context_for_object_off_lot(starting_location, obj, search_flags=search_flags, ignored_object_ids=(obj.id,), restrictions=restrictions)
-        elif self.allow_off_lot_placement or not active_lot.is_position_on_lot(start_position):
+        elif not self.allow_off_lot_placement and not active_lot.is_position_on_lot(start_position):
             return False
         else:
             if not self.ignore_bb_footprints:
@@ -155,10 +156,11 @@ class _PlacementStrategySlot(_PlacementStrategy):
         yield from self.parent.get_objects_gen(resolver)
 
     def _try_place_object_internal(self, obj, target_obj, resolver, **kwargs):
-        if target_obj.is_part:
-            target_obj = target_obj.part_owner
+        if self.use_part_owner:
+            if target_obj.is_part:
+                target_obj = target_obj.part_owner
         parent_slot = self.parent_slot
-        if self.use_part_owner and target_obj.slot_object(parent_slot=parent_slot, slotting_object=obj):
+        if target_obj.slot_object(parent_slot=parent_slot, slotting_object=obj):
             return True
         return False
 

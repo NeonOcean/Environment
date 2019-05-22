@@ -42,7 +42,7 @@ class UIManager:
 
     @property
     def _running_interactions(self):
-        for int_info in itertools.chain(self._super_interactions, self._group_interactions.values()):
+        for int_info in itertools.chain(self._super_interactions, *self._group_interactions.values()):
             yield int_info
 
     def _add_running_interaction(self, int_info):
@@ -128,27 +128,26 @@ class UIManager:
         interaction_id = interaction.id
         for int_info in self._continuation_interactions:
             if int_info.interaction_id != interaction_id:
-                pass
-            else:
-                int_info.ui_state = Sims_pb2.IQ_TRANSITIONING
-                return
+                continue
+            int_info.ui_state = Sims_pb2.IQ_TRANSITIONING
+            return
         int_info = None
         running_info_for_group = None
         previous_visible_group_info_id = None
         for (i, int_info) in enumerate(self._queued_interactions):
             if int_info.interaction_id != interaction_id:
-                pass
-            else:
-                int_info.ui_state = Sims_pb2.IQ_TRANSITIONING
-                next_index = i + 1
-                if next_index < len(self._queued_interactions):
-                    self._queued_interactions[next_index].insert_after_id = 0
-                previous_visible_group_info_id = self._get_visible_grouped_interaction_id(int_info.interaction_id)
-                self._queued_interactions.remove(int_info)
-                running_info_for_group = self._add_running_interaction(int_info)
-                break
-        logger.debug('SimId:{}, Interaction being marked as transitioning is not in queued interaction:{}', self._sim.id, interaction)
-        return
+                continue
+            int_info.ui_state = Sims_pb2.IQ_TRANSITIONING
+            next_index = i + 1
+            if next_index < len(self._queued_interactions):
+                self._queued_interactions[next_index].insert_after_id = 0
+            previous_visible_group_info_id = self._get_visible_grouped_interaction_id(int_info.interaction_id)
+            self._queued_interactions.remove(int_info)
+            running_info_for_group = self._add_running_interaction(int_info)
+            break
+        else:
+            logger.debug('SimId:{}, Interaction being marked as transitioning is not in queued interaction:{}', self._sim.id, interaction)
+            return
         logger.debug('SimId:{}, Interaction being marked as transitioning:{}', self._sim.id, interaction)
         should_be_immediate = self._should_msg_be_immediate(self.QueueType.Super)
         if running_info_for_group is None or previous_visible_group_info_id is None:
@@ -181,17 +180,16 @@ class UIManager:
         if int_info is None:
             for cur_info in self._queued_interactions:
                 if cur_info.interaction_id != interaction.id:
-                    pass
+                    continue
+                if interaction.is_super:
+                    self.running_transition(interaction)
                 else:
-                    if interaction.is_super:
-                        self.running_transition(interaction)
-                    else:
-                        self._queued_interactions.remove(cur_info)
-                        if cur_info.super_id != 0:
-                            cur_info.super_id = self._get_visible_grouped_interaction_id(cur_info.super_id) or cur_info.super_id
-                        self._add_running_interaction(cur_info)
-                    int_info = cur_info
-                    break
+                    self._queued_interactions.remove(cur_info)
+                    if cur_info.super_id != 0:
+                        cur_info.super_id = self._get_visible_grouped_interaction_id(cur_info.super_id) or cur_info.super_id
+                    self._add_running_interaction(cur_info)
+                int_info = cur_info
+                break
         if int_info is None:
             logger.debug('SimId:{}, Interaction Transfer To SI State could not find interaction to update:{}', self._sim.id, interaction)
             return
@@ -226,21 +224,22 @@ class UIManager:
                 interaction_messages.send_interactions_remove_msg(self._sim, (int_info,), int_info.ui_state == Sims_pb2.IQ_QUEUED)
                 return
         for int_info in self._running_interactions:
-            if interaction.id == int_info.interaction_id and int_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
-                previous_visible_group_info_id = self._get_visible_grouped_interaction_id(int_info.interaction_id)
-                group_interactions = self._remove_running_interactions(int_info)
-                self._remove_routing_interaction_info(int_info)
-                if group_interactions:
-                    new_visible_interaction_info = group_interactions.pop()
-                    if previous_visible_group_info_id == new_visible_interaction_info.interaction_id:
-                        return
-                    if new_visible_interaction_info.ui_state == Sims_pb2.IQ_RUNNING:
-                        interaction_messages.send_interaction_replace_message(self._sim, int_info.interaction_id, new_visible_interaction_info, self._should_msg_be_immediate(self.QueueType.Super))
+            if interaction.id == int_info.interaction_id:
+                if int_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
+                    previous_visible_group_info_id = self._get_visible_grouped_interaction_id(int_info.interaction_id)
+                    group_interactions = self._remove_running_interactions(int_info)
+                    self._remove_routing_interaction_info(int_info)
+                    if group_interactions:
+                        new_visible_interaction_info = group_interactions.pop()
+                        if previous_visible_group_info_id == new_visible_interaction_info.interaction_id:
+                            return
+                        if new_visible_interaction_info.ui_state == Sims_pb2.IQ_RUNNING:
+                            interaction_messages.send_interaction_replace_message(self._sim, int_info.interaction_id, new_visible_interaction_info, self._should_msg_be_immediate(self.QueueType.Super))
+                        else:
+                            interaction_messages.send_interactions_add_msg(self._sim, (new_visible_interaction_info,), self._should_msg_be_immediate(self.QueueType.Super))
                     else:
-                        interaction_messages.send_interactions_add_msg(self._sim, (new_visible_interaction_info,), self._should_msg_be_immediate(self.QueueType.Super))
-                else:
-                    interaction_messages.send_interactions_remove_msg(self._sim, (int_info,), immediate=interaction.collapsible)
-                return
+                        interaction_messages.send_interactions_remove_msg(self._sim, (int_info,), immediate=interaction.collapsible)
+                    return
         if self._remove_continuation_interaction(interaction.id):
             logger.debug('SimId:{}, Interaction Remove(from si_state) is being removed from continuation list:{}', self._sim.id, interaction)
             return
@@ -254,46 +253,45 @@ class UIManager:
         logger.debug('SimId:{}, Interaction Remove From SI State attempting to remove:{}', self._sim.id, interaction)
         for cur_info in self._running_interactions:
             if interaction_id != cur_info.interaction_id:
-                pass
-            else:
-                int_info = cur_info
-                replace_id = self._get_visible_grouped_interaction_id(int_info.interaction_id) or int_info.interaction_id
-                group_interactions = self._remove_running_interactions(int_info)
-                continuation_info = self._find_continuation(int_info.interaction_id)
-                if continuation_info:
-                    logger.debug('=== Continuation Replace In Remove: ({0} => {1})', int_info.interaction_id, continuation_info.interaction_id)
-                    if continuation_info.client_notified:
-                        logger.error('Trying to replace an interaction that client is already notified. {}, {}', int_info, continuation_info)
-                    else:
-                        if continuation_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
-                            self._add_running_interaction(continuation_info)
-                        else:
-                            self._queued_interactions.insert(0, continuation_info)
-                        interaction = self._sim.queue.find_interaction_by_id(continuation_info.interaction_id)
-                        if interaction is not None and not interaction.get_sims_with_invalid_paths():
-                            continuation_info.ui_state = Sims_pb2.IQ_TRANSITIONING
-                            interaction_messages.send_interaction_replace_message(self._sim, replace_id, continuation_info, self._should_msg_be_immediate(self.QueueType.Super))
-                        continuation_info.client_notified = True
-                        for interaction_info in tuple(self._continuation_interactions):
-                            if interaction_info.source_id == interaction_id:
-                                if interaction_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
-                                    self._add_running_interaction(interaction_info)
-                                else:
-                                    self._queued_interactions.insert(0, interaction_info)
-                                    interaction_info.ui_state = Sims_pb2.IQ_TRANSITIONING
-                                self._continuation_interactions.remove(interaction_info)
-                                interaction_messages.send_interactions_add_msg(self._sim, (interaction_info,), self._should_msg_be_immediate(self.QueueType.Super))
-                                interaction_info.client_notified = True
+                continue
+            int_info = cur_info
+            replace_id = self._get_visible_grouped_interaction_id(int_info.interaction_id) or int_info.interaction_id
+            group_interactions = self._remove_running_interactions(int_info)
+            continuation_info = self._find_continuation(int_info.interaction_id)
+            if continuation_info:
+                logger.debug('=== Continuation Replace In Remove: ({0} => {1})', int_info.interaction_id, continuation_info.interaction_id)
+                if continuation_info.client_notified:
+                    logger.error('Trying to replace an interaction that client is already notified. {}, {}', int_info, continuation_info)
                 else:
-                    logger.debug('=== SimId:{}, Sending Remove MSG for:{}', self._sim.id, interaction)
-                    self._remove_routing_interaction_info(int_info)
-                    self._update_routing_interaction_info(int_info)
-                    if self._last_running_interaction_id == int_info.interaction_id:
-                        self._last_running_interaction_id = 0
-                    interaction_messages.send_interactions_remove_msg(self._sim, (int_info,), self._should_msg_be_immediate(self.QueueType.Super))
-                    if group_interactions:
-                        interaction_messages.send_interactions_add_msg(self._sim, (group_interactions.pop(),), self._should_msg_be_immediate(self.QueueType.Super))
-                return
+                    if continuation_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
+                        self._add_running_interaction(continuation_info)
+                    else:
+                        self._queued_interactions.insert(0, continuation_info)
+                    interaction = self._sim.queue.find_interaction_by_id(continuation_info.interaction_id)
+                    if interaction is not None and not interaction.get_sims_with_invalid_paths():
+                        continuation_info.ui_state = Sims_pb2.IQ_TRANSITIONING
+                        interaction_messages.send_interaction_replace_message(self._sim, replace_id, continuation_info, self._should_msg_be_immediate(self.QueueType.Super))
+                    continuation_info.client_notified = True
+                    for interaction_info in tuple(self._continuation_interactions):
+                        if interaction_info.source_id == interaction_id:
+                            if interaction_info.ui_state == Sims_pb2.IQ_TRANSITIONING:
+                                self._add_running_interaction(interaction_info)
+                            else:
+                                self._queued_interactions.insert(0, interaction_info)
+                                interaction_info.ui_state = Sims_pb2.IQ_TRANSITIONING
+                            self._continuation_interactions.remove(interaction_info)
+                            interaction_messages.send_interactions_add_msg(self._sim, (interaction_info,), self._should_msg_be_immediate(self.QueueType.Super))
+                            interaction_info.client_notified = True
+            else:
+                logger.debug('=== SimId:{}, Sending Remove MSG for:{}', self._sim.id, interaction)
+                self._remove_routing_interaction_info(int_info)
+                self._update_routing_interaction_info(int_info)
+                if self._last_running_interaction_id == int_info.interaction_id:
+                    self._last_running_interaction_id = 0
+                interaction_messages.send_interactions_remove_msg(self._sim, (int_info,), self._should_msg_be_immediate(self.QueueType.Super))
+                if group_interactions:
+                    interaction_messages.send_interactions_add_msg(self._sim, (group_interactions.pop(),), self._should_msg_be_immediate(self.QueueType.Super))
+            return
         if self._remove_continuation_interaction(interaction.id):
             logger.debug('SimId:{}, Interaction Remove(from si_state) is being removed from continuation list:{}', self._sim.id, interaction)
             return
@@ -386,7 +384,7 @@ class UIManager:
         queue_len = len(interaction_queue)
         int_info.insert_after_id = self._last_running_interaction_id
         int_info_is_super = int_info.ui_visual_type != Sims_pb2.Interaction.MIXER
-        if queue_len == 0 or (int_info_is_super and int_info.insert_strategy == interactions.context.QueueInsertStrategy.LAST or int_info_is_super) or not interaction.should_insert_in_queue_on_append():
+        if queue_len == 0 or not (int_info_is_super and int_info.insert_strategy == interactions.context.QueueInsertStrategy.LAST or not (not int_info_is_super and not interaction.should_insert_in_queue_on_append())):
             interaction_queue.append(int_info)
         elif int_info.insert_strategy != interactions.context.QueueInsertStrategy.LAST:
             index_to_add = 0
@@ -398,10 +396,12 @@ class UIManager:
             interaction_queue.insert(index_to_add, int_info)
         else:
             for (index, cur_info) in enumerate(interaction_queue):
-                if cur_info.ui_visual_type != Sims_pb2.Interaction.MIXER and cur_info.insert_strategy == interactions.context.QueueInsertStrategy.LAST:
-                    interaction_queue.insert(index, int_info)
-                    break
-            interaction_queue.append(int_info)
+                if cur_info.ui_visual_type != Sims_pb2.Interaction.MIXER:
+                    if cur_info.insert_strategy == interactions.context.QueueInsertStrategy.LAST:
+                        interaction_queue.insert(index, int_info)
+                        break
+            else:
+                interaction_queue.append(int_info)
         index = interaction_queue.index(int_info)
         prev_index = index - 1
         next_index = index + 1
@@ -445,18 +445,20 @@ class UIManager:
     def _update_skillbar_info(self, interaction, from_remove=False):
         interaction_id = interaction.id
         is_super = interaction.is_super
-        if interaction.super_interaction is not None:
-            interaction_id = interaction.super_interaction.id
-        if is_super or self._sim is None:
+        if not is_super:
+            if interaction.super_interaction is not None:
+                interaction_id = interaction.super_interaction.id
+        if self._sim is None:
             logger.error('UI manager sim ref is None for interaction {}, on Sim {} with Target {} with from_remove: {}', interaction, interaction.sim, interaction.target, from_remove, owner='camilogarcia')
             return
         sim_info = self._sim.sim_info
         if from_remove:
-            if is_super or not interaction.is_social:
+            if not is_super and not interaction.is_social:
                 return
             if interaction_id in self._si_skill_mapping:
-                if sim_info.current_skill_guid == self._si_skill_mapping[interaction_id]:
-                    sim_info.current_skill_guid = 0
+                if sim_info is not None:
+                    if sim_info.current_skill_guid == self._si_skill_mapping[interaction_id]:
+                        sim_info.current_skill_guid = 0
                 del self._si_skill_mapping[interaction_id]
         else:
             skill = interaction.get_associated_skill()
@@ -479,7 +481,7 @@ class UIManager:
     def _remove_routing_interaction_info(self, removing_interaction_info, force_remove=False):
         if self._routing_info.routing_owner_id is None:
             return
-        if force_remove or self._routing_info.routing_owner_id != removing_interaction_info.interaction_id:
+        if not force_remove and self._routing_info.routing_owner_id != removing_interaction_info.interaction_id:
             return
         self._remove_running_interactions(self._routing_info)
         interaction_messages.send_interactions_remove_msg(self._sim, (self._routing_info,), self._should_msg_be_immediate(self.QueueType.Super))
@@ -499,18 +501,15 @@ class UIManager:
         interaction_infos_to_update = set()
         for cur_info in self._super_interactions:
             if cur_info.interaction_id == interactions.base.interaction.ROUTING_POSTURE_INTERACTION_ID:
-                pass
-            else:
-                interaction = self._sim.find_interaction_by_id(cur_info.interaction_id)
-                if interaction is None:
-                    pass
-                else:
-                    potential_canceled = SIState.potential_canceled_interaction_ids(interaction)
-                    if not cur_info.interactions_to_be_canceled.symmetric_difference(potential_canceled):
-                        pass
-                    else:
-                        cur_info.interactions_to_be_canceled = potential_canceled
-                        interaction_infos_to_update.add(cur_info)
+                continue
+            interaction = self._sim.find_interaction_by_id(cur_info.interaction_id)
+            if interaction is None:
+                continue
+            potential_canceled = SIState.potential_canceled_interaction_ids(interaction)
+            if not cur_info.interactions_to_be_canceled.symmetric_difference(potential_canceled):
+                continue
+            cur_info.interactions_to_be_canceled = potential_canceled
+            interaction_infos_to_update.add(cur_info)
         if interaction_infos_to_update:
             interaction_messages.send_interactions_update_msg(self._sim, interaction_infos_to_update, self._should_msg_be_immediate(self.QueueType.Super))
 
@@ -518,14 +517,13 @@ class UIManager:
         interaction_infos_to_update = []
         for int_info in self._queued_interactions:
             if int_info.super_id == 0:
-                pass
-            elif int_info.super_id != old_super_id:
-                pass
-            elif int_info.super_id == new_super_id:
-                pass
-            else:
-                int_info.super_id = new_super_id
-                interaction_infos_to_update.append(int_info)
+                continue
+            if int_info.super_id != old_super_id:
+                continue
+            if int_info.super_id == new_super_id:
+                continue
+            int_info.super_id = new_super_id
+            interaction_infos_to_update.append(int_info)
         if interaction_infos_to_update:
             interaction_messages.send_interactions_update_msg(self._sim, interaction_infos_to_update, self._should_msg_be_immediate(self.QueueType.Super))
 

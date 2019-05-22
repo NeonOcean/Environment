@@ -150,8 +150,10 @@ class BroadcasterService(Service):
 
     def _get_broadcasters_for_cluster_request_gen(self, broadcaster_type, broadcaster_level):
         for broadcaster in self._active_broadcasters:
-            if broadcaster.guid == broadcaster_type.guid and broadcaster.should_cluster() and broadcaster.routing_surface.secondary_id == broadcaster_level:
-                yield broadcaster
+            if broadcaster.guid == broadcaster_type.guid:
+                if broadcaster.should_cluster():
+                    if broadcaster.routing_surface.secondary_id == broadcaster_level:
+                        yield broadcaster
 
     def get_broadcasters_debug_gen(self):
         for cluster_request in self._cluster_requests.values():
@@ -160,8 +162,9 @@ class BroadcasterService(Service):
                 yield next(broadcaster_iter)
             yield from cluster_request.get_rejects()
         for broadcaster in self._active_broadcasters:
-            if broadcaster.should_cluster() or self._is_valid_broadcaster(broadcaster):
-                yield broadcaster
+            if not broadcaster.should_cluster():
+                if self._is_valid_broadcaster(broadcaster):
+                    yield broadcaster
 
     def get_broadcasters_gen(self):
         for (cluster_request_key, cluster_request) in self._cluster_requests.items():
@@ -175,8 +178,9 @@ class BroadcasterService(Service):
                 yield master_broadcaster
             yield from cluster_request.get_rejects()
         for broadcaster in self._active_broadcasters:
-            if broadcaster.should_cluster() or self._is_valid_broadcaster(broadcaster):
-                yield broadcaster
+            if not broadcaster.should_cluster():
+                if self._is_valid_broadcaster(broadcaster):
+                    yield broadcaster
 
     PathSegmentData = namedtuple('PathSegmentData', ('prev_pos', 'cur_pos', 'segment_vec', 'segment_mag_sq', 'segment_normal'))
 
@@ -187,79 +191,58 @@ class BroadcasterService(Service):
         for broadcaster in self.get_broadcasters_gen():
             if broadcaster.route_events:
                 if not broadcaster.can_affect(sim):
-                    pass
-                else:
-                    constraint = broadcaster.get_constraint()
-                    geometry = constraint.geometry
-                    if geometry is None:
-                        pass
-                    else:
-                        polygon = geometry.polygon
-                        if polygon is None:
-                            pass
-                        elif not constraint.valid:
-                            pass
+                    continue
+                constraint = broadcaster.get_constraint()
+                geometry = constraint.geometry
+                if geometry is None:
+                    continue
+                polygon = geometry.polygon
+                if polygon is None:
+                    continue
+                if not constraint.valid:
+                    continue
+                constraint_pos = polygon.centroid()
+                constraint_radius_sq = polygon.radius()
+                constraint_radius_sq = constraint_radius_sq*constraint_radius_sq
+                for index in range(end_index, start_index, -1):
+                    prev_index = index - 1
+                    prev_node = path.nodes[prev_index]
+                    if not constraint.is_routing_surface_valid(prev_node.routing_surface_id):
+                        continue
+                    segment_key = (prev_index, index)
+                    segment_data = path_segment_datas.get(segment_key, None)
+                    if segment_data is None:
+                        cur_node = path.nodes[index]
+                        cur_pos = sims4.math.Vector3(*cur_node.position)
+                        prev_pos = sims4.math.Vector3(*prev_node.position)
+                        segment_vec = cur_pos - prev_pos
+                        segment_vec.y = 0
+                        segment_mag_sq = segment_vec.magnitude_2d_squared()
+                        if sims4.math.almost_equal_sq(segment_mag_sq, 0):
+                            segment_normal = None
                         else:
-                            constraint_pos = polygon.centroid()
-                            constraint_radius_sq = polygon.radius()
-                            constraint_radius_sq = constraint_radius_sq*constraint_radius_sq
-                            for index in range(end_index, start_index, -1):
-                                prev_index = index - 1
-                                prev_node = path.nodes[prev_index]
-                                if not constraint.is_routing_surface_valid(prev_node.routing_surface_id):
-                                    pass
-                                else:
-                                    segment_key = (prev_index, index)
-                                    segment_data = path_segment_datas.get(segment_key, None)
-                                    if segment_data is None:
-                                        cur_node = path.nodes[index]
-                                        cur_pos = sims4.math.Vector3(*cur_node.position)
-                                        prev_pos = sims4.math.Vector3(*prev_node.position)
-                                        segment_vec = cur_pos - prev_pos
-                                        segment_vec.y = 0
-                                        segment_mag_sq = segment_vec.magnitude_2d_squared()
-                                        if sims4.math.almost_equal_sq(segment_mag_sq, 0):
-                                            segment_normal = None
-                                        else:
-                                            segment_normal = segment_vec/sims4.math.sqrt(segment_mag_sq)
-                                        segment_data = BroadcasterService.PathSegmentData(prev_pos, cur_pos, segment_vec, segment_mag_sq, segment_normal)
-                                        path_segment_datas[segment_key] = segment_data
-                                    else:
-                                        (prev_pos, cur_pos, segment_vec, segment_mag_sq, segment_normal) = segment_data
-                                    if segment_normal is None:
-                                        constraint_vec = constraint_pos - prev_pos
-                                        constraint_dist_sq = constraint_vec.magnitude_2d_squared()
-                                        if constraint_radius_sq < constraint_dist_sq:
-                                            pass
-                                        else:
-                                            for (transform, _, time) in path.get_location_data_along_segment_gen(prev_index, index):
-                                                if not geometry.test_transform(transform):
-                                                    pass
-                                                else:
-                                                    yield (time, broadcaster)
-                                                    break
-                                            break
-                                    else:
-                                        constraint_vec = constraint_pos - prev_pos
-                                        constraint_vec.y = 0
-                                        contraint_proj = constraint_vec - segment_normal*sims4.math.vector_dot_2d(constraint_vec, segment_normal)
-                                        if constraint_radius_sq < contraint_proj.magnitude_2d_squared():
-                                            pass
-                                        else:
-                                            for (transform, _, time) in path.get_location_data_along_segment_gen(prev_index, index):
-                                                if not geometry.test_transform(transform):
-                                                    pass
-                                                else:
-                                                    yield (time, broadcaster)
-                                                    break
-                                            break
-                                    for (transform, _, time) in path.get_location_data_along_segment_gen(prev_index, index):
-                                        if not geometry.test_transform(transform):
-                                            pass
-                                        else:
-                                            yield (time, broadcaster)
-                                            break
-                                    break
+                            segment_normal = segment_vec/sims4.math.sqrt(segment_mag_sq)
+                        segment_data = BroadcasterService.PathSegmentData(prev_pos, cur_pos, segment_vec, segment_mag_sq, segment_normal)
+                        path_segment_datas[segment_key] = segment_data
+                    else:
+                        (prev_pos, cur_pos, segment_vec, segment_mag_sq, segment_normal) = segment_data
+                    if segment_normal is None:
+                        constraint_vec = constraint_pos - prev_pos
+                        constraint_dist_sq = constraint_vec.magnitude_2d_squared()
+                        if constraint_radius_sq < constraint_dist_sq:
+                            continue
+                    else:
+                        constraint_vec = constraint_pos - prev_pos
+                        constraint_vec.y = 0
+                        contraint_proj = constraint_vec - segment_normal*sims4.math.vector_dot_2d(constraint_vec, segment_normal)
+                        if constraint_radius_sq < contraint_proj.magnitude_2d_squared():
+                            continue
+                    for (transform, _, time) in path.get_location_data_along_segment_gen(prev_index, index):
+                        if not geometry.test_transform(transform):
+                            continue
+                        yield (time, broadcaster)
+                        break
+                    break
 
     def get_pending_broadcasters_gen(self):
         yield from self._pending_broadcasters
@@ -307,7 +290,7 @@ class BroadcasterService(Service):
             for route_event in broadcaster.route_events:
                 if not failed_types is None:
                     pass
-                if route_event_context.route_event_already_scheduled(route_event, provider=broadcaster) or route_event.test(resolver):
+                if not route_event_context.route_event_already_scheduled(route_event, provider=broadcaster) and route_event.test(resolver):
                     route_event_context.add_route_event(RouteEventType.BROADCASTER, route_event(time=time, provider=broadcaster, provider_required=True))
 
     def update(self):
@@ -330,17 +313,16 @@ class BroadcasterService(Service):
                 if broadcaster.can_affect(obj):
                     constraint = broadcaster.get_constraint()
                     if not constraint.valid:
-                        pass
-                    else:
-                        if object_transform is None:
-                            parent = obj.parent
-                            if parent is None:
-                                object_transform = obj.transform
-                            else:
-                                object_transform = parent.transform
-                        if self._is_location_affected(constraint, object_transform, routing_surface):
-                            broadcaster.apply_broadcaster_effect(obj)
-                            broadcaster.remove_broadcaster_effect(obj)
+                        continue
+                    if object_transform is None:
+                        parent = obj.parent
+                        if parent is None:
+                            object_transform = obj.transform
+                        else:
+                            object_transform = parent.transform
+                    if self._is_location_affected(constraint, object_transform, routing_surface):
+                        broadcaster.apply_broadcaster_effect(obj)
+                        broadcaster.remove_broadcaster_effect(obj)
 
     def _update(self):
         try:
@@ -353,19 +335,19 @@ class BroadcasterService(Service):
                     if broadcaster.can_affect(obj):
                         constraint = broadcaster.get_constraint()
                         if not constraint.valid:
-                            pass
-                        else:
-                            if object_transform is None:
-                                parent = obj.parent
-                                if parent is None:
-                                    object_transform = obj.transform
-                                else:
-                                    object_transform = parent.transform
-                            if self._is_location_affected(constraint, object_transform, obj.routing_surface):
-                                broadcaster.apply_broadcaster_effect(obj)
-                                is_affected = True
-                if is_affected or self._object_cache is not None:
-                    self._object_cache.discard(obj)
+                            continue
+                        if object_transform is None:
+                            parent = obj.parent
+                            if parent is None:
+                                object_transform = obj.transform
+                            else:
+                                object_transform = parent.transform
+                        if self._is_location_affected(constraint, object_transform, obj.routing_surface):
+                            broadcaster.apply_broadcaster_effect(obj)
+                            is_affected = True
+                if not is_affected:
+                    if self._object_cache is not None:
+                        self._object_cache.discard(obj)
             for broadcaster in current_broadcasters:
                 broadcaster.on_processed()
         finally:

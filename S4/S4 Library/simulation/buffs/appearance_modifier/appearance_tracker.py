@@ -45,8 +45,8 @@ class AppearanceTracker:
         for appearance_modifiers in appearance_modifiers_list:
             modifier = self._choose_modifier(appearance_modifiers)
             if modifier is None:
-                pass
-            elif modifier.is_permanent_modification:
+                continue
+            if modifier.is_permanent_modification:
                 permanent_modifiers.append(modifier)
             else:
                 self.add_appearance_modifier(modifier, guid, priority, apply_to_all_outfits, archive_single_entry=False)
@@ -87,9 +87,10 @@ class AppearanceTracker:
             if archiver_enabled:
                 for modifier_info in modifier_infos_to_remove:
                     modifiers.append(modifier_info.modifier)
-            self._active_appearance_modifier_infos[mod_type] = [mod for mod in self._active_appearance_modifier_infos[mod_type] if mod not in modifier_infos_to_remove]
-            if modifier_infos_to_remove and not self._active_appearance_modifier_infos[mod_type]:
-                keys_to_remove.append(mod_type)
+            if modifier_infos_to_remove:
+                self._active_appearance_modifier_infos[mod_type] = [mod for mod in self._active_appearance_modifier_infos[mod_type] if mod not in modifier_infos_to_remove]
+                if not self._active_appearance_modifier_infos[mod_type]:
+                    keys_to_remove.append(mod_type)
         if archiver_enabled:
             appearance_modifier_handlers.remove_appearance_modifier_data(self._sim_info, modifiers, source)
         for mod_type in keys_to_remove:
@@ -190,20 +191,19 @@ class AppearanceTracker:
             source_sim_info = original_sim_info
             for modifier_info in appearance_modifier_infos:
                 if modifier_info.should_display is False:
-                    pass
-                else:
-                    random_seed = original_sim_info.appearance_tracker.get_persistent_appearance_modifier_data(modifier_info.guid)
-                    if random_seed is None:
-                        random_seed = random.randint(0, MAX_UINT32)
-                        if not is_permanent_modification:
-                            original_sim_info.appearance_tracker.add_persistent_appearance_modifier_data(modifier_info.guid, random_seed)
-                    if apply_to_all_outfits is None:
-                        apply_to_all_outfits = modifier_info.apply_to_all_outfits
-                    elif apply_to_all_outfits != modifier_info.apply_to_all_outfits:
-                        apply_to_all_outfits = True
-                        logger.error('Sim: {} has a mix of appearance modifiers that have Apply to All Outfits tuned to true and false.\n                                        This is not supported, so all modifiers will be applied to all outfits as a fallback.', original_sim_info, owner='jwilkinson')
-                    body_type_flags_to_set |= modifier_info.modifier.modify_sim_info(source_sim_info, modified_sim_info, random_seed)
-                    source_sim_info = modified_sim_info
+                    continue
+                random_seed = original_sim_info.appearance_tracker.get_persistent_appearance_modifier_data(modifier_info.guid)
+                if random_seed is None:
+                    random_seed = random.randint(0, MAX_UINT32)
+                    if not is_permanent_modification:
+                        original_sim_info.appearance_tracker.add_persistent_appearance_modifier_data(modifier_info.guid, random_seed)
+                if apply_to_all_outfits is None:
+                    apply_to_all_outfits = modifier_info.apply_to_all_outfits
+                elif apply_to_all_outfits != modifier_info.apply_to_all_outfits:
+                    apply_to_all_outfits = True
+                    logger.error('Sim: {} has a mix of appearance modifiers that have Apply to All Outfits tuned to true and false.\n                                        This is not supported, so all modifiers will be applied to all outfits as a fallback.', original_sim_info, owner='jwilkinson')
+                body_type_flags_to_set |= modifier_info.modifier.modify_sim_info(source_sim_info, modified_sim_info, random_seed)
+                source_sim_info = modified_sim_info
         (outfit_category, outfit_index) = original_sim_info.get_current_outfit()
         modified_sim_info.set_current_outfit(original_sim_info.get_current_outfit())
         if is_permanent_modification:

@@ -177,7 +177,7 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
                 reward_payout = aspiration_track.reward.give_reward(sim_info)
             else:
                 reward_payout = ()
-            reward_text = LocalizationHelperTuning.get_bulleted_list((None,), (reward.get_display_text() for reward in reward_payout))
+            reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text() for reward in reward_payout))
             dialog = aspiration_track.notification(sim_info, SingleSimResolver(sim_info))
             dialog.show_dialog(icon_override=IconInfoData(icon_resource=aspiration_track.icon), secondary_icon_override=IconInfoData(obj_instance=sim_info), additional_tokens=(reward_text,), event_id=completed_aspiration_id)
 
@@ -234,6 +234,9 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
                 dialog.show_dialog(event_id=aspiration.guid64)
             super().complete_milestone(aspiration, sim_info)
         elif aspiration_type == AspriationType.ASSIGNMENT:
+            super().complete_milestone(aspiration, sim_info)
+            aspiration.satisfy_assignment(sim_info)
+        elif aspiration_type == AspriationType.GIG:
             super().complete_milestone(aspiration, sim_info)
             aspiration.satisfy_assignment(sim_info)
         elif aspiration_type == AspriationType.ZONE_DIRECTOR:
@@ -299,28 +302,27 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
         if blob is not None:
             for unlocked_hidden_aspiration_track_id in blob.unlocked_hidden_aspiration_tracks:
                 unlocked_hidden_aspiration_track = aspiration_track_manager.get(unlocked_hidden_aspiration_track_id)
-                if unlocked_hidden_aspiration_track is not None and unlocked_hidden_aspiration_track.is_available():
-                    self._unlocked_hidden_aspiration_tracks.add(unlocked_hidden_aspiration_track)
+                if unlocked_hidden_aspiration_track is not None:
+                    if unlocked_hidden_aspiration_track.is_available():
+                        self._unlocked_hidden_aspiration_tracks.add(unlocked_hidden_aspiration_track)
             aspiration_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION)
             for timed_aspiration_msg in blob.timed_aspirations:
                 aspiration = aspiration_manager.get(timed_aspiration_msg.aspiration)
                 if aspiration is None:
-                    pass
-                else:
-                    timed_aspiration_data = TimedAspirationData(self, aspiration)
-                    if timed_aspiration_data.load(timed_aspiration_msg):
-                        self._timed_aspirations[aspiration] = timed_aspiration_data
+                    continue
+                timed_aspiration_data = TimedAspirationData(self, aspiration)
+                if timed_aspiration_data.load(timed_aspiration_msg):
+                    self._timed_aspirations[aspiration] = timed_aspiration_data
         super().load(blob=blob)
 
     def force_send_data_update(self):
         for aspiration in services.get_instance_manager(sims4.resources.Types.ASPIRATION).types.values():
             aspiration_type = aspiration.aspiration_type
             if aspiration_type != AspriationType.FULL_ASPIRATION and aspiration_type != AspriationType.SIM_INFO_PANEL:
-                pass
-            else:
-                for objective in aspiration.objectives:
-                    self.update_objective(objective, 0, objective.goal_value(), objective.is_goal_value_money, from_init=True)
-                    self._tracker_dirty = True
+                continue
+            for objective in aspiration.objectives:
+                self.update_objective(objective, 0, objective.goal_value(), objective.is_goal_value_money, from_init=True)
+                self._tracker_dirty = True
         self.send_if_dirty()
 
     @classproperty
@@ -389,7 +391,6 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
         for timed_aspiration in tuple(self._timed_aspirations.keys()):
             result = timed_aspiration.tests.run_tests(resolver)
             if result:
-                pass
-            else:
-                self.deactivate_timed_aspiration(timed_aspiration)
-                timed_aspiration.apply_on_cancel_loot_actions(self.owner_sim_info)
+                continue
+            self.deactivate_timed_aspiration(timed_aspiration)
+            timed_aspiration.apply_on_cancel_loot_actions(self.owner_sim_info)

@@ -141,13 +141,13 @@ class FireService(Service):
         return self._flammable_objects_quadtree
 
     def has_toddler_to_save_for_sim(self, saver_sim_info):
-        if saver_sim_info.can_live_alone:
-            if saver_sim_info.lives_here:
-                return True
-            for toddler in self._toddlers_to_save:
-                if toddler.household is None:
-                    pass
-                else:
+        if self._toddlers_to_save:
+            if saver_sim_info.can_live_alone:
+                if saver_sim_info.lives_here:
+                    return True
+                for toddler in self._toddlers_to_save:
+                    if toddler.household is None:
+                        continue
                     if toddler.household is saver_sim_info.household:
                         return True
                     if toddler.relationship_tracker.has_bit(saver_sim_info.id, self.CAREGIVER_SITUATION.caregiver_data.care_dependent_bit):
@@ -235,13 +235,14 @@ class FireService(Service):
         fire_footprint = fire.footprint_polygon
         for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
             current_path = sim.routing_component.current_path
-            if current_path and current_path.nodes:
-                nodes_list = list(current_path.nodes)
-                for (prev, curr) in zip(nodes_list, nodes_list[1:]):
-                    path_rectangle = sims4.geometry.CompoundPolygon([sims4.geometry.build_rectangle_from_two_points_and_radius(sims4.math.Vector3(*prev.position), sims4.math.Vector3(*curr.position), 1.0)])
-                    if path_rectangle.intersects(fire_footprint):
-                        sim.queue.transition_controller.derail(DerailReason.NAVMESH_UPDATED, sim)
-                        break
+            if current_path:
+                if current_path.nodes:
+                    nodes_list = list(current_path.nodes)
+                    for (prev, curr) in zip(nodes_list, nodes_list[1:]):
+                        path_rectangle = sims4.geometry.CompoundPolygon([sims4.geometry.build_rectangle_from_two_points_and_radius(sims4.math.Vector3(*prev.position), sims4.math.Vector3(*curr.position), 1.0)])
+                        if path_rectangle.intersects(fire_footprint):
+                            sim.queue.transition_controller.derail(DerailReason.NAVMESH_UPDATED, sim)
+                            break
 
     def _fire_object_state_changed_callback(self, owner, state, old_value, new_value):
         if state is self.FIRE_OBJECT_FIRE_STATE and new_value is self.FIRE_OBJECT_EXTINGUISHED_STATE_VALUE and not owner.get_users():
@@ -302,16 +303,15 @@ class FireService(Service):
             new_position.y = terrain.get_terrain_height(new_position.x, new_position.z, fire_object.routing_surface)
             fire_object.move_to(transform=fire_object.transform, orientation=sims4.random.random_orientation())
             if not self._placement_tests(new_position, surface_id=fire_object.routing_surface, fire_object=fire_object):
-                pass
-            else:
-                transform = sims4.math.Transform(new_position, sims4.random.random_orientation())
-                self._spawn_fire(transform, fire_object.routing_surface, run_placement_tests=False)
-                logger.debug('Successfully placed fire object on attempt {}', attempt)
-                return
+                continue
+            transform = sims4.math.Transform(new_position, sims4.random.random_orientation())
+            self._spawn_fire(transform, fire_object.routing_surface, run_placement_tests=False)
+            logger.debug('Successfully placed fire object on attempt {}', attempt)
+            return
 
     def _placement_tests(self, new_position, surface_id=None, fire_object=None):
         zone_id = services.current_zone_id()
-        if surface_id is not None and build_buy.has_floor_at_location(zone_id, new_position, surface_id.secondary_id) and (build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id + 1)):
+        if surface_id is not None and (not build_buy.has_floor_at_location(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id + 1)):
             logger.debug("failed to place fire at a location because there is no floor or it's pool.")
             return False
         if fire_object is not None and abs(fire_object.position.y - new_position.y) > self.FIRE_SPREAD_HEIGHT_THRESHOLD:
@@ -381,23 +381,26 @@ class FireService(Service):
     def start_objects_burning(self, fire_object):
         location = sims4.math.Vector2(fire_object.position.x, fire_object.position.z)
         fire_surface = fire_object.routing_surface
-        result = self._query_quadtree_for_flammable_object(location, surface_id=fire_surface)
+        result = self._query_quadtree_for_flammable_object(location)
         if result is not None:
             for obj in result:
-                if obj.routing_surface != fire_surface:
-                    pass
+                parent_or_obj = obj.get_parenting_root()
+                if parent_or_obj is None or parent_or_obj.is_sim:
+                    routing_surface = obj.routing_surface
                 else:
-                    placement_flags = build_buy.get_object_placement_flags(obj.definition.id)
-                    if placement_flags & build_buy.PlacementFlags.CEILING and not placement_flags & build_buy.PlacementFlags.WALL_GRAPH_PLACEMENT:
-                        pass
-                    else:
-                        logger.debug('Fire object ({}) overlaps with {}\n', fire_object, obj)
-                        if self._burning_objects is None:
-                            self._burning_objects = {}
-                        if fire_object not in self._burning_objects:
-                            self._burning_objects[fire_object] = []
-                        self._burning_objects[fire_object].append(obj)
-                        self.set_object_burning(obj)
+                    routing_surface = parent_or_obj.routing_surface
+                if routing_surface != fire_surface:
+                    continue
+                placement_flags = build_buy.get_object_placement_flags(obj.definition.id)
+                if placement_flags & build_buy.PlacementFlags.CEILING and not placement_flags & build_buy.PlacementFlags.WALL_GRAPH_PLACEMENT:
+                    continue
+                logger.debug('Fire object ({}) overlaps with {}\n', fire_object, obj)
+                if self._burning_objects is None:
+                    self._burning_objects = {}
+                if fire_object not in self._burning_objects:
+                    self._burning_objects[fire_object] = []
+                self._burning_objects[fire_object].append(obj)
+                self.set_object_burning(obj)
             fire_object.raycast_context_dirty = True
         result = self._query_quadtree_for_sim(location, surface_id=fire_surface, filter_type=placement.ItemType.SIM_POSITION)
         if result is not None:
@@ -432,24 +435,23 @@ class FireService(Service):
         for fire_object in has_fire_at_location:
             tracker = fire_object.get_tracker(self.FIRE_STRENGTH_COMMODITY)
             if tracker is None:
-                pass
-            else:
-                stat = tracker.get_statistic(self.FIRE_STRENGTH_COMMODITY)
-                if stat is None:
-                    pass
-                else:
-                    stat_value = stat.get_value()
-                    if stat_value > stat.min_value:
-                        self._burn_sim(sim, has_fire_at_location[0])
-                        return True
+                continue
+            stat = tracker.get_statistic(self.FIRE_STRENGTH_COMMODITY)
+            if stat is None:
+                continue
+            stat_value = stat.get_value()
+            if stat_value > stat.min_value:
+                self._burn_sim(sim, has_fire_at_location[0])
+                return True
         return False
 
     def remove_fire_object(self, fire_object):
-        if fire_object in self._burning_objects:
-            for obj in self._burning_objects[fire_object]:
-                self._stop_object_burning(obj, fire_object)
-            del self._burning_objects[fire_object]
-        if self._burning_objects and fire_object in self._fire_objects:
+        if self._burning_objects:
+            if fire_object in self._burning_objects:
+                for obj in self._burning_objects[fire_object]:
+                    self._stop_object_burning(obj, fire_object)
+                del self._burning_objects[fire_object]
+        if fire_object in self._fire_objects:
             self._fire_objects.remove(fire_object)
             fire_object.remove_state_changed_callback(self._fire_object_state_changed_callback)
         tracker = fire_object.get_tracker(self.FIRE_BEEN_EXTINGUISHED_COMMODITY)
@@ -584,16 +586,17 @@ class FireService(Service):
         services.get_event_manager().unregister_single_event(self, TestEvent.SimActiveLotStatusChanged)
 
     def handle_event(self, sim_info, event, resolver):
-        if issubclass(type(resolver.interaction), self.START_PANIC_INTERACTION):
-            sim = sim_info.get_sim_instance()
-            dialog = self.FIRE_REACTION_NOTIFICATION(sim, resolver=SingleSimResolver(sim_info))
-            dialog.show_dialog()
-            self.alert_all_sims()
-            self.unregister_for_panic_callback()
-            for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-                if sim_on_lot is not sim:
-                    self._push_fire_reaction_affordance(sim_on_lot, resolver.interaction.target)
-        if event is TestEvent.InteractionComplete and event is TestEvent.SimActiveLotStatusChanged and resolver.get_resolved_arg('on_active_lot'):
+        if event is TestEvent.InteractionComplete:
+            if issubclass(type(resolver.interaction), self.START_PANIC_INTERACTION):
+                sim = sim_info.get_sim_instance()
+                dialog = self.FIRE_REACTION_NOTIFICATION(sim, resolver=SingleSimResolver(sim_info))
+                dialog.show_dialog()
+                self.alert_all_sims()
+                self.unregister_for_panic_callback()
+                for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
+                    if sim_on_lot is not sim:
+                        self._push_fire_reaction_affordance(sim_on_lot, resolver.interaction.target)
+        if event is TestEvent.SimActiveLotStatusChanged and resolver.get_resolved_arg('on_active_lot'):
             sim = sim_info.get_sim_instance()
             if sim is not None:
                 self._create_fire_situation_on_sim(sim)
@@ -601,19 +604,21 @@ class FireService(Service):
     def _advance_situations_to_postfire(self):
         self._toddlers_to_save = None
         situation_manager = services.get_zone_situation_manager()
-        if self._situation_ids is not None:
-            for situation_id in self._situation_ids.values():
-                situation = situation_manager.get(situation_id)
-                if situation is not None:
-                    situation.advance_to_post_fire()
+        if situation_manager is not None:
+            if self._situation_ids is not None:
+                for situation_id in self._situation_ids.values():
+                    situation = situation_manager.get(situation_id)
+                    if situation is not None:
+                        situation.advance_to_post_fire()
 
     def _reset_situations_to_unaware(self):
         situation_manager = services.get_zone_situation_manager()
-        if self._situation_ids is not None:
-            for situation_id in self._situation_ids.values():
-                situation = situation_manager.get(situation_id)
-                if situation is not None:
-                    situation.reset_to_unaware()
+        if situation_manager is not None:
+            if self._situation_ids is not None:
+                for situation_id in self._situation_ids.values():
+                    situation = situation_manager.get(situation_id)
+                    if situation is not None:
+                        situation.reset_to_unaware()
         self._toddlers_to_save = set()
         for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
             if sim.sim_info.is_toddler:
@@ -621,9 +626,10 @@ class FireService(Service):
 
     def _stop_fire_situations(self):
         situation_manager = services.get_zone_situation_manager()
-        if self._situation_ids is not None:
-            for situation_id in self._situation_ids.values():
-                situation_manager.destroy_situation_by_id(situation_id)
+        if situation_manager is not None:
+            if self._situation_ids is not None:
+                for situation_id in self._situation_ids.values():
+                    situation_manager.destroy_situation_by_id(situation_id)
 
     def fire_interaction_test(self, affordance, context):
         if not InteractionCancelCompatibility.check_if_source_should_be_canceled(context):
@@ -632,7 +638,8 @@ class FireService(Service):
             for buff_type in self.FIRE_PANIC_BUFFS:
                 if context.sim.has_buff(buff_type):
                     break
-            return TestResult.TRUE
+            else:
+                return TestResult.TRUE
             if InteractionCancelCompatibility.can_cancel_interaction_for_reason(affordance, InteractionCancelReason.FIRE):
                 return TestResult(False, '{} is not allowed because there is a fire object on the lot', affordance)
         return TestResult.TRUE
@@ -711,11 +718,12 @@ class FireService(Service):
             if fires_in_range:
                 deactivated_fire_alarm.set_state(self.FIRE_ALARM_ACTIVE_STATE.state, self.FIRE_ALARM_ACTIVE_STATE)
                 self._activated_fire_alarms.add(deactivated_fire_alarm)
-        if self._activated_fire_alarms:
-            self.alert_all_sims()
-            fire_object = next(iter(self._fire_objects))
-            for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-                self._push_fire_reaction_affordance(sim_on_lot, fire_object)
+        if not self._alerted_sims:
+            if self._activated_fire_alarms:
+                self.alert_all_sims()
+                fire_object = next(iter(self._fire_objects))
+                for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
+                    self._push_fire_reaction_affordance(sim_on_lot, fire_object)
 
     def activate_sprinkler_system(self):
         object_manager = services.object_manager()
@@ -725,7 +733,7 @@ class FireService(Service):
         if self._sprinkler_floor_objects is None:
             self._sprinkler_floor_objects = weakref.WeakSet()
         self._sprinkler_floor_objects.update(object_manager.get_objects_with_tag_gen(self.SPRINKLER_FLOOR_OBJECT_TAG))
-        if self._sprinkler_system_objects or not self._sprinkler_floor_objects:
+        if not self._sprinkler_system_objects and not self._sprinkler_floor_objects:
             return
         self._sprinkler_heads = set()
         time_span = date_and_time.create_time_span(minutes=self.SPRINKLER_ACTIVATION_TIME)
@@ -849,10 +857,11 @@ class FireService(Service):
         all_scorch_marks = build_buy.list_floor_features(zone_id, build_buy.FloorFeatureType.BURNT)
         for scorch_mark in all_scorch_marks:
             scorch_level = scorch_mark[1]
-            if scorch_level == level and not build_buy.is_location_natural_ground(zone_id, scorch_mark[0], scorch_level):
-                scorch_location = scorch_mark[0]
-                if (location - scorch_location).magnitude_squared() <= radius_squared:
-                    found_scorch_marks.add(scorch_location)
+            if scorch_level == level:
+                if not build_buy.is_location_natural_ground(zone_id, scorch_mark[0], scorch_level):
+                    scorch_location = scorch_mark[0]
+                    if (location - scorch_location).magnitude_squared() <= radius_squared:
+                        found_scorch_marks.add(scorch_location)
         return found_scorch_marks
 
     def increment_insurance_claim(self, value, burnt_object):
@@ -864,8 +873,9 @@ class FireService(Service):
     def _award_insurance_money(self):
         client = services.client_manager().get_first_client()
         active_sim = client.active_sim
-        if active_sim is not None:
-            services.active_household().funds.add(self._insurance_value, Consts_pb2.TELEMETRY_INTERACTION_COST, None)
-            dialog = self.FIRE_INSURANCE_CLAIM_NOTIFICATION(active_sim, SingleSimResolver(active_sim))
-            dialog.show_dialog(additional_tokens=(self._insurance_value,))
-            self._insurance_value = 0
+        if self._insurance_value > 0:
+            if active_sim is not None:
+                services.active_household().funds.add(self._insurance_value, Consts_pb2.TELEMETRY_INTERACTION_COST, None)
+                dialog = self.FIRE_INSURANCE_CLAIM_NOTIFICATION(active_sim, SingleSimResolver(active_sim))
+                dialog.show_dialog(additional_tokens=(self._insurance_value,))
+                self._insurance_value = 0

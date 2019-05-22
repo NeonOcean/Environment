@@ -93,13 +93,12 @@ class VetEmployeeSituation(BusinessEmployeeSituationMixin, SituationComplexCommo
         for (state_type, state_tuning) in self._managed_states.items():
             enable_disable = state_tuning.enable_disable
             if enable_disable is None:
-                pass
-            else:
-                self._register_test_event_for_keys(TestEvent.InteractionComplete, enable_disable.disable_interaction.custom_keys_gen())
-                self._type_to_disable_interaction[state_type] = enable_disable.disable_interaction
-                self._register_test_event_for_keys(TestEvent.InteractionComplete, enable_disable.enable_interaction.custom_keys_gen())
-                self._type_to_enable_interaction[state_type] = enable_disable.enable_interaction
-                self._state_disabling_buffs.add(enable_disable.disabling_buff)
+                continue
+            self._register_test_event_for_keys(TestEvent.InteractionComplete, enable_disable.disable_interaction.custom_keys_gen())
+            self._type_to_disable_interaction[state_type] = enable_disable.disable_interaction
+            self._register_test_event_for_keys(TestEvent.InteractionComplete, enable_disable.enable_interaction.custom_keys_gen())
+            self._type_to_enable_interaction[state_type] = enable_disable.enable_interaction
+            self._state_disabling_buffs.add(enable_disable.disabling_buff)
 
     def start_situation(self):
         super().start_situation()
@@ -123,8 +122,8 @@ class VetEmployeeSituation(BusinessEmployeeSituationMixin, SituationComplexCommo
         for state_type in self._managed_states:
             state_tuning = self._managed_states[state_type]
             if state_tuning.enable_disable is None:
-                pass
-            elif state_tuning.enable_disable.disabling_buff == buff_type:
+                continue
+            if state_tuning.enable_disable.disabling_buff == buff_type:
                 self._disable_state(state_type)
 
     def get_employee(self):

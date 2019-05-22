@@ -52,7 +52,7 @@ class LinkedObjectComponent(AutoFactoryInit, objects.components.Component, HasTu
             self.link(None, self._parent_state_value)
 
     def on_location_changed(self, old_location):
-        if services.current_zone().is_zone_loading or self._parent is not self.owner:
+        if not services.current_zone().is_zone_loading and self._parent is not self.owner:
             self._relink(update_others=not services.current_zone().is_in_build_buy)
 
     def on_reset_component_get_interdependent_reset_records(self, reset_reason, reset_records):
@@ -160,19 +160,21 @@ class LinkedObjectComponent(AutoFactoryInit, objects.components.Component, HasTu
             state_component = self.owner.state_component
             if state_component is not None:
                 state = state_value.state
-                if state_component.has_state(state):
-                    self._return_state_value = state_component.get_state(state)
+                if self._return_state_value is None:
+                    if state_component.has_state(state):
+                        self._return_state_value = state_component.get_state(state)
                 state_component.set_state(state_value.state, state_value)
 
     @componentmethod_with_fallback(lambda : [])
     def get_linked_objects_gen(self):
         if self._is_parent:
             yield from self._children
-        elif self._parent is not self.owner:
-            yield self._parent
-            for child in self._parent.linked_object_component.get_linked_objects_gen():
-                if child is not self.owner:
-                    yield child
+        elif self._parent is not None:
+            if self._parent is not self.owner:
+                yield self._parent
+                for child in self._parent.linked_object_component.get_linked_objects_gen():
+                    if child is not self.owner:
+                        yield child
 
     def _get_nearby_objects(self):
         if self.owner.is_hidden():
@@ -204,10 +206,11 @@ class LinkedObjectComponent(AutoFactoryInit, objects.components.Component, HasTu
     def _update_others(self, new_children):
         owner = self.owner
         for obj in services.object_manager().get_valid_objects_gen():
-            if obj.linked_object_component is not None and obj is not owner:
-                new_children = obj.linked_object_component._try_add_links(new_children)
-                if not new_children:
-                    break
+            if obj.linked_object_component is not None:
+                if obj is not owner:
+                    new_children = obj.linked_object_component._try_add_links(new_children)
+                    if not new_children:
+                        break
 
     def _try_add_links(self, new_children):
         if self.owner is self._parent:
@@ -217,10 +220,11 @@ class LinkedObjectComponent(AutoFactoryInit, objects.components.Component, HasTu
         else:
             filtered_near_objects = []
             for test_object in new_children:
-                if test_object.has_tag(self._child_tag) and test_object.level == self.owner.level:
-                    dist_square = (self.owner.position - test_object.position).magnitude_2d_squared()
-                    if dist_square < self._distance:
-                        filtered_near_objects.append((dist_square, test_object))
+                if test_object.has_tag(self._child_tag):
+                    if test_object.level == self.owner.level:
+                        dist_square = (self.owner.position - test_object.position).magnitude_2d_squared()
+                        if dist_square < self._distance:
+                            filtered_near_objects.append((dist_square, test_object))
             if filtered_near_objects:
                 filtered_near_objects.sort(key=operator.itemgetter(0))
                 new_set = set([x[1] for x in filtered_near_objects[:self._count - len(self._children)]])

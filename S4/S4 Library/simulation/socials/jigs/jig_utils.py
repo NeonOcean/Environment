@@ -12,7 +12,7 @@ class JigPositioning(enum.Int):
     RelativeToSimB = 0
     RelativeToSimA = 1
 
-SIMS_3_DISTANCE_MATRIX = {(Species.CAT, Age.CHILD): {(Species.CAT, Age.CHILD): 0.3, Species.CAT: 0.5, (Species.DOG, Age.CHILD): 0.3, Species.DOG: 0.9, (Species.HUMAN, Age.CHILD): 0.6, Species.HUMAN: 0.7}, Species.CAT: {(Species.CAT, Age.CHILD): 0.5, Species.CAT: 0.6, (Species.DOG, Age.CHILD): 0.5, Species.DOG: 1, (Species.HUMAN, Age.CHILD): 0.7, Species.HUMAN: 1}, (Species.DOG, Age.CHILD): {(Species.CAT, Age.CHILD): 0.7, Species.CAT: 1, (Species.DOG, Age.CHILD): 0.7, Species.DOG: 1, (Species.HUMAN, Age.CHILD): 0.7, Species.HUMAN: 0.7}, Species.DOG: {(Species.CAT, Age.CHILD): 0.9, Species.CAT: 1, (Species.DOG, Age.CHILD): 0.9, Species.DOG: 1, (Species.HUMAN, Age.CHILD): 1, Species.HUMAN: 1}, (Species.HUMAN, Age.CHILD): {(Species.CAT, Age.CHILD): 0.6, Species.CAT: 0.7, (Species.DOG, Age.CHILD): 0.6, Species.DOG: 1, (Species.HUMAN, Age.CHILD): 0.7, Species.HUMAN: 0.7}, Species.HUMAN: {(Species.CAT, Age.CHILD): 0.7, Species.CAT: 1, (Species.DOG, Age.CHILD): 0.7, Species.DOG: 1, (Species.HUMAN, Age.CHILD): 0.7, Species.HUMAN: 0.7}}
+SIMS_3_DISTANCE_MATRIX = {Species.HUMAN: {Species.HUMAN: 0.7, (Species.HUMAN, Age.CHILD): 0.7, Species.DOG: 1, (Species.DOG, Age.CHILD): 0.7, Species.CAT: 1, (Species.CAT, Age.CHILD): 0.7}, (Species.HUMAN, Age.CHILD): {Species.HUMAN: 0.7, (Species.HUMAN, Age.CHILD): 0.7, Species.DOG: 1, (Species.DOG, Age.CHILD): 0.6, Species.CAT: 0.7, (Species.CAT, Age.CHILD): 0.6}, Species.DOG: {Species.HUMAN: 1, (Species.HUMAN, Age.CHILD): 1, Species.DOG: 1, (Species.DOG, Age.CHILD): 0.9, Species.CAT: 1, (Species.CAT, Age.CHILD): 0.9}, (Species.DOG, Age.CHILD): {Species.HUMAN: 0.7, (Species.HUMAN, Age.CHILD): 0.7, Species.DOG: 1, (Species.DOG, Age.CHILD): 0.7, Species.CAT: 1, (Species.CAT, Age.CHILD): 0.7}, Species.CAT: {Species.HUMAN: 1, (Species.HUMAN, Age.CHILD): 0.7, Species.DOG: 1, (Species.DOG, Age.CHILD): 0.5, Species.CAT: 0.6, (Species.CAT, Age.CHILD): 0.5}, (Species.CAT, Age.CHILD): {Species.HUMAN: 0.7, (Species.HUMAN, Age.CHILD): 0.6, Species.DOG: 0.9, (Species.DOG, Age.CHILD): 0.3, Species.CAT: 0.5, (Species.CAT, Age.CHILD): 0.3}}
 
 def get_sims3_social_distance(sim_a_species, sim_a_age, sim_b_species, sim_b_age):
     sim_a_key = (sim_a_species, sim_a_age)
@@ -24,7 +24,7 @@ def get_sims3_social_distance(sim_a_species, sim_a_age, sim_b_species, sim_b_age
     return SIMS_3_DISTANCE_MATRIX[sim_a_key][sim_b_key]
 
 ReserveSpace = collections.namedtuple('_ReserveSpace', ('front', 'back', 'left', 'right'))
-DEFAULT_RESERVE_SPACE = {(SpeciesExtended.SMALLDOG, Age.CHILD): ReserveSpace(0.4, 0.5, 0.3, 0.3), SpeciesExtended.SMALLDOG: ReserveSpace(0.4, 0.5, 0.3, 0.3), (Species.CAT, Age.CHILD): ReserveSpace(0.2, 0.3, 0.2, 0.2), Species.CAT: ReserveSpace(0.4, 0.5, 0.3, 0.3), (Species.DOG, Age.CHILD): ReserveSpace(0.4, 0.5, 0.3, 0.3), Species.DOG: ReserveSpace(0.75, 1.0, 0.3, 0.3), (Species.HUMAN, Age.CHILD): ReserveSpace(0.5, 0.5, 0.5, 0.5), Species.HUMAN: ReserveSpace(0.5, 0.5, 0.5, 0.5)}
+DEFAULT_RESERVE_SPACE = {Species.HUMAN: ReserveSpace(0.5, 0.5, 0.5, 0.5), (Species.HUMAN, Age.CHILD): ReserveSpace(0.5, 0.5, 0.5, 0.5), Species.DOG: ReserveSpace(0.75, 1.0, 0.3, 0.3), (Species.DOG, Age.CHILD): ReserveSpace(0.4, 0.5, 0.3, 0.3), Species.CAT: ReserveSpace(0.4, 0.5, 0.3, 0.3), (Species.CAT, Age.CHILD): ReserveSpace(0.2, 0.3, 0.2, 0.2), SpeciesExtended.SMALLDOG: ReserveSpace(0.4, 0.5, 0.3, 0.3), (SpeciesExtended.SMALLDOG, Age.CHILD): ReserveSpace(0.4, 0.5, 0.3, 0.3)}
 
 def get_default_reserve_space(species, age):
     key = (species, age)
@@ -82,11 +82,12 @@ def generate_jig_polygon(loc_a, pos_a, rotation_a, loc_b, pos_b, rotation_b, a_l
     polygon = _generate_poly_points(sim_a_translation, sim_a_fwd, sim_b_translation, sim_b_fwd, a_left, a_right, a_front, a_back, b_left, b_right, b_front, b_back)
     context = placement.FindGoodLocationContext(start_location, object_polygons=(polygon,), **fgl_kwargs)
     (new_translation, new_orientation) = placement.find_good_location(context)
-    if fallback_routing_surface is not None:
-        start_location.routing_surface = fallback_routing_surface
-        context = placement.FindGoodLocationContext(start_location, object_polygons=(polygon,), **fgl_kwargs)
-        (new_translation, new_orientation) = placement.find_good_location(context)
-    if new_translation is None and new_translation is None:
+    if new_translation is None:
+        if fallback_routing_surface is not None:
+            start_location.routing_surface = fallback_routing_surface
+            context = placement.FindGoodLocationContext(start_location, object_polygons=(polygon,), **fgl_kwargs)
+            (new_translation, new_orientation) = placement.find_good_location(context)
+    if new_translation is None:
         return (None, None, None, None, None)
     if positioning_type == JigPositioning.RelativeToSimB:
         sim_b_translation = new_translation

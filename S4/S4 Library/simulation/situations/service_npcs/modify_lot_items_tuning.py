@@ -71,38 +71,36 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
         all_objects = list(services.object_manager().values())
         for obj in all_objects:
             if obj.is_sim:
-                pass
-            elif object_criteria is not None and not object_criteria(obj):
-                pass
-            else:
-                resolver = SingleObjectResolver(obj)
-                modified = False
-                for action_and_test in self.modifications:
-                    if not action_and_test.tests.run_tests(resolver):
-                        pass
-                    else:
-                        modified = True
-                        action = action_and_test.action
-                        action_type = action.action_type
-                        if action_type == ModifyAllLotItems.DESTROY_OBJECT:
-                            objects_to_destroy.append(obj)
-                            break
-                        elif action_type == ModifyAllLotItems.SET_STATE:
-                            new_state_value = action.action_value
-                            if obj.state_component and obj.has_state(new_state_value.state):
-                                obj.set_state(new_state_value.state, new_state_value, immediate=True)
-                                if action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
-                                    element = action.action_value()
-                                    element._do_behavior()
-                                else:
-                                    raise NotImplementedError
-                        elif action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
+                continue
+            if object_criteria is not None and not object_criteria(obj):
+                continue
+            resolver = SingleObjectResolver(obj)
+            modified = False
+            for action_and_test in self.modifications:
+                if not action_and_test.tests.run_tests(resolver):
+                    continue
+                modified = True
+                action = action_and_test.action
+                action_type = action.action_type
+                if action_type == ModifyAllLotItems.DESTROY_OBJECT:
+                    objects_to_destroy.append(obj)
+                    break
+                elif action_type == ModifyAllLotItems.SET_STATE:
+                    new_state_value = action.action_value
+                    if obj.state_component and obj.has_state(new_state_value.state):
+                        obj.set_state(new_state_value.state, new_state_value, immediate=True)
+                        if action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
                             element = action.action_value()
                             element._do_behavior()
                         else:
                             raise NotImplementedError
-                if modified:
-                    num_modified += 1
+                elif action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
+                    element = action.action_value()
+                    element._do_behavior()
+                else:
+                    raise NotImplementedError
+            if modified:
+                num_modified += 1
         for obj in objects_to_destroy:
             obj.destroy(source=self, cause='Destruction requested by modify lot tuning')
         objects_to_destroy = None

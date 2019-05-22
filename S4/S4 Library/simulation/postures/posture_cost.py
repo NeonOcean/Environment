@@ -41,7 +41,7 @@ class _PostureCostCustom(_PostureCost):
         return self.costs
 
 class _PostureCostSpecies(_PostureCost):
-    FACTORY_TUNABLES = {'default_cost': Tunable(description='\n            The cost to transition between the two postures for a species\n            without any specific tuning.\n            ', tunable_type=float, default=1), 'species_cost': TunableMapping(description='\n            For each species, define the cost to transition between the two\n            postures.\n            ', key_type=TunableEnumEntry(description='\n                The species this cost applies to.\n                ', tunable_type=Species, default=Species.HUMAN), value_type=Tunable(description='\n                For this species, the cost to transition between the two\n                postures.\n                ', tunable_type=float, default=1))}
+    FACTORY_TUNABLES = {'default_cost': Tunable(description='\n            The cost to transition between the two postures for a species\n            without any specific tuning.\n            ', tunable_type=float, default=1), 'species_cost': TunableMapping(description='\n            For each species, define the cost to transition between the two\n            postures.\n            ', key_type=TunableEnumEntry(description='\n                The species this cost applies to.\n                ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=Tunable(description='\n                For this species, the cost to transition between the two\n                postures.\n                ', tunable_type=float, default=1))}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

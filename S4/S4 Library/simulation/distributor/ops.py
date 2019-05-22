@@ -369,11 +369,13 @@ class SetLocation(Op):
                 surface_object = posture.get_locomotion_surface()
                 if surface_object is not None:
                     surface_object_id = surface_object.id
-        if routing_surface.type == routing.SurfaceType.SURFACETYPE_OBJECT:
-            result = services.terrain_service.terrain_object().get_routing_surface_height_and_surface_object_at(location.transform.translation.x, location.transform.translation.z, routing_surface)
-            if result is not None:
-                (_, surface_object_id) = result
-        if surface_object_id is None and routing_surface is not None and surface_object_id is not None:
+        if surface_object_id is None:
+            if routing_surface is not None:
+                if routing_surface.type == routing.SurfaceType.SURFACETYPE_OBJECT:
+                    result = services.terrain_service.terrain_object().get_routing_surface_height_and_surface_object_at(location.transform.translation.x, location.transform.translation.z, routing_surface)
+                    if result is not None:
+                        (_, surface_object_id) = result
+        if surface_object_id is not None:
             self.op.surface_object_id = surface_object_id
 
     def __repr__(self):
@@ -1744,7 +1746,8 @@ class SetActorPosture(Op):
                 if carry_object.is_sim:
                     self.op.data.append(1)
                     break
-            self.op.data.append(0)
+            else:
+                self.op.data.append(0)
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SET_ACTOR_DATA)
@@ -2418,11 +2421,13 @@ class SetAwayAction(Op):
     def __init__(self, away_action):
         super().__init__()
         self.op = DistributorOps_pb2.SetAwayAction()
-        if away_action.icon_data is not None:
-            self.op.icon.type = away_action.icon_data.icon.type
-            self.op.icon.instance = away_action.icon_data.icon.instance
-            self.op.icon.group = away_action.icon_data.icon.group
-            self.op.tooltip = away_action.icon_data.tooltip()
+        if away_action is not None:
+            if away_action.is_running:
+                if away_action.icon_data is not None:
+                    self.op.icon.type = away_action.icon_data.icon.type
+                    self.op.icon.instance = away_action.icon_data.icon.instance
+                    self.op.icon.group = away_action.icon_data.icon.group
+                    self.op.tooltip = away_action.icon_data.tooltip()
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SET_AWAY_ACTION)

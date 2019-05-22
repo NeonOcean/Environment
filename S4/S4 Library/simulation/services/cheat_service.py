@@ -31,9 +31,10 @@ class CheatService(Service):
     def load(self, zone_data=None):
         account_data_msg = services.get_persistence_service().get_account_proto_buff()
         gameplay_account_data = account_data_msg.gameplay_account_data
-        if hasattr(gameplay_account_data, 'cheats_enabled'):
-            self.cheats_enabled = gameplay_account_data.cheats_enabled
-            self.cheats_ever_enabled = gameplay_account_data.cheats_ever_enabled
+        if gameplay_account_data is not None:
+            if hasattr(gameplay_account_data, 'cheats_enabled'):
+                self.cheats_enabled = gameplay_account_data.cheats_enabled
+                self.cheats_ever_enabled = gameplay_account_data.cheats_ever_enabled
 
     def send_to_client(self, client):
         if hasattr(Sims_pb2, 'CheatStatusUpdate'):

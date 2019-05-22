@@ -154,15 +154,16 @@ class GameClock(Service):
                     break
             new_speed = speed_request.speed
             break
-        logger.error('No valid game speeds in the game speed controllers: {}', self.speed_controllers, owner='bhill')
-        new_speed = ClockSpeedMode.PAUSED
+        else:
+            logger.error('No valid game speeds in the game speed controllers: {}', self.speed_controllers, owner='bhill')
+            new_speed = ClockSpeedMode.PAUSED
         old_speed = self._clock_speed
         if old_speed == new_speed:
             return
         self._update_time_spent_in_speed(old_speed)
         self._clock_speed = new_speed
         if new_speed == ClockSpeedMode.NORMAL and self.clock_speed_multiplier_type != ClockSpeedMultiplierType.DEFAULT:
-            self._set_clock_speed_multiplier_type(ClockSpeedMultiplierType.DEFAULT)
+            self._set_clock_speed_multiplier_type(ClockSpeedMultiplierType.DEFAULT, do_sync=False)
         if new_speed == ClockSpeedMode.SUPER_SPEED3:
             services.get_zone_situation_manager().ss3_make_all_npcs_leave_now()
         self._sync_clock_and_broadcast_gameclock(immediate=immediate)
@@ -279,7 +280,8 @@ class GameClock(Service):
                         break
                 secondary_speed = speed_request.speed
                 break
-            secondary_speed = None
+            else:
+                secondary_speed = None
             if secondary_speed != ClockSpeedMode.SUPER_SPEED3:
                 self.speed_controllers[source].push_speed(speed, reason=str(reason))
         self._update_speed(immediate=immediate)
@@ -365,17 +367,19 @@ class GameClock(Service):
             save_slot_data.gameplay_data.world_game_time = save_ticks
 
     def setup(self, gameplay_zone_data=None, save_slot_data=None):
-        if save_slot_data.HasField('gameplay_data'):
-            self._initial_ticks = save_slot_data.gameplay_data.world_game_time
+        if save_slot_data is not None:
+            if save_slot_data.HasField('gameplay_data'):
+                self._initial_ticks = save_slot_data.gameplay_data.world_game_time
 
     def set_initial_ticks_for_zone_startup(self, absolute_ticks):
         self._initial_ticks = absolute_ticks
         self._game_clock.set_ticks(0)
 
-    def _set_clock_speed_multiplier_type(self, clock_speed_multiplier_type):
+    def _set_clock_speed_multiplier_type(self, clock_speed_multiplier_type, do_sync=True):
         if self.clock_speed_multiplier_type != clock_speed_multiplier_type:
             self.clock_speed_multiplier_type = clock_speed_multiplier_type
-            self._update_speed()
+            if do_sync:
+                self._sync_clock_and_broadcast_gameclock()
             return True
         return False
 

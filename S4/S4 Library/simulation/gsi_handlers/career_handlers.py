@@ -104,9 +104,8 @@ def get_career_history_data(sim_info):
     for (career_uid, career_history) in sim_info.career_tracker.career_history.items():
         career = career_manager.get(career_uid)
         if career is None:
-            pass
-        else:
-            career_history_data.append({'career': career.__name__, 'track': career_history.career_track.__name__, 'level': career_history.level, 'user_level': career_history.user_level, 'overmax_level': career_history.overmax_level, 'highest_level': career_history.highest_level, 'time_of_leave': str(career_history.time_of_leave), 'daily_pay': career_history.daily_pay, 'days_worked': career_history.days_worked})
+            continue
+        career_history_data.append({'career': career.__name__, 'track': career_history.career_track.__name__, 'level': career_history.level, 'user_level': career_history.user_level, 'overmax_level': career_history.overmax_level, 'highest_level': career_history.highest_level, 'time_of_leave': str(career_history.time_of_leave), 'daily_pay': career_history.daily_pay, 'days_worked': career_history.days_worked})
     return career_history_data
 
 @GsiHandler('sim_career_view', sim_career_schema)
@@ -117,58 +116,63 @@ def generate_sim_career_view_data(sim_id:int=None):
     career_view_data = []
     for sim_info in list(sim_info_manager.objects):
         if sim_info.career_tracker is None:
-            pass
-        else:
-            careers = sim_info.careers.values()
-            if careers:
-                for career in careers:
-                    career_data = {'sim': '{}(uid: {})'.format(sim_info.full_name, int(career.guid64)), 'sim_id': str(sim_info.sim_id), 'career_uid': int(career.guid64)}
-                    career_data['name'] = type(career).__name__
-                    career_data['level'] = '{} ({})'.format(career.user_level, career.level)
-                    career_data['seniority'] = '{:.3f}'.format(career.get_career_seniority())
-                    career_data['location'] = str(career.get_career_location())
-                    (time_to_work, next_start_time, next_end_time) = career.get_next_work_time()
-                    career_data['time_to_work'] = str(time_to_work)
-                    if career._current_work_start is not None:
-                        career_data['current_work_time'] = get_work_hours_str(career._current_work_start, career._current_work_end)
-                    if next_start_time is not None:
-                        career_data['next_work_time'] = get_work_hours_str(next_start_time, next_end_time)
-                    career_data['is_work_time'] = career.is_work_time
-                    career_data['currently_at_work'] = career.currently_at_work
-                    career_data['work_performance'] = career.work_performance
-                    career_data['objectives'] = []
-                    if career.current_level_tuning.aspiration is not None:
-                        for objective in career.current_level_tuning.aspiration.objectives:
-                            objective_data = {}
-                            objective_data['objective'] = str(objective)
-                            if sim_info.aspiration_tracker is not None and sim_info.aspiration_tracker.objective_completed(objective):
-                                objective_data['is_complete'] = True
-                            else:
-                                objective_data['is_complete'] = False
-                            career_data['objectives'].append(objective_data)
-                    career_data['assignments'] = []
-                    if career.on_assignment:
-                        for assignment in career.active_assignments:
-                            assignment_data = {}
-                            assignment_data['assignment'] = str(assignment)
-                            career_data['assignments'].append(assignment_data)
-                    career_data['offered_assignments'] = []
-                    for (offered_assignment, test_result) in career.assignment_handler_gsi_cache:
-                        offer_data = {}
-                        offer_data['assignment'] = str(offered_assignment)
-                        offer_data['test_result'] = str(test_result)
-                        career_data['offered_assignments'].append(offer_data)
-                    career_level_data = get_all_career_level_data(career)
-                    career_data['career_levels'] = career_level_data
-                    career_data['career_history'] = get_career_history_data(sim_info)
-                    career_data['career_custom_data'] = []
-                    for (field_key, field_value) in career.get_custom_gsi_data().items():
-                        career_data['career_custom_data'].append({'field_key': field_key, 'field_value': field_value})
-                    career_view_data.append(career_data)
+            continue
+        careers = sim_info.careers.values()
+        if careers:
+            for career in careers:
+                career_data = {'sim': '{}(uid: {})'.format(sim_info.full_name, int(career.guid64)), 'sim_id': str(sim_info.sim_id), 'career_uid': int(career.guid64)}
+                career_data['name'] = type(career).__name__
+                career_data['level'] = '{} ({})'.format(career.user_level, career.level)
+                career_data['seniority'] = '{:.3f}'.format(career.get_career_seniority())
+                career_data['location'] = str(career.get_career_location())
+                (time_to_work, next_start_time, next_end_time) = career.get_next_work_time()
+                career_data['time_to_work'] = str(time_to_work)
+                if career._current_work_start is not None:
+                    career_data['current_work_time'] = get_work_hours_str(career._current_work_start, career._current_work_end)
+                if next_start_time is not None:
+                    career_data['next_work_time'] = get_work_hours_str(next_start_time, next_end_time)
+                career_data['is_work_time'] = career.is_work_time
+                career_data['currently_at_work'] = career.currently_at_work
+                career_data['work_performance'] = career.work_performance
+                career_data['objectives'] = []
+                if career.current_level_tuning.aspiration is not None:
+                    for objective in career.current_level_tuning.aspiration.objectives:
+                        objective_data = {}
+                        objective_data['objective'] = str(objective)
+                        if sim_info.aspiration_tracker is not None and sim_info.aspiration_tracker.objective_completed(objective):
+                            objective_data['is_complete'] = True
+                        else:
+                            objective_data['is_complete'] = False
+                        career_data['objectives'].append(objective_data)
+                career_data['assignments'] = []
+                if career.on_assignment:
+                    for assignment in career.active_assignments:
+                        assignment_data = {}
+                        assignment_data['assignment'] = str(assignment)
+                        career_data['assignments'].append(assignment_data)
+                career_data['offered_assignments'] = []
+                for (offered_assignment, test_result) in career.assignment_handler_gsi_cache:
+                    offer_data = {}
+                    offer_data['assignment'] = str(offered_assignment)
+                    offer_data['test_result'] = str(test_result)
+                    career_data['offered_assignments'].append(offer_data)
+                career_level_data = get_all_career_level_data(career)
+                career_data['career_levels'] = career_level_data
+                career_data['career_history'] = get_career_history_data(sim_info)
+                career_data['career_custom_data'] = []
+                for (field_key, field_value) in career.get_custom_gsi_data().items():
+                    career_data['career_custom_data'].append({'field_key': field_key, 'field_value': field_value})
+                career_view_data.append(career_data)
             else:
                 career_data = {'sim': sim_info.full_name, 'sim_id': str(sim_info.sim_id)}
                 career_data['name'] = 'No Career'
                 career_data['career_levels'] = []
                 career_data['career_history'] = get_career_history_data(sim_info)
                 career_view_data.append(career_data)
+        else:
+            career_data = {'sim': sim_info.full_name, 'sim_id': str(sim_info.sim_id)}
+            career_data['name'] = 'No Career'
+            career_data['career_levels'] = []
+            career_data['career_history'] = get_career_history_data(sim_info)
+            career_view_data.append(career_data)
     return career_view_data

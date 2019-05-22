@@ -20,10 +20,18 @@ import sims4.log
 logger = sims4.log.Logger('Relationship', default_owner='jjacobson')
 
 class Relationship:
-    __slots__ = ('_sim_id_a', '_sim_id_b', '_bi_directional_relationship_data', '_sim_a_relationship_data', '_sim_b_relationship_data', '_level_change_watcher_id', '_culling_alarm_handle', '_last_update_time', '_relationship_multipliers', '__weakref__')
+    __slots__ = ('_sim_id_a', '_sim_id_b', '_bi_directional_relationship_data', '_sim_a_relationship_data', '_sim_b_relationship_data', '_level_change_watcher_id', '_culling_alarm_handle', '_last_update_time', '_relationship_multipliers', '__weakref__', '_is_object_rel', '_target_object_id', '_target_object_manager_id', '_target_object_instance_id')
 
-    def __init__(self, sim_id_a:int, sim_id_b:int):
-        if sim_id_a < sim_id_b:
+    def __init__(self, sim_id_a:int, sim_id_b:int, obj_def_id=None):
+        self._is_object_rel = False
+        if obj_def_id:
+            self._sim_id_a = sim_id_a
+            self._sim_id_b = obj_def_id
+            self._is_object_rel = True
+            self._target_object_id = 0
+            self._target_object_manager_id = 0
+            self._target_object_instance_id = 0
+        elif sim_id_a < sim_id_b:
             self._sim_id_a = sim_id_a
             self._sim_id_b = sim_id_b
         else:
@@ -55,6 +63,9 @@ class Relationship:
 
     def find_sim_info_b(self):
         return services.sim_info_manager().get(self._sim_id_b)
+
+    def find_member_obj_b(self):
+        return services.definition_manager().get(self._sim_id_b)
 
     def find_sim_a(self):
         sim_info = self.find_sim_info_a()
@@ -109,13 +120,21 @@ class Relationship:
             rel_data.bit_added_buff = set()
         rel_data.bit_added_buffs.add(buff.guid64)
 
-    def _build_relationship_update_proto(self, actor_sim_info, target_sim_id, deltas=None):
-        msg = commodity_protocol.RelationshipUpdate()
-        actor_sim_id = actor_sim_info.sim_id
-        msg.actor_sim_id = actor_sim_id
-        msg.target_id.object_id = target_sim_id
-        msg.target_id.manager_id = services.sim_info_manager().id
-        msg.last_update_time = self._last_update_time
+    def _build_relationship_bit_proto(self, actor_sim_id, track_bits, msg):
+        for bit in self.get_bit_instances(actor_sim_id):
+            if not bit.visible:
+                continue
+            if bit.guid64 in track_bits:
+                continue
+            with ProtocolBufferRollback(msg.bit_updates) as bit_update:
+                bit_update.bit_id = bit.guid64
+                bit_timeout_data = self._get_uni_directional_rel_data(actor_sim_id)._find_timeout_data_by_bit_instance(bit)
+                if bit_timeout_data is not None:
+                    bit_alarm = bit_timeout_data.alarm_handle
+                    if bit_alarm is not None:
+                        bit_update.end_time = bit_alarm.finishing_time
+
+    def _build_relationship_track_proto(self, msg):
         client_tracks = [track for track in self._bi_directional_relationship_data.relationship_track_tracker if track.display_priority > 0]
         client_tracks.sort(key=lambda track: track.display_priority)
         track_bits = set()
@@ -128,43 +147,86 @@ class Relationship:
                     relationship_track_update.track_popup_priority = track.display_popup_priority
                     relationship_track_update.change_rate = track.get_change_rate()
             track_bits.add(track.get_bit_for_client().guid64)
-        for bit in self.get_bit_instances(actor_sim_id):
-            if not bit.visible:
-                pass
-            elif bit.guid64 in track_bits:
-                pass
-            else:
-                with ProtocolBufferRollback(msg.bit_updates) as bit_update:
-                    bit_update.bit_id = bit.guid64
-                    bit_timeout_data = self._get_uni_directional_rel_data(actor_sim_id)._find_timeout_data_by_bit_instance(bit)
-                    if bit_timeout_data is not None:
-                        bit_alarm = bit_timeout_data.alarm_handle
-                        if bit_alarm is not None:
-                            bit_update.end_time = bit_alarm.finishing_time
+        return track_bits
+
+    def _build_object_relationship_update_proto(self, actor_sim_info, member_obj_def_id, deltas=None):
+        msg = commodity_protocol.RelationshipUpdate()
+        actor_sim_id = actor_sim_info.sim_id
+        msg.actor_sim_id = actor_sim_id
+        if self._target_object_id == 0:
+            target_object = None
+            tag_set = services.relationship_service().get_mapped_tag_set_of_id(member_obj_def_id)
+            definition_ids = services.relationship_service().get_ids_of_tag_set(tag_set)
+            for definition_id in definition_ids:
+                for obj in services.object_manager().objects:
+                    if definition_id == obj.definition.id:
+                        target_object = obj
+                        break
+            if target_object is None:
+                logger.error('Failed to find an object with requested object tag set in the world,                             so the initial object type relationship creation for sim {} will not complete.', actor_sim_info)
+                return
+            (msg.target_id.object_id, msg.target_id.manager_id) = target_object.icon_info
+            msg.target_instance_id = target_object.id
+            self._target_object_id = msg.target_id.object_id
+            self._target_object_manager_id = msg.target_id.manager_id
+            self._target_object_instance_id = msg.target_instance_id
+        else:
+            msg.target_id.object_id = self._target_object_id
+            msg.target_id.manager_id = self._target_object_manager_id
+            msg.target_instance_id = self._target_object_instance_id
+        msg.last_update_time = self._last_update_time
+        track_bits = self._build_relationship_track_proto(msg)
+        self._build_relationship_bit_proto(actor_sim_id, track_bits, msg)
+        return msg
+
+    def _build_relationship_update_proto(self, actor_sim_info, target_sim_id, deltas=None):
+        msg = commodity_protocol.RelationshipUpdate()
+        actor_sim_id = actor_sim_info.sim_id
+        msg.actor_sim_id = actor_sim_id
+        msg.target_id.object_id = target_sim_id
+        msg.target_id.manager_id = services.sim_info_manager().id
+        msg.last_update_time = self._last_update_time
+        tracks = self._build_relationship_track_proto(msg)
+        self._build_relationship_bit_proto(actor_sim_id, tracks, msg)
         sim_info_manager = services.sim_info_manager()
         target_sim_info = sim_info_manager.get(target_sim_id)
         owner = sim_info_manager.get(actor_sim_id)
         knowledge = self._get_uni_directional_rel_data(actor_sim_id).knowledge
-        if owner.lod != SimInfoLODLevel.MINIMUM:
+        if knowledge is not None:
             if target_sim_info is not None:
-                msg.num_traits = len(target_sim_info.trait_tracker.personality_traits)
-            for trait in knowledge.known_traits:
-                msg.known_trait_ids.append(trait.guid64)
-            if knowledge.knows_career:
-                msg.known_careertrack_ids.extend(knowledge.get_known_careertrack_ids())
-            if knowledge._known_stats is not None:
-                for stat in knowledge._known_stats:
-                    msg.known_stat_ids.append(stat.guid64)
-        if target_sim_info.spouse_sim_id is not None:
-            msg.target_sim_significant_other_id = target_sim_info.spouse_sim_id
+                if target_sim_info.lod != SimInfoLODLevel.MINIMUM:
+                    if owner is not None:
+                        if owner.lod != SimInfoLODLevel.MINIMUM:
+                            if target_sim_info is not None:
+                                msg.num_traits = len(target_sim_info.trait_tracker.personality_traits)
+                            for trait in knowledge.known_traits:
+                                msg.known_trait_ids.append(trait.guid64)
+                            if knowledge.knows_career:
+                                msg.known_careertrack_ids.extend(knowledge.get_known_careertrack_ids())
+                            if knowledge._known_stats is not None:
+                                for stat in knowledge._known_stats:
+                                    msg.known_stat_ids.append(stat.guid64)
+        if target_sim_info is not None:
+            if target_sim_info.spouse_sim_id is not None:
+                msg.target_sim_significant_other_id = target_sim_info.spouse_sim_id
         return msg
 
     def _send_headlines_for_sim(self, sim_info, deltas, headline_icon_modifier=None):
         for (track, delta) in deltas.items():
             if track.headline is None:
-                pass
-            else:
-                track.headline.send_headline_message(sim_info, delta, icon_modifier=headline_icon_modifier)
+                continue
+            track.headline.send_headline_message(sim_info, delta, icon_modifier=headline_icon_modifier)
+
+    def _notify_client_object_rel(self, deltas=None, headline_icon_modifier=None):
+        if self.suppress_client_updates:
+            return
+        sim_info_a = self.find_sim_info_a()
+        if sim_info_a is not None and sim_info_a.is_npc:
+            return
+        if sim_info_a is not None:
+            op = self._build_object_relationship_update_proto(sim_info_a, self._sim_id_b, deltas=deltas)
+            if op is not None:
+                send_relationship_op(sim_info_a, op)
 
     def _notify_client(self, deltas=None, headline_icon_modifier=None):
         if self.suppress_client_updates:
@@ -184,6 +246,9 @@ class Relationship:
 
     def send_relationship_info(self, deltas=None, headline_icon_modifier=None):
         self._notify_client(deltas=deltas, headline_icon_modifier=headline_icon_modifier)
+
+    def send_object_relationship_info(self, deltas=None, headline_icon_modifier=None):
+        self._notify_client_object_rel(deltas=deltas, headline_icon_modifier=headline_icon_modifier)
 
     def relationship_tracks_gen(self):
         yield from self._bi_directional_relationship_data.relationship_track_tracker
@@ -232,7 +297,11 @@ class Relationship:
     def add_relationship_bit(self, actor_sim_id, target_sim_id, bit_to_add, notify_client=True, pending_bits=EMPTY_SET, force_add=False, from_load=False, send_rel_change_event=True):
         sim_info_manager = services.sim_info_manager()
         actor_sim_info = sim_info_manager.get(actor_sim_id)
-        target_sim_info = sim_info_manager.get(target_sim_id)
+        if self._is_object_rel:
+            target_sim_info = None
+            send_rel_change_event = False
+        else:
+            target_sim_info = sim_info_manager.get(target_sim_id)
         if send_rel_change_event:
             self._send_relationship_prechange_event(actor_sim_info, target_sim_info)
             if bit_to_add.directionality == RelationshipDirection.BIDIRECTIONAL:
@@ -241,11 +310,12 @@ class Relationship:
             logger.error('Error: Sim Id: {} trying to add a None relationship bit to Sim_Id: {}.', actor_sim_id, target_sim_id)
             return False
         if force_add:
-            if bit_to_add.triggered_track is not None:
-                track = bit_to_add.triggered_track
-                mean_list = track.bit_data.get_track_mean_list_for_bit(bit_to_add)
-                for mean_tuple in mean_list:
-                    self.set_relationship_score(mean_tuple.mean, track=mean_tuple.track)
+            if bit_to_add.is_track_bit:
+                if bit_to_add.triggered_track is not None:
+                    track = bit_to_add.triggered_track
+                    mean_list = track.bit_data.get_track_mean_list_for_bit(bit_to_add)
+                    for mean_tuple in mean_list:
+                        self.set_relationship_score(mean_tuple.mean, track=mean_tuple.track)
             for required_bit in bit_to_add.required_bits:
                 self.add_relationship_bit(actor_sim_id, target_sim_id, required_bit, force_add=True)
         required_bit_count = len(bit_to_add.required_bits)
@@ -254,26 +324,28 @@ class Relationship:
             if curr_bit is bit_to_add:
                 logger.debug('Attempting to add duplicate bit {} on {}', bit_to_add, actor_sim_info)
                 return False
-            if curr_bit in bit_to_add.required_bits:
-                required_bit_count -= 1
-            if required_bit_count and bit_to_add.group_id != RelationshipBitType.NoGroup and bit_to_add.group_id == curr_bit.group_id:
-                if bit_to_add.priority >= curr_bit.priority:
-                    if bit_to_remove is not None:
-                        logger.error('Multiple relationship bits of the same type are set on a single relationship: {}', self)
+            if required_bit_count:
+                if curr_bit in bit_to_add.required_bits:
+                    required_bit_count -= 1
+            if bit_to_add.group_id != RelationshipBitType.NoGroup:
+                if bit_to_add.group_id == curr_bit.group_id:
+                    if bit_to_add.priority >= curr_bit.priority:
+                        if bit_to_remove is not None:
+                            logger.error('Multiple relationship bits of the same type are set on a single relationship: {}', self)
+                            return False
+                        bit_to_remove = curr_bit
+                    else:
+                        logger.debug('Failed to add bit {}; existing bit {} has higher priority for {}', bit_to_add, curr_bit, self)
                         return False
-                    bit_to_remove = curr_bit
-                else:
-                    logger.debug('Failed to add bit {}; existing bit {} has higher priority for {}', bit_to_add, curr_bit, self)
-                    return False
         if bit_to_add.remove_on_threshold:
             track_val = self._bi_directional_relationship_data.relationship_track_tracker.get_value(bit_to_add.remove_on_threshold.track)
             if bit_to_add.remove_on_threshold.threshold.compare(track_val):
                 logger.debug('Failed to add bit {}; track {} meets the removal threshold {} for {}', bit_to_add, bit_to_add.remove_on_threshold.track, bit_to_add.remove_on_threshold.threshold, self)
                 return False
-        if from_load or required_bit_count > 0:
+        if not from_load and required_bit_count > 0:
             logger.debug('Failed to add bit {}; required bit count is {}', bit_to_add, required_bit_count)
             return False
-        if force_add or from_load or bit_to_add.group_id != RelationshipBitType.NoGroup:
+        if not force_add and not from_load and bit_to_add.group_id != RelationshipBitType.NoGroup:
             lock_type = RelationshipBitLock.get_lock_type_for_group_id(bit_to_add.group_id)
             if lock_type is not None:
                 if bit_to_add.directionality == RelationshipDirection.BIDIRECTIONAL:
@@ -282,9 +354,10 @@ class Relationship:
                     rel_data = self._get_uni_directional_rel_data(actor_sim_id)
                 lock = rel_data.get_lock(lock_type)
                 if lock is not None:
-                    if not lock.try_and_aquire_lock_permission():
-                        logger.debug('Failed to add bit {} because of Relationship Bit Lock {}', bit_to_add, lock_type)
-                        return False
+                    if bit_to_remove is not None:
+                        if not lock.try_and_aquire_lock_permission():
+                            logger.debug('Failed to add bit {} because of Relationship Bit Lock {}', bit_to_add, lock_type)
+                            return False
                 else:
                     lock = rel_data.add_lock(lock_type)
                 lock.lock()
@@ -378,7 +451,7 @@ class Relationship:
         rel_data.remove_bit(bit)
         if notify_client is True:
             self._notify_client()
-        if send_rel_change_event:
+        if not self._is_object_rel and send_rel_change_event:
             self._send_relationship_changed_event(actor_sim_info, target_sim_info)
             if bit.directionality == RelationshipDirection.BIDIRECTIONAL:
                 self._send_relationship_changed_event(target_sim_info, actor_sim_info)
@@ -490,11 +563,23 @@ class Relationship:
         self._sim_b_relationship_data.save_relationship_data(relationship_msg.sim_b_relationship_data)
         relationship_msg.last_update_time = self._last_update_time
 
+    def save_object_relationship(self, relationship_msg):
+        self.save_relationship(relationship_msg)
+        relationship_msg.target_object_id = self._target_object_id
+        relationship_msg.target_object_manager_id = self._target_object_manager_id
+        relationship_msg.target_object_instance_id = self._target_object_instance_id
+
     def load_relationship(self, relationship_msg):
         self._bi_directional_relationship_data.load_relationship_data(relationship_msg.bidirectional_relationship_data)
         self._sim_a_relationship_data.load_relationship_data(relationship_msg.sim_a_relationship_data)
         self._sim_b_relationship_data.load_relationship_data(relationship_msg.sim_b_relationship_data)
         self._last_update_time = relationship_msg.last_update_time
+
+    def load_object_relationship(self, relationship_msg):
+        self.load_relationship(relationship_msg)
+        self._target_object_id = relationship_msg.target_object_id
+        self._target_object_manager_id = relationship_msg.target_object_manager_id
+        self._target_object_instance_id = relationship_msg.target_object_instance_id
 
     def build_printable_string_of_bits(self, sim_id):
         return '\t\t{}'.format('\n\t\t'.join(map(str, self.get_bit_instances(sim_id))))
@@ -507,16 +592,17 @@ class Relationship:
 
     def _send_destroy_message_to_client(self):
         msg_a = commodity_protocol.RelationshipDelete()
-        msg_b = commodity_protocol.RelationshipDelete()
         msg_a.actor_sim_id = self._sim_id_a
-        msg_b.actor_sim_id = self._sim_id_b
         msg_a.target_id = self._sim_id_b
-        msg_b.target_id = self._sim_id_a
         op_a = GenericProtocolBufferOp(DistributorOps_pb2.Operation.SIM_RELATIONSHIP_DELETE, msg_a)
-        op_b = GenericProtocolBufferOp(DistributorOps_pb2.Operation.SIM_RELATIONSHIP_DELETE, msg_b)
         distributor = Distributor.instance()
         distributor.add_op(self.find_sim_info_a(), op_a)
-        distributor.add_op(self.find_sim_info_b(), op_b)
+        if not self._is_object_rel:
+            msg_b = commodity_protocol.RelationshipDelete()
+            msg_b.actor_sim_id = self._sim_id_b
+            msg_b.target_id = self._sim_id_a
+            op_b = GenericProtocolBufferOp(DistributorOps_pb2.Operation.SIM_RELATIONSHIP_DELETE, msg_b)
+            distributor.add_op(self.find_sim_info_b(), op_b)
 
     def destroy(self, notify_client=True):
         if notify_client:
@@ -534,3 +620,13 @@ class Relationship:
         if lock is None:
             lock = self._get_uni_directional_rel_data(sim_id).get_lock(lock_type)
         return lock
+
+    def on_sim_creation(self, sim):
+        self._bi_directional_relationship_data.on_sim_creation(sim)
+        if sim.sim_id == self._sim_id_a:
+            self._sim_a_relationship_data.on_sim_creation(sim)
+        else:
+            self._sim_b_relationship_data.on_sim_creation(sim)
+
+    def is_object_rel(self):
+        return self._is_object_rel

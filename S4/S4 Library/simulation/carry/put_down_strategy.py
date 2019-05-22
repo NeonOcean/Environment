@@ -20,4 +20,4 @@ class PutDownStrategy(HasTunableReference, metaclass=TunedInstanceMetaclass, man
 class TunablePutDownStrategySpeciesMapping(TunableMapping):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, key_type=TunableEnumEntry(description="\n                The Sim's species.\n                ", tunable_type=Species, default=Species.HUMAN), value_type=PutDownStrategy.TunableReference(), **kwargs)
+        super().__init__(*args, key_type=TunableEnumEntry(description="\n                The Sim's species.\n                ", tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=PutDownStrategy.TunableReference(), **kwargs)

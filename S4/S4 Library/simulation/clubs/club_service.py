@@ -138,7 +138,7 @@ class ClubService(Service):
             return
         current_zone_id = services.current_zone_id()
         zone_id = current_zone_id if zone_id is DEFAULT else zone_id
-        if ignore_zone_validity or not club.is_zone_valid_for_gathering(zone_id):
+        if not ignore_zone_validity and not club.is_zone_valid_for_gathering(zone_id):
             return
         if zone_id != current_zone_id:
             for sim_info in invited_sims:
@@ -178,9 +178,8 @@ class ClubService(Service):
         sim_filter_service = services.sim_filter_service()
         for sim_info in club.members:
             if sim_info not in invited_sims and not sim_filter_service.does_sim_match_filter(sim_info.sim_id, sim_filter=club_gathering_default_job.filter, gsi_source_fn=lambda : self._get_sim_filter_gsi_name(True, sim_info=sim_info)):
-                pass
-            else:
-                guest_list.add_guest_info(SituationGuestInfo(sim_info.sim_id, club_gathering_default_job, RequestSpawningOption.DONT_CARE, BouncerRequestPriority.BACKGROUND_HIGH, expectation_preference=True))
+                continue
+            guest_list.add_guest_info(SituationGuestInfo(sim_info.sim_id, club_gathering_default_job, RequestSpawningOption.DONT_CARE, BouncerRequestPriority.BACKGROUND_HIGH, expectation_preference=True))
         if zone_id != current_zone_id:
             persistence_service = services.get_persistence_service()
             if persistence_service.is_save_locked():
@@ -226,23 +225,20 @@ class ClubService(Service):
         ensemble_service = services.ensemble_service()
         for group_sim in group:
             if group_sim in self.sims_to_gatherings_map:
-                pass
-            else:
-                ensemble = ensemble_service.get_visible_ensemble_for_sim(group_sim)
-                if ensemble is not None:
-                    pass
-                else:
-                    club_counter.update({club: 1 for club in self.get_clubs_for_sim_info(group_sim.sim_info)})
+                continue
+            ensemble = ensemble_service.get_visible_ensemble_for_sim(group_sim)
+            if ensemble is not None:
+                continue
+            club_counter.update({club: 1 for club in self.get_clubs_for_sim_info(group_sim.sim_info)})
         for (club, count) in club_counter.most_common():
             if count < ClubTunables.CLUB_GATHERING_AUTO_START_GROUP_SIZE:
                 break
             if club in self.clubs_to_gatherings_map:
-                pass
-            elif not club.is_gathering_auto_start_available():
-                pass
-            else:
-                self.start_gathering(club)
-                break
+                continue
+            if not club.is_gathering_auto_start_available():
+                continue
+            self.start_gathering(club)
+            break
 
     def on_sim_killed_or_culled(self, sim_info):
         for club in tuple(self.get_clubs_for_sim_info(sim_info)):
@@ -250,8 +246,9 @@ class ClubService(Service):
 
     def handle_event(self, sim_info, event_type, resolver):
         for club in tuple(self.get_clubs_for_sim_info(sim_info)):
-            if club.validate_sim_info(sim_info, update_if_invalid=True) or sim_info.is_selectable:
-                club.show_club_notification(sim_info, ClubTunables.CLUB_NOTIFICATION_INVALID)
+            if not club.validate_sim_info(sim_info, update_if_invalid=True):
+                if sim_info.is_selectable:
+                    club.show_club_notification(sim_info, ClubTunables.CLUB_NOTIFICATION_INVALID)
 
     def get_clubs_for_sim_info(self, sim_info):
         return frozenset(self._sim_infos_to_clubs_map.get(sim_info, ()))
@@ -271,10 +268,10 @@ class ClubService(Service):
             return NO_EFFECT
         for rule in self.club_rule_mapping[sim_info][interaction_type]:
             if rule.club is not club_gathering.associated_club:
-                pass
-            elif not self._does_rule_pass_tests(sim_info, rule, aop_or_interaction):
-                pass
-            elif not rule.is_encouraged:
+                continue
+            if not self._does_rule_pass_tests(sim_info, rule, aop_or_interaction):
+                continue
+            if not rule.is_encouraged:
                 discouraged_rules.append(rule)
             elif not discouraged_rules:
                 encouraged_rules.append(rule)
@@ -382,13 +379,12 @@ class ClubService(Service):
         for club in unique_clubs:
             for affordance in club_tuning.ClubTunables.CLUB_SUPER_INTERACTIONS:
                 if affordance.ASSOCIATED_PICK_TYPE != pick_type:
-                    pass
-                elif not context.source == InteractionSource.AUTONOMY or not affordance.allow_autonomous:
-                    pass
-                elif any(si.get_interaction_type() is affordance and (si.associated_club is club and target in si.get_potential_mixer_targets()) for si in context.sim.si_state):
-                    pass
-                else:
-                    yield (club, affordance)
+                    continue
+                if not not context.source == InteractionSource.AUTONOMY and not not affordance.allow_autonomous:
+                    continue
+                if any(si.get_interaction_type() is affordance and (si.associated_club is club and target in si.get_potential_mixer_targets()) for si in context.sim.si_state):
+                    continue
+                yield (club, affordance)
 
     def generate_members_for_membership_criteria(self, number_of_members, admission_criteria):
 
@@ -445,7 +441,7 @@ class ClubService(Service):
             if not criteria_infos:
                 return
             criteria_info = criteria_infos[0]
-            if criteria_info.resource_value or criteria_info.enum_value or not criteria_info.resource_id:
+            if not criteria_info.resource_value and not (not criteria_info.enum_value and not criteria_info.resource_id):
                 return
         try:
             club_criteria = criteria(criteria_infos=criteria_infos, criteria_id=criteria_data.criteria_id)
@@ -503,7 +499,7 @@ class ClubService(Service):
             else:
                 number_of_members = random.randint(club_seed.initial_number_of_memebers.lower_bound, club_seed.initial_number_of_memebers.upper_bound)
                 members = self.generate_members_for_membership_criteria(number_of_members, membership_criteria)
-                if members and len(members) < number_of_members:
+                if not members or len(members) < number_of_members:
                     return
                 leader = random.choice(members)
             name = None
@@ -639,11 +635,10 @@ class ClubService(Service):
         random.shuffle(shuffled_seeds)
         for seed in shuffled_seeds:
             if any(existing_club.club_seed is seed for existing_club in self._clubs):
-                pass
-            else:
-                self.create_club(club_seed=seed, refresh_cache=False)
-                if len(self._clubs) >= club_tuning.ClubTunables.MINIMUM_REQUIRED_CLUBS:
-                    break
+                continue
+            self.create_club(club_seed=seed, refresh_cache=False)
+            if len(self._clubs) >= club_tuning.ClubTunables.MINIMUM_REQUIRED_CLUBS:
+                break
         self.update_affordance_cache()
 
     def _validate_club_hangout(self):
@@ -706,29 +701,18 @@ class ClubService(Service):
             venue_type = venue_manager.get(build_buy.get_current_venue(zone_data.zone_id))
             if not venue_type is None:
                 if not venue_type.allowed_for_clubs:
-                    pass
-                else:
-                    neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
-                    region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(neighborhood_data.region_id)
-                    if home_region.is_region_compatible(region_instance) or not current_region.is_region_compatible(region_instance):
-                        pass
-                    elif venue_type.residential:
-                        lot_data = persistence_service.get_lot_data_from_zone_data(zone_data)
-                        if lot_data is None:
-                            pass
-                        elif lot_data.lot_owner:
-                            if lot_data.lot_owner[0].household_id != services.active_household_id():
-                                pass
-                            else:
-                                location_data = Lot_pb2.LotInfoItem()
-                                location_data.zone_id = zone_data.zone_id
-                                location_data.name = zone_data.name
-                                location_data.world_id = zone_data.world_id
-                                location_data.lot_template_id = zone_data.lot_template_id
-                                location_data.lot_description_id = zone_data.lot_description_id
-                                location_data.venue_type = get_protobuff_for_key(venue_type.resource_key)
-                                available_lots.append(location_data)
-                    else:
+                    continue
+                neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
+                region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(neighborhood_data.region_id)
+                if not home_region.is_region_compatible(region_instance) and not current_region.is_region_compatible(region_instance):
+                    continue
+                if venue_type.residential:
+                    lot_data = persistence_service.get_lot_data_from_zone_data(zone_data)
+                    if lot_data is None:
+                        continue
+                    if lot_data.lot_owner:
+                        if lot_data.lot_owner[0].household_id != services.active_household_id():
+                            continue
                         location_data = Lot_pb2.LotInfoItem()
                         location_data.zone_id = zone_data.zone_id
                         location_data.name = zone_data.name
@@ -737,6 +721,15 @@ class ClubService(Service):
                         location_data.lot_description_id = zone_data.lot_description_id
                         location_data.venue_type = get_protobuff_for_key(venue_type.resource_key)
                         available_lots.append(location_data)
+                else:
+                    location_data = Lot_pb2.LotInfoItem()
+                    location_data.zone_id = zone_data.zone_id
+                    location_data.name = zone_data.name
+                    location_data.world_id = zone_data.world_id
+                    location_data.lot_template_id = zone_data.lot_template_id
+                    location_data.lot_description_id = zone_data.lot_description_id
+                    location_data.venue_type = get_protobuff_for_key(venue_type.resource_key)
+                    available_lots.append(location_data)
         op = SendClubBuildingInfo(criterias, available_lots)
         Distributor.instance().add_op_with_no_owner(op)
 
@@ -749,8 +742,8 @@ class ClubService(Service):
             failed_criterias = []
             for criteria in criterias:
                 if criteria is None:
-                    pass
-                elif not criteria.test_sim_info(sim_info):
+                    continue
+                if not criteria.test_sim_info(sim_info):
                     failed_criterias.append(criteria.criteria_id)
             if failed_criterias:
                 failure_pairs.append((sim_id, failed_criterias))
@@ -826,10 +819,9 @@ class ClubService(Service):
             self._deferred_distribution_ops[ClubMessageType.UPDATE] -= self._deferred_distribution_ops[ClubMessageType.REMOVE]
             for (message_type, clubs) in self._deferred_distribution_ops.items():
                 if not clubs:
-                    pass
-                else:
-                    op = SendClubInfo(clubs, message_type)
-                    Distributor.instance().add_op_with_no_owner(op)
+                    continue
+                op = SendClubInfo(clubs, message_type)
+                Distributor.instance().add_op_with_no_owner(op)
             self._deferred_distribution_ops = None
 
     def distribute_club_add(self, clubs):

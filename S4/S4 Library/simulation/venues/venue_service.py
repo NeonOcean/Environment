@@ -16,7 +16,13 @@ import persistence_error_types
 import services
 import sims4.log
 import sims4.resources
+import telemetry_helper
 import zone_director
+TELEMETRY_GROUP_VENUE = 'VENU'
+TELEMETRY_HOOK_TIMESPENT = 'TMSP'
+TELEMETRY_FIELD_VENUE = 'venu'
+TELEMETRY_FIELD_VENUE_TIMESPENT = 'vtsp'
+venue_telemetry_writer = sims4.telemetry.TelemetryWriter(TELEMETRY_GROUP_VENUE)
 try:
     import _zone
 except ImportError:
@@ -43,6 +49,7 @@ class VenueService(Service):
         self._prior_open_street_director_proto = None
         self.build_buy_edit_mode = False
         self.on_venue_type_changed = CallableList()
+        self._venue_start_time = None
 
     @classproperty
     def save_error_code(cls):
@@ -68,9 +75,20 @@ class VenueService(Service):
             if self._special_event_start_alarm is not None:
                 alarms.cancel_alarm(self._special_event_start_alarm)
                 self._special_event_start_alarm = None
+        self._send_venue_time_spent_telemetry()
         new_venue = venue_type()
         self._venue = new_venue
+        self._venue_start_time = services.time_service().sim_now
         return True
+
+    def _send_venue_time_spent_telemetry(self):
+        if self._venue is None or self._venue_start_time is None:
+            return
+        time_spent_mins = (services.time_service().sim_now - self._venue_start_time).in_minutes()
+        if time_spent_mins:
+            with telemetry_helper.begin_hook(venue_telemetry_writer, TELEMETRY_HOOK_TIMESPENT) as hook:
+                hook.write_guid(TELEMETRY_FIELD_VENUE, self._venue.guid64)
+                hook.write_int(TELEMETRY_FIELD_VENUE_TIMESPENT, time_spent_mins)
 
     def get_venue_tuning(self, zone_id):
         venue_tuning = None
@@ -83,17 +101,18 @@ class VenueService(Service):
         if self.build_buy_edit_mode:
             return
         type_changed = self._set_venue(venue_type)
-        if self._venue is not None:
-            zone_director = self._venue.create_zone_director_instance()
-            self.change_zone_director(zone_director, run_cleanup=True)
-            self.create_situations_during_zone_spin_up()
-            if self._zone_director.should_create_venue_background_situation:
-                self._venue.schedule_background_events(schedule_immediate=True)
-                self._venue.schedule_special_events(schedule_immediate=False)
-                self._venue.schedule_club_gatherings(schedule_immediate=True)
-            self.on_venue_type_changed()
-            for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-                sim.sim_info.add_venue_buffs()
+        if type_changed:
+            if self._venue is not None:
+                zone_director = self._venue.create_zone_director_instance()
+                self.change_zone_director(zone_director, run_cleanup=True)
+                self.create_situations_during_zone_spin_up()
+                if self._zone_director.should_create_venue_background_situation:
+                    self._venue.schedule_background_events(schedule_immediate=True)
+                    self._venue.schedule_special_events(schedule_immediate=False)
+                    self._venue.schedule_club_gatherings(schedule_immediate=True)
+                self.on_venue_type_changed()
+                for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
+                    sim.sim_info.add_venue_buffs()
 
     def make_venue_type_zone_director_request(self):
         if self._venue is None:
@@ -191,6 +210,7 @@ class VenueService(Service):
                 cleanup.modify_objects()
 
     def stop(self):
+        self._send_venue_time_spent_telemetry()
         if self.build_buy_edit_mode:
             return
         self._set_zone_director(None, True)
@@ -223,6 +243,19 @@ class VenueService(Service):
         if self._venue is not None:
             self._venue.schedule_special_events(schedule_immediate=True)
 
+    def is_zone_valid_for_venue_type(self, zone_id, venue_types, compatible_region=None):
+        if not zone_id:
+            return False
+        venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
+        venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
+        if venue_type not in venue_types:
+            return False
+        elif compatible_region is not None:
+            venue_region = get_region_instance_from_zone_id(zone_id)
+            if venue_region is None or not compatible_region.is_region_compatible(venue_region):
+                return False
+        return True
+
     def has_zone_for_venue_type(self, venue_types, compatible_region=None):
         for _ in self.get_zones_for_venue_type_gen(*venue_types, compatible_region=compatible_region):
             return True
@@ -233,23 +266,8 @@ class VenueService(Service):
         for neighborhood_proto in services.get_persistence_service().get_neighborhoods_proto_buf_gen():
             for lot_owner_info in neighborhood_proto.lots:
                 zone_id = lot_owner_info.zone_instance_id
-                if not zone_id:
-                    pass
-                else:
-                    venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
-                    if venue_type is None:
-                        pass
-                    elif venue_type not in venue_types:
-                        pass
-                    elif compatible_region is not None:
-                        venue_region = get_region_instance_from_zone_id(zone_id)
-                        if not venue_region is None:
-                            if not compatible_region.is_region_compatible(venue_region):
-                                pass
-                            else:
-                                yield zone_id
-                    else:
-                        yield zone_id
+                if self.is_zone_valid_for_venue_type(zone_id, venue_types, compatible_region=compatible_region):
+                    yield zone_id
 
     def get_zone_and_venue_type_for_venue_types(self, venue_types, compatible_region=None):
         possible_zones = []
@@ -261,16 +279,22 @@ class VenueService(Service):
         return (None, None)
 
     def save(self, zone_data=None, open_street_data=None, **kwargs):
-        if self._venue is not None:
-            venue_data = zone_data.gameplay_zone_data.venue_data
-            if self._venue.active_background_event_id is not None:
-                venue_data.background_situation_id = self._venue.active_background_event_id
-            if self._venue.active_special_event_id is not None:
-                venue_data.special_event_id = self._venue.active_special_event_id
-            if self._zone_director is not None:
-                zone_director_data = gameplay_serialization.ZoneDirectorData()
-                self._zone_director.save(zone_director_data, open_street_data)
-                venue_data.zone_director = zone_director_data
+        if zone_data is not None:
+            if self._venue is not None:
+                venue_data = zone_data.gameplay_zone_data.venue_data
+                if self._venue.active_background_event_id is not None:
+                    venue_data.background_situation_id = self._venue.active_background_event_id
+                if self._venue.active_special_event_id is not None:
+                    venue_data.special_event_id = self._venue.active_special_event_id
+                if self._zone_director is not None:
+                    zone_director_data = gameplay_serialization.ZoneDirectorData()
+                    self._zone_director.save(zone_director_data, open_street_data)
+                    venue_data.zone_director = zone_director_data
+                else:
+                    if self._prior_open_street_director_proto is not None:
+                        open_street_data.open_street_director = self._prior_open_street_director_proto
+                    if self._prior_zone_director_proto is not None:
+                        venue_data.zone_director = self._prior_zone_director_proto
 
     def load(self, zone_data=None, **kwargs):
         if zone_data is not None and zone_data.HasField('gameplay_zone_data') and zone_data.gameplay_zone_data.HasField('venue_data'):

@@ -1,3 +1,4 @@
+from _math import Vector3
 from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT, STAND_OR_MOVING_STAND_CONSTRAINT, STAND_AT_NONE_CONSTRAINT
 from event_testing.results import TestResult
 from interactions import ParticipantType
@@ -29,7 +30,7 @@ class SitOrStandSuperInteraction(SuperInteraction):
 
     @classmethod
     def _test(cls, target, context, allow_posture_changes=False, **kwargs):
-        if context.sim.posture.mobile or not allow_posture_changes:
+        if not context.sim.posture.mobile and not allow_posture_changes:
             return TestResult(False, 'Sims can only satisfy constraints when they are mobile.')
         if context.sim.is_dying:
             return TestResult(False, 'Sims cannot satisfy constraints when they are dying.')
@@ -65,10 +66,13 @@ class SitOrStandSuperInteraction(SuperInteraction):
         result = yield from super()._run_interaction_gen(timeline)
         if not result:
             return False
+            yield
         elif self._run_element is not None:
             result = yield from element_utils.run_child(timeline, self._run_element)
             return result
+            yield
         return True
+        yield
 
 lock_instance_tunables(SitOrStandSuperInteraction, _constraints=frozendict(), _constraints_actor=ParticipantType.Object)
 
@@ -104,8 +108,9 @@ class GetOutOfPoolSuperInteraction(SitOrStandSuperInteraction):
         for pool in pool_utils.get_main_pool_objects_gen():
             if pool.block_id == sim_block_id:
                 break
-        logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
-        return Anywhere()
+        else:
+            logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
+            return Anywhere()
         return pool.get_edge_constraint(constraint_width=self.PERIMETER_WIDTH)
 
 class ExitMobilePostureSuperInteraction(SuperInteraction):
@@ -148,8 +153,9 @@ class ExitMobilePostureSuperInteraction(SuperInteraction):
         for pool in pool_utils.get_main_pool_objects_gen():
             if pool.block_id == sim_block_id:
                 break
-        logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
-        return Anywhere()
+        else:
+            logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
+            return Anywhere()
         return pool.get_edge_constraint(constraint_width=cls.PERIMETER_WIDTH)
 
     @flexmethod
@@ -170,10 +176,13 @@ class ExitMobilePostureSuperInteraction(SuperInteraction):
         result = yield from super()._run_interaction_gen(timeline)
         if not result:
             return False
+            yield
         elif self._run_element is not None:
             result = yield from element_utils.run_child(timeline, self._run_element)
             return result
+            yield
         return True
+        yield
 
 class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
     INSTANCE_SUBCLASSES_ONLY = True
@@ -189,6 +198,7 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
         result = yield from super()._run_interaction_gen(timeline)
         if not result:
             return False
+            yield
         if self._privacy is not None:
             constraint_to_satisfy = yield from self._create_constraint_set(self.context.sim, timeline)
             if not constraint_to_satisfy.valid:
@@ -203,6 +213,7 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
         if not result:
             logger.debug('Failed to push ForceSatisfyConstraintSuperInteraction on Sim {} to route them out of a privacy area.  Result: {}', self.sim, result, owner='tastle')
         return result
+        yield
 
     def _find_close_position(self, p1, p2):
         found_new_position = False
@@ -215,11 +226,12 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
             if not sims4.geometry.test_point_in_compound_polygon(p3, self._privacy.constraint.geometry.polygon):
                 valid_pos = True
                 p1 = p3
-                if valid_pos:
-                    found_new_position = True
+                if invalid_pos:
                     if valid_pos:
-                        invalid_pos = True
-                    p2 = p3
+                        found_new_position = True
+                        if valid_pos:
+                            invalid_pos = True
+                        p2 = p3
             else:
                 if valid_pos:
                     invalid_pos = True
@@ -246,8 +258,12 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
             if not sims4.geometry.test_point_in_compound_polygon(pos, self._privacy.constraint.geometry.polygon):
                 for surface in routing_surfaces:
                     goals.append(routing.Goal(routing.Location(pos, orient, surface)))
+        obj_pos = self._privacy.central_object.position
+        for offset in self._privacy.additional_exit_offsets:
+            goals.append(routing.Goal(routing.Location(obj_pos + Vector3(offset.x, 0, offset.y), orient, surface)))
         if not goals:
             return Nowhere('BuildAndForceSatisfyShooConstraintInteraction, Could not generate goals to exit a privacy region, Sim: {} Privacy Region: {}', sim, self._privacy.constraint.geometry.polygon)
+            yield
         route = routing.Route(sim.routing_location, goals, routing_context=sim.routing_context)
         plan_primitive = PlanRoute(route, sim, reserve_final_location=False)
         yield from element_utils.run_child(timeline, plan_primitive)
@@ -264,14 +280,11 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
                 if not sims4.geometry.test_point_in_compound_polygon(node_vector, self._privacy.constraint.geometry.polygon):
                     position = node_vector
                     if node.portal_id != 0:
-                        pass
-                    else:
-                        circle_constraint = interactions.constraints.Circle(position, self.TRIVIAL_SHOO_RADIUS, node.routing_surface_id)
-                        if circle_constraint.intersect(self._privacy.constraint).valid:
-                            pass
-                        else:
-                            break
-                            previous_node = node
+                        continue
+                    circle_constraint = interactions.constraints.Circle(position, self.TRIVIAL_SHOO_RADIUS, node.routing_surface_id)
+                    if circle_constraint.intersect(self._privacy.constraint).valid:
+                        continue
+                    break
                 previous_node = node
             position2 = sims4.math.Vector3(previous_node.position[0], previous_node.position[1], previous_node.position[2])
             if (position - position2).magnitude_2d_squared() > max_distance:
@@ -299,6 +312,7 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
         point_constraint = point_constraint.generate_constraint_with_cost(point_cost)
         constraints = (subtracted_cone_constraint, point_constraint)
         return interactions.constraints.create_constraint_set(constraints, debug_name='ShooPositions')
+        yield
 
     @classmethod
     def _is_linked_to(cls, super_affordance):

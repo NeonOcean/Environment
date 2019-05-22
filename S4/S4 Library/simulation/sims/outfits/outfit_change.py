@@ -128,9 +128,10 @@ class TunableOutfitChange(TunableVariant):
                 else:
                     outfit_category = OutfitCategory.SPECIAL
                     outfit_index = SpecialOutfitIndex.DEFAULT
-                if outfit_category not in REGULAR_OUTFIT_CATEGORIES:
-                    outfit_category = OutfitCategory.EVERYDAY
-                    outfit_index = 0
+                if self.restrict_to_regular:
+                    if outfit_category not in REGULAR_OUTFIT_CATEGORIES:
+                        outfit_category = OutfitCategory.EVERYDAY
+                        outfit_index = 0
                 return (outfit_category, outfit_index)
 
             def __call__(self, sim_info, outfit_generator):
@@ -170,7 +171,7 @@ class TunableOutfitChange(TunableVariant):
 
         def get_on_exit_change(self, interaction, sim_info=DEFAULT, **kwargs):
             sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info
-            if self.on_exit or self.on_entry is not None and self.on_entry.auto_undo_on_exit:
+            if not self.on_exit and self.on_entry is not None and self.on_entry.auto_undo_on_exit:
                 return sim_info.get_outfit_change(interaction, OutfitChangeReason.CurrentOutfit, **kwargs)
             if self.on_exit:
                 choice = self.choose_on_exit_clothing_change(sim_info)
@@ -197,7 +198,7 @@ class TunableOutfitChange(TunableVariant):
                 resolver = None
             else:
                 resolver = SingleSimResolver(sim_info)
-            if self.on_exit or self.on_entry is not None and self.on_entry.auto_undo_on_exit:
+            if not self.on_exit and self.on_entry is not None and self.on_entry.auto_undo_on_exit:
                 return sim_info.get_outfit_for_clothing_change(interaction, OutfitChangeReason.CurrentOutfit, resolver=resolver)
             if self.on_exit:
                 choice = self.choose_on_exit_clothing_change(sim_info)
@@ -232,7 +233,7 @@ class TunableOutfitChange(TunableVariant):
 
         def _get_outfit(self, interaction):
             outfits = interaction.get_participants(ParticipantType.PickedItemId)
-            if outfits is None:
+            if not outfits:
                 return
             outfit = next(iter(outfits))
             return outfit

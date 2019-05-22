@@ -138,8 +138,10 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
     def provided_routing_surface(self):
         if self._provided_surface is UNSET:
             self._provided_surface = None
-            if placement.has_object_surface_footprint(self.get_footprint()):
-                self._provided_surface = routing.SurfaceIdentifier(services.current_zone_id(), self.routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_OBJECT)
+            if self.routing_surface is not None:
+                if self.has_component(FOOTPRINT_COMPONENT):
+                    if placement.has_object_surface_footprint(self.get_footprint()):
+                        self._provided_surface = routing.SurfaceIdentifier(services.current_zone_id(), self.routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_OBJECT)
         return self._provided_surface
 
     def get_icon_override(self):
@@ -270,10 +272,11 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             self._build_buy_lockout_alarm_handler = None
         elif self._build_buy_lockout and lockout_state:
             return
-        if lockout_timer is not None:
-            time_span_real_time = clock.interval_in_real_seconds(lockout_timer)
-            self._build_buy_lockout_alarm_handler = alarms.add_alarm_real_time(self, time_span_real_time, lambda *_: self.set_build_buy_lockout_state(False))
-        if lockout_state and lockout_state and not self.build_buy_lockout:
+        if lockout_state:
+            if lockout_timer is not None:
+                time_span_real_time = clock.interval_in_real_seconds(lockout_timer)
+                self._build_buy_lockout_alarm_handler = alarms.add_alarm_real_time(self, time_span_real_time, lambda *_: self.set_build_buy_lockout_state(False))
+        if lockout_state and not self.build_buy_lockout:
             self.reset(ResetReason.RESET_EXPECTED)
         self._build_buy_lockout = lockout_state
         self.resend_interactable()
@@ -555,22 +558,22 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             return True
 
         def is_valid_surface_slot(slot_type):
-            if ignore_deco_slots and slot_type.is_deco_slot or slot_type.is_surface:
+            if not (ignore_deco_slots and slot_type.is_deco_slot) and slot_type.is_surface:
                 return True
             return False
 
         for runtime_slot in self.get_runtime_slots_gen():
-            if include_parts or runtime_slot.owner is not self:
-                pass
-            elif not any(is_valid_surface_slot(slot_type) for slot_type in runtime_slot.slot_types):
-                pass
-            elif not runtime_slot.owner.is_same_object_or_part(self):
-                pass
-            else:
-                self._is_surface[key] = True
-                return True
-        self._is_surface[key] = False
-        return False
+            if not include_parts and runtime_slot.owner is not self:
+                continue
+            if not any(is_valid_surface_slot(slot_type) for slot_type in runtime_slot.slot_types):
+                continue
+            if not runtime_slot.owner.is_same_object_or_part(self):
+                continue
+            self._is_surface[key] = True
+            return True
+        else:
+            self._is_surface[key] = False
+            return False
 
     def get_save_lot_coords_and_level(self):
         lot_coord_msg = LotCoord()
@@ -649,14 +652,16 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
                 (save_data.light_color.x, save_data.light_color.y, save_data.light_color.z, _) = sims4.color.to_rgba(self.lighting_component.light_color)
             save_data.light_dimmer_value = self.lighting_component.light_dimmer
         parent = self.bb_parent
-        if not parent.is_sim:
-            save_data.parent_id = parent.id
-        if not (parent is not None and parent is None or parent.is_sim):
+        if parent is not None:
+            if not parent.is_sim:
+                save_data.parent_id = parent.id
+        if not (parent is None or not parent.is_sim):
             save_data.object_parent_type = self._parent_type
             save_data.encoded_parent_location = self._parent_location
         inventory = self.inventory_component
-        if not inventory.is_shared_inventory:
-            save_data.unique_inventory = inventory.save_items()
+        if inventory is not None:
+            if not inventory.is_shared_inventory:
+                save_data.unique_inventory = inventory.save_items()
         return save_data
 
     def load_object(self, object_data):
@@ -718,6 +723,8 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             return Genre.get_genre_localized_string(self)
         if property_type == GameObjectProperty.RECIPE_NAME or property_type == GameObjectProperty.RECIPE_DESCRIPTION:
             return self.get_craftable_property(self, property_type)
+        if property_type == GameObjectProperty.OBJ_TYPE_REL_ID:
+            return services.relationship_service().get_object_type_rel_id(self)
         logger.error('Requested property_type {} not found on game_object'.format(property_type), owner='camilogarcia')
 
     def update_ownership(self, sim, make_sim_owner=True):
@@ -767,11 +774,10 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             child_targets = child.parts if child.parts else (child,)
             for child_target in child_targets:
                 if child_target.is_sim:
-                    pass
-                else:
-                    reserve_result = child_target.may_reserve(sim, *args, **kwargs)
-                    if not reserve_result:
-                        return reserve_result
+                    continue
+                reserve_result = child_target.may_reserve(sim, *args, **kwargs)
+                if not reserve_result:
+                    return reserve_result
         return super().may_reserve(sim, *args, **kwargs)
 
     def make_transient(self):
@@ -829,4 +835,4 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
         household_owner_id = self.household_owner_id
         household_owner = services.household_manager().get(household_owner_id)
         name = household_owner.name if household_owner is not None else 'Not Owned'
-        return [{value_name: name, key_name: 'Household Owner'}]
+        return [{key_name: 'Household Owner', value_name: name}]

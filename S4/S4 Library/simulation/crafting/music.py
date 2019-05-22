@@ -41,11 +41,10 @@ class MusicStyle(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=
                 has_skill_test = False
                 for test in test_group:
                     if not isinstance(test, SkillRangeTest):
-                        pass
-                    else:
-                        has_skill_test = True
-                        for level in range(test.skill_range_min, test.skill_range_max + 1):
-                            cls.tracks_by_skill[test.skill][level].add(track)
+                        continue
+                    has_skill_test = True
+                    for level in range(test.skill_range_min, test.skill_range_max + 1):
+                        cls.tracks_by_skill[test.skill][level].add(track)
                 if not has_skill_test:
                     logger.error('{} has no tuned skill test in one of its test groups. This makes it hard to optimize music track choosing. Please tune at least one skill test in every test group.', cls, owner='rmccord')
 

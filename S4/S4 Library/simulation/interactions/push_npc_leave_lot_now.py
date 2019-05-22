@@ -14,13 +14,12 @@ class PushNpcLeaveLotNowInteraction(XevtTriggeredElement):
         to_consider = []
         for existing_si in participant.si_state.all_guaranteed_si_gen(self.interaction.context.run_priority, group_id=self.interaction.context.group_id):
             if affordance.super_affordance_klobberers and affordance.super_affordance_klobberers(existing_si.affordance):
-                pass
-            else:
-                to_consider.append(existing_si)
+                continue
+            to_consider.append(existing_si)
         for existing_si in to_consider:
             if existing_si is self.interaction:
-                pass
-            elif not existing_si.si_state.test_non_constraint_compatibility(existing_si, affordance, participant):
+                continue
+            if not existing_si.si_state.test_non_constraint_compatibility(existing_si, affordance, participant):
                 return False
         return True
 
@@ -31,9 +30,9 @@ class PushNpcLeaveLotNowInteraction(XevtTriggeredElement):
             return
         trait_leave_lot_interactions = participant.trait_tracker.get_leave_lot_now_interactions(self.must_run)
         for interaction in trait_leave_lot_interactions:
-            if self.must_run or not self.can_push(participant, interaction):
-                pass
-            elif participant.push_super_affordance(interaction, None, self.interaction.context):
+            if not self.must_run and not self.can_push(participant, interaction):
+                continue
+            if participant.push_super_affordance(interaction, None, self.interaction.context):
                 return
         if self.must_run:
             for interaction in PushNpcLeaveLotNowInteraction.NPC_LEAVE_LOT_NOW_MUST_RUN_AFFORDANCE:
@@ -42,6 +41,6 @@ class PushNpcLeaveLotNowInteraction(XevtTriggeredElement):
         else:
             for interaction in PushNpcLeaveLotNowInteraction.NPC_LEAVE_LOT_NOW_AFFORDANCES:
                 if not self.can_push(participant, interaction):
-                    pass
-                elif participant.push_super_affordance(interaction, None, self.interaction.context):
+                    continue
+                if participant.push_super_affordance(interaction, None, self.interaction.context):
                     return

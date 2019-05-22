@@ -79,11 +79,12 @@ def log_environment_score(sim_id, primary_mood, score, mood_commodity, negative_
     object_data = []
     for (obj, mood_scores, negative_score, positive_score) in contributing_objects:
         valid_scores = {k: v for (k, v) in mood_scores.items() if v != 0}
-        if not positive_score != 0:
-            if valid_scores:
-                keys = [str(key.__name__) for key in valid_scores.keys()]
-                values = [str(value) for value in valid_scores.values()]
-                object_data.append({'object': gsi_handlers.gsi_utils.format_object_name(obj), 'object_id': obj.id, 'definition': obj.definition.name, 'object_moods': str(keys), 'object_scores': str(values), 'object_negative_score': negative_score, 'object_positive_score': positive_score})
+        if not negative_score != 0:
+            if not positive_score != 0:
+                if valid_scores:
+                    keys = [str(key.__name__) for key in valid_scores.keys()]
+                    values = [str(value) for value in valid_scores.values()]
+                    object_data.append({'object': gsi_handlers.gsi_utils.format_object_name(obj), 'object_id': obj.id, 'definition': obj.definition.name, 'object_moods': str(keys), 'object_scores': str(values), 'object_negative_score': negative_score, 'object_positive_score': positive_score})
         keys = [str(key.__name__) for key in valid_scores.keys()]
         values = [str(value) for value in valid_scores.values()]
         object_data.append({'object': gsi_handlers.gsi_utils.format_object_name(obj), 'object_id': obj.id, 'definition': obj.definition.name, 'object_moods': str(keys), 'object_scores': str(values), 'object_negative_score': negative_score, 'object_positive_score': positive_score})

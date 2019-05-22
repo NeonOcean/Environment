@@ -20,66 +20,19 @@ class FestivalRunningTest(HasTunableSingletonFactory, AutoFactoryInit, event_tes
         for node in drama_scheduler.active_nodes_gen():
             if self.drama_node is None:
                 if node.drama_node_type != DramaNodeType.FESTIVAL:
-                    pass
-                elif self.check_if_on_festival_street is not None and self.check_if_on_festival_street != node.is_on_festival_street():
-                    pass
-                else:
-                    if node.is_during_pre_festival():
-                        if not self.valid_time_blocks.pre_festival:
-                            pass
-                        else:
-                            if self.negate:
-                                return TestResult(False, 'Drama nodes match the required conditions.')
-                            return TestResult.TRUE
-                    elif not self.valid_time_blocks.running:
-                        pass
-                    else:
-                        if self.negate:
-                            return TestResult(False, 'Drama nodes match the required conditions.')
-                        return TestResult.TRUE
-                    if self.negate:
-                        return TestResult(False, 'Drama nodes match the required conditions.')
-                    return TestResult.TRUE
+                    continue
             elif type(node) is not self.drama_node:
-                pass
-            elif self.check_if_on_festival_street is not None and self.check_if_on_festival_street != node.is_on_festival_street():
-                pass
-            else:
-                if node.is_during_pre_festival():
-                    if not self.valid_time_blocks.pre_festival:
-                        pass
-                    else:
-                        if self.negate:
-                            return TestResult(False, 'Drama nodes match the required conditions.')
-                        return TestResult.TRUE
-                elif not self.valid_time_blocks.running:
-                    pass
-                else:
-                    if self.negate:
-                        return TestResult(False, 'Drama nodes match the required conditions.')
-                    return TestResult.TRUE
-                if self.negate:
-                    return TestResult(False, 'Drama nodes match the required conditions.')
-                return TestResult.TRUE
+                continue
             if self.check_if_on_festival_street is not None and self.check_if_on_festival_street != node.is_on_festival_street():
-                pass
-            else:
-                if node.is_during_pre_festival():
-                    if not self.valid_time_blocks.pre_festival:
-                        pass
-                    else:
-                        if self.negate:
-                            return TestResult(False, 'Drama nodes match the required conditions.')
-                        return TestResult.TRUE
-                elif not self.valid_time_blocks.running:
-                    pass
-                else:
-                    if self.negate:
-                        return TestResult(False, 'Drama nodes match the required conditions.')
-                    return TestResult.TRUE
-                if self.negate:
-                    return TestResult(False, 'Drama nodes match the required conditions.')
-                return TestResult.TRUE
+                continue
+            if node.is_during_pre_festival():
+                if not self.valid_time_blocks.pre_festival:
+                    continue
+            elif not self.valid_time_blocks.running:
+                continue
+            if self.negate:
+                return TestResult(False, 'Drama nodes match the required conditions.')
+            return TestResult.TRUE
         if self.negate:
             return TestResult.TRUE
         return TestResult(False, 'No drama nodes match the required conditions.')
@@ -98,14 +51,13 @@ class NextFestivalTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
         if not best_nodes:
             for node in drama_scheduler.scheduled_nodes_gen():
                 if node.drama_node_type != DramaNodeType.FESTIVAL:
-                    pass
-                else:
-                    new_time = node._selected_time - services.time_service().sim_now
-                    if best_time is None or new_time < best_time:
-                        best_nodes = [type(node)]
-                        best_time = new_time
-                    elif new_time == best_time:
-                        best_nodes.append(type(node))
+                    continue
+                new_time = node._selected_time - services.time_service().sim_now
+                if best_time is None or new_time < best_time:
+                    best_nodes = [type(node)]
+                    best_time = new_time
+                elif new_time == best_time:
+                    best_nodes.append(type(node))
         if not best_nodes:
             if self.negate:
                 return TestResult.TRUE
@@ -130,20 +82,19 @@ class TimeUntilFestivalTest(HasTunableSingletonFactory, AutoFactoryInit, event_t
         best_time = None
         for node in drama_scheduler.scheduled_nodes_gen():
             if node.drama_node_type != DramaNodeType.FESTIVAL:
-                pass
-            else:
-                if not self.drama_node is None:
-                    if self.drama_node is type(node):
-                        new_time = node.get_time_remaining()
-                        if not best_time is None:
-                            if new_time < best_time:
-                                best_time = new_time
-                        best_time = new_time
-                new_time = node.get_time_remaining()
-                if not best_time is None:
-                    if new_time < best_time:
-                        best_time = new_time
-                best_time = new_time
+                continue
+            if not self.drama_node is None:
+                if self.drama_node is type(node):
+                    new_time = node.get_time_remaining()
+                    if not best_time is None:
+                        if new_time < best_time:
+                            best_time = new_time
+                    best_time = new_time
+            new_time = node.get_time_remaining()
+            if not best_time is None:
+                if new_time < best_time:
+                    best_time = new_time
+            best_time = new_time
         if best_time is None:
             if not self.negate:
                 return TestResult(False, 'No scheduled Festivals of type {}.', self.drama_node, tooltip=self.tooltip)

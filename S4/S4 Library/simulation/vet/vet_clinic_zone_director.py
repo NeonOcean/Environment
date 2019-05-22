@@ -134,7 +134,7 @@ class VetClinicZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArrival
 
     def _process_traveled_sim(self, sim_info):
         current_zone = services.current_zone()
-        if current_zone.is_first_visit_to_zone or (current_zone.time_has_passed_in_world_since_zone_save() or current_zone.active_household_changed_between_save_and_load()) or not (sim_info.startup_sim_location is not None and services.active_lot().is_position_on_lot(sim_info.startup_sim_location.transform.translation)):
+        if current_zone.is_first_visit_to_zone or not not (current_zone.time_has_passed_in_world_since_zone_save() or not (current_zone.active_household_changed_between_save_and_load() or not (sim_info.startup_sim_location is not None and services.active_lot().is_position_on_lot(sim_info.startup_sim_location.transform.translation)))):
             super()._process_traveled_sim(sim_info)
         else:
             self._request_spawning_of_sim_at_location(sim_info, sims.sim_spawner_service.SimSpawnReason.TRAVELING)
@@ -297,8 +297,8 @@ class VetClinicZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArrival
         for situation_id in self._customer_situation_ids:
             situation = situation_manager.get(situation_id)
             if situation is None:
-                pass
-            elif criteria_test is None:
+                continue
+            if criteria_test is None:
                 yield situation
             elif criteria_test(situation):
                 yield situation
@@ -308,11 +308,8 @@ class VetClinicZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArrival
         for situation_id in self._waiting_situations:
             if situation_id in self._reservations:
                 reservation = self._reservations[situation_id]
-                if not now < reservation['expiration'] or reservation['reserver_id'] != potential_reserver_id:
-                    pass
-                else:
-                    for sim_id in self._waiting_situations[situation_id]:
-                        yield services.object_manager().get(sim_id)
+                if not not now < reservation['expiration'] and reservation['reserver_id'] != potential_reserver_id:
+                    continue
             else:
                 for sim_id in self._waiting_situations[situation_id]:
                     yield services.object_manager().get(sim_id)
@@ -326,11 +323,10 @@ class VetClinicZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArrival
         if self._business_manager is not None:
             for customer_situation in self.customer_situations_gen():
                 if not customer_situation.is_sim_in_situation(sim):
-                    pass
-                else:
-                    self._business_manager.bill_owner_for_treatment(*customer_situation.get_payment_data())
-                    customer_situation.apply_value_of_service()
-                    break
+                    continue
+                self._business_manager.bill_owner_for_treatment(*customer_situation.get_payment_data())
+                customer_situation.apply_value_of_service()
+                break
 
     @property
     def supported_business_types(self):

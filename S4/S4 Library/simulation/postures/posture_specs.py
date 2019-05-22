@@ -132,10 +132,10 @@ def _valid_objects_helper():
     result = set()
     for obj in object_manager().values():
         if not obj.is_valid_posture_graph_object:
-            pass
-        elif obj.is_sim or obj.is_hidden():
-            pass
-        elif obj.parts:
+            continue
+        if not obj.is_sim and obj.is_hidden():
+            continue
+        if obj.parts:
             result.update(obj.parts)
         else:
             result.add(obj)
@@ -325,8 +325,9 @@ def _spec_matches_request(sim, spec, var_map):
 
 def _in_var_map(obj, var_map):
     for target in var_map.values():
-        if isinstance(target, objects.game_object.GameObject) and target.is_same_object_or_part(obj):
-            return True
+        if isinstance(target, objects.game_object.GameObject):
+            if target.is_same_object_or_part(obj):
+                return True
     return False
 
 def destination_autonomous_availability_test(sim, body_target_obj, interaction):
@@ -348,7 +349,7 @@ def destination_test(sim, node, destination_specs, var_map, additional_test_fn, 
         body_target_obj = body_target.part_owner if body_target.is_part else body_target
         if sim.current_object_set_as_head is not None and sim.current_object_set_as_head() is body_target_obj:
             return False
-        if any(_in_var_map(child, var_map) for child in body_target.parenting_hierarchy_gen()) or not destination_autonomous_availability_test(sim, body_target_obj, interaction):
+        if not any(_in_var_map(child, var_map) for child in body_target.parenting_hierarchy_gen()) and not destination_autonomous_availability_test(sim, body_target_obj, interaction):
             return False
     if not any(node_matches_spec(node, destination_spec, var_map, True) for destination_spec in destination_specs):
         return False
@@ -638,14 +639,13 @@ class PostureSpec(tuple):
         for obj in (self.body_target, self.surface_target):
             if not obj is None:
                 if isinstance(obj, PostureSpecVariable):
-                    pass
-                else:
-                    if obj.valid_for_distribution and posture_graph_service.is_object_pending_deletion(obj):
-                        return False
-                    if obj.check_affordance_for_suppression(sim, interaction, user_directed=False):
-                        return False
-                    if not zone_director.zone_director_specific_destination_tests(sim, obj):
-                        return False
+                    continue
+                if not obj.valid_for_distribution or posture_graph_service.is_object_pending_deletion(obj):
+                    return False
+                if obj.check_affordance_for_suppression(sim, interaction, user_directed=False):
+                    return False
+                if not zone_director.zone_director_specific_destination_tests(sim, obj):
+                    return False
         return True
 
     def _validate_body(self, interaction, sim):
@@ -657,11 +657,13 @@ class PostureSpec(tuple):
             return True
         else:
             affordance = interaction.affordance
-            if sim is not interaction.sim:
-                linked_interaction_type = interaction.linked_interaction_type
-                if linked_interaction_type is not affordance:
-                    affordance = linked_interaction_type
-            if not (interaction.is_social and target.supports_affordance(affordance)):
+            if interaction.is_social:
+                if sim is not interaction.sim:
+                    linked_interaction_type = interaction.linked_interaction_type
+                    if linked_interaction_type is not None:
+                        if linked_interaction_type is not affordance:
+                            affordance = linked_interaction_type
+            if not target.supports_affordance(affordance):
                 return False
         return True
 
@@ -721,9 +723,9 @@ class PostureSpec(tuple):
     def _validate_subroot(self, interaction, sim):
         body_posture = self.body_posture
         if sim is interaction.sim and body_posture._actor_required_part_definition is not None:
-            if self.body_target.is_part and body_posture._actor_required_part_definition is not self.body_target.part_definition:
+            if not self.body_target.is_part or body_posture._actor_required_part_definition is not self.body_target.part_definition:
                 return False
-        elif sim is interaction.target and (body_posture._actor_b_required_part_definition is not None and self.body_target.is_part) and body_posture._actor_b_required_part_definition is not self.body_target.part_definition:
+        elif sim is interaction.target and body_posture._actor_b_required_part_definition is not None and (not self.body_target.is_part or body_posture._actor_b_required_part_definition is not self.body_target.part_definition):
             return False
         return True
 
@@ -840,12 +842,14 @@ class PostureOperation:
             base_cost = 0
             if current_mobile != next_mobile:
                 base_cost += postures.posture_scoring.PostureScoring.ENTER_EXIT_OBJECT_COST
-            if not next_mobile:
-                if vector3_almost_equal(curr_body_target.position, next_body_target.position):
-                    base_cost += postures.posture_scoring.PostureScoring.INNER_NON_MOBILE_TO_NON_MOBILE_COINCIDENT_COST
-                else:
-                    base_cost += postures.posture_scoring.PostureScoring.INNER_NON_MOBILE_TO_NON_MOBILE_COST
-            if curr_body_target is not next_body_target and (current_mobile or curr_posture_type.multi_sim):
+            if curr_body_target is not next_body_target:
+                if not current_mobile:
+                    if not next_mobile:
+                        if vector3_almost_equal(curr_body_target.position, next_body_target.position):
+                            base_cost += postures.posture_scoring.PostureScoring.INNER_NON_MOBILE_TO_NON_MOBILE_COINCIDENT_COST
+                        else:
+                            base_cost += postures.posture_scoring.PostureScoring.INNER_NON_MOBILE_TO_NON_MOBILE_COST
+            if curr_posture_type.multi_sim:
                 base_cost += PostureOperation.COST_STANDARD
             costs = dict(curr_posture_type.get_transition_costs(next_posture_type))
             for key in costs:
@@ -866,7 +870,7 @@ class PostureOperation:
             body = spec[BODY_INDEX]
             source_target = body[BODY_TARGET_INDEX]
             source_posture_type = body[BODY_POSTURE_TYPE_INDEX]
-            if source_posture_type.unconstrained or surface_target is not None and self.posture_type.unconstrained and self.posture_type is not PostureTuning.SIM_CARRIED_POSTURE:
+            if not source_posture_type.unconstrained and (surface_target is not None and self.posture_type.unconstrained) and self.posture_type is not PostureTuning.SIM_CARRIED_POSTURE:
                 return
             dest_target_is_not_none = destination_target is not None
             dest_target_parent = None
@@ -883,9 +887,9 @@ class PostureOperation:
                 if destination_target is not None or source_target is not None:
                     return
             elif source_posture_type.mobile and surface_target is None:
-                if self._posture_type.mobile or dest_target_is_not_none and source_target is not None and source_target != destination_target:
+                if not self._posture_type.mobile and (dest_target_is_not_none and source_target is not None) and source_target != destination_target:
                     return
-            elif source_posture_type.mobile or self._posture_type.mobile and destination_target is not None:
+            elif not source_posture_type.mobile and self._posture_type.mobile and destination_target is not None:
                 return
             if dest_target_is_not_none and destination_target.is_part and not destination_target.supports_posture_type(self._posture_type):
                 return
@@ -898,7 +902,7 @@ class PostureOperation:
                 dest_target_parent = dest_target_parent or destination_target.parent
                 if dest_target_parent is not None and dest_target_parent.is_surface():
                     return
-            if (self._posture_type.unconstrained or destination_target is not None and surface_target is None and destination_target is not body.target) and surface_target is not None:
+            if (self._posture_type.unconstrained or (not destination_target is not None or not surface_target is None) or destination_target is not body.target) and surface_target is not None:
                 dest_target_parent = dest_target_parent or destination_target.parent
                 if dest_target_parent is not surface_target:
                     return spec.clone(body=PostureAspectBody((self._posture_type, destination_target)), surface=PostureAspectSurface((destination_target.parent, None, None)))
@@ -922,19 +926,17 @@ class PostureOperation:
                 return True
             for supported_posture_info in body_target.supported_posture_types:
                 if supported_posture_info.posture_type is not self.posture_type:
-                    pass
-                else:
-                    required_clearance = supported_posture_info.required_clearance
-                    if required_clearance is None:
-                        pass
-                    else:
-                        transform_vector = body_target.transform.transform_vector(sims4.math.Vector3(0, 0, required_clearance))
-                        new_transform = sims4.math.Transform(body_target.transform.translation + transform_vector, body_target.transform.orientation)
-                        (result, _) = body_target.check_line_of_sight(new_transform, verbose=True)
-                        if not result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
-                            if result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
-                                return False
+                    continue
+                required_clearance = supported_posture_info.required_clearance
+                if required_clearance is None:
+                    continue
+                transform_vector = body_target.transform.transform_vector(sims4.math.Vector3(0, 0, required_clearance))
+                new_transform = sims4.math.Transform(body_target.transform.translation + transform_vector, body_target.transform.orientation)
+                (result, _) = body_target.check_line_of_sight(new_transform, verbose=True)
+                if not result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
+                    if result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
                         return False
+                return False
             next_body_target = node_body_target
             if next_body_target is not None:
                 if body_target.is_sim and not next_body_target.is_connected(body_target, ignore_all_objects=True):
@@ -1020,10 +1022,12 @@ class PostureOperation:
                     constraint = self.get_constraint(sim, node, var_map)
                     for sub_constraint in constraint:
                         if sub_constraint.routing_surface is not None and sub_constraint.routing_surface != body[BODY_TARGET_INDEX].routing_surface:
-                            pass
-                        elif sub_constraint.geometry is not None and sub_constraint.geometry.contains_point(body[BODY_TARGET_INDEX].position):
-                            break
-                    return False
+                            continue
+                        if sub_constraint.geometry is not None:
+                            if sub_constraint.geometry.contains_point(body[BODY_TARGET_INDEX].position):
+                                break
+                    else:
+                        return False
             return True
 
         def get_validator(self, next_node):
@@ -1123,7 +1127,7 @@ class PostureOperation:
             if node[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
                 return
             target = node[BODY_INDEX][BODY_TARGET_INDEX]
-            if target is not None and not (target == self._surface_target or target.parent == self._surface_target):
+            if target is not None and not target == self._surface_target and not target.parent == self._surface_target:
                 return
             carry_aspect = PostureAspectCarry((self._posture_type, None, PostureSpecVariable.HAND))
             surface_aspect = PostureAspectSurface((self._surface_target, self._slot_type, self._slot_target))
@@ -1139,11 +1143,13 @@ class PostureOperation:
                 if isinstance(parent_slot, animation.posture_manifest.SlotManifestEntry):
                     for parent_slot in self._surface_target.get_runtime_slots_gen(slot_types=parent_slot.slot_types):
                         break
-                    raise RuntimeError('Failed to resolve slot on {} of type {}'.format(self._surface_target, parent_slot.slot_types))
+                    else:
+                        raise RuntimeError('Failed to resolve slot on {} of type {}'.format(self._surface_target, {parent_slot}))
                 else:
                     for parent_slot in self._surface_target.get_runtime_slots_gen(slot_types={parent_slot}):
                         break
-                    raise RuntimeError('Failed to resolve slot on {} of type {}'.format(self._surface_target, {parent_slot}))
+                    else:
+                        raise RuntimeError('Failed to resolve slot on {} of type {}'.format(self._surface_target, {parent_slot}))
             from carry.carry_postures import CarrySystemRuntimeSlotTarget
             carry_system_target = CarrySystemRuntimeSlotTarget(sim, carry_target, True, parent_slot)
             return carry_system_target.get_constraint(sim)

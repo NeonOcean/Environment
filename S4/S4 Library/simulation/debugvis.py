@@ -133,14 +133,16 @@ class Context:
             self.add_segment(p, endpoint, color=color, altitude=altitude, routing_surface=routing_surface)
         else:
             endpoint = p
-        if start_len != 0:
-            for head_angle in (sims4.math.PI + angle - start_angle, sims4.math.PI + angle + start_angle):
-                head_end = _get_vector_from_offset_angle(p, head_angle, start_len)
-                self.add_segment(p, head_end, color=color, altitude=altitude, routing_surface=routing_surface)
-        if end_len != 0:
-            for head_angle in (sims4.math.PI + angle - end_angle, sims4.math.PI + angle + end_angle):
-                head_end = _get_vector_from_offset_angle(endpoint, head_angle, end_len)
-                self.add_segment(endpoint, head_end, color=color, altitude=altitude, routing_surface=routing_surface)
+        if start_arrow:
+            if start_len != 0:
+                for head_angle in (sims4.math.PI + angle - start_angle, sims4.math.PI + angle + start_angle):
+                    head_end = _get_vector_from_offset_angle(p, head_angle, start_len)
+                    self.add_segment(p, head_end, color=color, altitude=altitude, routing_surface=routing_surface)
+        if end_arrow:
+            if end_len != 0:
+                for head_angle in (sims4.math.PI + angle - end_angle, sims4.math.PI + angle + end_angle):
+                    head_end = _get_vector_from_offset_angle(endpoint, head_angle, end_len)
+                    self.add_segment(endpoint, head_end, color=color, altitude=altitude, routing_surface=routing_surface)
 
     def add_arrow_for_transform(self, transform, length=0.5, color=None, altitude=None):
         angle = sims4.math.yaw_quaternion_to_angle(transform.orientation)

@@ -67,7 +67,7 @@ class _WaypointGeneratorPacing(_WaypointGeneratorBase):
                 try_dist = (try_point.position - current_point.position).magnitude_squared()
                 farthest_point = try_point
                 break
-                if try_dist > min_dist_sq and (farthest_point is None or not farthest_point is not None) or try_dist > farthest_dist:
+                if not (try_dist > min_dist_sq and (farthest_point is None or not farthest_point is not None)) and try_dist > farthest_dist:
                     farthest_point = try_point
                     farthest_dist = try_dist
             current_point = farthest_point

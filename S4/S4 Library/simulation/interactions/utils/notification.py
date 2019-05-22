@@ -13,7 +13,7 @@ class NotificationElement(XevtTriggeredElement):
         return self.show_notification(*args, **kwargs)
 
     def show_notification(self, recipients=DEFAULT, **kwargs):
-        if self.allow_autonomous or self.interaction.is_autonomous:
+        if not self.allow_autonomous and self.interaction.is_autonomous:
             return
         if recipients is DEFAULT:
             if self.recipient_subject == ParticipantType.ActiveHousehold:

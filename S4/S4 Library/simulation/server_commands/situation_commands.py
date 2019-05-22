@@ -23,8 +23,8 @@ import situations
 logger = sims4.log.Logger('Situations')
 allow_debug_situations_in_ui = False
 
-def should_display_situation(situation_instance, sim, target_sim_id):
-    tuned_to_show = situation_instance.creation_ui_option == SituationCreationUIOption.AVAILABLE or situation_instance.creation_ui_option == SituationCreationUIOption.DEBUG_AVAILABLE and allow_debug_situations_in_ui
+def should_display_situation(situation_instance, sim, target_sim_id, from_situation_subset):
+    tuned_to_show = situation_instance.creation_ui_option == SituationCreationUIOption.AVAILABLE or (situation_instance.creation_ui_option == SituationCreationUIOption.DEBUG_AVAILABLE and allow_debug_situations_in_ui or from_situation_subset and situation_instance.creation_ui_option == SituationCreationUIOption.SPECIFIED_ONLY)
     result = situation_instance.is_situation_available(sim, target_sim_id)
     if tuned_to_show:
         mtx_id = 0
@@ -85,7 +85,7 @@ def get_situation_ids(session_id:int=0, sim_id:OptionalTargetParam=None, opt_tar
     valid_situations = []
     for situation_id in situation_ids:
         instance = instance_manager.get(situation_id)
-        (result, mtx_id) = should_display_situation(instance, sim, target_sim_id)
+        (result, mtx_id) = should_display_situation(instance, sim, target_sim_id, True)
         if not result:
             if result.tooltip is not None:
                 valid_situations.append((instance, mtx_id, result.tooltip))
@@ -93,13 +93,12 @@ def get_situation_ids(session_id:int=0, sim_id:OptionalTargetParam=None, opt_tar
     if not valid_situations:
         for instance in instance_manager.types.values():
             if instance.guid64 in situation_ids:
-                pass
-            else:
-                (result, mtx_id) = should_display_situation(instance, sim, target_sim_id)
-                if not result:
-                    if result.tooltip is not None:
-                        valid_situations.append((instance, mtx_id, result.tooltip))
-                valid_situations.append((instance, mtx_id, result.tooltip))
+                continue
+            (result, mtx_id) = should_display_situation(instance, sim, target_sim_id, False)
+            if not result:
+                if result.tooltip is not None:
+                    valid_situations.append((instance, mtx_id, result.tooltip))
+            valid_situations.append((instance, mtx_id, result.tooltip))
     for (instance, mtx_id, tooltip) in valid_situations:
         with SituationIdEntry.get_entry_with_rollback(situation_batch_msg) as entry:
             entry.situation_resource_id = instance.guid64
@@ -231,41 +230,40 @@ def get_valid_situation_locations(sim_id:OptionalTargetParam, situation_type:Tun
     for zone_id in possible_zones:
         zone_data = persistence_service.get_zone_proto_buff(zone_id)
         if zone_data is None:
-            pass
-        else:
-            neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
-            if neighborhood_data is None:
-                pass
-            else:
-                region_description_id = neighborhood_data.region_id
-                region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(region_description_id)
-                if not current_region.is_region_compatible(region_instance):
-                    pass
-                else:
-                    lot_data = None
-                    for lot_owner_data in neighborhood_data.lots:
-                        if zone_id == lot_owner_data.zone_instance_id:
-                            lot_data = lot_owner_data
-                            break
-                    if zone_data is not None and lot_data is not None:
-                        location_data = Lot_pb2.LotInfoItem()
-                        location_data.zone_id = zone_data.zone_id
-                        location_data.name = zone_data.name
-                        location_data.world_id = zone_data.world_id
-                        location_data.lot_template_id = zone_data.lot_template_id
-                        location_data.lot_description_id = zone_data.lot_description_id
-                        venue_type_id = build_buy.get_current_venue(zone_id)
-                        venue_instance = venue_manager.get(venue_type_id)
-                        send_lot_owner = True
-                        if venue_instance is not None:
-                            location_data.venue_type_name = venue_instance.display_name
-                            send_lot_owner = venue_instance.residential
-                        if send_lot_owner:
-                            household_id = lot_data.lot_owner[0].household_id
-                            household = services.household_manager().get(household_id)
-                            if household is not None:
-                                location_data.household_name = household.name
-                        locations_msg.situation_locations.append(location_data)
+            continue
+        neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
+        if neighborhood_data is None:
+            continue
+        region_description_id = neighborhood_data.region_id
+        region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(region_description_id)
+        if not current_region.is_region_compatible(region_instance):
+            continue
+        lot_data = None
+        for lot_owner_data in neighborhood_data.lots:
+            if zone_id == lot_owner_data.zone_instance_id:
+                lot_data = lot_owner_data
+                break
+        if zone_data is not None:
+            if lot_data is not None:
+                location_data = Lot_pb2.LotInfoItem()
+                location_data.zone_id = zone_data.zone_id
+                location_data.name = zone_data.name
+                location_data.world_id = zone_data.world_id
+                location_data.lot_template_id = zone_data.lot_template_id
+                location_data.lot_description_id = zone_data.lot_description_id
+                venue_type_id = build_buy.get_current_venue(zone_id)
+                venue_instance = venue_manager.get(venue_type_id)
+                send_lot_owner = True
+                if venue_instance is not None:
+                    location_data.venue_type_name = venue_instance.display_name
+                    send_lot_owner = venue_instance.residential
+                if lot_data.lot_owner:
+                    if send_lot_owner:
+                        household_id = lot_data.lot_owner[0].household_id
+                        household = services.household_manager().get(household_id)
+                        if household is not None:
+                            location_data.household_name = household.name
+                locations_msg.situation_locations.append(location_data)
     shared_messages.add_object_message_for_sim_id(sim.id, Consts_pb2.MSG_SITUATION_LOCATIONS, locations_msg)
 
 @sims4.commands.Command('situations.create')
@@ -673,7 +671,7 @@ def add_score(situation_id:int, delta:int, _connection=None):
     sims4.commands.output('Resulting Situation Score: {}'.format(situation.score), _connection)
 
 @sims4.commands.Command('situations.set_constrained_goal_list')
-def set_constrained_goal_list(*goal_names, _connection=None):
+def set_constrained_goal_list(*goal_names:str, _connection=None):
     constrained_goals = set()
     for goal_name in goal_names:
         goal_type = get_tunable_instance(sims4.resources.Types.SITUATION_GOAL, goal_name)

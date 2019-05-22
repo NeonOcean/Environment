@@ -56,7 +56,8 @@ class ObjectRelationshipComponent(Component, HasTunableFactory, AutoFactoryInit,
                 if state_change.value_threshold.compare(relationship.get_value()):
                     new_state = state_change.state
                     break
-            new_state = self._default_state
+            else:
+                new_state = self._default_state
         self.owner.set_state(new_state.state, new_state)
 
     @property
@@ -143,13 +144,16 @@ class ObjectRelationshipComponent(Component, HasTunableFactory, AutoFactoryInit,
         for sim_id in sim_ids:
             self.remove_relationship(sim_id)
 
-    def modify_relationship(self, sim_id, value, add=True):
+    def modify_relationship(self, sim_id, value, add=True, from_load=False):
         if sim_id not in self._relationships:
             if not add:
                 return
             if not self.add_relationship(sim_id):
                 return
-        self._relationships[sim_id].add_value(value)
+        if from_load:
+            self._relationships[sim_id].set_value(value)
+        else:
+            self._relationships[sim_id].add_value(value)
         self._send_relationship_data(sim_id)
         self._trigger_relationship_changed_callbacks_for_sim_id(sim_id)
         client = services.client_manager().get_first_client()
@@ -234,17 +238,16 @@ class ObjectRelationshipComponent(Component, HasTunableFactory, AutoFactoryInit,
         relationship_component_data = persistable_data.Extensions[protocols.PersistableObjectRelationshipComponent.persistable_data]
         for (key, value) in self._relationships.items():
             if not value.persisted_tuning:
-                pass
-            else:
-                with ProtocolBufferRollback(relationship_component_data.relationships) as relationship_data:
-                    relationship_data.sim_id = key
-                    relationship_data.value = value.get_value()
+                continue
+            with ProtocolBufferRollback(relationship_component_data.relationships) as relationship_data:
+                relationship_data.sim_id = key
+                relationship_data.value = value.get_value()
         persistence_master_message.data.extend([persistable_data])
 
     def load(self, persistable_data):
         relationship_component_data = persistable_data.Extensions[protocols.PersistableObjectRelationshipComponent.persistable_data]
         for relationship in relationship_component_data.relationships:
-            self.modify_relationship(relationship.sim_id, relationship.value)
+            self.modify_relationship(relationship.sim_id, relationship.value, from_load=True)
 
 class ObjectRelationshipLootOp(BaseTargetedLootOperation):
     FACTORY_TUNABLES = {'description': '\n            This loot will modify the relationship between an object and a Sim.\n            The target object must have an ObjectRelationshipComponent attached\n            to it for this loot operation to be valid.\n            ', 'amount_to_add': Tunable(description='\n            The amount tuned here will be added to the relationship between the\n            tuned object and Sim.\n            ', tunable_type=int, default=0), 'add_if_nonexistant': Tunable(description="\n            If checked, this relationship will be added if it doesn't currently\n            exist.  If unchecked, it will not be added if it doesn't currently\n            exist.\n            ", tunable_type=bool, default=True), 'remove_relationship': Tunable(description='\n            If checked, the relationship between the tuned object and Sim will\n            be remove if it currently exists.\n            ', tunable_type=bool, default=False)}

@@ -39,9 +39,8 @@ class GameTransitionDestinationNodeValidator:
         for interaction in self._interactions:
             transition_liability = interaction.get_liability(GameTransitionLiability.LIABILITY_TOKEN)
             if transition_liability is None:
-                pass
-            else:
-                transition_liability.set_game_transition_node_validator(interaction, game_type=self._game_type)
+                continue
+            transition_liability.set_game_transition_node_validator(interaction, game_type=self._game_type)
 
     def _add_sim_to_team_if_necessary(self, sim):
         if self._teams is None:

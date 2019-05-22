@@ -39,10 +39,9 @@ class KaraokeContestSituation(SituationComplexCommon):
         for sim in self._situation_sims:
             score = sim.get_stat_value(self.scoring_stat)
             if score <= 0:
-                pass
-            else:
-                scores.append((sim, score))
-                logger.debug('{0} got a score of {1}', sim, score)
+                continue
+            scores.append((sim, score))
+            logger.debug('{0} got a score of {1}', sim, score)
         if scores:
             self._show_winner_notification(scores)
         else:

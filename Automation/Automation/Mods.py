@@ -1,62 +1,137 @@
 import importlib
-import os
 import sys
 import typing
 
-from Automation import Paths
+from Automation import Setup, Distribution
+from Automation.Tools import Exceptions
+
+_mods = list()  # type: typing.List[Mod]
+
+class Mod:
+	def __init__(self, namespace: str):
+		self.Namespace = namespace  # type: str
+		self.Path = GetModPath(namespace)  # type: str
+
+		self.ReleaseLatest = Distribution.GetReleaseLatest(namespace)  # type: typing.Optional[Distribution.ModVersion]
+		self.ReleaseVersions = Distribution.GetReleaseVersions(namespace)  # type: typing.Optional[typing.List[Distribution.ModVersion]]
+
+		self.PreviewLatest = Distribution.GetPreviewLatest(namespace)  # type: typing.Optional[Distribution.ModVersion]
+		self.PreviewVersions = Distribution.GetPreviewVersions(namespace)  # type: typing.Optional[typing.List[Distribution.ModVersion]]
+
+		try:
+			self.Module = _GetModModule(namespace)  # type: typing.Optional
+		except Exception as e:
+			if type(e) is not ModuleNotFoundError:
+				print("Failed to import mod module for '" + self.Namespace + "'\n" + Exceptions.FormatException(e), file = sys.stderr)
+
+			self.Module = None  # type: typing.Optional
+
+		self.Data = _GetModData(self.Module)  # type: typing.Dict[str, typing.Any]
+
+		try:
+			self.BuildModule = _GetBuildModule(namespace) # type: typing.Optional
+		except Exception as e:
+			if type(e) is not ModuleNotFoundError:
+				print("Failed to import mod build module for '" + self.Namespace + "'\n" + Exceptions.FormatException(e), file = sys.stderr)
+
+			self.BuildModule = None  # type: typing.Optional
+
+		self._buildFunction = _GetBuildFunction(self.BuildModule)  # type: typing.Optional[typing.Callable[[str], bool]]
+		self._buildPublishingFunction = _GetBuildPublishingFunction(self.BuildModule)  # type: typing.Optional[typing.Callable[[], bool]]
+
+		_mods.append(self)
+
+	def Build (self, modeName: str) -> bool:
+		if self._buildFunction is None:
+			print("Tried to build the mod '" + self.Namespace + "' but it is disabled as no build function is available.", file = sys.stderr)
+			return False
+
+		return self._buildFunction(modeName)
+
+	def BuildPublishing (self) -> bool:
+		if self._buildPublishingFunction is None:
+			print("Tried to build publishing for the mod '" + self.Namespace + "' but it is disabled as no build function is available.", file = sys.stderr)
+			return False
+
+		return self._buildPublishingFunction()
+
+	def GetVersion (self) -> typing.Optional[str]:
+		return self.Data.get("Version")
+
+	def GetName (self) -> typing.Optional[str]:
+		return self.Data.get("Name")
+
+	def GetGithubName (self) -> typing.Optional[str]:
+		return self.Data.get("GithubName")
+
+	def GetInstallerFilePath (self) -> typing.Optional[str]:
+		return self.Data.get("InstallerFilePath")
+
+	def GetFilesFilePath (self) -> typing.Optional[str]:
+		return self.Data.get("FilesFilePath")
+
+	def GetSourcesFileName (self) -> typing.Optional[str]:
+		return self.Data.get("SourcesFileName")
+
+	def GetChangesFilePath (self) -> typing.Optional[str]:
+		return self.Data.get("ChangesFilePath")
+
+	def GetPlansFilePath (self) -> typing.Optional[str]:
+		return self.Data.get("PlansFilePath")
+
+def GetMod (namespace: str) -> Mod:
+	for mod in _mods:  # type: Mod
+		if mod.Namespace == namespace:
+			return mod
+
+	raise Exception("Failed to find the mod '" + namespace + "' in the mod list.")
 
 def GetAllModNames () -> typing.List[str]:
-	modNameList = list()  # type: typing.List[str]
-
-	for modName, modPath in _modPaths.items():  # type: str, str
-		modNameList.append(modName)
-
-	return modNameList
+	return Setup.GetAllModNames()
 
 def GetAllModPaths () -> typing.List[str]:
-	modPathList = list()  # type: typing.List[str]
-
-	for modName, modPath in _modPaths.items():  # type: str, str
-		modPathList.append(modPath)
-
-	return modPathList
+	return Setup.GetAllModPaths()
 
 def GetModPath (namespace: str) -> str:
-	namespaceLower = namespace.lower()  # type: str
-	modPath = None  # type: str
-
-	for checkingModName, checkingModPath in _modPaths.items():  # type: str, str
-		if namespaceLower == checkingModName.lower():
-			modPath = checkingModPath
-
-	if modPath is None:
-		raise Exception("Missing mod '" + namespaceLower + "'.")
-
-	return modPath
+	return Setup.GetModPath(namespace)
 
 def BuildMod (namespace: str) -> None:
-	buildModule = importlib.import_module("Mod_" + namespace.replace(".", "_") + ".Main")
-	buildModule.BuildMod("Normal")
+	GetMod(namespace).Build("Normal")
 
 def BuildPublishing (namespace: str) -> None:
-	buildModule = importlib.import_module("Mod_" + namespace.replace(".", "_") + ".Main")
-	buildModule.BuildPublishing()
+	GetMod(namespace).BuildPublishing()
+
+def _GetModModule (namespace: str):
+	return importlib.import_module("Mod_" + namespace.replace(".", "_") + ".Mod")
+
+def _GetBuildModule (namespace: str):
+	return importlib.import_module("Mod_" + namespace.replace(".", "_") + ".Main")
+
+def _GetModData (modModule: typing.Optional) -> typing.Dict[str, typing.Any]:
+	if modModule is None:
+		return dict()
+
+	if hasattr(modModule, "GetModData"):
+		return modModule.GetModData()
+
+	return dict()
+
+def _GetBuildFunction (buildModule: typing.Optional) -> typing.Optional[typing.Callable[[str], bool]]:
+	if buildModule is None:
+		return None
+
+	if hasattr(buildModule, "BuildMod"):
+		return buildModule.BuildMod
+
+def _GetBuildPublishingFunction (buildModule: typing.Optional) -> typing.Optional[typing.Callable[[str], bool]]:
+	if buildModule is None:
+		return None
+
+	if hasattr(buildModule, "BuildPublishing"):
+		return buildModule.BuildPublishing
 
 def _Setup () -> None:
-	pythonPathsLower = list(sys.path)  # type: typing.List[str]
-
-	for pythonPathsLowerIndex in range(0, len(pythonPathsLower)):
-		pythonPathsLower[pythonPathsLowerIndex] = pythonPathsLower[pythonPathsLowerIndex].lower()
-
-	for modFolderName in os.listdir(Paths.ModsPath):  # type: str
-		modPath = os.path.join(Paths.ModsPath, modFolderName)  # type: str
-
-		if os.path.isdir(modPath):
-			_modPaths[modFolderName] = modPath
-
-		if not modPath.lower() in pythonPathsLower:
-			sys.path.append(os.path.join(modPath, "Automation", os.path.split(modPath)[1]))
-
-_modPaths = dict()  # type: typing.Dict[str, str]
+	for modNamespace in Setup.GetAllModNames():
+		Mod(modNamespace)
 
 _Setup()

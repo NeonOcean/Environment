@@ -1,10 +1,10 @@
 from sims4.tuning.instances import lock_instance_tunables
+from sims4.utils import classproperty
 from situations.base_situation import _RequestUserData
 from situations.bouncer.bouncer_request import SelectableSimRequestFactory
-from situations.bouncer.bouncer_types import BouncerRequestPriority
 from situations.situation import Situation
 from situations.situation_complex import SituationState, SituationComplexCommon, TunableSituationJobAndRoleState, SituationStateData
-from situations.situation_types import SituationCreationUIOption
+from situations.situation_types import SituationCreationUIOption, SituationSerializationOption
 
 class _SelectableSimsBackgroundSituationState(SituationState):
     pass
@@ -12,6 +12,10 @@ class _SelectableSimsBackgroundSituationState(SituationState):
 class SelectableSimBackgroundSituation(SituationComplexCommon):
     INSTANCE_TUNABLES = {'job_and_role': TunableSituationJobAndRoleState(description='\n            The job and role that the selectable Sims will be given.\n            ')}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
+
+    @classproperty
+    def situation_serialization_option(cls):
+        return SituationSerializationOption.DONT
 
     @classmethod
     def _states(cls):

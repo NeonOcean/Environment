@@ -56,18 +56,17 @@ class BuffTransferOp(BaseTargetedLootOperation):
                 subject.remove_buff_by_type(buff_entry)
         for target_buff in target.get_active_buff_types():
             if self._moods_only and target_buff.mood_type is None:
-                pass
-            elif self._mood_types is not None and target_buff.mood_type not in self._mood_types:
-                pass
-            elif self._polarity is not None and self._polarity is not target_buff.polarity:
-                pass
-            else:
-                buff_commodity = target_buff.commodity
-                subject.add_buff(target_buff)
-                if buff_commodity is not None:
-                    tracker = subject.get_tracker(buff_commodity)
-                    tracker.set_max(buff_commodity)
-                    subject.set_buff_reason(target_buff, self._buff_reason)
+                continue
+            if self._mood_types is not None and target_buff.mood_type not in self._mood_types:
+                continue
+            if self._polarity is not None and self._polarity is not target_buff.polarity:
+                continue
+            buff_commodity = target_buff.commodity
+            subject.add_buff(target_buff)
+            if buff_commodity is not None:
+                tracker = subject.get_tracker(buff_commodity)
+                tracker.set_max(buff_commodity)
+                subject.set_buff_reason(target_buff, self._buff_reason)
 
 class DynamicBuffLootOp(BaseLootOperation):
     FACTORY_TUNABLES = {'description': '\n        This loot will give a random buff based on the weight get tuned inside.\n        ', 'buffs': TunableMapping(description='\n            ', key_type=TunableReference(description='\n                Buff that will get this weight in the random.', manager=services.buff_manager()), value_type=Tunable(description='\n                The weight value.', tunable_type=float, default=0)), 'buff_reason': OptionalTunable(description='\n            If set, specify a reason why the buff was added.\n            ', tunable=TunableLocalizedString(description='\n                The reason the buff was added. This will be displayed in the\n                buff tooltip.\n                '))}
@@ -117,18 +116,18 @@ class BuffRemovalOp(BaseLootOperation):
             removal_list.extend(subject.Buffs)
             for buff in removal_list:
                 if type(buff) in self._buffs_to_ignore:
-                    pass
-                elif not buff.visible:
-                    pass
-                elif buff.commodity is not None:
+                    continue
+                if not buff.visible:
+                    continue
+                if buff.commodity is not None:
                     tracker = subject.get_tracker(buff.commodity)
                     commodity_inst = tracker.get_statistic(buff.commodity)
                     if commodity_inst.core:
-                        pass
-                    else:
-                        subject.Buffs.remove_buff_entry(buff)
+                        continue
                 else:
                     subject.Buffs.remove_buff_entry(buff)
+            else:
+                subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove)
         else:
             for buff_type in self._buffs_to_remove:
                 subject.Buffs.remove_buff_by_type(buff_type)

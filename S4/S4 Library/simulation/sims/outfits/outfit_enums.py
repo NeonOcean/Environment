@@ -121,9 +121,8 @@ class BodyTypeFlag:
         flags = 0
         for body_type in body_types:
             if body_type == BodyType.NONE:
-                pass
-            else:
-                flags |= 1 << body_type
+                continue
+            flags |= 1 << body_type
         return flags
 
     NONE = 0

@@ -250,18 +250,17 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         for (portal_id, portal_instance) in self._portals.items():
             (posture_entry, posture_exit) = portal_instance.get_posture_change(portal_id, None)
             if posture_entry is posture_exit:
-                pass
-            else:
-                (entry_loc, _) = portal_instance.get_portal_locations(portal_id)
-                dist = (entry_loc.position - sim_position).magnitude_squared()
-                if not nearest_portal is None:
-                    if shortest_dist > dist:
-                        shortest_dist = dist
-                        nearest_portal = portal_instance
-                        nearest_portal_id = portal_id
-                shortest_dist = dist
-                nearest_portal = portal_instance
-                nearest_portal_id = portal_id
+                continue
+            (entry_loc, _) = portal_instance.get_portal_locations(portal_id)
+            dist = (entry_loc.position - sim_position).magnitude_squared()
+            if not nearest_portal is None:
+                if shortest_dist > dist:
+                    shortest_dist = dist
+                    nearest_portal = portal_instance
+                    nearest_portal_id = portal_id
+            shortest_dist = dist
+            nearest_portal = portal_instance
+            nearest_portal_id = portal_id
         if nearest_portal is None:
             return (None, None)
         return nearest_portal.get_posture_change(nearest_portal_id, None)

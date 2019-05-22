@@ -10,7 +10,7 @@ import element_utils
 import services
 
 def handle_transition_failure(sim, source_interaction_target, transition_interaction, failure_reason=None, failure_object_id=None):
-    if transition_interaction.visible or not transition_interaction.always_show_route_failure:
+    if not transition_interaction.visible and not transition_interaction.always_show_route_failure:
         return
     if not transition_interaction.route_fail_on_transition_fail:
         return
@@ -50,7 +50,7 @@ def route_failure(sim, interaction, failure_reason, failure_object_id):
     overrides = None
     if failure_reason is not None:
         if ROUTE_FAILURE_OVERRIDE_MAP is None:
-            ROUTE_FAILURE_OVERRIDE_MAP = {TransitionFailureReasons.GOAL_ON_SLOPE: RouteFailureTunables.route_fail_overrides_goal_on_slope, TransitionFailureReasons.PATH_PLAN_FAILED: RouteFailureTunables.route_fail_overrides_path_plan_fail, TransitionFailureReasons.NO_CONNECTIVITY_TO_GOALS: RouteFailureTunables.route_fail_overrides_no_connectivity, TransitionFailureReasons.NO_GOALS_GENERATED: RouteFailureTunables.route_fail_overrides_no_goals_generated, TransitionFailureReasons.NO_VALID_INTERSECTION: RouteFailureTunables.route_fail_overrides_no_valid_intersection, TransitionFailureReasons.NO_PATH_FOUND: RouteFailureTunables.route_fail_overrides_no_path_found, TransitionFailureReasons.NO_DESTINATION_NODE: RouteFailureTunables.route_fail_overrides_no_dest_node, TransitionFailureReasons.BUILD_BUY: RouteFailureTunables.route_fail_overrides_build, TransitionFailureReasons.RESERVATION: RouteFailureTunables.route_fail_overrides_reservation, TransitionFailureReasons.BLOCKING_OBJECT: RouteFailureTunables.route_fail_overrides_object}
+            ROUTE_FAILURE_OVERRIDE_MAP = {TransitionFailureReasons.BLOCKING_OBJECT: RouteFailureTunables.route_fail_overrides_object, TransitionFailureReasons.RESERVATION: RouteFailureTunables.route_fail_overrides_reservation, TransitionFailureReasons.BUILD_BUY: RouteFailureTunables.route_fail_overrides_build, TransitionFailureReasons.NO_DESTINATION_NODE: RouteFailureTunables.route_fail_overrides_no_dest_node, TransitionFailureReasons.NO_PATH_FOUND: RouteFailureTunables.route_fail_overrides_no_path_found, TransitionFailureReasons.NO_VALID_INTERSECTION: RouteFailureTunables.route_fail_overrides_no_valid_intersection, TransitionFailureReasons.NO_GOALS_GENERATED: RouteFailureTunables.route_fail_overrides_no_goals_generated, TransitionFailureReasons.NO_CONNECTIVITY_TO_GOALS: RouteFailureTunables.route_fail_overrides_no_connectivity, TransitionFailureReasons.PATH_PLAN_FAILED: RouteFailureTunables.route_fail_overrides_path_plan_fail, TransitionFailureReasons.GOAL_ON_SLOPE: RouteFailureTunables.route_fail_overrides_goal_on_slope}
         if failure_reason in ROUTE_FAILURE_OVERRIDE_MAP:
             overrides = ROUTE_FAILURE_OVERRIDE_MAP[failure_reason]()
             if failure_object_id is not None:

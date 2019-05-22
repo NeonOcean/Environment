@@ -16,6 +16,7 @@ class BucksPerkPickerSuperInteraction(PickerSuperInteraction):
         participant = self.get_participant(self.subject)
         self._show_picker_dialog(participant, target_sim=participant)
         return True
+        yield
 
     @classmethod
     def _bucks_perk_selection_gen(cls, participant):

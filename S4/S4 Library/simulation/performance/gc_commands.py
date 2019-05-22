@@ -193,15 +193,16 @@ def zone_gc_count_log_dump(_connection=None):
 
 def object_count_log_callback(phase, info):
     global gc_inc_window_current, gc_inc_window_collected
-    if info['generation'] == 3:
-        gc_inc_window_current += 1
-        gc_inc_window_collected += info['collected']
-        if gc_inc_window_current >= gc_inc_window_size:
-            time_service = services.time_service()
-            timestamp = time_service.sim_now.absolute_hours() if time_service is not None else None
-            gc_object_counts.append((gc.get_num_objects(), timestamp, gc_inc_window_collected))
-            gc_inc_window_collected = 0
-            gc_inc_window_current = 0
+    if phase == 'stop':
+        if info['generation'] == 3:
+            gc_inc_window_current += 1
+            gc_inc_window_collected += info['collected']
+            if gc_inc_window_current >= gc_inc_window_size:
+                time_service = services.time_service()
+                timestamp = time_service.sim_now.absolute_hours() if time_service is not None else None
+                gc_object_counts.append((gc.get_num_objects(), timestamp, gc_inc_window_collected))
+                gc_inc_window_collected = 0
+                gc_inc_window_current = 0
 
 @sims4.commands.Command('mem.gc.object_count_log_start', command_type=sims4.commands.CommandType.Automation)
 def object_count_log_start(window_size:int=30, _connection=None):

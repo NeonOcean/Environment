@@ -27,7 +27,7 @@ if struct.calcsize(FORMAT_UINT64_LITTLE_ENDIAN) != 8:
     raise AssertionError('Format "Q" is not a 64-bit number.')
 
 def PackTag(field_number, wire_type):
-    if not (0 <= wire_type and wire_type <= _WIRETYPE_MAX):
+    if not 0 <= wire_type <= _WIRETYPE_MAX:
         raise message.EncodeError('Unknown wire type: %d' % wire_type)
     return field_number << TAG_TYPE_BITS | wire_type
 

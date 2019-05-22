@@ -100,7 +100,7 @@ class RuntimeSlot(collections.namedtuple('_RuntimeSlot', ('owner', 'slot_name_ha
     def children(self):
         children = []
         for child in self.owner.children:
-            if self.slot_name_hash == child.location.slot_hash or child.location.joint_name_hash:
+            if self.slot_name_hash == (child.location.slot_hash or child.location.joint_name_hash):
                 children.append(child)
         return children
 

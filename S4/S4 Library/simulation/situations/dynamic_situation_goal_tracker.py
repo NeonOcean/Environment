@@ -39,8 +39,7 @@ class DynamicSituationGoalTracker(BaseSituationGoalTracker):
             tracker_seedling.add_minor_goal(goal_seedling)
 
     def load_from_seedling(self, tracker_seedling):
-        if self._has_offered_goals:
-            raise AssertionError('Attempting to load goals for situation: {} but goals have already been offered.'.format(self))
+        assert not self._has_offered_goals
         self._has_offered_goals = tracker_seedling.has_offered_goals
         for goal_seedling in tracker_seedling.minor_goals:
             sim_info = services.sim_info_manager().get(goal_seedling.actor_id)

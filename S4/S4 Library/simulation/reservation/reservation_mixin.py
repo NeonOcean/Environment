@@ -36,11 +36,10 @@ class ReservationMixin:
     def in_use_by(self, sim, owner=None):
         for handler in self._reservation_handlers:
             if handler.sim is not sim:
-                pass
-            elif owner is not None and handler.reservation_interaction is not owner:
-                pass
-            else:
-                return True
+                continue
+            if owner is not None and handler.reservation_interaction is not owner:
+                continue
+            return True
         return False
 
     def get_users(self, sims_only=False):
@@ -114,12 +113,14 @@ class ReservationMixin:
                 reset_records.append(ResetRecord(sim, ResetReason.RESET_EXPECTED, self, 'In use list of object being destroyed.'))
             else:
                 body_target_part_owner = sim.posture_state.body.target
-                if body_target_part_owner.is_part:
-                    body_target_part_owner = body_target_part_owner.part_owner
+                if body_target_part_owner is not None:
+                    if body_target_part_owner.is_part:
+                        body_target_part_owner = body_target_part_owner.part_owner
                 transition_controller = sim.queue.transition_controller
-                if not transition_controller is None:
-                    if not transition_controller.will_derail_if_given_object_is_reset(self):
-                        reset_records.append(ResetRecord(sim, ResetReason.RESET_EXPECTED, self, 'Transitioning To or In.'))
+                if not body_target_part_owner is self:
+                    if not transition_controller is None:
+                        if not transition_controller.will_derail_if_given_object_is_reset(self):
+                            reset_records.append(ResetRecord(sim, ResetReason.RESET_EXPECTED, self, 'Transitioning To or In.'))
                 reset_records.append(ResetRecord(sim, ResetReason.RESET_EXPECTED, self, 'Transitioning To or In.'))
 
     def usable_by_transition_controller(self, transition_controller):
@@ -129,16 +130,14 @@ class ReservationMixin:
         targets = (self,) + tuple(self.get_overlapping_parts()) if self.is_part else (self,)
         for reservation_handler in itertools.chain.from_iterable(target.get_reservation_handlers() for target in targets):
             if reservation_handler.sim in required_sims:
-                pass
-            else:
-                reservation_interaction = reservation_handler.reservation_interaction
-                if reservation_interaction is None:
-                    pass
-                else:
-                    if reservation_interaction.priority >= transition_controller.interaction.priority:
-                        return False
-                    if transition_controller.interaction.priority <= Priority.Low:
-                        return False
+                continue
+            reservation_interaction = reservation_handler.reservation_interaction
+            if reservation_interaction is None:
+                continue
+            if reservation_interaction.priority >= transition_controller.interaction.priority:
+                return False
+            if transition_controller.interaction.priority <= Priority.Low:
+                return False
         return True
 
     def register_on_use_list_changed(self, callback):

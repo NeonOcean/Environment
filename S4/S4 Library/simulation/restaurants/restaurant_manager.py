@@ -182,9 +182,8 @@ class RestaurantManager(HasAdvertisingManagerMixin, BusinessManager):
         for buff in buff_component:
             buff_tuning = RestaurantTuning.COOKING_SPEED_DATA_MAPPING.get(buff.buff_type)
             if not buff_tuning:
-                pass
-            else:
-                final_recipe_quality += buff_tuning.cooking_speed_to_final_quality_adder
+                continue
+            final_recipe_quality += buff_tuning.cooking_speed_to_final_quality_adder
         if RestaurantTagTuning.RECIPE_FOOD_TAG in recipe.recipe_tags:
             is_drink = False
             food_skill = RestaurantTuning.CHEF_SKILL_TO_FOOD_FINAL_QUALITY_ADDER_DATA.skill

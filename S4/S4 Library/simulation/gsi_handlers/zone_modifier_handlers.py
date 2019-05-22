@@ -36,9 +36,8 @@ def generate_zone_modifiers_view_data(zone_id:int=None, filter=None):
     for zone_modifier in zone_modifiers:
         is_active_zone_modifier = zone_modifier in current_zones_modifiers
         if filter_list is not None and FILTER_SHOW_ACTIVE_ZONE_MODIFIERS in filter_list and not is_active_zone_modifier:
-            pass
-        else:
-            zone_modifier_list.append({'id': zone_modifier.guid64, 'name': zone_modifier.__name__, 'assigned_to_zone': is_active_zone_modifier, 'enter_loots': len(zone_modifier.enter_lot_loot), 'exit_loots': len(zone_modifier.exit_lot_loot), 'scheduled_entries': len(zone_modifier.schedule(init_only=True).get_schedule_entries()), 'event_tests': len(registered_event_map[zone_modifier]), 'Event Tests': registered_event_map[zone_modifier], 'Schedule Event Time': event_times_map[zone_modifier]})
+            continue
+        zone_modifier_list.append({'id': zone_modifier.guid64, 'name': zone_modifier.__name__, 'assigned_to_zone': is_active_zone_modifier, 'enter_loots': len(zone_modifier.enter_lot_loot), 'exit_loots': len(zone_modifier.exit_lot_loot), 'scheduled_entries': len(zone_modifier.schedule(init_only=True).get_schedule_entries()), 'event_tests': len(registered_event_map[zone_modifier]), 'Event Tests': registered_event_map[zone_modifier], 'Schedule Event Time': event_times_map[zone_modifier]})
     return zone_modifier_list
 
 def _get_registered_events(zone_modifiers):
@@ -49,10 +48,9 @@ def _get_registered_events(zone_modifiers):
     for ((event_enum, custom_key), handlers) in event_mgr._test_event_callback_map.items():
         registered_handlers = zone_modifiers & handlers
         if not registered_handlers:
-            pass
-        else:
-            for handler in registered_handlers:
-                events_handlers_map[handler].append({'event_name': str(event_enum), 'custom_key': str(custom_key)})
+            continue
+        for handler in registered_handlers:
+            events_handlers_map[handler].append({'event_name': str(event_enum), 'custom_key': str(custom_key)})
     return events_handlers_map
 
 def _get_next_event_times(zone_modifiers):

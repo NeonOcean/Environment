@@ -91,8 +91,9 @@ def _find_module_in_list(module_name, module_list):
         ignore_list = module_name.split('.')
         ignore = True
         for i in range(len(ignore_list)):
-            if i < name_list_len and name_list[i] != ignore_list[i]:
-                ignore = False
-                break
+            if i < name_list_len:
+                if name_list[i] != ignore_list[i]:
+                    ignore = False
+                    break
         if ignore:
             return True

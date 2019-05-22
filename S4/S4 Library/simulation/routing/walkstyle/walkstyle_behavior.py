@@ -49,27 +49,26 @@ class WalksStyleBehavior(HasTunableSingletonFactory, AutoFactoryInit):
             all_path_node_data.append((route_key, start_node, end_node))
         for ((_, is_outside), path_node_data) in itertools.groupby(all_path_node_data, key=operator.itemgetter(0)):
             if is_outside and not run_allowed_flags & WalkStyleRunAllowedFlags.RUN_ALLOWED_OUTDOORS:
-                pass
-            elif is_outside or not run_allowed_flags & WalkStyleRunAllowedFlags.RUN_ALLOWED_INDOORS:
-                pass
-            else:
-                path_node_data = list(path_node_data)
-                segment_length = sum((sims4.math.Vector3(*start_node.position) - sims4.math.Vector3(*end_node.position)).magnitude_2d() for (_, start_node, end_node) in path_node_data)
-                if segment_length < run_required_segment_distance:
-                    pass
-                else:
-                    for (_, path_node, _) in path_node_data:
-                        if not time_offset is None:
-                            if path_node.time >= time_offset:
-                                path_node.walkstyle = self.get_run_walkstyle(actor)
+                continue
+            if not is_outside and not run_allowed_flags & WalkStyleRunAllowedFlags.RUN_ALLOWED_INDOORS:
+                continue
+            path_node_data = list(path_node_data)
+            segment_length = sum((sims4.math.Vector3(*start_node.position) - sims4.math.Vector3(*end_node.position)).magnitude_2d() for (_, start_node, end_node) in path_node_data)
+            if segment_length < run_required_segment_distance:
+                continue
+            for (_, path_node, _) in path_node_data:
+                if not time_offset is None:
+                    if path_node.time >= time_offset:
                         path_node.walkstyle = self.get_run_walkstyle(actor)
+                path_node.walkstyle = self.get_run_walkstyle(actor)
         return walkstyle
 
     def get_combo_replacement(self, highest_priority_walkstyle, walkstyle_list):
         for combo_tuple in self.combo_walkstyle_replacements:
             key_combo_list = combo_tuple.key_combo_list
-            if highest_priority_walkstyle in key_combo_list and all(ws in walkstyle_list for ws in key_combo_list):
-                return combo_tuple
+            if highest_priority_walkstyle in key_combo_list:
+                if all(ws in walkstyle_list for ws in key_combo_list):
+                    return combo_tuple
 
     def get_combo_replaced_walkstyle(self, highest_priority_walkstyle, walkstyle_list):
         combo_tuple = self.get_combo_replacement(highest_priority_walkstyle, walkstyle_list)

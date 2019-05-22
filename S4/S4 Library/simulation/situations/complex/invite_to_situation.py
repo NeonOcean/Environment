@@ -47,8 +47,9 @@ class InviteToSituation(situations.situation_complex.SituationComplexCommon):
     @classmethod
     def get_player_greeted_status_from_seed(cls, situation_seed):
         for sim_info in situation_seed.invited_sim_infos_gen():
-            if sim_info.is_npc and sim_info.lives_here:
-                return GreetedStatus.GREETED
+            if sim_info.is_npc:
+                if sim_info.lives_here:
+                    return GreetedStatus.GREETED
         return GreetedStatus.NOT_APPLICABLE
 
 sims4.tuning.instances.lock_instance_tunables(InviteToSituation, exclusivity=situations.bouncer.bouncer_types.BouncerExclusivityCategory.PRE_VISIT, creation_ui_option=situations.situation_types.SituationCreationUIOption.NOT_AVAILABLE, duration=1, _implies_greeted_status=False)

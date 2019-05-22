@@ -25,11 +25,11 @@ class OutfitChangeSituation(HasTunableSingletonFactory, AutoFactoryInit):
         resolver = SingleSimResolver(sim.sim_info)
         for situation in services.get_zone_situation_manager().get_situations_by_tags(self.situation_tags):
             situation_job = situation.get_current_job_for_sim(sim)
-            if situation_job is not None and situation_job.job_uniform is not None:
-                outfit_generators = situation_job.job_uniform.situation_outfit_generators
-                if outfit_generators is None:
-                    pass
-                else:
+            if situation_job is not None:
+                if situation_job.job_uniform is not None:
+                    outfit_generators = situation_job.job_uniform.situation_outfit_generators
+                    if outfit_generators is None:
+                        continue
                     for entry in outfit_generators:
                         if entry.tests.run_tests(resolver):
                             yield AffordanceObjectPair(affordance, target, affordance, None, pie_menu_cateogory=affordance.category, outfit_tags=entry.generator.tags, **kwargs)
@@ -38,18 +38,17 @@ class OutfitChangeSituation(HasTunableSingletonFactory, AutoFactoryInit):
         outfit_tags = set()
         situation_manager = services.get_instance_manager(sims4.resources.Types.SITUATION)
         for situation in situation_manager.types.values():
-            if self.situation_tags and any(tag in situation.tags for tag in self.situation_tags):
-                for situation_job in situation.get_tuned_jobs():
-                    if situation_job.job_uniform is None:
-                        pass
-                    else:
+            if self.situation_tags:
+                if any(tag in situation.tags for tag in self.situation_tags):
+                    for situation_job in situation.get_tuned_jobs():
+                        if situation_job.job_uniform is None:
+                            continue
                         outfit_generators = situation_job.job_uniform.situation_outfit_generators
                         if outfit_generators is None:
-                            pass
-                        else:
-                            for entry in outfit_generators:
-                                for tag in entry.generator.tags:
-                                    outfit_tags.add(tag)
+                            continue
+                        for entry in outfit_generators:
+                            for tag in entry.generator.tags:
+                                outfit_tags.add(tag)
         return outfit_tags
 
     def get_outfit_for_clothing_change(self, sim_info, outfit_change_category):

@@ -117,6 +117,7 @@ class DynamicSpawnPointElement(SubclassableGeneratorElement, HasTunableFactory, 
     def _run_gen(self, timeline):
         result = yield from element_utils.run_child(timeline, build_critical_section_with_finally(self.start, self.sequence, self.stop))
         return result
+        yield
 
     def start(self, *_, **__):
         zone = services.current_zone()

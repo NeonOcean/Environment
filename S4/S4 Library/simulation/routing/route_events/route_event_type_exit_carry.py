@@ -40,8 +40,9 @@ class RouteEventTypeExitCarry(_RouteEventTypeCarry):
         carry_target = None
         if left_carry_target is not None and left_carry_target.has_tag(self.stop_carry_object_tag):
             carry_target = left_carry_target
-        elif right_carry_target.has_tag(self.stop_carry_object_tag):
-            carry_target = right_carry_target
+        elif right_carry_target is not None:
+            if right_carry_target.has_tag(self.stop_carry_object_tag):
+                carry_target = right_carry_target
         if carry_target is None:
             actor.routing_component.remove_route_event_by_data(self)
             return
@@ -76,6 +77,8 @@ class RouteEventTypeExitCarry(_RouteEventTypeCarry):
 
         def event_finished(_):
             self._owned_object = None
+            if actor.routing_component is None:
+                return
             actor.routing_component.remove_route_event_by_data(self)
 
         exit_carry_element = build_critical_section_with_finally(exit_carry_element, event_finished)

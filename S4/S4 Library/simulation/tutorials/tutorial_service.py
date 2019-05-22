@@ -21,6 +21,7 @@ class TutorialService(Service):
         self._tooltip = None
         self._tutorial_alarms = {}
         self._unselectable_sim_id = None
+        self._unselectable_sim_count = 0
         self._tutorial_mode = TutorialMode.STANDARD
 
     def add_tutorial_alarm(self, tip, callback, time_of_day):
@@ -33,9 +34,11 @@ class TutorialService(Service):
 
     def is_affordance_visible(self, affordance):
         visible_filter = self._visible_affordance_filter
-        if self.FALLBACK_RESTRICTED_AFFORDANCES:
-            visible_filter = self.FALLBACK_RESTRICTED_AFFORDANCES.visible_affordances
-        return visible_filter is None and self._tutorial_mode == TutorialMode.FTUE and visible_filter is None or visible_filter(affordance)
+        if visible_filter is None:
+            if self._tutorial_mode == TutorialMode.FTUE:
+                if self.FALLBACK_RESTRICTED_AFFORDANCES:
+                    visible_filter = self.FALLBACK_RESTRICTED_AFFORDANCES.visible_affordances
+        return visible_filter is None or visible_filter(affordance)
 
     def get_disabled_affordance_tooltip(self, affordance):
         enabled_filter = self._enabled_affordance_filter
@@ -90,12 +93,23 @@ class TutorialService(Service):
         else:
             sim_id = sim_info.sim_id
         if sim_id != self._unselectable_sim_id:
+            if sim_id is None:
+                self._unselectable_sim_count -= 1
+                if self._unselectable_sim_count > 0:
+                    return
+            elif self._unselectable_sim_id is None:
+                self._unselectable_sim_count = 1
+            else:
+                logger.error('Tutorial only supports one unselectable sim at a time.  Attempting to add:{}', sim_info)
+                return
             self._unselectable_sim_id = sim_id
             client = services.client_manager().get_first_client()
             if client is not None:
                 client.selectable_sims.notify_dirty()
                 if sim_id is not None:
                     client.validate_selectable_sim()
+        elif sim_id is not None:
+            self._unselectable_sim_count += 1
 
     def is_tutorial_running(self):
         drama_scheduler = services.drama_scheduler_service()

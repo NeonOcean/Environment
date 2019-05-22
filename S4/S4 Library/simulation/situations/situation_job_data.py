@@ -34,8 +34,7 @@ class SituationJobData:
             self._shift_change_alarm_handle = None
 
     def set_default_role_state_type(self, role_state_type):
-        if role_state_type is None:
-            raise AssertionError('Attempting to set a None default role state for job type: {}'.format(self._job_type))
+        assert not role_state_type is None
         self._default_role_state_type = role_state_type
 
     @property
@@ -48,10 +47,8 @@ class SituationJobData:
 
     def test_add_sim(self, sim, requesting_sim_info):
         self._sim_id_for_match_filter_request = sim.id
-        if self._job_type.filter:
-            return services.sim_filter_service().does_sim_match_filter(sim.id, sim_filter=self._job_type.filter, requesting_sim_info=requesting_sim_info, gsi_source_fn=self.get_sim_filter_gsi_name)
-        else:
-            return True
+        can_add = self._job_type.can_sim_be_given_job(sim.id, requesting_sim_info, gsi_source_fn=self.get_sim_filter_gsi_name)
+        return can_add
 
     def get_job_type(self):
         return self._job_type
@@ -86,12 +83,11 @@ class SituationJobData:
         most_time_on_lot = date_and_time.TimeSpan.ZERO
         for sim_in_job in self._situation.get_sims_in_job_for_churn(self._job_type):
             if sim_in_job.is_selectable:
-                pass
-            else:
-                time_span_on_lot = self._situation.manager.get_time_span_sim_has_been_on_lot(sim_in_job)
-                if time_span_on_lot > most_time_on_lot:
-                    most_time_on_lot = time_span_on_lot
-                    longest_sim = sim_in_job
+                continue
+            time_span_on_lot = self._situation.manager.get_time_span_sim_has_been_on_lot(sim_in_job)
+            if time_span_on_lot > most_time_on_lot:
+                most_time_on_lot = time_span_on_lot
+                longest_sim = sim_in_job
         return longest_sim
 
     def _choose_random_npc_over_min_duration(self):
@@ -99,13 +95,11 @@ class SituationJobData:
         candidates = []
         for sim_in_job in self._situation.get_sims_in_job_for_churn(self._job_type):
             if sim_in_job.is_selectable:
-                pass
-            else:
-                time_span_on_lot = self._situation.manager.get_time_span_sim_has_been_on_lot(sim_in_job)
-                if time_span_on_lot < min_time_span_on_lot:
-                    pass
-                else:
-                    candidates.append(sim_in_job)
+                continue
+            time_span_on_lot = self._situation.manager.get_time_span_sim_has_been_on_lot(sim_in_job)
+            if time_span_on_lot < min_time_span_on_lot:
+                continue
+            candidates.append(sim_in_job)
         selected_sim = None
         if candidates:
             selected_sim = random.choice(candidates)
@@ -141,9 +135,10 @@ class SituationJobData:
             self._situation._make_late_auto_fill_request(job_type)
         elif op == JobChurnOperation.REMOVE_SIM:
             sim_to_remove = self._choose_random_npc_over_min_duration()
-            if over_max:
-                sim_to_remove = self._get_npc_here_longest()
-            if sim_to_remove is None and sim_to_remove:
+            if sim_to_remove is None:
+                if over_max:
+                    sim_to_remove = self._get_npc_here_longest()
+            if sim_to_remove:
                 logger.debug('Churn: Removing sim:{} from job: {} in situation: {}', sim_to_remove, job_type, self._situation)
                 self._situation.manager.add_sim_to_auto_fill_blacklist(sim_to_remove.id, self._job_type)
                 self._situation.manager.make_sim_leave(sim_to_remove)

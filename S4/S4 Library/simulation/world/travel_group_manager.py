@@ -135,8 +135,8 @@ class TravelGroupManager(DistributableObjectManager):
         save_game_protocol_buffer = services.get_persistence_service().get_save_game_data_proto()
         for clean_up_save_data in save_game_protocol_buffer.destination_clean_up_data:
             if clean_up_save_data.travel_group_id in self:
-                pass
-            elif clean_up_save_data.household_id not in household_manager:
+                continue
+            if clean_up_save_data.household_id not in household_manager:
                 clean_up_save_data.household_id = 0
             else:
                 for obj_clean_up_data in clean_up_save_data.object_clean_up_data_list:
@@ -148,9 +148,8 @@ class TravelGroupManager(DistributableObjectManager):
 
                     definition_id = build_buy.get_vetted_object_defn_guid(current_zone_id, obj_data.object_id, obj_data.guid or obj_data.type)
                     if definition_id is None:
-                        pass
-                    else:
-                        objects.system.create_object(definition_id, obj_id=obj_data.object_id, loc_type=obj_data.loc_type, post_add=post_create_old_object)
+                        continue
+                    objects.system.create_object(definition_id, obj_id=obj_data.object_id, loc_type=obj_data.loc_type, post_add=post_create_old_object)
                 clean_up_save_data.household_id = 0
 
     def on_all_households_and_sim_infos_loaded(self, client):
@@ -166,29 +165,28 @@ class TravelGroupManager(DistributableObjectManager):
         save_game_protocol_buffer = services.get_persistence_service().get_save_game_data_proto()
         for (clean_up_index, clean_up_save_data) in enumerate(save_game_protocol_buffer.destination_clean_up_data):
             if clean_up_save_data.travel_group_id in travel_group_manager:
-                pass
-            elif clean_up_save_data.household_id != 0:
-                pass
+                continue
+            if clean_up_save_data.household_id != 0:
+                continue
+            object_indexes_to_delete = []
+            for (index, object_clean_up_data) in enumerate(clean_up_save_data.object_clean_up_data_list):
+                if not object_clean_up_data.zone_id == current_zone_id:
+                    if object_clean_up_data.world_id == open_street_id:
+                        obj = object_manager.get(object_clean_up_data.object_data.object_id)
+                        if obj is not None:
+                            obj.destroy(source=self, cause='Destination world clean up.')
+                        object_indexes_to_delete.append(index)
+                obj = object_manager.get(object_clean_up_data.object_data.object_id)
+                if obj is not None:
+                    obj.destroy(source=self, cause='Destination world clean up.')
+                object_indexes_to_delete.append(index)
+            if len(object_indexes_to_delete) == len(clean_up_save_data.object_clean_up_data_list):
+                clean_up_save_data.ClearField('object_clean_up_data_list')
             else:
-                object_indexes_to_delete = []
-                for (index, object_clean_up_data) in enumerate(clean_up_save_data.object_clean_up_data_list):
-                    if not object_clean_up_data.zone_id == current_zone_id:
-                        if object_clean_up_data.world_id == open_street_id:
-                            obj = object_manager.get(object_clean_up_data.object_data.object_id)
-                            if obj is not None:
-                                obj.destroy(source=self, cause='Destination world clean up.')
-                            object_indexes_to_delete.append(index)
-                    obj = object_manager.get(object_clean_up_data.object_data.object_id)
-                    if obj is not None:
-                        obj.destroy(source=self, cause='Destination world clean up.')
-                    object_indexes_to_delete.append(index)
-                if len(object_indexes_to_delete) == len(clean_up_save_data.object_clean_up_data_list):
-                    clean_up_save_data.ClearField('object_clean_up_data_list')
-                else:
-                    for index in reversed(object_indexes_to_delete):
-                        del clean_up_save_data.object_clean_up_data_list[index]
-                if len(clean_up_save_data.object_clean_up_data_list) == 0:
-                    clean_up_data_indexes_to_remove.append(clean_up_index)
+                for index in reversed(object_indexes_to_delete):
+                    del clean_up_save_data.object_clean_up_data_list[index]
+            if len(clean_up_save_data.object_clean_up_data_list) == 0:
+                clean_up_data_indexes_to_remove.append(clean_up_index)
         for index in reversed(clean_up_data_indexes_to_remove):
             del save_game_protocol_buffer.destination_clean_up_data[index]
 

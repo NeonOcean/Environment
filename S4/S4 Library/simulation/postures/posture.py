@@ -156,7 +156,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             if posture_data.exit is not None:
                 transition_data = cls.PostureTransitionData(posture_data.preconditions, posture_data.exit.cost, posture_data.exit.validators)
                 cls._add_posture_transition(cls, posture_data.posture_type, transition_data)
-        if supports_carry or cls._supports_carry:
+        if not supports_carry and cls._supports_carry:
             logger.error('{} is tuned to support carry, but none of its ASMs has a posture manifest entry supporting carry', cls)
         cls.family_name = family_name
         POSTURE_FAMILY_MAP[cls.family_name].add(cls)
@@ -249,11 +249,10 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         resolver = DoubleSimResolver(sim, target)
         for ((posture_type, exit_posture_type), transition_data) in cls._posture_transitions.items():
             if posture_type is not cls:
-                pass
-            elif not all(validator(resolver) for validator in transition_data.validators):
-                pass
-            else:
-                yield exit_posture_type
+                continue
+            if not all(validator(resolver) for validator in transition_data.validators):
+                continue
+            yield exit_posture_type
 
     @classmethod
     @cached(maxsize=512)
@@ -282,8 +281,8 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
     def has_mobile_entry_transition(cls):
         for (previous_posture, next_posture) in cls._posture_transitions:
             if next_posture is not cls:
-                pass
-            elif previous_posture.mobile:
+                continue
+            if previous_posture.mobile:
                 return True
         return False
 
@@ -431,8 +430,9 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if interaction not in self.owning_interactions:
             return False
         for owning_interaction in self.owning_interactions:
-            if owning_interaction is not interaction and not owning_interaction.is_finishing:
-                return False
+            if owning_interaction is not interaction:
+                if not owning_interaction.is_finishing:
+                    return False
         return True
 
     def add_owning_interaction(self, interaction):
@@ -466,17 +466,19 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if self.source_interaction is None:
             logger.error('Posture({}) on sim:{} has no source interaction.', self, self.sim, owner='Maxr', trigger_breakpoint=True)
             return
-        if self.rerequests_idles or self.sim.last_animation_factory is not None:
+        if not self.rerequests_idles and self.sim.last_animation_factory is not None:
             return
 
         def maybe_idle(timeline):
             if self.sim.last_animation_factory == self.idle_animation.factory:
                 return True
+                yield
             if self.target is not None and self.target.is_sim and not self.target.posture_state.is_carrying(self.sim):
                 return True
+                yield
             self.sim.last_affordance = None
             self.sim.last_animation_factory = self.idle_animation.factory
-            if self.owning_interactions and (self.multi_sim or list(self.owning_interactions)[0].target is self.source_interaction.target):
+            if self.owning_interactions and not self.multi_sim and list(self.owning_interactions)[0].target is self.source_interaction.target:
                 interaction = list(self.owning_interactions)[0]
             else:
                 interaction = self.source_interaction
@@ -565,12 +567,13 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if self.sim is sim and self.target is target and self.target_part is None or self.target_part is target and self._track == track:
             return
         target_name = self.get_target_name(sim=sim, target=target)
-        if track == PostureTrack.BODY:
-            part_suffix = self.get_part_suffix()
-            for asm in self._asms_with_posture_info:
-                if not asm.remove_virtual_actor(target_name, self.target, suffix=part_suffix):
-                    logger.error('Failed to remove previously-bound virtual posture container {} from asm {} on posture {}.', self.target, asm, self)
-        if self.target is not None and sim is not None:
+        if self.target is not None:
+            if track == PostureTrack.BODY:
+                part_suffix = self.get_part_suffix()
+                for asm in self._asms_with_posture_info:
+                    if not asm.remove_virtual_actor(target_name, self.target, suffix=part_suffix):
+                        logger.error('Failed to remove previously-bound virtual posture container {} from asm {} on posture {}.', self.target, asm, self)
+        if sim is not None:
             self._sim = sim.ref()
         else:
             self._sim = None
@@ -740,12 +743,13 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if target_name is None:
             target_name = self.get_target_name(target=target)
         result = False
-        if target_name is not None:
-            result = asm.add_potentially_virtual_actor(actor_name, self.sim, target_name, target, part_suffix, target_participant=AnimationParticipant.CONTAINER)
-            if not self._setup_custom_posture_target_name(asm, target):
-                logger.error('Failed to set custom posture target {}', target)
-                result = False
-        if target is not None and result:
+        if target is not None:
+            if target_name is not None:
+                result = asm.add_potentially_virtual_actor(actor_name, self.sim, target_name, target, part_suffix, target_participant=AnimationParticipant.CONTAINER)
+                if not self._setup_custom_posture_target_name(asm, target):
+                    logger.error('Failed to set custom posture target {}', target)
+                    result = False
+        if result:
             self._asms_with_posture_info.add(asm)
         return result
 
@@ -911,7 +915,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             if result:
                 return True
         param_str_family = best_supported_posture.posture_param_value_family
-        if param_str_specific and param_str_family and set_posture_param(param_str_family, carry_param_str, carry_actor_name, surface_actor_name):
+        if (not param_str_specific or param_str_family) and set_posture_param(param_str_family, carry_param_str, carry_actor_name, surface_actor_name):
             if best_supported_posture.is_overlay:
                 return True
             else:
@@ -926,7 +930,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 if not invalid_expected:
                     logger.error('Animation targets a different object than its posture, but both use the same actor name for the object. This is impossible to resolve. Actor name: {}, posture target: {}, interaction target: {}', target_name, target, self.target)
                 return TestResult(False, "Animation targets different object than it's posture.")
-        if actor_name not in asm._virtual_actors and not (asm.set_actor(actor_name, sim, actor_participant=actor_participant) or asm.add_virtual_actor(actor_name, sim)):
+        if actor_name not in asm._virtual_actors and not asm.set_actor(actor_name, sim, actor_participant=actor_participant) and not asm.add_virtual_actor(actor_name, sim):
             logger.error('Failed to set actor: {0} on asm {1}', actor_name, asm)
             return TestResult(False, 'Failed to set actor: {0} on asm {1}'.format(actor_name, asm))
         if sim.asm_auto_exit.apply_carry_interaction_mask:
@@ -934,7 +938,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if target is not None and target_name is not None:
             from sims.sim import Sim
             target_definition = asm.get_actor_definition(target_name)
-            if target_definition.is_virtual or isinstance(target, Sim):
+            if not target_definition.is_virtual and isinstance(target, Sim):
                 result = target.posture.setup_asm_interaction(asm, target, None, target_name, None, actor_participant=AnimationParticipant.TARGET)
                 if not result:
                     return result
@@ -972,6 +976,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             begin = self.get_begin(animate_in, dest_state, routing_surface)
             result = yield from element_utils.run_child(timeline, begin)
             return result
+            yield
 
         return _do_begin
 
@@ -989,6 +994,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             end = self.get_end()
             result = yield from element_utils.run_child(timeline, end)
             return result
+            yield
 
         return _do_end
 
@@ -1035,18 +1041,20 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         updates = {TRANSITION_POSTURE_PARAM_NAME: source_posture.name}
         if source_posture.target is None:
             return self._locked_params + updates
-        if self.target.is_part:
-            if self.target.is_mirrored(source_posture.target):
-                direction = 'fromSimLeft'
-            else:
-                direction = 'fromSimRight'
-            updates['direction'] = direction
-            part_suffix = source_posture.target.part_suffix
-            if part_suffix is not None:
-                updates['subrootFrom'] = part_suffix
-            part_suffix = self.target.part_suffix
-            if part_suffix is not None:
-                updates['subrootTo'] = part_suffix
+        if source_posture.target.is_part:
+            if self.target is not None:
+                if self.target.is_part:
+                    if self.target.is_mirrored(source_posture.target):
+                        direction = 'fromSimLeft'
+                    else:
+                        direction = 'fromSimRight'
+                    updates['direction'] = direction
+                    part_suffix = source_posture.target.part_suffix
+                    if part_suffix is not None:
+                        updates['subrootFrom'] = part_suffix
+                    part_suffix = self.target.part_suffix
+                    if part_suffix is not None:
+                        updates['subrootTo'] = part_suffix
         return self._locked_params + updates
 
     def append_transition_to_arb(self, arb, source_posture, locked_params=frozendict(), target_override=None, **kwargs):
@@ -1183,8 +1191,10 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 if exit_outfit is not None:
                     self._saved_exit_clothing_change = overrides.get_on_exit_outfit(interaction, **kwargs)
                     return
-        if self._saved_exit_clothing_change is None:
-            self._saved_exit_clothing_change = self.outfit_change.get_on_exit_outfit(interaction, **kwargs)
+        if self.outfit_change:
+            if self.outfit_change.get_on_exit_outfit(interaction):
+                if self._saved_exit_clothing_change is None:
+                    self._saved_exit_clothing_change = self.outfit_change.get_on_exit_outfit(interaction, **kwargs)
 
     def exit_clothing_change(self, interaction, *, sim_info=DEFAULT, do_spin=True, **kwargs):
         if self._saved_exit_clothing_change is None or interaction is None:
@@ -1193,10 +1203,11 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         return build_critical_section(sim_info.get_change_outfit_element(self._saved_exit_clothing_change, do_spin=do_spin, interaction=interaction), flush_all_animations)
 
     def ensure_exit_clothing_change_application(self):
-        if self._saved_exit_clothing_change is not None:
-            if self.sim.sim_info.get_current_outfit() != self._saved_exit_clothing_change:
-                self.sim.sim_info.set_current_outfit(self._saved_exit_clothing_change)
-            self._saved_exit_clothing_change = None
+        if self.sim.posture_state.body is not self:
+            if self._saved_exit_clothing_change is not None:
+                if self.sim.sim_info.get_current_outfit() != self._saved_exit_clothing_change:
+                    self.sim.sim_info.set_current_outfit(self._saved_exit_clothing_change)
+                self._saved_exit_clothing_change = None
 
     def get_target_and_target_name(self):
         if self.target is not None and self.get_target_name() is not None:

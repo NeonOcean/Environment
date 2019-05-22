@@ -21,11 +21,13 @@ class _WaypointStitchingWaypoints(_WaypointStitchingBase, HasTunableSingletonFac
             centroid = sum([goal.position for goal in goals], sims4.math.Vector3.ZERO())/num_goals
             dist = (previous_centroid - centroid).magnitude_2d_squared() if previous_centroid is not None else 0
             current_group = waypoint_groups[-1]
-            if num_goals + group_num_goals > self.max_goals:
-                waypoint_groups.append(current_group)
-                current_group = [current_group[-1]]
-                group_dist = 0
-                group_num_goals = len(current_group[0])
+            if len(current_group) > 1:
+                if dist + group_dist > self.max_distance:
+                    if num_goals + group_num_goals > self.max_goals:
+                        waypoint_groups.append(current_group)
+                        current_group = [current_group[-1]]
+                        group_dist = 0
+                        group_num_goals = len(current_group[0])
             current_group.append(goals)
             group_dist += dist
             group_num_goals += num_goals

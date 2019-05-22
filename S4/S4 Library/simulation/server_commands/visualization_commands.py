@@ -181,15 +181,14 @@ def debugvis_simposition_start(opt_sim:OptionalTargetParam=None, _connection=Non
             for obj in object_manager.get_all_objects_with_component_gen(types.ROUTING_COMPONENT):
                 routing_component = obj.routing_component
                 if routing_component is None:
-                    pass
-                elif obj.id in _sim_layer_visualizers:
-                    pass
-                else:
-                    layer = '{0}_{1:08x}'.format('sim_pos', obj.id)
-                    visualizer = SimPositionVisualizer(obj, layer)
-                    _sim_layer_visualizers[obj.id] = visualizer
-                    sims4.commands.output('Added visualization: {0}'.format(layer), _connection)
-                    sims4.commands.client_cheat('debugvis.layer.enable {0}'.format(layer), _connection)
+                    continue
+                if obj.id in _sim_layer_visualizers:
+                    continue
+                layer = '{0}_{1:08x}'.format('sim_pos', obj.id)
+                visualizer = SimPositionVisualizer(obj, layer)
+                _sim_layer_visualizers[obj.id] = visualizer
+                sims4.commands.output('Added visualization: {0}'.format(layer), _connection)
+                sims4.commands.client_cheat('debugvis.layer.enable {0}'.format(layer), _connection)
     elif not _start_sim_visualizer(opt_sim, _connection, 'sim_pos', _sim_layer_visualizers, SimPositionVisualizer):
         return 0
     return 1
@@ -197,11 +196,12 @@ def debugvis_simposition_start(opt_sim:OptionalTargetParam=None, _connection=Non
 @sims4.commands.Command('debugvis.sim_position.stop')
 def debugvis_simposition_stop(opt_sim:OptionalTargetParam=None, _connection=None):
     if opt_sim is None:
-        while _sim_layer_visualizers:
-            (_, visualizer) = _sim_layer_visualizers.popitem()
-            visualizer.stop()
-            sims4.commands.output('Removed visualization: {0}'.format(visualizer.layer), _connection)
-            sims4.commands.client_cheat('debugvis.layer.disable {0}'.format(visualizer.layer), _connection)
+        while True:
+            while _sim_layer_visualizers:
+                (_, visualizer) = _sim_layer_visualizers.popitem()
+                visualizer.stop()
+                sims4.commands.output('Removed visualization: {0}'.format(visualizer.layer), _connection)
+                sims4.commands.client_cheat('debugvis.layer.disable {0}'.format(visualizer.layer), _connection)
     elif not _stop_sim_visualizer(opt_sim, _connection, 'sim_pos', _sim_layer_visualizers):
         return 0
     return 1
@@ -381,7 +381,7 @@ def debugvis_mood_toggle(_connection=None):
         for sim in infom.instanced_sims_gen():
             debugvis_mood_stop(opt_sim=sim, _connection=_connection)
     new_registered = True if _all_mood_visualization_enabled else False
-    if old_registered or new_registered:
+    if not old_registered and new_registered:
         om.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_ADD, _on_object_add)
         om.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_REMOVE, _on_object_remove)
         cm.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_REMOVE, _on_client_remove)
@@ -433,7 +433,7 @@ def debugvis_autonomy_timer_toggle(_connection=None):
         for sim in sim_info_manager.instanced_sims_gen():
             debugvis_autonomy_timer_stop(opt_sim=sim, _connection=_connection)
     new_registered = True if _all_autonomy_timer_visualization_enabled else False
-    if old_registered or new_registered:
+    if not old_registered and new_registered:
         object_manager.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_ADD, _on_object_add)
         object_manager.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_REMOVE, _on_object_remove)
         client_manager.register_callback(indexed_manager.CallbackTypes.ON_OBJECT_REMOVE, _on_client_remove)
@@ -760,7 +760,7 @@ def polygon_intersection(*args, _connection=None):
     constraints = []
     for poly_str in polygon_strs:
         point_list = extract_floats(poly_str)
-        if point_list and len(point_list) % 2 != 0:
+        if not point_list or len(point_list) % 2 != 0:
             output('Point list is not valid length. Too few or one too many.')
             return
         vertices = []

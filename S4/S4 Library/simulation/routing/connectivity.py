@@ -37,8 +37,8 @@ class RoutingHandle(Handle):
             clone.var_map = self.var_map
         return clone
 
-    def get_los_reference_point(self, routing_surface):
-        if self.constraint.multi_surface:
+    def get_los_reference_point(self, routing_surface, force_multi_surface=False):
+        if force_multi_surface or self.constraint.multi_surface:
             return
         return self.los_reference_point
 
@@ -47,7 +47,7 @@ class RoutingHandle(Handle):
 
     def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None):
         force_multi_surface = relative_object is not None and relative_object.force_multi_surface_constraints
-        if force_multi_surface or not (self.constraint.multi_surface and for_source):
+        if force_multi_surface or not not (self.constraint.multi_surface and for_source):
             routing_surfaces = self.constraint.get_all_valid_routing_surfaces(force_multi_surface=force_multi_surface)
         else:
             routing_surfaces = {self.routing_surface}
@@ -70,45 +70,45 @@ class RoutingHandle(Handle):
         surface_costs = {}
         for routing_surface in routing_surfaces:
             if routing_surface is None:
-                pass
-            else:
-                los_reference_pt = self.get_los_reference_point(routing_surface)
-                goals = placement.generate_routing_goals_for_polygon(self.sim, self.geometry.polygon, routing_surface, orientation_restrictions, objects_to_ignore, flush_planner=self.constraint._flush_planner, los_reference_pt=los_reference_pt, max_points=max_goals, ignore_outer_penalty_amount=self.constraint._ignore_outer_penalty_threshold, single_goal_only=single_goal_only, los_routing_context=relative_object.raycast_context(for_carryable=for_carryable) if relative_object is not None else None, all_blocking_edges_block_los=self.los_reference_point is not None and single_goal_only, provided_points=provided_points)
-                if not goals:
-                    pass
-                else:
-                    surface_costs[routing_surface.type] = self.sim.get_additional_scoring_for_surface(routing_surface.type)
-                    generated_goals.extend(goals)
+                continue
+            los_reference_pt = self.get_los_reference_point(routing_surface, force_multi_surface=force_multi_surface)
+            goals = placement.generate_routing_goals_for_polygon(self.sim, self.geometry.polygon, routing_surface, orientation_restrictions, objects_to_ignore, flush_planner=self.constraint._flush_planner, los_reference_pt=los_reference_pt, max_points=max_goals, ignore_outer_penalty_amount=self.constraint._ignore_outer_penalty_threshold, single_goal_only=single_goal_only, los_routing_context=relative_object.raycast_context(for_carryable=for_carryable) if relative_object is not None else None, all_blocking_edges_block_los=self.los_reference_point is not None and single_goal_only, provided_points=provided_points)
+            if not goals:
+                continue
+            surface_costs[routing_surface.type] = self.sim.get_additional_scoring_for_surface(routing_surface.type)
+            generated_goals.extend(goals)
         if not generated_goals:
             return []
         minimum_router_cost = self._get_minimum_router_cost()
         target_obj = self.target.part_owner if self.target is not None and self.target.is_part else self.target
         target_height = None
         height_obj = target_obj if target_reference_override is None else target_reference_override
-        if height_obj.is_valid_for_height_checks:
-            parent_obj = height_obj.parent
-            if parent_obj is not None:
-                target_height = parent_obj.position.y
-            else:
-                target_height = height_obj.position.y
-        is_line_obj = goal_height_limit is not None and height_obj is not None and target_obj is not None and target_obj.waiting_line_component is not None
+        if goal_height_limit is not None:
+            if height_obj is not None:
+                if height_obj.is_valid_for_height_checks:
+                    parent_obj = height_obj.parent
+                    if parent_obj is not None:
+                        target_height = parent_obj.position.y
+                    else:
+                        target_height = height_obj.position.y
+        is_line_obj = target_obj is not None and target_obj.waiting_line_component is not None
         is_single_point = self._is_geometry_single_point()
         goal_list = []
         max_goal_height = self.sim.position.y
         for (tag, (location, cost, validation)) in enumerate(generated_goals):
-            if is_line_obj or relative_object is not None and is_single_point and validation not in VALID_GOAL_VALUES:
-                pass
-            elif not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
-                pass
-            else:
+            if not is_line_obj and (relative_object is not None and is_single_point) and validation not in VALID_GOAL_VALUES:
+                continue
+            if not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
+                continue
+            if minimum_router_cost is not None:
                 if cost > sims4.math.EPSILON:
                     cost = max(cost, minimum_router_cost)
-                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
-                full_cost += surface_costs[location.routing_surface.type]
-                if minimum_router_cost is not None and self.constraint.enables_height_scoring:
-                    full_cost += max_goal_height - location.position.y
-                goal = self.create_goal(location, full_cost, tag)
-                goal_list.append(goal)
+            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+            full_cost += surface_costs[location.routing_surface.type]
+            if self.constraint.enables_height_scoring:
+                full_cost += max_goal_height - location.position.y
+            goal = self.create_goal(location, full_cost, tag)
+            goal_list.append(goal)
         return goal_list
 
     def create_goal(self, location, full_cost, tag):
@@ -184,7 +184,7 @@ class UniversalSlotRoutingHandle(SlotRoutingHandle):
         super()._get_kwargs_for_clone(kwargs)
         kwargs.update(cost_functions_override=self._cost_functions_override, posture=self._posture)
 
-    def get_los_reference_point(self, routing_surface):
+    def get_los_reference_point(self, routing_surface, force_multi_surface=False):
         if routing_surface.type == routing.SurfaceType.SURFACETYPE_WORLD:
             return self.los_reference_point
 

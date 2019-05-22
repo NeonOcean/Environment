@@ -83,6 +83,11 @@ def merge_with_active(household_id:int, _connection=None):
 
 @sims4.commands.Command('households.merge_with_neighbor', command_type=sims4.commands.CommandType.Live)
 def merge_with_neighbor(zone_id:int, merge:bool, household_id:int, _connection=None):
+    venue_type = services.venue_service().get_venue_tuning(zone_id)
+    if venue_type is None:
+        return
+    if not venue_type.residential:
+        return
     old_household_id = services.get_persistence_service().get_household_id_from_zone_id(zone_id)
     household_manager = services.household_manager()
     if old_household_id is not None:

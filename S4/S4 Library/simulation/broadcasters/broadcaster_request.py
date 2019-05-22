@@ -61,31 +61,33 @@ class BroadcasterRequest(elements.ParentElement, HasTunableFactory, AutoFactoryI
         current_zone = services.current_zone()
         broadcaster_service = current_zone.broadcaster_service
         broadcaster_service_real_time = current_zone.broadcaster_real_time_service
-        if broadcaster_service_real_time is not None:
-            if self._interaction is not None:
-                resolver = self._interaction.get_resolver()
-            else:
-                resolver = SingleObjectResolver(self._target)
-            for broadcaster_type in self.broadcaster_types(resolver=resolver):
-                broadcaster = broadcaster_type(broadcasting_object=self._target, interaction=self._interaction)
-                self._broadcasters.append(broadcaster)
-                if broadcaster.clock_type == BroadcasterClockType.GAME_TIME:
-                    broadcaster_service.add_broadcaster(broadcaster)
-                elif broadcaster.clock_type == BroadcasterClockType.REAL_TIME:
-                    broadcaster_service_real_time.add_broadcaster(broadcaster)
+        if broadcaster_service is not None:
+            if broadcaster_service_real_time is not None:
+                if self._interaction is not None:
+                    resolver = self._interaction.get_resolver()
                 else:
-                    raise NotImplementedError
+                    resolver = SingleObjectResolver(self._target)
+                for broadcaster_type in self.broadcaster_types(resolver=resolver):
+                    broadcaster = broadcaster_type(broadcasting_object=self._target, interaction=self._interaction)
+                    self._broadcasters.append(broadcaster)
+                    if broadcaster.clock_type == BroadcasterClockType.GAME_TIME:
+                        broadcaster_service.add_broadcaster(broadcaster)
+                    elif broadcaster.clock_type == BroadcasterClockType.REAL_TIME:
+                        broadcaster_service_real_time.add_broadcaster(broadcaster)
+                    else:
+                        raise NotImplementedError
 
     def stop(self, *_, **__):
         current_zone = services.current_zone()
         broadcaster_service = current_zone.broadcaster_service
         broadcaster_service_real_time = current_zone.broadcaster_real_time_service
-        if broadcaster_service_real_time is not None:
-            for broadcaster in self._broadcasters:
-                if broadcaster.clock_type == BroadcasterClockType.GAME_TIME:
-                    broadcaster_service.remove_broadcaster(broadcaster)
-                else:
-                    broadcaster_service_real_time.remove_broadcaster(broadcaster)
+        if broadcaster_service is not None:
+            if broadcaster_service_real_time is not None:
+                for broadcaster in self._broadcasters:
+                    if broadcaster.clock_type == BroadcasterClockType.GAME_TIME:
+                        broadcaster_service.remove_broadcaster(broadcaster)
+                    else:
+                        broadcaster_service_real_time.remove_broadcaster(broadcaster)
         self._broadcasters = []
 
     def _run(self, timeline):

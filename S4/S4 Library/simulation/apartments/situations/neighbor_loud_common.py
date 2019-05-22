@@ -161,11 +161,10 @@ class LoudNeighborSituation(SituationComplexCommon):
             neighbor_sim_infos_at_home = [result.sim_info for result in neighbors if result.sim_info.is_at_home]
             if len(neighbor_sim_infos_at_home) > 1 or len(neighbor_sim_infos_at_home):
                 if neighbor_filter.is_aggregate_filter():
-                    pass
-                else:
-                    neighbor_sim_id = neighbor_sim_infos_at_home[0].sim_id if neighbor_sim_infos_at_home else None
-                    if neighbor_sim_id is not None:
-                        break
+                    continue
+                neighbor_sim_id = neighbor_sim_infos_at_home[0].sim_id if neighbor_sim_infos_at_home else None
+                if neighbor_sim_id is not None:
+                    break
         return neighbor_sim_id
 
     def _set_loud_neighbor_and_door(self, neighbor_sim_id):
@@ -179,10 +178,12 @@ class LoudNeighborSituation(SituationComplexCommon):
         object_manager = services.object_manager()
         for door_info in plex_door_infos:
             door = object_manager.get(door_info.door_id)
-            if door is not None and door.household_owner_id == neighbor_sim_info.household_id:
-                self._neighbor_door_id = door_info.door_id
-                break
-        logger.error('Could not find door object that belongs to {}', neighbor_sim_info.household.name)
-        self._self_destruct()
+            if door is not None:
+                if door.household_owner_id == neighbor_sim_info.household_id:
+                    self._neighbor_door_id = door_info.door_id
+                    break
+        else:
+            logger.error('Could not find door object that belongs to {}', neighbor_sim_info.household.name)
+            self._self_destruct()
 
 lock_instance_tunables(LoudNeighborSituation, exclusivity=BouncerExclusivityCategory.NORMAL, _implies_greeted_status=False)

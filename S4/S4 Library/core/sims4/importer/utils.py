@@ -25,14 +25,14 @@ def module_names_gen(_path):
     ext_index = _path.find(ext)
     ext = '.ts4script'
     ext_index = _path.find(ext)
-    if ext_index == -1 and ext_index != -1:
+    if not ext_index == -1 or ext_index != -1:
         compiled = True
         py_re = re.compile('.+\\.py[co]$')
         archive_name = _path[0:ext_index + len(ext)]
         local_path = _path[ext_index + len(ext) + 1:]
         archive = zipfile.ZipFile(archive_name)
         if local_path:
-            files = [f for f in archive.namelist() if f.startswith(local_path + '/') and py_re.match(f)]
+            files = [f for f in archive.namelist() if f.startswith(local_path + '/') if py_re.match(f)]
         else:
             files = [f for f in archive.namelist() if py_re.match(f)]
         for filename in files:

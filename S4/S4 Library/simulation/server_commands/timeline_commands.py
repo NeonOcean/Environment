@@ -9,23 +9,22 @@ def timeline_list(_connection=None):
     for handle in sorted(timeline.heap):
         if not handle.element is None:
             if isinstance(handle.element, alarms.AlarmElement):
-                pass
-            else:
-                output('\nElement scheduled at {} ({})'.format(handle.when, abs(handle.ix)))
-                parent_handle = handle
-                child_name = None
-                names = []
-                while parent_handle is not None:
-                    name = str(parent_handle.element)
-                    if child_name is not None:
-                        short_name = name.replace(child_name, '$child')
-                    else:
-                        short_name = name
-                    names.append(short_name)
-                    parent_handle = parent_handle.element._parent_handle
-                    child_name = name
-                for (i, name) in enumerate(reversed(names), 1):
-                    output('{} {}'.format('*'*i, name))
+                continue
+            output('\nElement scheduled at {} ({})'.format(handle.when, abs(handle.ix)))
+            parent_handle = handle
+            child_name = None
+            names = []
+            while parent_handle is not None:
+                name = str(parent_handle.element)
+                if child_name is not None:
+                    short_name = name.replace(child_name, '$child')
+                else:
+                    short_name = name
+                names.append(short_name)
+                parent_handle = parent_handle.element._parent_handle
+                child_name = name
+            for (i, name) in enumerate(reversed(names), 1):
+                output('{} {}'.format('*'*i, name))
 
 @sims4.commands.Command('timeline.clear', command_type=sims4.commands.CommandType.Automation)
 def timeline_clear(_connection=None):
@@ -33,9 +32,8 @@ def timeline_clear(_connection=None):
     for handle in sorted(timeline.heap):
         if not handle.element is None:
             if isinstance(handle.element, alarms.AlarmElement):
-                pass
-            else:
-                timeline.hard_stop(handle)
+                continue
+            timeline.hard_stop(handle)
 
 @sims4.commands.Command('timeline.hard_stop', command_type=sims4.commands.CommandType.Automation)
 def timeline_hard_stop(ix:int, _connection=None):

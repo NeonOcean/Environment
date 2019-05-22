@@ -94,6 +94,7 @@ class TravelInteraction(SuperInteraction):
             self.store_event_handler(on_travel_visuals, handler_id=self.travel_xevt)
         result = yield from super()._setup_gen(timeline)
         return result
+        yield
 
     def _run_interaction_gen(self, timeline):
         self.save_and_destroy_sim(False, self.sim.sim_info)
@@ -179,7 +180,7 @@ class GoToSpecificLotTravelInteraction(SuperInteraction):
             from_region = region.get_region_instance_from_zone_id(cls.sim.zone_id)
             if not from_region.is_region_compatible(to_region):
                 return TestResult(False, 'GoToSpecificLotTravelInteraction: Actor region {} is not compatible with destination {}.'.format(from_region, to_region))
-        if zone_id and zone_id is None:
+        if not zone_id or zone_id is None:
             return TestResult(False, 'GoToSpecificLotTravelInteraction: {} could not get a valid zone from tuning or participants.', cls)
         return TestResult.TRUE
 
@@ -190,8 +191,10 @@ class GoToSpecificLotTravelInteraction(SuperInteraction):
         else:
             logger.error('GoToSpecificLotTravelInteraction {} has invalid destination.'.format(self), owner='rmccord')
             return False
+            yield
         result = yield from super()._setup_gen(timeline)
         return result
+        yield
 
 class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
     INSTANCE_TUNABLES = {'front_door_constraint': TunableWelcomeConstraint(description="\n            The Front Door Constraint for when the active lot is the Sim's home\n            lot.\n            ", radius=5.0, tuning_group=GroupNames.TRAVEL), 'home_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is on\n            the current street, but is not active. We should be tuning the\n            Arrival Spawner Tag(s) here.\n            ", tuning_group=GroupNames.TRAVEL), 'street_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is\n            not on the current street. We should likely be tuning Walkby Spawner\n            Tags here.\n            ", tuning_group=GroupNames.TRAVEL), 'attend_career': Tunable(description='\n            If set, Sim will automatically go to work after going home.\n            ', tunable_type=bool, default=False)}
@@ -214,7 +217,7 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
             return test_result
         if target is not None and target is not sim:
             return TestResult(False, 'Self Interactions cannot target other Sims.')
-        if sim.sim_info.is_npc or context.source == InteractionContext.SOURCE_AUTONOMY:
+        if not sim.sim_info.is_npc and context.source == InteractionContext.SOURCE_AUTONOMY:
             return TestResult(False, 'Selectable Sims cannot go home autonomously.')
         test_result = cls.travel_test(context)
         if not test_result:
@@ -253,7 +256,7 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
 
     def _run_interaction_gen(self, timeline):
         if self.to_zone_id == services.current_zone_id():
-            return
+            yield
         additional_sims = list(self._care_dependents)
         drama_scheduler = services.drama_scheduler_service()
         if drama_scheduler is not None:
@@ -266,21 +269,21 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
                     additional_sims.append(housemate_sim)
         selectable_sim_infos = services.get_selectable_sims()
         selectable_sims = selectable_sim_infos.get_instanced_sims(allow_hidden_flags=ALL_HIDDEN_REASONS)
-        if self.sim.is_human and sum(1 for sim in selectable_sims if sim.is_human and sim.sim_info.is_child_or_older) == 1:
+        if self.sim.is_human and sum(1 for sim in selectable_sims if sim.is_human if sim.sim_info.is_child_or_older) == 1:
             additional_sims.extend([sim for sim in selectable_sims if sim.is_pet])
         travel_liability = TravelSimLiability(self, self.sim.sim_info, self.to_zone_id, is_attend_career=self.attend_career, additional_sims=additional_sims)
         for next_sim_info in selectable_sim_infos:
             next_sim = next_sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             if next_sim is None:
-                pass
-            elif next_sim is self.sim:
-                pass
-            elif next_sim in additional_sims:
-                pass
-            else:
-                self.add_liability(TRAVEL_SIM_LIABILITY, travel_liability)
-                break
-        travel_liability.travel_player()
+                continue
+            if next_sim is self.sim:
+                continue
+            if next_sim in additional_sims:
+                continue
+            self.add_liability(TRAVEL_SIM_LIABILITY, travel_liability)
+            break
+        else:
+            travel_liability.travel_player()
 
     def on_reset(self):
         self.sim.fade_in()
@@ -320,13 +323,12 @@ class NPCLeaveLotInteraction(TravelInteraction):
         if notification not in (None, SetGoodbyeNotificationElement.NEVER_USE_NOTIFICATION_NO_MATTER_WHAT):
             for lot_owner in lot_owners:
                 if not lot_owner.is_selectable:
-                    pass
-                else:
-                    resolver = self.get_resolver()
-                    dialog = notification(lot_owner, resolver=resolver)
-                    if dialog is not None:
-                        dialog.show_dialog()
-                    break
+                    continue
+                resolver = self.get_resolver()
+                dialog = notification(lot_owner, resolver=resolver)
+                if dialog is not None:
+                    dialog.show_dialog()
+                break
             actor.sim_info.goodbye_notification = None
         return super().run_pre_transition_behavior()
 

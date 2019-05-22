@@ -98,14 +98,14 @@ class PeriodicStatisticChangeElement(HasTunableFactory, elements.SubclassableGen
         is_dynamic_skill_loot_op = isinstance(loot_op, DynamicSkillLootOp)
         is_exclusive = hasattr(loot_op, 'exclusive_to_owning_si') and loot_op.exclusive_to_owning_si
         stat = loot_op.get_stat(self._interaction)
-        if stat is None or not (stat.continuous and (is_dynamic_skill_loot_op or isinstance(loot_op, StatisticChangeOp))):
+        if stat is None or not (stat.continuous and not is_dynamic_skill_loot_op and not isinstance(loot_op, StatisticChangeOp)):
             self._operations_on_alarm.append(loot_op)
             return
         periodic_behavior = loot_op.periodic_change_behavior
         if periodic_behavior == PeriodicStatisticBehavior.APPLY_AT_INTERVAL_ONLY:
             self._operations_on_alarm.append(loot_op)
             return
-        if skip_test or not loot_op.test_resolver(resolver):
+        if not skip_test and not loot_op.test_resolver(resolver):
             if periodic_behavior == PeriodicStatisticBehavior.RETEST_ON_INTERVAL:
                 self._operations_on_alarm.append(loot_op)
             return
@@ -205,6 +205,7 @@ class PeriodicStatisticChangeElement(HasTunableFactory, elements.SubclassableGen
                 self._start_statistic_gains()
                 result = yield from element_utils.run_child(timeline, self._sequence)
                 return result
+                yield
             finally:
                 self._end_statistic_gains()
 

@@ -77,9 +77,11 @@ class _HostStationState(CommonSituationState, HostSituationStateMixin):
         group = None
         if event == TestEvent.GroupWaitingToBeSeated:
             group = self.get_valid_group_to_seat()
-        if self.owner.sim_of_interest(sim_info):
-            group = self.get_valid_group_to_seat()
-        if event == TestEvent.InteractionComplete and self.owner is not None and group is None:
+        if event == TestEvent.InteractionComplete:
+            if self.owner is not None:
+                if self.owner.sim_of_interest(sim_info):
+                    group = self.get_valid_group_to_seat()
+        if group is None:
             return
         log_host_action('Leaving Host Station State for discovered waiting table', 'Success')
         self._change_state(self.owner._right_this_way_situation_state())

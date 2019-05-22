@@ -1,4 +1,5 @@
 from event_testing.test_events import TestEvent
+from narrative.narrative_open_street_director_mixin import NarrativeOpenStreetDirectorMixin
 from open_street_director.open_street_director import OpenStreetDirectorBase, OpenStreetDirectorPriority
 from scheduler import ObjectLayerWeeklySchedule
 from seasons.seasons_enums import SeasonType
@@ -11,7 +12,7 @@ import services
 import sims4.log
 logger = sims4.log.Logger('SchedulingOpenStreetDirector', default_owner='rmccord')
 
-class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, OpenStreetDirectorBase):
+class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, NarrativeOpenStreetDirectorMixin, OpenStreetDirectorBase):
     INSTANCE_TUNABLES = {'object_layer_schedule': ObjectLayerWeeklySchedule.TunableFactory(description='\n            The default object layer schedule for this open street director,\n            when no season is specified. (e.g. EP05 is not installed, or season not tuned.)\n            ', schedule_entry_data={'pack_safe': True}), 'seasonal_object_layer_schedule_mapping': TunableMapping(description='\n            A mapping of the season type to the object layer schedule for an\n            open street director.\n            ', key_type=TunableEnumEntry(description='\n                The season.\n                ', tunable_type=SeasonType, default=SeasonType.SUMMER), value_type=ObjectLayerWeeklySchedule.TunableFactory(description='\n                The object layer schedule for this open street director.\n                ', schedule_entry_data={'pack_safe': True}))}
 
     @classproperty
@@ -40,17 +41,20 @@ class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, OpenStreetDirect
             self._object_layer_schedule = self._create_new_object_layer_schedule(self._setup_object_layer, True)
             now = services.time_service().sim_now
             (time_span, best_work_data) = self._object_layer_schedule.time_until_next_scheduled_event(now, schedule_immediate=True)
-            if time_span == date_and_time.TimeSpan.ZERO:
-                for alarm_data in best_work_data:
-                    self._setup_object_layer(self._object_layer_schedule, alarm_data, None)
+            if time_span is not None:
+                if time_span == date_and_time.TimeSpan.ZERO:
+                    for alarm_data in best_work_data:
+                        self._setup_object_layer(self._object_layer_schedule, alarm_data, None)
             self._object_layer_schedule.schedule_next_alarm(schedule_immediate=False)
 
     def handle_event(self, sim_info, event, resolver):
         if event == TestEvent.SeasonChangedNoSim:
             self._on_season_changed()
+            return
+        super().handle_event(sim_info, event, resolver)
 
     def _on_season_changed(self):
-        self._remove_object_layer_schedule()
+        self._remove_object_layer_schedule(all_layers=False)
         self.create_layer_schedule()
 
     def on_startup(self):
@@ -63,12 +67,13 @@ class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, OpenStreetDirect
             services.get_event_manager().unregister_single_event(self, TestEvent.SeasonChangedNoSim)
         super().on_shutdown()
 
-    def _remove_object_layer_schedule(self):
+    def _remove_object_layer_schedule(self, all_layers=True):
         if self._object_layer_schedule is None:
             return
         self._object_layer_schedule.destroy()
         self._object_layer_schedule = None
-        self._remove_all_layer_objects()
+        layers_to_remove = tuple(self._loaded_layers) if all_layers else tuple(self._current_layers.keys())
+        self._remove_layer_objects(layers_to_remove)
         self._current_layers.clear()
         for (alarm, _) in self._destruction_alarms.items():
             alarm.cancel()
@@ -114,7 +119,7 @@ class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, OpenStreetDirect
             if conditional_layer not in self._layers_in_destruction:
                 layer_data = self._current_layers.get(conditional_layer)
                 if layer_data is not None:
-                    self._create_layer(conditional_layer, layer_data)
+                    self._create_layer(conditional_layer, *layer_data)
 
     def _setup_object_layer(self, scheduler, alarm_data, extra_data):
         if self._being_cleaned_up:
@@ -165,8 +170,8 @@ class SchedulingOpenStreetDirector(SchedulingZoneDirectorMixin, OpenStreetDirect
         else:
             logger.error('Trying to destroy a loaded object layer that no longer exists.')
 
-    def _remove_all_layer_objects(self):
-        for conditional_layer in self._loaded_layers:
+    def _remove_layer_objects(self, layers):
+        for conditional_layer in layers:
             self._destroy_layer(conditional_layer)
 
     def _destroy_layer(self, conditional_layer):

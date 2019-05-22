@@ -31,7 +31,7 @@ class SocialFocusManager:
 
     def __init__(self, social_group):
         self._social_group = social_group
-        self._sim_focus_info = {SimFocus.LAYER_INTERACTION: {}, SimFocus.LAYER_SUPER_INTERACTION: {}}
+        self._sim_focus_info = {SimFocus.LAYER_SUPER_INTERACTION: {}, SimFocus.LAYER_INTERACTION: {}}
 
     def shutdown(self, sim):
         if self._sim_focus_info is None:
@@ -65,21 +65,22 @@ class SocialFocusManager:
         else:
             self._sim_focus_info[layer][key] = my_entry
         for (k, sim_entry) in self._sim_focus_info[layer].items():
-            if sim_entry.sim_id != sim.id and k[0] == key[0]:
-                focus_id = my_entry.get_focus_id(sim_entry.sim_id)
-                if focus_id is not None:
-                    interactions.utils.sim_focus.FocusModifyScore(owner_sim, my_entry.sim_id, focus_id, sim_entry.score)
-                else:
-                    focus_id = get_next_focus_id()
-                    my_entry.add_focus_id(sim_entry.sim_id, focus_id)
-                    interactions.utils.sim_focus.FocusAdd(owner_sim, focus_id, sim_entry.layer, sim_entry.score, my_entry.sim_id, sim_entry.sim_id, sim_entry._focus_bone, sims4.math.Vector3(0, 0, 0))
-                focus_id = sim_entry.get_focus_id(sim.id)
-                if focus_id is not None:
-                    interactions.utils.sim_focus.FocusModifyScore(owner_sim, sim_entry.sim_id, focus_id, my_entry.score)
-                else:
-                    focus_id = get_next_focus_id()
-                    sim_entry.add_focus_id(my_entry.sim_id, focus_id)
-                    interactions.utils.sim_focus.FocusAdd(owner_sim, focus_id, my_entry.layer, my_entry.score, sim_entry.sim_id, my_entry.sim_id, my_entry._focus_bone, sims4.math.Vector3(0, 0, 0))
+            if sim_entry.sim_id != sim.id:
+                if k[0] == key[0]:
+                    focus_id = my_entry.get_focus_id(sim_entry.sim_id)
+                    if focus_id is not None:
+                        interactions.utils.sim_focus.FocusModifyScore(owner_sim, my_entry.sim_id, focus_id, sim_entry.score)
+                    else:
+                        focus_id = get_next_focus_id()
+                        my_entry.add_focus_id(sim_entry.sim_id, focus_id)
+                        interactions.utils.sim_focus.FocusAdd(owner_sim, focus_id, sim_entry.layer, sim_entry.score, my_entry.sim_id, sim_entry.sim_id, sim_entry._focus_bone, sims4.math.Vector3(0, 0, 0))
+                    focus_id = sim_entry.get_focus_id(sim.id)
+                    if focus_id is not None:
+                        interactions.utils.sim_focus.FocusModifyScore(owner_sim, sim_entry.sim_id, focus_id, my_entry.score)
+                    else:
+                        focus_id = get_next_focus_id()
+                        sim_entry.add_focus_id(my_entry.sim_id, focus_id)
+                        interactions.utils.sim_focus.FocusAdd(owner_sim, focus_id, my_entry.layer, my_entry.score, sim_entry.sim_id, my_entry.sim_id, my_entry._focus_bone, sims4.math.Vector3(0, 0, 0))
 
     def clear_sim(self, owner_sim, sim, layer):
         if self._sim_focus_info is None:

@@ -1,9 +1,11 @@
+import itertools
 from interactions import ParticipantType
 from interactions.utils.interaction_elements import XevtTriggeredElement
 from interactions.utils.loot_basic_op import BaseLootOperation
 from objects import ALL_HIDDEN_REASONS
 from sims4.tuning.tunable import TunableVariant, TunableList, TunableReference, TunableSingletonFactory, TunableFactory, Tunable, TunableMapping, OptionalTunable, TunableThreshold, TunableTuple, TunableSimMinute, TunableEnumEntry, TunableEnumFlags, TunableSet, TunableEnumWithFilter
 from singletons import DEFAULT
+from situations.situation_guest_info_factory import SituationGuestInfoFactory
 from situations.situation_guest_list import SituationGuestList, SituationGuestInfo, SituationInvitationPurpose
 from situations.situation_phase import SituationPhase
 from snippets import TunableAffordanceFilterSnippet
@@ -38,10 +40,16 @@ class TunableSituationCreationUI(TunableFactory):
 class TunableSituationStart(TunableFactory):
 
     @staticmethod
-    def _factory(resolver, situation, user_facing=True, invite_participants=None, invite_actor=True, actor_init_job=None, invite_picked_sims=True, invite_target_sim=True, target_init_job=None, invite_household_sims_on_active_lot=False, situation_default_target=None, situation_created_callback=None, linked_sim_participant=None, **kwargs):
+    def _factory(resolver, situation, user_facing=True, invite_participants=None, invite_actor=True, actor_init_job=None, invite_picked_sims=True, invite_target_sim=True, target_init_job=None, invite_household_sims_on_active_lot=False, situation_default_target=None, situation_created_callback=None, linked_sim_participant=None, situation_guest_info=None, **kwargs):
 
-        def start_situation(resolver, situation, user_facing=True, invite_participants=None, invite_actor=True, actor_init_job=None, invite_picked_sims=True, invite_target_sim=True, target_init_job=None, invite_household_sims_on_active_lot=False, situation_default_target=None, situation_created_callback=None, linked_sim_participant=None, **kwargs):
+        def start_situation(resolver, situation, user_facing=True, invite_participants=None, invite_actor=True, actor_init_job=None, invite_picked_sims=True, invite_target_sim=True, target_init_job=None, invite_household_sims_on_active_lot=False, situation_default_target=None, situation_created_callback=None, linked_sim_participant=None, situation_guest_info=None, **kwargs):
             situation_manager = services.get_zone_situation_manager()
+
+            def create_guest_info(sim_id, job_type):
+                if situation_guest_info is None:
+                    return SituationGuestInfo.construct_from_purpose(sim_id, job_type, SituationInvitationPurpose.INVITED)
+                return situation_guest_info(sim_id, job_type)
+
             guest_list = situation.get_predefined_guest_list()
             if guest_list is None:
                 sim = resolver.get_participant(ParticipantType.Actor)
@@ -54,7 +62,7 @@ class TunableSituationStart(TunableFactory):
                     job_assignments = situation.get_prepopulated_job_for_sims(sim, target_sim_id)
                     for (sim_id, job_type_id) in job_assignments:
                         job_type = services.situation_job_manager().get(job_type_id)
-                        guest_info = SituationGuestInfo.construct_from_purpose(sim_id, job_type, SituationInvitationPurpose.INVITED)
+                        guest_info = create_guest_info(sim_id, job_type)
                         guest_list.add_guest_info(guest_info)
                 else:
                     default_job = situation.default_job()
@@ -62,37 +70,36 @@ class TunableSituationStart(TunableFactory):
                         target_sims = resolver.get_participants(ParticipantType.PickedSim)
                         if target_sims:
                             for sim_or_sim_info in target_sims:
-                                guest_info = SituationGuestInfo.construct_from_purpose(sim_or_sim_info.sim_id, default_job, SituationInvitationPurpose.INVITED)
+                                guest_info = create_guest_info(sim_or_sim_info.sim_id, default_job)
                                 guest_list.add_guest_info(guest_info)
                     if invite_target_sim:
                         target_sim = resolver.get_participant(ParticipantType.TargetSim)
                         if target_sim is not None:
                             init_job = target_init_job if target_init_job is not None else default_job
-                            guest_info = SituationGuestInfo.construct_from_purpose(target_sim.sim_id, init_job, SituationInvitationPurpose.INVITED)
+                            guest_info = create_guest_info(target_sim.sim_id, init_job)
                             guest_list.add_guest_info(guest_info)
                     if invite_actor and guest_list.get_guest_info_for_sim(sim) is None:
                         init_job = actor_init_job if actor_init_job is not None else default_job
-                        guest_info = SituationGuestInfo.construct_from_purpose(sim.sim_id, init_job, SituationInvitationPurpose.INVITED)
+                        guest_info = create_guest_info(sim.sim_id, init_job)
                         guest_list.add_guest_info(guest_info)
                     if invite_household_sims_on_active_lot:
                         sims_to_invite = resolver.get_participants(ParticipantType.ActiveHousehold)
                         if sims_to_invite:
                             for sim_info in sims_to_invite:
                                 if guest_list.get_guest_info_for_sim(sim_info) is not None:
-                                    pass
-                                elif sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                                    guest_info = SituationGuestInfo.construct_from_purpose(sim_info.sim_id, default_job, SituationInvitationPurpose.INVITED)
+                                    continue
+                                if sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                                    guest_info = create_guest_info(sim_info.sim_id, default_job)
                                     guest_list.add_guest_info(guest_info)
-                    for (paticipant_type, situation_job) in invite_participants.items():
+                    for (paticipant_type, situation_jobs) in invite_participants.items():
                         target_sims = resolver.get_participants(paticipant_type)
                         if target_sims:
-                            for sim_or_sim_info in target_sims:
+                            jobs = situation_jobs if situation_jobs is not None else (default_job,)
+                            for (sim_or_sim_info, job_to_assign) in zip(target_sims, itertools.cycle(jobs)):
                                 if not sim_or_sim_info.is_sim:
-                                    pass
-                                else:
-                                    job_to_assign = situation_job if situation_job is not None else default_job
-                                    guest_info = SituationGuestInfo.construct_from_purpose(sim_or_sim_info.sim_id, job_to_assign, SituationInvitationPurpose.INVITED)
-                                    guest_list.add_guest_info(guest_info)
+                                    continue
+                                guest_info = create_guest_info(sim_or_sim_info.sim_id, job_to_assign)
+                                guest_list.add_guest_info(guest_info)
             zone_id = resolver.get_participant(ParticipantType.PickedZoneId) or 0
             default_target_id = None
             default_location = None
@@ -118,10 +125,10 @@ class TunableSituationStart(TunableFactory):
                 situation_created_callback(situation_id)
             return True
 
-        return lambda : start_situation(resolver, situation, user_facing=user_facing, invite_participants=invite_participants, invite_actor=invite_actor, actor_init_job=actor_init_job, invite_picked_sims=invite_picked_sims, invite_target_sim=invite_target_sim, target_init_job=target_init_job, invite_household_sims_on_active_lot=invite_household_sims_on_active_lot, situation_default_target=situation_default_target, situation_created_callback=situation_created_callback, linked_sim_participant=linked_sim_participant, **kwargs)
+        return lambda : start_situation(resolver, situation, user_facing=user_facing, invite_participants=invite_participants, invite_actor=invite_actor, actor_init_job=actor_init_job, invite_picked_sims=invite_picked_sims, invite_target_sim=invite_target_sim, target_init_job=target_init_job, invite_household_sims_on_active_lot=invite_household_sims_on_active_lot, situation_default_target=situation_default_target, situation_created_callback=situation_created_callback, linked_sim_participant=linked_sim_participant, situation_guest_info=situation_guest_info, **kwargs)
 
     def __init__(self, **kwargs):
-        super().__init__(situation=TunableReference(description='\n                The Situation to start when this Interaction runs.\n                ', manager=services.situation_manager()), user_facing=Tunable(description='\n                If checked, then the situation will be user facing (have goals, \n                and scoring).\n                \n                If not checked, then situation will not be user facing.\n                \n                This setting does not override the user option to make all\n                situations non-scoring.\n                \n                Example: \n                    Date -> Checked\n                    Invite To -> Not Checked\n                ', tunable_type=bool, default=True), linked_sim_participant=OptionalTunable(description='\n                If enabled, this situation will be linked to the specified Sim.\n                ', tunable=TunableEnumEntry(tunable_type=ParticipantType, default=ParticipantType.Actor)), invite_participants=TunableMapping(description="\n                The map to invite certain participants into the situation as\n                specified job if assigned. Otherwise will invite them as\n                situation's default job.\n                ", key_type=TunableEnumEntry(description='\n                    The participant of who will join the situation.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), key_name='participants_to_invite', value_type=OptionalTunable(tunable=TunableReference(manager=services.situation_job_manager()), disabled_name='use_default_job', enabled_name='specify_job'), value_name='invite_to_job'), invite_actor=Tunable(description='\n                If checked, then the actor of this interaction will be invited\n                in the default job. This is the common case.\n                \n                If not checked, then the actor will not be invited. The Tell\n                A Ghost Story interaction spawning a Ghost walkby is an example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), actor_init_job=OptionalTunable(description='\n                The Situation job actor would be assigned while join the situation.\n                ', tunable=TunableReference(manager=services.situation_job_manager()), disabled_name='use_default_job', enabled_name='specify_job'), invite_picked_sims=Tunable(description='\n                If checked then any picked sims of this interaction will be\n                invited to the default job.  This is the common case.\n                \n                If not checked, then any picked sims will not be invited.  The\n                Tell A Ghost Story interaction spawning a Ghost walkby is an\n                example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), invite_target_sim=Tunable(description='\n                If checked then the target sim of this interaction will be\n                invited to the default job.  This is the common case.\n                \n                If not checked, then the target sim will not be invited.  The\n                Tell A Ghost Story interaction spawning a Ghost walkby is an\n                example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), target_init_job=OptionalTunable(description='\n                The Situation job target would be assigned while join the situation.\n                ', tunable=TunableReference(manager=services.situation_job_manager()), disabled_name='use_default_job', enabled_name='specify_job'), invite_household_sims_on_active_lot=Tunable(description='\n                If checked then all instanced sims on the active lot will be\n                invited. This is not a common case. An example of this is\n                leaving the hospital after having a baby, bringing both sims\n                home.\n                \n                If not checked, then no additional sims will be invited.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=False), situation_default_target=OptionalTunable(description='\n                If enabled, the participant of the interaction will be set as\n                the situation target object.\n                ', tunable=TunableEnumEntry(description="\n                    The participant that will be set as the situation's default target\n                    ", tunable_type=ParticipantType, default=ParticipantType.Object)), description='Start a Situation as part of this Interaction.', **kwargs)
+        super().__init__(situation=TunableReference(description='\n                The Situation to start when this Interaction runs.\n                ', manager=services.situation_manager()), user_facing=Tunable(description='\n                If checked, then the situation will be user facing (have goals, \n                and scoring).\n                \n                If not checked, then situation will not be user facing.\n                \n                This setting does not override the user option to make all\n                situations non-scoring.\n                \n                Example: \n                    Date -> Checked\n                    Invite To -> Not Checked\n                ', tunable_type=bool, default=True), linked_sim_participant=OptionalTunable(description='\n                If enabled, this situation will be linked to the specified Sim.\n                ', tunable=TunableEnumEntry(tunable_type=ParticipantType, default=ParticipantType.Actor)), invite_participants=TunableMapping(description="\n                The map to invite certain participants into the situation as\n                specified job if assigned. Otherwise will invite them as\n                situation's default job.\n                ", key_type=TunableEnumEntry(description='\n                    The participant of who will join the situation.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), key_name='participants_to_invite', value_type=OptionalTunable(tunable=TunableList(description='\n                        A list of situation jobs that can be specified.  If a\n                        single job is specified then all Sims will be given\n                        that job.  Otherwise we will loop through all of the\n                        Sims invited and give them jobs in list order.  The\n                        list will begin to be repeated if we run out of jobs.\n                        \n                        NOTE: We cannot guarantee the order of the Sims being\n                        passed in most of the time.  Use this if you want a\n                        distribution of different jobs, but without a guarantee\n                        that Sims will be assigned to each one.\n                        ', tunable=TunableReference(manager=services.situation_job_manager())), disabled_name='use_default_job', enabled_name='specify_job'), value_name='invite_to_job'), invite_actor=Tunable(description='\n                If checked, then the actor of this interaction will be invited\n                in the default job. This is the common case.\n                \n                If not checked, then the actor will not be invited. The Tell\n                A Ghost Story interaction spawning a Ghost walkby is an example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), actor_init_job=OptionalTunable(description='\n                The Situation job actor would be assigned while join the situation.\n                ', tunable=TunableReference(manager=services.situation_job_manager()), disabled_name='use_default_job', enabled_name='specify_job'), invite_picked_sims=Tunable(description='\n                If checked then any picked sims of this interaction will be\n                invited to the default job.  This is the common case.\n                \n                If not checked, then any picked sims will not be invited.  The\n                Tell A Ghost Story interaction spawning a Ghost walkby is an\n                example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), invite_target_sim=Tunable(description='\n                If checked then the target sim of this interaction will be\n                invited to the default job.  This is the common case.\n                \n                If not checked, then the target sim will not be invited.  The\n                Tell A Ghost Story interaction spawning a Ghost walkby is an\n                example.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=True), target_init_job=OptionalTunable(description='\n                The Situation job target would be assigned while join the situation.\n                ', tunable=TunableReference(manager=services.situation_job_manager()), disabled_name='use_default_job', enabled_name='specify_job'), invite_household_sims_on_active_lot=Tunable(description='\n                If checked then all instanced sims on the active lot will be\n                invited. This is not a common case. An example of this is\n                leaving the hospital after having a baby, bringing both sims\n                home.\n                \n                If not checked, then no additional sims will be invited.\n                \n                If your situation takes care of all the sims that should be in\n                the default job itself (such as auto-invite) it will probably\n                not work if this is checked.\n                ', tunable_type=bool, default=False), situation_default_target=OptionalTunable(description='\n                If enabled, the participant of the interaction will be set as\n                the situation target object.\n                ', tunable=TunableEnumEntry(description="\n                    The participant that will be set as the situation's default target\n                    ", tunable_type=ParticipantType, default=ParticipantType.Object)), situation_guest_info=OptionalTunable(description='\n                By default, situation guest infos are created as an invite.\n                This overrrides that behavior.\n                ', tunable=SituationGuestInfoFactory()), description='Start a Situation as part of this Interaction.', **kwargs)
 
     FACTORY_TYPE = _factory
 
@@ -145,9 +152,8 @@ class DestroySituationsByTagsMixin:
                     return False
             for situation in situations:
                 if participant and not situation.is_sim_info_in_situation(participant.sim_info):
-                    pass
-                else:
-                    situation_manager.destroy_situation_by_id(situation.id)
+                    continue
+                situation_manager.destroy_situation_by_id(situation.id)
         return True
 
 class DestroySituationsByTagsElement(DestroySituationsByTagsMixin, XevtTriggeredElement):

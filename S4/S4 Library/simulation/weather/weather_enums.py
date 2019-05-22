@@ -44,6 +44,7 @@ class WeatherEffectType(enum.Int):
     THUNDER = 1008
     LIGHTNING = 1009
     SNOW_FRESHNESS = 1010
+    STRANGERVILLE_ACT = 1011
 
 class CloudType(enum.Int):
     PARTLY_CLOUDY = 2000
@@ -54,6 +55,8 @@ class CloudType(enum.Int):
     DARK_SNOWCLOUDS = 2005
     CLOUDY = 2006
     HEATWAVE = 2007
+    STRANGE = 2008
+    VERY_STRANGE = 2009
 
 class GroundCoverType(enum.Int):
     RAIN_ACCUMULATION = 1002

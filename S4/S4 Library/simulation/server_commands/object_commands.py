@@ -13,16 +13,15 @@ from objects import VisibilityState, MaterialState, PaintingState
 from objects.components import types, Component, consumable_component
 from objects.components.censor_grid_component import CensorState
 from objects.gallery_tuning import GalleryGameplayTuning
+from objects.persistence_groups import PersistenceGroups
 from objects.prop_object import PropObject
 from postures.posture_graph import supress_posture_graph_build
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam
 from sims4.commands import NoneIntegerOrString
 from sims4.tuning.tunable import TunableReference
-from sims4.utils import create_csv
 import build_buy
 import camera
 import distributor
-import id_generator
 import objects.system
 import placement
 import postures.posture_graph
@@ -38,13 +37,23 @@ class ObjectCommandTuning:
     BURNED_MATERIAL_STATE = TunableReference(description='The Burned Material State', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE))
     BURNED_ASH_STATE = TunableReference(description='The Burned Ash State', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE))
 
+def _all_objects_gen(manager, lot_filter):
+    for obj in manager.get_all():
+        if lot_filter is None:
+            yield obj
+        elif not not lot_filter == 'onlot' and obj.persistence_group == PersistenceGroups.OBJECT:
+            yield obj
+        elif lot_filter == 'offlot':
+            if obj.persistence_group == PersistenceGroups.IN_OPEN_STREET:
+                yield obj
+
 @sims4.commands.Command('objects.list', command_type=sims4.commands.CommandType.Automation)
-def list_objects(filter_name=None, _connection=None):
+def list_objects(filter_name=None, lot_filter=None, _connection=None):
     manager = services.object_manager()
     if filter_name is None:
         object_types = {}
         total = 0
-        for obj in manager.get_all():
+        for obj in _all_objects_gen(manager, lot_filter):
             total += 1
             t = type(obj).__name__
             object_types[t] = object_types.get(t, 0) + 1
@@ -52,26 +61,33 @@ def list_objects(filter_name=None, _connection=None):
             sims4.commands.output('{}: {}'.format(object_type, count), _connection)
         sims4.commands.output('Total: {}'.format(total), _connection)
     elif filter_name == 'all':
+        sims4.commands.automation_output('AllObjectsList; Status:Begin', _connection)
         total = 0
-        for obj in manager.get_all():
+        for obj in _all_objects_gen(manager, lot_filter):
+            sims4.commands.automation_output('AllObjectsList; Status:Data, obj_id={:#018x}, addr={:#010x}'.format(obj.id, id(obj)), _connection)
             sims4.commands.output('{}: {} (obj_id={:#018x}, addr={:#010x})'.format(type(obj).__name__, obj, obj.id, id(obj)), _connection)
             total += 1
+        sims4.commands.automation_output('AllObjectsList; Status:End', _connection)
         sims4.commands.output('Total: {}'.format(total), _connection)
     elif filter_name == 'definitions':
+        sims4.commands.automation_output('AllObjectDefinitionsList; Status:Begin', _connection)
         all_definitions = collections.Counter()
-        for obj in manager.get_all():
+        for obj in _all_objects_gen(manager, lot_filter):
             all_definitions[obj.definition] += 1
         for (definition, count) in sorted(all_definitions.items(), key=lambda x: x[0].id):
             sims4.commands.output('{},{:#010x},{}'.format(definition.name, definition.id, count), _connection)
+            sims4.commands.automation_output('AllObjectDefinitionsList; Status:Data, def_name={}, def_id={:#010x}, count={}'.format(definition.name, definition.id, count), _connection)
+        sims4.commands.automation_output('AllObjectDefinitionsList; Status:End', _connection)
     elif filter_name == 'interactables':
         sims4.commands.automation_output('InteractbleObjectsList; Status:Begin', _connection)
-        for obj in manager.get_all():
+        for obj in _all_objects_gen(manager, lot_filter):
             if obj.interactable == True:
                 sims4.commands.automation_output('InteractbleObjectsList; Status:Data, ObjectType:{}, ObjectName:{}, ObjectId:{}'.format(type(obj).__name__, obj, obj.id), _connection)
+                sims4.commands.output('InteractbleObjectsList; Status:Data, ObjectType:{}, ObjectName:{}, ObjectId:{}'.format(type(obj).__name__, obj, obj.id), _connection)
         sims4.commands.automation_output('InteractbleObjectsList; Status:End', _connection)
     else:
         total = 0
-        for obj in manager.get_all():
+        for obj in _all_objects_gen(manager, lot_filter):
             t = type(obj).__name__
             if filter_name in t:
                 sims4.commands.output('{}: {} (obj_id={:#018x}, addr={:#010x})'.format(type(obj).__name__, obj, obj.id, id(obj)), _connection)
@@ -184,19 +200,20 @@ def create_multiple_objects(number:int, *obj_ids, _connection=None):
                 return
             obj_definition_id = original_obj.definition.id
             created_obj_count = number
-            if original_obj.crafting_component is not None:
-                obj = DebugCreateCraftableInteraction.create_craftable(original_obj.crafting_component._crafting_process.recipe, sim)
-            else:
-                obj = objects.system.create_object(obj_definition_id)
-            if obj is not None:
-                starting_location = placement.create_starting_location(position=starting_position)
-                fgl_context = placement.create_fgl_context_for_object(starting_location, obj)
-                (position, orientation) = placement.find_good_location(fgl_context)
-                if position is not None and orientation is not None:
-                    obj.move_to(translation=position, orientation=orientation, routing_surface=routing_surface)
+            while created_obj_count > 0:
+                if original_obj.crafting_component is not None:
+                    obj = DebugCreateCraftableInteraction.create_craftable(original_obj.crafting_component._crafting_process.recipe, sim)
                 else:
-                    obj.destroy(source=obj, cause='Failed to find good location for create_multiple_objects')
-            created_obj_count -= 1
+                    obj = objects.system.create_object(obj_definition_id)
+                if obj is not None:
+                    starting_location = placement.create_starting_location(position=starting_position)
+                    fgl_context = placement.create_fgl_context_for_object(starting_location, obj)
+                    (position, orientation) = placement.find_good_location(fgl_context)
+                    if position is not None and orientation is not None:
+                        obj.move_to(translation=position, orientation=orientation, routing_surface=routing_surface)
+                    else:
+                        obj.destroy(source=obj, cause='Failed to find good location for create_multiple_objects')
+                created_obj_count -= 1
 
 @sims4.commands.Command('objects.create_multiple_objects_from_definition')
 def create_multiple_objects_from_definition(number:int, *obj_defs, _connection=None):
@@ -208,7 +225,7 @@ def create_multiple_objects_from_definition(number:int, *obj_defs, _connection=N
             if obj is not None:
                 created_objs.append(obj)
                 obj_ids.append(obj.id)
-        create_multiple_objects(number, obj_ids, _connection=_connection)
+        create_multiple_objects(number, *obj_ids, _connection=_connection)
     finally:
         for obj in created_objs:
             obj.destroy(source=obj, cause='Destroying original objects in create_multiple_objects_from_definition')
@@ -225,18 +242,17 @@ def create_all_carryables(_connection=None):
             obj_tuning = obj_def.cls
             carryable_component = obj_tuning._components.get(carryable_component_name)
             if carryable_component is None:
-                pass
-            else:
-                try:
-                    obj = objects.system.create_object(obj_def)
-                except:
-                    obj = None
-                if obj is not None:
-                    created_objs.append(obj)
-                    obj_ids.append(obj.id)
-                if done:
-                    break
-        create_multiple_objects((1,), obj_ids, _connection=_connection)
+                continue
+            try:
+                obj = objects.system.create_object(obj_def)
+            except:
+                obj = None
+            if obj is not None:
+                created_objs.append(obj)
+                obj_ids.append(obj.id)
+            if done:
+                break
+        create_multiple_objects(1, *obj_ids, _connection=_connection)
     finally:
         for obj in created_objs:
             obj.destroy(source=obj, cause='Destroying original objects in create_all_carryables.')
@@ -375,16 +391,54 @@ def get_all_object_variants(def_id, match_pack=True, match_tuning_id=True, match
             pack_id = build_buy.get_object_pack_by_key(key.type, key.instance, key.group)
             tuning_file_id = services.definition_manager().get_tuning_file_id(key.instance)
             debug_name = sims4.resources.get_debug_name(key, table_type=sims4.hash_util.KEYNAMEMAPTYPE_OBJECTINSTANCES)
-            if match_pack:
-                pass
-            if match_tuning_id:
-                pass
-            if match_catalog_name:
-                pass
-            if not match_debug_name is None:
-                if debug_name.endswith(match_debug_name):
+            if pack_id is not None:
+                if tuning_file_id is not None:
+                    if match_pack:
+                        if main_pack_id == pack_id:
+                            if match_tuning_id:
+                                if main_tuning_file_id == tuning_file_id:
+                                    if match_catalog_name:
+                                        if main_catalog_name == catalog_name:
+                                            if not match_debug_name is None:
+                                                if debug_name.endswith(match_debug_name):
+                                                    all_variants.append(key.instance)
+                                            all_variants.append(key.instance)
+                                    if not match_debug_name is None:
+                                        if debug_name.endswith(match_debug_name):
+                                            all_variants.append(key.instance)
+                                    all_variants.append(key.instance)
+                            if match_catalog_name:
+                                if main_catalog_name == catalog_name:
+                                    if not match_debug_name is None:
+                                        if debug_name.endswith(match_debug_name):
+                                            all_variants.append(key.instance)
+                                    all_variants.append(key.instance)
+                            if not match_debug_name is None:
+                                if debug_name.endswith(match_debug_name):
+                                    all_variants.append(key.instance)
+                            all_variants.append(key.instance)
+                    if match_tuning_id:
+                        if main_tuning_file_id == tuning_file_id:
+                            if match_catalog_name:
+                                if main_catalog_name == catalog_name:
+                                    if not match_debug_name is None:
+                                        if debug_name.endswith(match_debug_name):
+                                            all_variants.append(key.instance)
+                                    all_variants.append(key.instance)
+                            if not match_debug_name is None:
+                                if debug_name.endswith(match_debug_name):
+                                    all_variants.append(key.instance)
+                            all_variants.append(key.instance)
+                    if match_catalog_name:
+                        if main_catalog_name == catalog_name:
+                            if not match_debug_name is None:
+                                if debug_name.endswith(match_debug_name):
+                                    all_variants.append(key.instance)
+                            all_variants.append(key.instance)
+                    if not match_debug_name is None:
+                        if debug_name.endswith(match_debug_name):
+                            all_variants.append(key.instance)
                     all_variants.append(key.instance)
-            all_variants.append(key.instance)
     return all_variants
 
 OBJECT_PLACEMENT_PADDING = 0.5
@@ -415,14 +469,15 @@ def create_objects_in_grid(obj_def_list):
             bounding_box = obj.get_bounding_box()
             obj_width = abs(bounding_box.a.x) + abs(bounding_box.b.x)
             obj_depth = abs(bounding_box.a.y) + abs(bounding_box.b.y)
-            if obj_depth == 0:
-                placement_footprint = placement.get_accurate_placement_footprint_polygon(obj.position, obj.orientation, obj.scale, obj.get_footprint())
-                (lower_bound, upper_bound) = placement_footprint.bounds()
-                obj_width = abs(upper_bound.x) + abs(lower_bound.x)
-                obj_depth = abs(upper_bound.z) + abs(lower_bound.z)
+            if obj_width == 0:
+                if obj_depth == 0:
+                    placement_footprint = placement.get_accurate_placement_footprint_polygon(obj.position, obj.orientation, obj.scale, obj.get_footprint())
+                    (lower_bound, upper_bound) = placement_footprint.bounds()
+                    obj_width = abs(upper_bound.x) + abs(lower_bound.x)
+                    obj_depth = abs(upper_bound.z) + abs(lower_bound.z)
             x_offset = obj_width/2 + OBJECT_PLACEMENT_PADDING
             corner_pos.x += obj_width/2
-            if obj_width == 0 and household is not None:
+            if household is not None:
                 obj.set_household_owner_id(household.id)
             if obj_depth > largest_depth_offset:
                 largest_depth_offset = obj_depth
@@ -504,8 +559,9 @@ def destroy_all_objects_with_less_area_than(max_area=0.25, _connection=None):
                 obj.destroy(source=obj, cause='Prop in destroy_all_objects_with_less_area_than command')
             elif obj.persistence_group != objects.persistence_groups.PersistenceGroups.SIM:
                 poly = obj.footprint_polygon
-                if poly and poly.area() < max_area:
-                    obj.destroy(source=obj, cause='Too small in destroy_all_objects_with_less_area_than command')
+                if poly:
+                    if poly.area() < max_area:
+                        obj.destroy(source=obj, cause='Too small in destroy_all_objects_with_less_area_than command')
     return True
 
 @sims4.commands.Command('objects.destroy_random', command_type=sims4.commands.CommandType.Automation)
@@ -584,14 +640,15 @@ def set_painting_state(obj_id:int, texture_name_or_hash:NoneIntegerOrString, rev
         obj = manager.get(obj_id)
     else:
         sims4.commands.output('SET_PAINTING_STATE: Object ID not in the object manager.', _connection)
-    if obj.canvas_component is not None:
-        if texture_name_or_hash is None:
-            painting_state = None
-        elif type(texture_name_or_hash) is str:
-            painting_state = PaintingState.from_name(texture_name_or_hash, reveal_level, use_overlay, effect)
-        else:
-            painting_state = PaintingState(texture_name_or_hash, reveal_level, use_overlay, effect)
-        obj.canvas_component.painting_state = painting_state
+    if obj is not None:
+        if obj.canvas_component is not None:
+            if texture_name_or_hash is None:
+                painting_state = None
+            elif type(texture_name_or_hash) is str:
+                painting_state = PaintingState.from_name(texture_name_or_hash, reveal_level, use_overlay, effect)
+            else:
+                painting_state = PaintingState(texture_name_or_hash, reveal_level, use_overlay, effect)
+            obj.canvas_component.painting_state = painting_state
 
 @sims4.commands.Command('objects.set_light_dimmer')
 def set_light_dimmer(obj_id:int, a:float=1.0, _connection=None):
@@ -803,8 +860,9 @@ def set_state_value(state_value:TunableInstanceParam(sims4.resources.Types.OBJEC
             sims4.commands.output('State Value {} from State {} is invalid for object {} '.format(state_value, state, obj), _connection)
             return False
     for obj in [objVal for objVal in object_manager.values()]:
-        if obj.state_component is not None and obj.has_state(state):
-            obj.set_state(state, state_value)
+        if obj.state_component is not None:
+            if obj.has_state(state):
+                obj.set_state(state, state_value)
     return True
 
 @sims4.commands.Command('objects.wait_for_state_value', command_type=sims4.commands.CommandType.Automation)
@@ -944,7 +1002,7 @@ def make_consumable_spoiled(obj_id:int, _connection=None):
     selected_obj.set_state(CraftingTuning.FRESHNESS_STATE, CraftingTuning.SPOILED_STATE_VALUE)
 
 @sims4.commands.Command('objects.request_customizable_object_data', command_type=sims4.commands.CommandType.Live)
-def request_customizable_object_data(*object_ids, _connection=None):
+def request_customizable_object_data(*object_ids:int, _connection=None):
     manager = services.object_manager()
     objects = []
     for obj_id in object_ids:
@@ -953,8 +1011,8 @@ def request_customizable_object_data(*object_ids, _connection=None):
         if obj_id in manager:
             obj = manager.get(obj_id)
         if obj is None:
-            pass
-        elif obj.has_tag(GalleryGameplayTuning.EXPORT_SAVE_DATA_TO_GALLERY_TAG):
+            continue
+        if obj.has_tag(GalleryGameplayTuning.EXPORT_SAVE_DATA_TO_GALLERY_TAG):
             objects.append(obj)
     custom_data_list = distributor.ops.CustomizableObjectDataList(objects)
     distributor_system = Distributor.instance()

@@ -31,8 +31,9 @@ def archive_sim_timeline_context_manager(sim, module, log_message, interaction=N
             duration = None
             if start_time is not None:
                 services_time_service = services.time_service()
-                if services_time_service.sim_timeline is not None:
-                    duration = services_time_service.sim_timeline.now - start_time
+                if services_time_service is not None:
+                    if services_time_service.sim_timeline is not None:
+                        duration = services_time_service.sim_timeline.now - start_time
             archive_sim_timeline(sim, module, 'Completed', log_message, interaction=interaction, duration=duration)
 
 def archive_sim_timeline(sim, module, status, message_data, interaction=None, duration=None):

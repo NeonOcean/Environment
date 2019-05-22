@@ -75,15 +75,19 @@ class ObjectInventoryComponent(GetPutComponentMixin, InventoryComponent, compone
         super().on_add()
 
     def on_reset_component_get_interdependent_reset_records(self, reset_reason, reset_records):
-        if not self.owner.is_on_active_lot():
-            household_manager = services.household_manager()
-            objects_to_transfer = list(iter(self))
-            for obj in objects_to_transfer:
-                household_id = obj.get_household_owner_id()
-                if household_id is not None:
-                    household = household_manager.get(household_id)
-                    if household is not None:
-                        household.move_object_to_sim_or_household_inventory(obj)
+        if reset_reason == ResetReason.BEING_DESTROYED:
+            if not services.current_zone().is_zone_shutting_down:
+                if not self.is_shared_inventory:
+                    if self.return_owned_objects:
+                        if not self.owner.is_on_active_lot():
+                            household_manager = services.household_manager()
+                            objects_to_transfer = list(iter(self))
+                            for obj in objects_to_transfer:
+                                household_id = obj.get_household_owner_id()
+                                if household_id is not None:
+                                    household = household_manager.get(household_id)
+                                    if household is not None:
+                                        household.move_object_to_sim_or_household_inventory(obj)
         super().on_reset_component_get_interdependent_reset_records(reset_reason, reset_records)
 
     def on_post_bb_fixup(self):
@@ -92,16 +96,15 @@ class ObjectInventoryComponent(GetPutComponentMixin, InventoryComponent, compone
     def _add_starting_objects(self):
         for definition in self.starting_objects:
             if self.has_item_with_definition(definition):
-                pass
+                continue
+            new_object = create_object(definition, loc_type=ItemLocation.OBJECT_INVENTORY)
+            if new_object is None:
+                logger.error('Failed to create object {}', definition)
             else:
-                new_object = create_object(definition, loc_type=ItemLocation.OBJECT_INVENTORY)
-                if new_object is None:
-                    logger.error('Failed to create object {}', definition)
-                else:
-                    new_object.set_household_owner_id(self.owner.get_household_owner_id())
-                    if not self.player_try_add_object(new_object):
-                        logger.error('Failed to add object {} to inventory {}', new_object, self)
-                        new_object.destroy(source=self.owner, cause='Failed to add starting object to inventory.')
+                new_object.set_household_owner_id(self.owner.get_household_owner_id())
+                if not self.player_try_add_object(new_object):
+                    logger.error('Failed to add object {} to inventory {}', new_object, self)
+                    new_object.destroy(source=self.owner, cause='Failed to add starting object to inventory.')
 
     def component_interactable_gen(self):
         yield self

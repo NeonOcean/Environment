@@ -52,8 +52,9 @@ class BouncerSimData:
         for cur_request in self._requests:
             if cur_request._situation is new_request._situation:
                 return False
-            if check_exclusivity and cur_request._exclusivity_compare(new_request) > 0:
-                return False
+            if check_exclusivity:
+                if cur_request._exclusivity_compare(new_request) > 0:
+                    return False
         return True
 
     def get_request_with_best_klout(self):
@@ -62,9 +63,10 @@ class BouncerSimData:
         for request in self._requests:
             klout = request._get_request_klout()
             if not best_request is None:
-                if klout is not None and klout < best_klout:
-                    best_klout = klout
-                    best_request = request
+                if klout is not None:
+                    if klout < best_klout:
+                        best_klout = klout
+                        best_request = request
             best_klout = klout
             best_request = request
         return best_request
@@ -185,7 +187,7 @@ class _BouncerUpdateMode(enum.Int, export=False):
 
 class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
     SPAWN_COOLDOWN_MINUTES = 5
-    EXCLUSIVITY_RULES = [(BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.NON_WALKBY_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.NEUTRAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.NEUTRAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.SQUAD, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SQUAD, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE)]
+    EXCLUSIVITY_RULES = [(BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NORMAL, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityCategory.INFECTED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY, BouncerExclusivityCategory.NON_WALKBY_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SERVICE, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VISIT, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.NEUTRAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.LEAVE_NOW, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.UNGREETED, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.UNGREETED, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.SERVICE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.PRE_VISIT, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.NEUTRAL, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WORKER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.VENUE_BACKGROUND, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_EMPLOYEE, BouncerExclusivityCategory.SQUAD, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CLUB_GATHERING, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_BACKGROUND, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.NORMAL, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.NORMAL_UNPOSSESSABLE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.EXPECTATION_PREFERENCE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.FESTIVAL_GOER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.WALKBY, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.CAREGIVER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityOption.ALREADY_ASSIGNED), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.VENUE_GOER, BouncerExclusivityCategory.WALKBY_SNATCHER, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.SQUAD, BouncerExclusivityCategory.LEAVE, BouncerExclusivityOption.NONE), (BouncerExclusivityCategory.NEUTRAL_UNPOSSESSABLE, BouncerExclusivityCategory.INFECTED, BouncerExclusivityOption.NONE)]
     INDEXES_PER_BOUNCER_REQUEST_PRIORITY = 4
     MAX_UNFULFILLED_INDEX = len(BouncerRequestPriority)*INDEXES_PER_BOUNCER_REQUEST_PRIORITY
     _exclusivity_rules = None
@@ -269,8 +271,8 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         for sim in sims_removed_from_request:
             data = self._sim_to_bouncer_sim_data.get(sim, None)
             if data is None:
-                pass
-            elif data.is_obsolete:
+                continue
+            if data.is_obsolete:
                 data.destroy()
                 self._sim_to_bouncer_sim_data.pop(sim)
 
@@ -309,8 +311,9 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
             logger.error("Attempting to replace a bouncer reservation request with a bouncer request that isn't explicit for .  This is unsupported behavior.")
         reservation_requests = self._reserved_sims.get(bouncer_request.requested_sim_id, tuple())
         for reservation_request in reservation_requests:
-            if reservation_request.situation is bouncer_request.situation and reservation_request.sim_id == bouncer_request.requested_sim_id:
-                self.withdraw_reservation_request(reservation_request)
+            if reservation_request.situation is bouncer_request.situation:
+                if reservation_request.sim_id == bouncer_request.requested_sim_id:
+                    self.withdraw_reservation_request(reservation_request)
         self.submit_request(bouncer_request)
 
     def remove_sim_from_situation(self, sim, situation):
@@ -337,8 +340,9 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         if not situation_data:
             return
         for request in situation_data.requests:
-            if request._is_obsolete == False and request._status != BouncerRequestStatus.DESTROYED:
-                yield request
+            if request._is_obsolete == False:
+                if request._status != BouncerRequestStatus.DESTROYED:
+                    yield request
 
     def situation_reservation_requests_gen(self, situation):
         situation_data = self._situation_to_bouncer_situation_data.get(situation, None)
@@ -349,8 +353,9 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
 
     def pending_situation_requests_gen(self, situation):
         for request in self.situation_requests_gen(situation):
-            if request._is_fulfilled or request._allows_spawning:
-                yield request
+            if not request._is_fulfilled:
+                if request._allows_spawning:
+                    yield request
 
     def get_most_important_request_for_sim(self, sim):
         data = self._sim_to_bouncer_sim_data.get(sim, None)
@@ -361,8 +366,8 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         for request in data.requests:
             klout = request._get_request_klout()
             if klout is None:
-                pass
-            elif best_klout is None:
+                continue
+            if best_klout is None:
                 best_requests.append(request)
                 best_klout = klout
             elif klout == best_klout:
@@ -440,11 +445,10 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
             all_candidate_sim_ids = set()
             for sim in services.sim_info_manager().instanced_sims_gen():
                 if not sim.is_simulating:
-                    pass
-                elif not sim.visible_to_client:
-                    pass
-                else:
-                    all_candidate_sim_ids.add(sim.id)
+                    continue
+                if not sim.visible_to_client:
+                    continue
+                all_candidate_sim_ids.add(sim.id)
             if len(all_candidate_sim_ids) == 0:
                 return
             (spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids) = self._get_common_blacklists()
@@ -455,37 +459,34 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
                 for request in candidate_requests:
                     if not request._requires_spawning:
                         if request._status != BouncerRequestStatus.SUBMITTED:
-                            pass
+                            continue
+                        candidate_sim_ids = {sim_id for sim_id in all_candidate_sim_ids if self._can_assign_sim_id_to_request(sim_id, request)}
+                        if request._constrained_sim_ids:
+                            candidate_sim_ids = candidate_sim_ids & request._constrained_sim_ids
+                        if not candidate_sim_ids:
+                            continue
+                        if request.job_type.sim_auto_invite_use_common_blacklists_on_instanced_sims:
+                            blacklist = set()
+                            self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
                         else:
-                            candidate_sim_ids = {sim_id for sim_id in all_candidate_sim_ids if self._can_assign_sim_id_to_request(sim_id, request)}
-                            if request._constrained_sim_ids:
-                                candidate_sim_ids = candidate_sim_ids & request._constrained_sim_ids
-                            if not candidate_sim_ids:
-                                pass
-                            else:
-                                if request.job_type.sim_auto_invite_use_common_blacklists_on_instanced_sims:
-                                    blacklist = set()
-                                    self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
-                                else:
-                                    blacklist = request._get_blacklist()
-                                self._set_request_for_sim_filter_gsi(request)
-                                filter_results = sim_filter_service.submit_filter(request._sim_filter, callback=None, sim_constraints=list(candidate_sim_ids), blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, gsi_source_fn=self.get_sim_filter_gsi_name)
-                                for filter_result in filter_results:
-                                    heapq.heappush(sim_request_score_heap, SimRequestScore(sim_id=filter_result.sim_info.id, request=request, score=filter_result.score))
+                            blacklist = request._get_blacklist()
+                        self._set_request_for_sim_filter_gsi(request)
+                        filter_results = sim_filter_service.submit_filter(request._sim_filter, callback=None, sim_constraints=list(candidate_sim_ids), blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, additional_filter_terms=request.get_additional_filter_terms(), gsi_source_fn=self.get_sim_filter_gsi_name)
+                        for filter_result in filter_results:
+                            heapq.heappush(sim_request_score_heap, SimRequestScore(sim_id=filter_result.sim_info.id, request=request, score=filter_result.score))
                 while sim_request_score_heap:
                     sim_request_score = heapq.heappop(sim_request_score_heap)
                     request = sim_request_score.request
                     if request._is_fulfilled:
-                        pass
-                    else:
-                        sim = services.object_manager().get(sim_request_score.sim_id)
-                        if sim is None:
-                            pass
-                        elif self._can_assign_sim_to_request(sim, request):
-                            if request._is_factory:
-                                request = request._create_request(sim)
-                                self.submit_request(request)
-                            self._assign_sim_to_request(sim, request)
+                        continue
+                    sim = services.object_manager().get(sim_request_score.sim_id)
+                    if sim is None:
+                        continue
+                    if self._can_assign_sim_to_request(sim, request):
+                        if request._is_factory:
+                            request = request._create_request(sim)
+                            self.submit_request(request)
+                        self._assign_sim_to_request(sim, request)
             for (situation, situation_data) in self._situation_to_bouncer_situation_data.items():
                 if not situation_data.first_assignment_pass_completed:
                     situation.on_first_assignment_pass_completed()
@@ -504,31 +505,28 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
                     self._set_request_for_sim_filter_gsi(request)
                     if request._accept_looking_for_more_work:
                         if request._status != BouncerRequestStatus.SUBMITTED:
-                            pass
-                        else:
-                            candidate_sim_ids = {sim_id for sim_id in all_candidate_sim_ids if self._can_assign_sim_id_to_request(sim_id, request, check_exclusivity=False)}
-                            if request._constrained_sim_ids:
-                                candidate_sim_ids = candidate_sim_ids & request._constrained_sim_ids
-                            if not candidate_sim_ids:
-                                pass
-                            else:
-                                filter_results = sim_filter_service.submit_filter(request._sim_filter, callback=None, sim_constraints=list(candidate_sim_ids), blacklist_sim_ids=request._get_blacklist(), requesting_sim_info=request._requesting_sim_info, allow_yielding=False, gsi_source_fn=self.get_sim_filter_gsi_name)
-                                for filter_result in filter_results:
-                                    heapq.heappush(sim_request_score_heap, SimRequestScore(sim_id=filter_result.sim_info.id, request=request, score=filter_result.score))
+                            continue
+                        candidate_sim_ids = {sim_id for sim_id in all_candidate_sim_ids if self._can_assign_sim_id_to_request(sim_id, request, check_exclusivity=False)}
+                        if request._constrained_sim_ids:
+                            candidate_sim_ids = candidate_sim_ids & request._constrained_sim_ids
+                        if not candidate_sim_ids:
+                            continue
+                        filter_results = sim_filter_service.submit_filter(request._sim_filter, callback=None, sim_constraints=list(candidate_sim_ids), blacklist_sim_ids=request._get_blacklist(), requesting_sim_info=request._requesting_sim_info, allow_yielding=False, additional_filter_terms=request.get_additional_filter_terms(), gsi_source_fn=self.get_sim_filter_gsi_name)
+                        for filter_result in filter_results:
+                            heapq.heappush(sim_request_score_heap, SimRequestScore(sim_id=filter_result.sim_info.id, request=request, score=filter_result.score))
                 while sim_request_score_heap:
                     sim_request_score = heapq.heappop(sim_request_score_heap)
                     request = sim_request_score.request
                     if request._is_fulfilled:
-                        pass
-                    else:
-                        sim = services.object_manager().get(sim_request_score.sim_id)
-                        if sim is None:
-                            pass
-                        elif self._can_assign_sim_to_request(sim, request, check_exclusivity=False):
-                            if request._is_factory:
-                                request = request._create_request(sim)
-                                self.submit_request(request)
-                            self._assign_sim_to_request(sim, request, trump_all_exclusions=True)
+                        continue
+                    sim = services.object_manager().get(sim_request_score.sim_id)
+                    if sim is None:
+                        continue
+                    if self._can_assign_sim_to_request(sim, request, check_exclusivity=False):
+                        if request._is_factory:
+                            request = request._create_request(sim)
+                            self.submit_request(request)
+                        self._assign_sim_to_request(sim, request, trump_all_exclusions=True)
             for (situation, situation_data) in self._situation_to_bouncer_situation_data.items():
                 if not situation_data.first_assignment_pass_completed:
                     situation.on_first_assignment_pass_completed()
@@ -620,20 +618,18 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         for unfulfilled_index in range(Bouncer.MAX_UNFULFILLED_INDEX):
             requests = self._unfulfilled_requests[unfulfilled_index]
             if not requests:
-                pass
-            else:
-                requests = [request for request in requests if request._can_spawn_now(False) and request._status == BouncerRequestStatus.SUBMITTED]
-                if not requests:
-                    pass
-                else:
-                    request = sims4.random.random.choice(requests)
-                    self._sim_filter_service_in_progress = True
-                    request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
-                    sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
-                    blacklist = set()
-                    self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
-                    self._set_request_for_sim_filter_gsi(request)
-                    services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=request._sim_filter, callback=self._sim_filter_service_callback, callback_event_data=request, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, gsi_source_fn=self.get_sim_filter_gsi_name)
+                continue
+            requests = [request for request in requests if request._can_spawn_now(False) if request._status == BouncerRequestStatus.SUBMITTED]
+            if not requests:
+                continue
+            request = sims4.random.random.choice(requests)
+            self._sim_filter_service_in_progress = True
+            request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
+            sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
+            blacklist = set()
+            self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
+            self._set_request_for_sim_filter_gsi(request)
+            services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=request._sim_filter, callback=self._sim_filter_service_callback, callback_event_data=request, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, additional_filter_terms=request.get_additional_filter_terms(), gsi_source_fn=self.get_sim_filter_gsi_name)
 
     def _spawn_all_during_zone_spin_up(self):
         (spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids) = self._get_common_blacklists()
@@ -642,38 +638,37 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
             requests = tuple(self._unfulfilled_requests[unfulfilled_index])
             for request in requests:
                 if request._status != BouncerRequestStatus.SUBMITTED:
-                    pass
+                    continue
+                if not request._for_persisted_sim:
+                    if request._can_spawn_now(True):
+                        request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
+                        sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
+                        blacklist = set()
+                        self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
+                        logger.debug('_spawn_all_during_zone_spin_up request:{} blacklist:{}', request, blacklist)
+                        if request._for_persisted_sim and not request._job_type.should_revalidate_sim_on_load:
+                            sim_filter = None
+                        else:
+                            sim_filter = request._sim_filter
+                        self._set_request_for_sim_filter_gsi(request)
+                        filter_results = services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=sim_filter, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, additional_filter_terms=request.get_additional_filter_terms(), gsi_source_fn=self.get_sim_filter_gsi_name)
+                        if filter_results:
+                            spawning_sim_ids.add(filter_results[0].sim_info.sim_id)
+                        self._sim_filter_service_callback(filter_results, request)
+                request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
+                sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
+                blacklist = set()
+                self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
+                logger.debug('_spawn_all_during_zone_spin_up request:{} blacklist:{}', request, blacklist)
+                if request._for_persisted_sim and not request._job_type.should_revalidate_sim_on_load:
+                    sim_filter = None
                 else:
-                    if not request._for_persisted_sim:
-                        if request._can_spawn_now(True):
-                            request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
-                            sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
-                            blacklist = set()
-                            self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
-                            logger.debug('_spawn_all_during_zone_spin_up request:{} blacklist:{}', request, blacklist)
-                            if request._for_persisted_sim and not request._job_type.should_revalidate_sim_on_load:
-                                sim_filter = None
-                            else:
-                                sim_filter = request._sim_filter
-                            self._set_request_for_sim_filter_gsi(request)
-                            filter_results = services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=sim_filter, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, gsi_source_fn=self.get_sim_filter_gsi_name)
-                            if filter_results:
-                                spawning_sim_ids.add(filter_results[0].sim_info.sim_id)
-                            self._sim_filter_service_callback(filter_results, request)
-                    request._status = BouncerRequestStatus.SIM_FILTER_SERVICE
-                    sim_constraints = list(request._constrained_sim_ids) if request._constrained_sim_ids else None
-                    blacklist = set()
-                    self._apply_common_blacklists(request, blacklist, spawning_sim_ids, active_household_sim_ids, active_lot_household_sim_ids)
-                    logger.debug('_spawn_all_during_zone_spin_up request:{} blacklist:{}', request, blacklist)
-                    if request._for_persisted_sim and not request._job_type.should_revalidate_sim_on_load:
-                        sim_filter = None
-                    else:
-                        sim_filter = request._sim_filter
-                    self._set_request_for_sim_filter_gsi(request)
-                    filter_results = services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=sim_filter, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, gsi_source_fn=self.get_sim_filter_gsi_name)
-                    if filter_results:
-                        spawning_sim_ids.add(filter_results[0].sim_info.sim_id)
-                    self._sim_filter_service_callback(filter_results, request)
+                    sim_filter = request._sim_filter
+                self._set_request_for_sim_filter_gsi(request)
+                filter_results = services.sim_filter_service().submit_matching_filter(number_of_sims_to_find=1, sim_filter=sim_filter, sim_constraints=sim_constraints, continue_if_constraints_fail=request._continue_if_constraints_fail, blacklist_sim_ids=blacklist, requesting_sim_info=request._requesting_sim_info, allow_yielding=False, additional_filter_terms=request.get_additional_filter_terms(), gsi_source_fn=self.get_sim_filter_gsi_name)
+                if filter_results:
+                    spawning_sim_ids.add(filter_results[0].sim_info.sim_id)
+                self._sim_filter_service_callback(filter_results, request)
 
     def _check_for_tardy_requests(self):
         for unfulfilled_index in range(Bouncer.MAX_UNFULFILLED_INDEX):
@@ -686,7 +681,7 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
 
     def _is_request_with_assigned_npc_who_is_not_leaving(self, request):
         sim = request.assigned_sim
-        if sim is None or sim.sim_info.is_npc and sim.sim_info.lives_here:
+        if sim is None or not sim.sim_info.is_npc or sim.sim_info.lives_here:
             return False
         return services.sim_spawner_service().sim_is_leaving(sim) == False
 
@@ -725,15 +720,13 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         for sim_data in self._sim_to_bouncer_sim_data.values():
             request = sim_data.get_request_with_best_klout()
             if request is None:
-                pass
-            elif filter_func is not None and not filter_func(request):
-                pass
-            else:
-                klout = request._get_request_klout()
-                if klout is None:
-                    pass
-                else:
-                    heapq.heappush(klout_heap, _WorstRequestKlout(request=request, klout=klout))
+                continue
+            if filter_func is not None and not filter_func(request):
+                continue
+            klout = request._get_request_klout()
+            if klout is None:
+                continue
+            heapq.heappush(klout_heap, _WorstRequestKlout(request=request, klout=klout))
         return klout_heap
 
     def _get_unfulfilled_request_heap_by_best_klout(self, filter_func=None):
@@ -744,18 +737,18 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
                 klout = request._get_request_klout()
                 if klout is not None:
                     if filter_func is not None and not filter_func(request):
-                        pass
-                    else:
-                        heapq.heappush(klout_heap, _BestRequestKlout(request=request, klout=klout))
+                        continue
+                    heapq.heappush(klout_heap, _BestRequestKlout(request=request, klout=klout))
         return klout_heap
 
     def _make_npcs_leave_now_must_run(self, sim_count):
         situation_manager = services.get_zone_situation_manager()
         klout_heap = self._get_assigned_request_heap_by_worst_klout(filter_func=self._is_request_with_assigned_npc_who_is_not_leaving)
-        while klout_heap and sim_count > 0:
-            worst = heapq.heappop(klout_heap)
-            situation_manager.make_sim_leave_now_must_run(worst.request.assigned_sim)
-            sim_count -= 1
+        while klout_heap:
+            while sim_count > 0:
+                worst = heapq.heappop(klout_heap)
+                situation_manager.make_sim_leave_now_must_run(worst.request.assigned_sim)
+                sim_count -= 1
 
     def _sim_filter_service_callback(self, filter_results, bouncer_request):
         self._sim_filter_service_in_progress = False
@@ -778,10 +771,11 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
                 return
             if not bouncer_request._for_persisted_sim:
                 spin_up_action = SimZoneSpinUpAction.NONE
-                if bouncer_request.should_preroll_during_zone_spin_up:
-                    spin_up_action = SimZoneSpinUpAction.PREROLL
+                if during_zone_spin_up:
+                    if bouncer_request.should_preroll_during_zone_spin_up:
+                        spin_up_action = SimZoneSpinUpAction.PREROLL
                 bouncer_request._status = BouncerRequestStatus.SPAWN_REQUESTED
-                if during_zone_spin_up and bouncer_request.specific_position is not None:
+                if bouncer_request.specific_position is not None:
                     spawn_strategy = sims.sim_spawner_service.SimSpawnPositionStrategy(bouncer_request.specific_position)
                 elif bouncer_request.specific_spawn_point is not None:
                     spawn_strategy = sims.sim_spawner_service.SimSpawnSpecificPointStrategy(spawn_point=bouncer_request.specific_spawn_point, spawn_point_option=bouncer_request.spawn_point_option, spawn_action=bouncer_request._spawn_action, saved_spawner_tags=bouncer_request.saved_spawner_tags)
@@ -806,8 +800,9 @@ class Bouncer(sims.sim_spawner_service.ISimSpawnerServiceCustomer):
         bouncer_request._sim_spawner_service_request = None
         if self._can_assign_sim_to_request(sim, bouncer_request):
             self._assign_sim_to_request(sim, bouncer_request)
-            if services.current_zone().is_zone_running:
-                sim.run_full_autonomy_next_ping()
+            if sim.sim_info.is_npc:
+                if services.current_zone().is_zone_running:
+                    sim.run_full_autonomy_next_ping()
         else:
             bouncer_request._state = BouncerRequestStatus.SUBMITTED
 

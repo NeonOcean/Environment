@@ -64,9 +64,10 @@ def get_objects(type_name=None, exact:bool=False, limit:int=1000, _connection=No
     for obj in _get_objects():
         if _print_object_info(obj, output, predicate=predicate):
             count += 1
-        if limit >= 0 and count >= limit:
-            output("Terminating search after {} results (increase 'limit' to see more)".format(limit))
-            break
+        if limit >= 0:
+            if count >= limit:
+                output("Terminating search after {} results (increase 'limit' to see more)".format(limit))
+                break
     output('Found {} results'.format(count))
     return True
 
@@ -342,24 +343,23 @@ def analyze_slots(verbose:bool=False, _connection=None):
         for type_name in sorted(type_map.keys()):
             objects = type_map[type_name]
             if not hasattr(objects[0], '__dict__'):
-                pass
+                continue
+            size = 0
+            attribs = set()
+            if isinstance(objects[0], tuple):
+                for obj in objects:
+                    attribs |= set(str(name) for name in vars(obj))
+                    size += sys.getsizeof(obj)
             else:
-                size = 0
-                attribs = set()
-                if isinstance(objects[0], tuple):
-                    for obj in objects:
-                        attribs |= set(str(name) for name in vars(obj))
-                        size += sys.getsizeof(obj)
-                else:
-                    for obj in objects:
-                        attribs |= set(str(name) for name in vars(obj))
-                        size += sys.getsizeof(obj) + sys.getsizeof(obj.__dict__)
-                inst_size = size/len(objects)
-                slot_inst_size = _size_of_slots(len(attribs))
-                slot_size = slot_inst_size*len(objects)
-                slot_savings = size - slot_size
-                slots_string = str(tuple(attribs)).replace(',', '') if len(attribs) < 50 else '(...)'
-                file.write('{},{},{},{:0.2f},{},{},{},{},{:0.2f},{}\n'.format(type_name, len(objects), size, inst_size, slot_size, slot_inst_size, len(attribs), slot_savings, slot_savings/1048576, slots_string))
+                for obj in objects:
+                    attribs |= set(str(name) for name in vars(obj))
+                    size += sys.getsizeof(obj) + sys.getsizeof(obj.__dict__)
+            inst_size = size/len(objects)
+            slot_inst_size = _size_of_slots(len(attribs))
+            slot_size = slot_inst_size*len(objects)
+            slot_savings = size - slot_size
+            slots_string = str(tuple(attribs)).replace(',', '') if len(attribs) < 50 else '(...)'
+            file.write('{},{},{},{:0.2f},{},{},{},{},{:0.2f},{}\n'.format(type_name, len(objects), size, inst_size, slot_size, slot_inst_size, len(attribs), slot_savings, slot_savings/1048576, slots_string))
 
     filename = 'PyOpt_AnalyzeSlots'
     create_csv(filename, callback=write_to_file, connection=_connection)

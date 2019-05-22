@@ -64,7 +64,7 @@ class LandlordService(Service):
     def on_loading_screen_animation_finished(self):
         household = services.active_household()
         plex_service = services.get_plex_service()
-        if household is not None and (household.has_home_zone_been_active() or plex_service.is_zone_an_apartment(household.home_zone_id, consider_penthouse_an_apartment=False)):
+        if household is not None and not household.has_home_zone_been_active() and plex_service.is_zone_an_apartment(household.home_zone_id, consider_penthouse_an_apartment=False):
             active_sim = services.get_active_sim()
             landlord_sim_info = self.get_landlord_sim_info()
             if active_sim is not None and landlord_sim_info is not None:

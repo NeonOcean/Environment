@@ -9,6 +9,9 @@ from vet.vet_clinic_utils import get_vet_clinic_zone_director
 class AssignedToParticipantTest(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n            When this test runs, it checks against this participant\n            for the test.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor)}
 
+    def required_participant(self):
+        return (self.participant,)
+
     def test_target(self, target, resolver, tooltip=None):
         vet_zone_director = get_vet_clinic_zone_director()
         if not vet_zone_director:
@@ -22,6 +25,9 @@ class VetPatientAssignedToAnyoneTest:
 
     def __init__(self, invert=False):
         self._invert = invert
+
+    def required_participant(self):
+        return ()
 
     def test_target(self, target, resolver, tooltip=None):
         vet_zone_director = get_vet_clinic_zone_director()
@@ -37,6 +43,9 @@ class VetPatientAssignedToAnyoneTest:
 
 class VetPatientWaitingForServicesTest:
 
+    def required_participant(self):
+        return ()
+
     def test_target(self, target, resolver, tooltip=None):
         vet_zone_director = get_vet_clinic_zone_director()
         if not vet_zone_director:
@@ -49,6 +58,9 @@ class VetAttendingToAnyoneTest:
 
     def __init__(self, invert=False):
         self._invert = invert
+
+    def required_participant(self):
+        return ()
 
     def test_target(self, target, resolver, tooltip=None):
         vet_zone_director = get_vet_clinic_zone_director()

@@ -89,16 +89,15 @@ class ObjectTagFactory(HasTunableSingletonFactory, AutoFactoryInit):
             for tag in self.tag_set:
                 matching_objects = object_manager.get_objects_matching_tags((tag,))
                 if matching_objects is None:
-                    pass
-                else:
-                    objects_matching_any_tag.update(matching_objects)
+                    continue
+                objects_matching_any_tag.update(matching_objects)
         elif self.test_type == TagTestType.CONTAINS_ALL_TAGS_IN_SET:
             objects_matching_any_tag = object_manager.get_objects_matching_tags(self.tag_set)
             if objects_matching_any_tag is None:
                 return EMPTY_SET
         else:
             if self.test_type == TagTestType.CONTAINS_NO_TAGS_IN_SET:
-                return set(obj for obj in object_manager.values() if obj.is_sim or not set(obj.get_tags() & self.tag_set))
+                return set(obj for obj in object_manager.values() if not obj.is_sim if not set(obj.get_tags() & self.tag_set))
             logger.error('ObjectTagFactory recieved unrecognized TagTestType {}, defaulting to False', self.test_type, owner='msantander')
         objects_matching_any_tag = set(obj for obj in objects_matching_any_tag if not obj.is_sim)
         return objects_matching_any_tag
@@ -177,7 +176,7 @@ class BasicStateCheckFactory(TunableFactory):
         elif object_requirement.type == BasicStateCheckFactory.DEFINITION_TYPE and tested_object.definition is not object_requirement.definition:
             return False
         object_states = set(tested_object.state_component.values())
-        if object_requirement is not None and test_type == StateTestType.CONTAINS_ANY_STATE_IN_SET:
+        if not object_requirement is not None or test_type == StateTestType.CONTAINS_ANY_STATE_IN_SET:
             return object_states & state_set
         if test_type == StateTestType.CONTAINS_ALL_STATES_IN_SET:
             return object_states & state_set == state_set
@@ -280,17 +279,21 @@ class ObjectEnvironmentScoreTest(HasTunableSingletonFactory, AutoFactoryInit, ev
                     if self.environment_score_type.scoring_type == EnvironmentScoreType.POSITIVE_SCORING:
                         if not self.environment_score_type.threshold.compare(positive_score):
                             return TestResult(False, 'Object does not meet positive environment score requirements.', tooltip=self.tooltip)
-                            if self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING and not self.environment_score_type.threshold.compare(negative_score):
-                                return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
-                    elif self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING and not self.environment_score_type.threshold.compare(negative_score):
-                        return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
+                            if self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING:
+                                if not self.environment_score_type.threshold.compare(negative_score):
+                                    return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
+                    elif self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING:
+                        if not self.environment_score_type.threshold.compare(negative_score):
+                            return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
             elif self.environment_score_type.scoring_type == EnvironmentScoreType.POSITIVE_SCORING:
                 if not self.environment_score_type.threshold.compare(positive_score):
                     return TestResult(False, 'Object does not meet positive environment score requirements.', tooltip=self.tooltip)
-                    if self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING and not self.environment_score_type.threshold.compare(negative_score):
-                        return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
-            elif self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING and not self.environment_score_type.threshold.compare(negative_score):
-                return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
+                    if self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING:
+                        if not self.environment_score_type.threshold.compare(negative_score):
+                            return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
+            elif self.environment_score_type.scoring_type == EnvironmentScoreType.NEGATIVE_SCORING:
+                if not self.environment_score_type.threshold.compare(negative_score):
+                    return TestResult(False, 'Object does not meet negative environment score requirements.', tooltip=self.tooltip)
         return TestResult.TRUE
 
 class CraftedItemTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
@@ -404,8 +407,9 @@ class InventoryTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.t
         arguments = {}
         if self.inventory_location.location_type == InventoryTest.PARTICIPANT_INVENTORY:
             arguments['inventory_owners'] = self.inventory_location.inventory
-        if self.contents_check.content_check_type == self.PARTICIPANT_TYPE_TEST:
-            arguments['content_check_participant'] = self.contents_check.participant
+        if self.contents_check is not None:
+            if self.contents_check.content_check_type == self.PARTICIPANT_TYPE_TEST:
+                arguments['content_check_participant'] = self.contents_check.participant
         return arguments
 
     @cached_test
@@ -444,8 +448,9 @@ class InventoryTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.t
                 for item in inv:
                     item_definition_id = item.definition.id
                     if content_check_type == self.ITEM_DEFINITION_TEST:
-                        if item_definition_id == contents_check.definition.id:
-                            count += item.stack_count()
+                        if contents_check.definition is not None:
+                            if item_definition_id == contents_check.definition.id:
+                                count += item.stack_count()
                     elif content_check_type == self.TAGGED_ITEM_TEST:
                         if self.contents_check(item, None):
                             count += item.stack_count()
@@ -483,9 +488,9 @@ class InInventoryTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing
                     if not self.inventory_types:
                         if self.negate:
                             return TestResult(False, 'Failed InInventory test. Participant is unexpectedly in an inventory.', tooltip=self.tooltip)
-                            if current_inventory_type in self.inventory_types == self.negate:
+                            if (current_inventory_type in self.inventory_types) == self.negate:
                                 return TestResult(False, "Failed InInventory test. Participant's current inventory type does not match expected tuning.", tooltip=self.tooltip)
-                    elif current_inventory_type in self.inventory_types == self.negate:
+                    elif (current_inventory_type in self.inventory_types) == self.negate:
                         return TestResult(False, "Failed InInventory test. Participant's current inventory type does not match expected tuning.", tooltip=self.tooltip)
             else:
                 inventoryitem_component = obj.inventoryitem_component
@@ -493,9 +498,9 @@ class InInventoryTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing
                 if not self.inventory_types:
                     if self.negate:
                         return TestResult(False, 'Failed InInventory test. Participant is unexpectedly in an inventory.', tooltip=self.tooltip)
-                        if current_inventory_type in self.inventory_types == self.negate:
+                        if (current_inventory_type in self.inventory_types) == self.negate:
                             return TestResult(False, "Failed InInventory test. Participant's current inventory type does not match expected tuning.", tooltip=self.tooltip)
-                elif current_inventory_type in self.inventory_types == self.negate:
+                elif (current_inventory_type in self.inventory_types) == self.negate:
                     return TestResult(False, "Failed InInventory test. Participant's current inventory type does not match expected tuning.", tooltip=self.tooltip)
         return TestResult.TRUE
 
@@ -517,7 +522,7 @@ class ObjectRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, event_
                     if has_relationship:
                         return TestResult(False, 'Target {} has a relationship with Sim {} but is required not to.', target, sim)
                 else:
-                    if self.relationship_status.use_default_value_if_no_relationship or not has_relationship:
+                    if not self.relationship_status.use_default_value_if_no_relationship and not has_relationship:
                         return TestResult(False, 'Target {} does not have a relationship with Sim {} and test does not allow default values.', target, sim)
                     relationship_value = relationship_component.get_relationship_value(sim.id)
                     if relationship_value < self.relationship_status.value_interval.lower_bound or relationship_value > self.relationship_status.value_interval.upper_bound:
@@ -541,8 +546,9 @@ class CustomNameTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.
                 target = target.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             if self.has_custom_name is not None and target.has_custom_name() != self.has_custom_name:
                 return TestResult(False, "Target's custom name fails requirements.", tooltip=self.tooltip)
-            if self.has_custom_description is not None and target.has_custom_description() != self.has_custom_description:
-                return TestResult(False, "Target's custom description fails requirements.", tooltip=self.tooltip)
+            if self.has_custom_description is not None:
+                if target.has_custom_description() != self.has_custom_description:
+                    return TestResult(False, "Target's custom description fails requirements.", tooltip=self.tooltip)
         return TestResult.TRUE
 
 class InUseTest(AutoFactoryInit, HasTunableSingletonFactory, event_testing.test_base.BaseTest):
@@ -600,9 +606,10 @@ class InUseTest(AutoFactoryInit, HasTunableSingletonFactory, event_testing.test_
                 has_users = any(self.actor_or_group_test(sim, actors) for sim in sim_users)
             else:
                 has_users = any(self.advanced_test(sim, actors) for sim in sim_users)
-            if len(all_users) > len(sim_users):
-                has_users = True
-            if has_users or has_users ^ self.negate:
+            if not has_users:
+                if len(all_users) > len(sim_users):
+                    has_users = True
+            if has_users ^ self.negate:
                 return TestResult.TRUE
         return TestResult(False, 'Failed in_use test because object {} in use', 'is' if self.negate else "isn't", tooltip=self.tooltip)
 
@@ -693,10 +700,11 @@ class HasObjectOfTypeAsChildTest(AutoFactoryInit, HasTunableSingletonFactory, ev
         for target in targets:
             for child in target.children:
                 if child.is_prop:
-                    pass
-                elif child.has_any_tag(self.object_type_tags):
+                    continue
+                if child.has_any_tag(self.object_type_tags):
                     break
-            return TestResult(False, 'Specified target object {} does not have a child with the tag {}', target, self.object_type_tags, tooltip=self.tooltip)
+            else:
+                return TestResult(False, 'Specified target object {} does not have a child with the tag {}', target, self.object_type_tags, tooltip=self.tooltip)
         return TestResult.TRUE
 
 class HasChildObjectOnPartTest(AutoFactoryInit, HasTunableSingletonFactory, event_testing.test_base.BaseTest):
@@ -717,8 +725,8 @@ class HasChildObjectOnPartTest(AutoFactoryInit, HasTunableSingletonFactory, even
                 if part.subroot_index is None or self.subroot_index is None:
                     if not part.subroot_index is not None:
                         if self.subroot_index is not None:
-                            pass
-                        elif part.children:
+                            continue
+                        if part.children:
                             if not self.negate:
                                 found_match = True
                                 break
@@ -729,17 +737,7 @@ class HasChildObjectOnPartTest(AutoFactoryInit, HasTunableSingletonFactory, even
                             found_match = True
                             break
                 elif part.subroot_index != self.subroot_index:
-                    pass
-                elif part.children:
-                    if not self.negate:
-                        found_match = True
-                        break
-                        if self.negate:
-                            found_match = True
-                            break
-                elif self.negate:
-                    found_match = True
-                    break
+                    continue
                 if part.children:
                     if not self.negate:
                         found_match = True
@@ -780,9 +778,10 @@ class ObjectHasNoChildrenTest(AutoFactoryInit, HasTunableSingletonFactory, event
     @cached_test
     def __call__(self, targets=()):
         for target in targets:
-            if target.is_part:
-                target = target.part_owner
-            if self.check_part_owner and any(not slot.empty for slot in target.get_runtime_slots_gen()):
+            if self.check_part_owner:
+                if target.is_part:
+                    target = target.part_owner
+            if any(not slot.empty for slot in target.get_runtime_slots_gen()):
                 return TestResult(False, 'ObjectHasNoChildrenTest: Object found in slot', tooltip=self.tooltip)
             if self.consider_bb_only_children:
                 for _ in target.get_all_children_gen():
@@ -804,8 +803,9 @@ class IsCarryingObjectTest(AutoFactoryInit, HasTunableSingletonFactory, event_te
             is_carrying = sim.posture_state.is_carrying(self.object_type)
             if is_carrying and self.negate:
                 return TestResult(False, 'IsCarryingObjectTest: {} is carrying {}.', sim.full_name, self.object_type, tooltip=self.tooltip)
-            if is_carrying or not self.negate:
-                return TestResult(False, 'IsCarryingObjectTest: {} is not carrying {}.', sim.full_name, self.object_type, tooltip=self.tooltip)
+            if not is_carrying:
+                if not self.negate:
+                    return TestResult(False, 'IsCarryingObjectTest: {} is not carrying {}.', sim.full_name, self.object_type, tooltip=self.tooltip)
         return TestResult.TRUE
 
 class HasHeadParentedObjectTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
@@ -910,7 +910,7 @@ class GameTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
                 return TestResult(False, 'GameTest: The participant does not fulfill the turn requirement.', tooltip=self.tooltip)
             if self.number_of_players is not None:
                 player_num = game.number_of_players
-                if not (self.number_of_players.lower_bound <= player_num and player_num <= self.number_of_players.upper_bound):
+                if not self.number_of_players.lower_bound <= player_num <= self.number_of_players.upper_bound:
                     return TestResult(False, 'GameTest: Number of players required to be withing {} and {}, but the actual number of players is {}.', self.number_of_players.lower_bound, self.number_of_players.upper_bound, player_num, tooltip=self.tooltip)
             if self.is_winner is not None:
                 if game.winning_team is not None:
@@ -948,8 +948,9 @@ class GameTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_b
                     return TestResult(False, 'GameTest: Cannot test setup conditions because no game has been started.', tooltip=self.tooltip)
                 if game.requires_setup != self.requires_setup:
                     return TestResult(False, "GameTest: Game's setup requirements do not match this interaction's setup requirements.", tooltip=self.tooltip)
-            if self.game_over is not None and game.game_has_ended != self.game_over:
-                return TestResult(False, "GameTest: Game's GameOver state does not match this interaction's GameOver state requirements.", tooltip=self.tooltip)
+            if self.game_over is not None:
+                if game.game_has_ended != self.game_over:
+                    return TestResult(False, "GameTest: Game's GameOver state does not match this interaction's GameOver state requirements.", tooltip=self.tooltip)
         return TestResult.TRUE
 
 class ObjectOwnershipTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
@@ -977,7 +978,7 @@ class ObjectOwnershipTest(HasTunableSingletonFactory, AutoFactoryInit, event_tes
                 if self.test_household_owner:
                     owner_id = target_obj.get_household_owner_id()
                     sim_id = target_sim.household.id
-                    if self.consider_renter_as_household_owner and (owner_id or target_sim.is_renting_zone(current_zone_id)):
+                    if self.consider_renter_as_household_owner and not owner_id and target_sim.is_renting_zone(current_zone_id):
                         owner_id = sim_id
                 else:
                     owner_id = target_obj.get_sim_owner_id()
@@ -1049,8 +1050,9 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
     def __init__(self, *args, **kwargs):
         super().__init__(**kwargs)
         test_events = self.test_events
-        if test_events[0] == ObjectCriteriaTestEvents.AllObjectEvents:
-            self.test_events = (TestEvent.OnExitBuildBuy, TestEvent.ObjectStateChange, TestEvent.ItemCrafted, TestEvent.OnInventoryChanged)
+        if test_events:
+            if test_events[0] == ObjectCriteriaTestEvents.AllObjectEvents:
+                self.test_events = (TestEvent.OnExitBuildBuy, TestEvent.ObjectStateChange, TestEvent.ItemCrafted, TestEvent.OnInventoryChanged)
 
     @property
     def allow_failfast_tests(self):
@@ -1163,7 +1165,7 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
                 return TestResultNumeric(False, 'There are {} matches when {} matches are needed for the object criteria tuning', number_of_matches, self.subject_specific_tests.quantity.value, current_value=number_of_matches, goal_value=self.subject_specific_tests.quantity.value, is_money=False, tooltip=self.tooltip)
             if self.subject_specific_tests.total_value is not None and not self.subject_specific_tests.total_value.compare(total_value):
                 return TestResultNumeric(False, 'The total value is {} when it needs to be {} for the object criteria tuning', total_value, self.subject_specific_tests.total_value.value, current_value=total_value, goal_value=self.subject_specific_tests.total_value.value, is_money=True, tooltip=self.tooltip)
-        elif target_objects and number_of_matches != len(target_objects):
+        elif not target_objects or number_of_matches != len(target_objects):
             return TestResult(False, "All of the specified targets don't meet the object criteria tuning.", tooltip=self.tooltip)
         return TestResult.TRUE
 
@@ -1196,7 +1198,9 @@ class SituationObjectComparisonTest(HasTunableSingletonFactory, AutoFactoryInit,
         current_zone = services.current_zone()
         for obj in services.object_manager().values():
             if not self.identity_test is None:
-                pass
+                if self.identity_test(obj):
+                    if self.object_meets_criteria(obj, active_household_id, current_zone):
+                        object_count += 1
             if self.object_meets_criteria(obj, active_household_id, current_zone):
                 object_count += 1
         situation_count = len(services.get_zone_situation_manager().get_situations_by_type(self.situation))
@@ -1231,10 +1235,11 @@ class ObjectRoutableSurfaceTest(HasTunableSingletonFactory, AutoFactoryInit, eve
                 obj_id = surface_info[0][2]
                 obj = object_manager.get(obj_id)
                 if obj is None:
-                    pass
-                elif self.identity_test is None or self.identity_test(obj):
+                    continue
+                if self.identity_test is None or self.identity_test(obj):
                     break
-            return TestResult(False, 'Failed to find surface that matched object criteria for Sim {}', sim, tooltip=self.tooltip)
+            else:
+                return TestResult(False, 'Failed to find surface that matched object criteria for Sim {}', sim, tooltip=self.tooltip)
         return TestResult.TRUE
 
 class DefinitionIdFilter(HasTunableSingletonFactory, AutoFactoryInit):
@@ -1260,7 +1265,8 @@ class SoundMatchesStoredAudioComponentTest(HasTunableSingletonFactory, AutoFacto
             if stored_audio_component.sound != self.sound:
                 snippet = stored_audio_component.music_track_snippet
                 if not snippet is None:
-                    if snippet.fixed_length_audio != self.sound and snippet.looping_audio != self.sound:
-                        return TestResult(False, "The specified sound does not match any sound stored in the Participant's StoredAudioComponent.", tooltip=self.tooltip)
+                    if snippet.fixed_length_audio != self.sound:
+                        if snippet.looping_audio != self.sound:
+                            return TestResult(False, "The specified sound does not match any sound stored in the Participant's StoredAudioComponent.", tooltip=self.tooltip)
                 return TestResult(False, "The specified sound does not match any sound stored in the Participant's StoredAudioComponent.", tooltip=self.tooltip)
         return TestResult.TRUE

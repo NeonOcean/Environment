@@ -9,6 +9,7 @@ from interactions.utils.outcome import OutcomeResult
 from objects import ALL_HIDDEN_REASONS
 from objects.object_tests import TagTestType
 from sims4.tuning.tunable import TunableEnumEntry, TunableVariant, TunableReference, TunableList, TunableSingletonFactory, TunableThreshold, OptionalTunable, Tunable, TunableSimMinute, TunableSet, TunableFactory, TunableTuple, AutoFactoryInit, HasTunableSingletonFactory, TunableEnumWithFilter
+from singletons import EMPTY_SET
 from tag import Tag
 import build_buy
 import enum
@@ -29,10 +30,10 @@ class ParticipantRanInteractionTest(event_testing.test_base.BaseTest):
     UNIQUE_POSTURE_TRACKING_AVAILABLE = True
     TAG_CHECKLIST_TRACKING_AVAILABLE = True
     USES_EVENT_DATA = True
-    FACTORY_TUNABLES = {'description': 'Check to see if the Sim ran an affordance as a particular actor', 'participant': TunableEnumEntry(ParticipantType, ParticipantType.Actor, description='This is the role the sim in question should be to pass.'), 'affordances': TunableSet(description="\n            The Sim must have run either any affordance or have a proxied affordance\n            in this list or Affordance Lists, or an interaction matching\n            one of the tags in this tunable's Tags field.\n            ", tunable=TunableReference(services.affordance_manager(), pack_safe=True)), 'affordance_lists': TunableSet(description="\n            The Sim must have run either any affordance or have a proxied affordance\n            in Affordances or these Affordance Lists, or an interaction matching\n            one of the tags in this tunable's Tags field.\n            ", tunable=snippets.TunableAffordanceListReference()), 'interaction_outcome': OptionalTunable(TunableEnumEntry(OutcomeResult, OutcomeResult.NONE), description="The interaction's outcome must match the outcome tuned here to pass this test."), 'running_time': OptionalTunable(TunableSimMinute(description='\n            Amount of time in sim minutes that this interaction needs to\n            have been running for for this test to pass true. This time is how\n            long the interaction has been in the SI State.\n            \n            If your setting this, you probably want Test Event to be set to\n            InteractionUpdate.\n            ', default=10, minimum=0)), 'skill_tags': TunableSet(description='\n            Skill tags to check against skill attached to the interaction,\n            determined by if the interaction identifies it in skill  \n            loot data, or if it is an associated skill in the outcome.\n            \n            If you are setting this and are not using affordances or lists \n            for filtering, you probably want to ensure that you set\n            interaction tags that are more or equally restrictive to either \n            one of Interaction_Super or Interaction_Mixer.  And do not\n            use Interaction_All, unless you really want to trigger \n            for both mixers and super interactions.\n            ', tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, invalid_enums=Tag.INVALID, filter_prefixes=('skill',))), 'target_filters': TunableTuple(description='\n            Restrictions on the target of this interaction.\n            ', object_tags=OptionalTunable(description='\n                Object tags for limiting test success to a subset of target \n                objects.\n                ', tunable=TunableTuple(description='\n                    Target object tags and how they are tested.\n                    ', tag_set=TunableSet(description='\n                        A set of tags to test the target object for.\n                        ', tunable=TunableEnumEntry(description='\n                            A tag to test the target object for.\n                            ', tunable_type=Tag, default=Tag.INVALID)), test_type=TunableEnumEntry(description='\n                        How to test the tags in the tag set against the \n                        target object.\n                        ', tunable_type=TagTestType, default=TagTestType.CONTAINS_ANY_TAG_IN_SET)))), 'tags': TunableSet(TunableEnumEntry(Tag, Tag.INVALID), description='\n                The Sim must have run either an interaction matching one of these Tags \n                or an affordance from the list of Affordances in this tunable.\n                '), 'test_event': TunableEnumEntry(description='\n            The event that we want to trigger this instance of the tuned\n            test on.\n            InteractionStart: Triggers when the interaction starts.\n            InteractionComplete: Triggers when the interaction ends. This is best\n            used with a one shot interaction. It will not get called if an interaction\n            is canceled. If you have a Sim parked in an interaction that you can\n            only exit via cancel, you will not hit this.\n            InteractionUpdate: Triggers on a 15 sim minute cadence from the\n            start of the interaction.  If the interaction ends before a cycle\n            is up it does not trigger.  Do not use this for short interactions\n            as it has a possibility of never getting an update for an\n            interaction.\n            \n            \n            ', tunable_type=InteractionTestEvents, default=InteractionTestEvents.InteractionComplete), 'consider_cancelled_as_failure': Tunable(bool, True, description='\n            If True, test will consider the interaction outcome to be Failure if canceled by the user.\n            ')}
-    __slots__ = ('participant_type', '_affordances', '_affordance_lists', '_all_affordances', 'interaction_outcome', 'running_time', 'tags', 'object_tags', 'skill_tags', 'test_events', 'consider_cancelled_as_failure')
+    FACTORY_TUNABLES = {'description': 'Check to see if the Sim ran an affordance as a particular actor', 'participant': TunableEnumEntry(ParticipantType, ParticipantType.Actor, description='This is the role the sim in question should be to pass.'), 'affordances': TunableSet(description="\n            The Sim must have run either any affordance or have a proxied affordance\n            in this list or Affordance Lists, or an interaction matching\n            one of the tags in this tunable's Tags field.\n            ", tunable=TunableReference(services.affordance_manager(), pack_safe=True)), 'affordance_lists': TunableSet(description="\n            The Sim must have run either any affordance or have a proxied affordance\n            in Affordances or these Affordance Lists, or an interaction matching\n            one of the tags in this tunable's Tags field.\n            ", tunable=snippets.TunableAffordanceListReference()), 'interaction_outcome': OptionalTunable(TunableEnumEntry(OutcomeResult, OutcomeResult.NONE), description="The interaction's outcome must match the outcome tuned here to pass this test."), 'running_time': OptionalTunable(TunableSimMinute(description='\n            Amount of time in sim minutes that this interaction needs to\n            have been running for for this test to pass true. This time is how\n            long the interaction has been in the SI State.\n            \n            If your setting this, you probably want Test Event to be set to\n            InteractionUpdate.\n            ', default=10, minimum=0)), 'skill_tags': TunableSet(description='\n            Skill tags to check against skill attached to the interaction,\n            determined by if the interaction identifies it in skill  \n            loot data, or if it is an associated skill in the outcome.\n            \n            If you are setting this and are not using affordances or lists \n            for filtering, you probably want to ensure that you set\n            interaction tags that are more or equally restrictive to either \n            one of Interaction_Super or Interaction_Mixer.  And do not\n            use Interaction_All, unless you really want to trigger \n            for both mixers and super interactions.\n            ', tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, invalid_enums=Tag.INVALID, filter_prefixes=('skill',))), 'target_filters': TunableTuple(description='\n            Restrictions on the target of this interaction.\n            ', object_tags=OptionalTunable(description='\n                Object tags for limiting test success to a subset of target \n                objects.\n                ', tunable=TunableTuple(description='\n                    Target object tags and how they are tested.\n                    ', tag_set=TunableSet(description='\n                        A set of tags to test the target object for.\n                        ', tunable=TunableEnumEntry(description='\n                            A tag to test the target object for.\n                            ', tunable_type=Tag, default=Tag.INVALID)), test_type=TunableEnumEntry(description='\n                        How to test the tags in the tag set against the \n                        target object.\n                        ', tunable_type=TagTestType, default=TagTestType.CONTAINS_ANY_TAG_IN_SET)))), 'tags': TunableSet(TunableEnumEntry(Tag, Tag.INVALID), description='\n                The Sim must have run either an interaction matching one of these Tags \n                or an affordance from the list of Affordances in this tunable.\n                '), 'test_event': TunableEnumEntry(description='\n            The event that we want to trigger this instance of the tuned\n            test on.\n            InteractionStart: Triggers when the interaction starts.\n            InteractionComplete: Triggers when the interaction ends. This is best\n            used with a one shot interaction. It will not get called if an interaction\n            is canceled. If you have a Sim parked in an interaction that you can\n            only exit via cancel, you will not hit this.\n            InteractionUpdate: Triggers on a 15 sim minute cadence from the\n            start of the interaction.  If the interaction ends before a cycle\n            is up it does not trigger.  Do not use this for short interactions\n            as it has a possibility of never getting an update for an\n            interaction.\n            \n            \n            ', tunable_type=InteractionTestEvents, default=InteractionTestEvents.InteractionComplete), 'consider_user_cancelled_as_failure': Tunable(description='\n            If True, test will consider the interaction outcome to be Failure if\n            canceled by the user.\n            ', tunable_type=bool, default=True), 'consider_all_cancelled_as_failure': Tunable(description="\n            If True, test will consider the interaction outcome to be Failure if\n            canceled for any reason. If this box is checked and\n            consider_user_cancelled_as_failure is not checked, user cancel's\n            will still be treated as failures.\n            ", tunable_type=bool, default=False)}
+    __slots__ = ('participant_type', '_affordances', '_affordance_lists', '_all_affordances', 'interaction_outcome', 'running_time', 'tags', 'object_tags', 'skill_tags', 'test_events', 'consider_user_cancelled_as_failure', 'consider_all_cancelled_as_failure')
 
-    def __init__(self, participant, affordances, affordance_lists, interaction_outcome, running_time, skill_tags, target_filters, tags, test_event, consider_cancelled_as_failure, **kwargs):
+    def __init__(self, participant, affordances, affordance_lists, interaction_outcome, running_time, skill_tags, target_filters, tags, test_event, consider_user_cancelled_as_failure, consider_all_cancelled_as_failure, **kwargs):
         super().__init__(**kwargs)
         self.participant_type = participant
         self._affordances = set(affordances)
@@ -50,7 +51,8 @@ class ParticipantRanInteractionTest(event_testing.test_base.BaseTest):
             self.test_events = (test_event, InteractionTestEvents.InteractionComplete)
         else:
             self.test_events = (test_event,)
-        self.consider_cancelled_as_failure = consider_cancelled_as_failure
+        self.consider_user_cancelled_as_failure = consider_user_cancelled_as_failure
+        self.consider_all_cancelled_as_failure = consider_all_cancelled_as_failure
 
     def get_expected_args(self):
         return {'sims': event_testing.test_constants.SIM_INSTANCE, 'interaction': event_testing.test_constants.FROM_EVENT_DATA}
@@ -78,7 +80,7 @@ class ParticipantRanInteractionTest(event_testing.test_base.BaseTest):
             if participant_type != self.participant_type:
                 return TestResult(False, 'Failed participant check: {} != {}', participant_type, self.participant_type)
             tag_match = len(self.tags & interaction.get_category_tags()) > 0 if self.tags else False
-            if tag_match or interaction.affordance in self._all_affordances or not (hasattr(interaction.affordance, 'proxied_affordance') and interaction.affordance.proxied_affordance in self._all_affordances):
+            if not (not tag_match and not (not interaction.affordance in self._all_affordances and not (hasattr(interaction.affordance, 'proxied_affordance') and interaction.affordance.proxied_affordance in self._all_affordances))):
                 return TestResult(False, 'Failed affordance check: {} not in {}', interaction.affordance, self._all_affordances)
             if self.skill_tags:
                 interaction_skill = interaction.get_associated_skill()
@@ -87,18 +89,24 @@ class ParticipantRanInteractionTest(event_testing.test_base.BaseTest):
             if self.object_tags is not None and not self.target_matches_object_tags(interaction):
                 return TestResult(False, "Target of interaction didn't match object tag requirement.")
             if self.interaction_outcome is not None:
-                if self.consider_cancelled_as_failure and interaction.has_been_user_canceled and self.interaction_outcome != OutcomeResult.FAILURE:
+                if self.consider_user_cancelled_as_failure and interaction.has_been_user_canceled and self.interaction_outcome != OutcomeResult.FAILURE:
                     return TestResult(False, 'Failed outcome check: interaction canceled by user treated as Failure')
+                if self.consider_all_cancelled_as_failure and interaction.has_been_canceled and self.interaction_outcome != OutcomeResult.FAILURE:
+                    return TestResult(False, 'Failed outcome check: interaction canceled and treated as Failure')
                 if self.interaction_outcome == OutcomeResult.SUCCESS:
                     if interaction.global_outcome_result == OutcomeResult.FAILURE:
                         return TestResult(False, 'Failed outcome check: interaction({}) failed when OutcomeResult Success or None required.', interaction.affordance)
                 elif self.interaction_outcome != interaction.global_outcome_result:
                     return TestResult(False, 'Failed outcome check: interaction({}) result {} not {}', interaction.affordance, interaction.global_outcome_result, self.interaction_outcome)
-            elif self.consider_cancelled_as_failure and interaction.has_been_user_canceled:
-                return TestResult(False, 'Failed outcome check: interaction canceled by user treated as Failure')
+            else:
+                if self.consider_user_cancelled_as_failure and interaction.has_been_user_canceled:
+                    return TestResult(False, 'Failed outcome check: interaction canceled by user treated as Failure')
+                if self.consider_all_cancelled_as_failure and interaction.has_been_canceled:
+                    return TestResult(False, 'Failed outcome check: interaction canceled, and treated as Failure')
             running_time = interaction.consecutive_running_time_span
-            if self.running_time is not None and running_time < self.running_time:
-                return TestResult(False, 'Failed hours check: {} < {}', running_time, self.running_time)
+            if self.running_time is not None:
+                if running_time < self.running_time:
+                    return TestResult(False, 'Failed hours check: {} < {}', running_time, self.running_time)
         return TestResult.TRUE
 
     def get_test_events_to_register(self):
@@ -126,8 +134,16 @@ class ParticipantRanInteractionTest(event_testing.test_base.BaseTest):
             if not interaction.target.is_sim:
                 logger.error('Unique target ID type: {} is not supported for test: {} with an object as target.', id_type, self)
                 return
-            else:
-                return interaction.target.household.id
+            return interaction.target.household.id
+        if id_type == TargetIdTypes.PICKED_ITEM_ID:
+            picked_items = interaction.interaction_parameters.get('picked_item_ids', EMPTY_SET)
+            if len(picked_items) > 1:
+                logger.error('Using PICKED_ITEM_ID on interaction {} that has more than one picked items.', interaction)
+            for target_id in picked_items:
+                return target_id
+            logger.error('Using PICKED_ITEM_ID on interaction {} that has no picked items.', interaction)
+            return
+        logger.error('Unsupported TargetIdType {} for Test {}', id_type, self)
 
     def get_posture_id(self, sims=None, interaction=None):
         if interaction is None or interaction.sim is None or interaction.sim.posture is None:
@@ -187,12 +203,13 @@ class ParticipantStartedInteractionTest(event_testing.test_base.BaseTest):
             if participant_type != self.participant_type:
                 return TestResult(False, 'Failed participant check: {} != {}', participant_type, self.participant_type)
             tag_match = len(self.tags & interaction.get_category_tags()) > 0 if self.tags else False
-            if tag_match or interaction.affordance not in self.affordances:
-                return TestResult(False, 'Failed affordance check: {} not in {}', interaction.affordance, self.affordances)
+            if not tag_match:
+                if interaction.affordance not in self.affordances:
+                    return TestResult(False, 'Failed affordance check: {} not in {}', interaction.affordance, self.affordances)
         return TestResult.TRUE
 
     def validate_tuning_for_objective(self, objective):
-        if self.tags or not self.affordances:
+        if not self.tags and not self.affordances:
             logger.error('Error in objective {}. No tags and affordances tuned.', objective)
 
 TunableParticipantStartedInteractionTest = TunableSingletonFactory.create_auto_factory(ParticipantStartedInteractionTest)
@@ -343,11 +360,10 @@ class FamilyAspirationTriggerTest(event_testing.test_base.BaseTest):
                             if relationship.has_bit(sim_info.sim_id, relationship_bit):
                                 target_sim_info = relationship.get_other_sim_info(sim_info.sim_id)
                                 if target_sim_info is None:
-                                    pass
-                                else:
-                                    target_aspiration_tracker = target_sim_info.aspiration_tracker
-                                    if target_aspiration_tracker is not None and target_aspiration_tracker.milestone_completed(self.aspiration_trigger):
-                                        return TestResult.TRUE
+                                    continue
+                                target_aspiration_tracker = target_sim_info.aspiration_tracker
+                                if target_aspiration_tracker is not None and target_aspiration_tracker.milestone_completed(self.aspiration_trigger):
+                                    return TestResult.TRUE
             return TestResult(False, 'FamilyAspirationTriggerTest: No valid sims with the aspiration found.')
         if self.aspiration_trigger.guid64 == trigger.guid64:
             return TestResult.TRUE
@@ -409,7 +425,7 @@ class GenerationTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.
             if not self.generation_threshold.compare(generation_count):
                 return TestResultNumeric(False, 'Generation Test: max generation is {}', generation_count, current_value=generation_count, goal_value=self.goal_value())
         else:
-            household_count = sum(1 for household in services.household_manager().get_all() if household.hidden or any(self.generation_threshold.compare(sim_info.generation) for sim_info in household))
+            household_count = sum(1 for household in services.household_manager().get_all() if not household.hidden if any(self.generation_threshold.compare(sim_info.generation) for sim_info in household))
             if not self.household_threshold.compare(household_count):
                 return TestResultNumeric(False, 'Generation Test: household count is {}', household_count, current_value=household_count, goal_value=self.goal_value())
         return TestResult.TRUE

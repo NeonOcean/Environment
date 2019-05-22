@@ -36,7 +36,7 @@ class MissingPetsTracker:
     RETURN_INTERVAL = TunableSimMinute(description='\n        The number of sim minutes until the pet must return.\n        ', default=1000, minimum=1)
     RETURN_INTERACTION = TunablePackSafeReference(description='\n        Affordance to push on pet when it returns.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
     COOLDOWN_INTERVAL = TunableSimMinute(description='\n        The number of sim minutes after a pet returns during which pets from \n        the same household cannot run away.\n        ', default=1000, minimum=1)
-    DEFAULT_AWAY_ACTIONS = TunableMapping(description='\n        Map of species to the default away action to run when a pet is missing.\n        ', key_type=TunableEnumEntry(description='\n            The species of the pet that is missing.\n            ', tunable_type=Species, default=Species.DOG), value_type=TunableReference(description='\n            The default away action to be run when a pet is missing.\n            ', manager=services.get_instance_manager(sims4.resources.Types.AWAY_ACTION), pack_safe=True))
+    DEFAULT_AWAY_ACTIONS = TunableMapping(description='\n        Map of species to the default away action to run when a pet is missing.\n        ', key_type=TunableEnumEntry(description='\n            The species of the pet that is missing.\n            ', tunable_type=Species, default=Species.DOG, invalid_enums=(Species.INVALID,)), value_type=TunableReference(description='\n            The default away action to be run when a pet is missing.\n            ', manager=services.get_instance_manager(sims4.resources.Types.AWAY_ACTION), pack_safe=True))
     MISSING_PET_TRAIT = TunablePackSafeReference(description='\n        A reference to a trait to be added to missing pets. \n        ', manager=services.get_instance_manager(sims4.resources.Types.TRAIT))
     POST_ALERT_EFFECTIVENESS = TunableInterval(description='\n        The value by which the amount of time remaining for the pet to return\n        is reduced by when posting an alert.\n        ', tunable_type=float, default_lower=0, default_upper=1, minimum=0, maximum=1)
     SKEWER_NOTIFICATION = UiDialogNotification.TunableFactory(description='\n        A notification to be dislayed when the whistle is pressed in the skewer while the pet\n        is missing.\n        ')
@@ -104,12 +104,12 @@ class MissingPetsTracker:
     def _run_tests(self):
         if self.missing_pet_id != 0 or self._running_away:
             return
-        if self._household.is_active_household and self._household.home_zone_id != services.current_zone_id():
+        if not self._household.is_active_household or self._household.home_zone_id != services.current_zone_id():
             return
         for pet in self._household.instanced_pets_gen():
             if pet.sim_info.age < Age.ADULT:
-                pass
-            elif random.random() <= self.RUN_AWAY_CHANCE:
+                continue
+            if random.random() <= self.RUN_AWAY_CHANCE:
                 should_run_away = self._run_relationship_tests(pet.sim_info)
                 if not should_run_away:
                     if pet.id not in self._motive_test_results:
@@ -141,7 +141,7 @@ class MissingPetsTracker:
     def run_away(self, pet_info):
         if self.missing_pet_id != 0 or self._running_away:
             return
-        if self._household.is_active_household and self._household.home_zone_id != services.current_zone_id():
+        if not self._household.is_active_household or self._household.home_zone_id != services.current_zone_id():
             return
         if self._cooldown_alarm is not None:
             return
@@ -210,7 +210,7 @@ class MissingPetsTracker:
         self._alert_posted = True
 
     def cancel_run_away_interaction(self):
-        if self._household.is_active_household and self._household.home_zone_id != services.current_zone_id():
+        if not self._household.is_active_household or self._household.home_zone_id != services.current_zone_id():
             self._return_pet_on_zone_load = True
             return
         pet = self.missing_pet_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED)

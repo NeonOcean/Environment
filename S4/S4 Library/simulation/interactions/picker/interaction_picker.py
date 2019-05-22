@@ -22,6 +22,7 @@ class InteractionPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):
@@ -30,29 +31,27 @@ class InteractionPickerSuperInteraction(PickerSuperInteraction):
         for choice in inst_or_cls.possible_actions:
             first_continuation = next(iter(choice.continuation), None)
             if first_continuation is None:
-                pass
+                continue
+            affordance = first_continuation.affordance
+            resolver = affordance.get_resolver(target=target, context=cloned_context, **kwargs)
+            if not not choice.visibility_tests and not not choice.visibility_tests.run_tests(resolver):
+                continue
+            tokens = tuple() if choice.localization_tokens is None else choice.localization_tokens.get_tokens(resolver)
+            display_name = affordance.get_name(target=target, context=cloned_context) if choice.name is None else affordance.create_localized_string(choice.name, *tokens, target=target, context=cloned_context, **kwargs)
+            icon_info = None if choice.icon is None else choice.icon(resolver)
+            display_description = None if choice.item_description is None else affordance.create_localized_string(choice.item_description, *tokens, target=target, context=cloned_context, **kwargs)
+            row_tooltip = None
+            tag = choice
+            if choice.enable_tests:
+                test_result = choice.enable_tests.run_tests(resolver)
             else:
-                affordance = first_continuation.affordance
-                resolver = affordance.get_resolver(target=target, context=cloned_context, **kwargs)
-                if not choice.visibility_tests or not choice.visibility_tests.run_tests(resolver):
-                    pass
-                else:
-                    tokens = tuple() if choice.localization_tokens is None else choice.localization_tokens.get_tokens(resolver)
-                    display_name = affordance.get_name(target=target, context=cloned_context) if choice.name is None else affordance.create_localized_string(choice.name, tokens, target=target, context=cloned_context, **kwargs)
-                    icon_info = None if choice.icon is None else choice.icon(resolver)
-                    display_description = None if choice.item_description is None else affordance.create_localized_string(choice.item_description, tokens, target=target, context=cloned_context, **kwargs)
-                    row_tooltip = None
-                    tag = choice
-                    if choice.enable_tests:
-                        test_result = choice.enable_tests.run_tests(resolver)
-                    else:
-                        test_result = affordance.test(target=target, context=cloned_context)
-                    row_tooltip = choice.item_tooltip
-                    row_tooltip = test_result.tooltip
-                    is_enabled = bool(test_result)
-                    row_tooltip = choice.disable_tooltip
-                    row = BasePickerRow(is_enable=is_enabled, name=display_name, icon_info=icon_info, row_description=display_description, tag=tag, row_tooltip=row_tooltip)
-                    yield row
+                test_result = affordance.test(target=target, context=cloned_context)
+            row_tooltip = choice.item_tooltip
+            row_tooltip = test_result.tooltip
+            is_enabled = bool(test_result)
+            row_tooltip = choice.disable_tooltip
+            row = BasePickerRow(is_enable=is_enabled, name=display_name, icon_info=icon_info, row_description=display_description, tag=tag, row_tooltip=row_tooltip)
+            yield row
 
     def on_choice_selected(self, choice, **kwargs):
         if choice is not None:

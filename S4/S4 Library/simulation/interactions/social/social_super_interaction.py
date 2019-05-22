@@ -61,86 +61,65 @@ class SocialCompatibilityMixin:
                     logger.error('Required Sim, {}, is not participant in {} when trying to check constraint compatibility.', required_sim, self, owner='jjacobson')
                     return (False, incompatible_sims, included_sis)
                 if participant_type == ParticipantType.TargetSim and self.target_type == TargetType.OBJECT:
-                    pass
-                else:
-                    for si in required_sim.si_state.all_guaranteed_si_gen(self.priority, self.group_id):
-                        if self.super_affordance_klobberers is not None and self.super_affordance_klobberers(si.affordance):
-                            pass
-                        else:
-                            si_participant_type = si.get_participant_type(required_sim)
-                            if bool(participant_type in ParticipantTypeSingle) != bool(si_participant_type in ParticipantTypeSingle):
-                                pass
-                            else:
-                                if not required_sim.si_state.are_sis_compatible(self, si, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
+                    continue
+                for si in required_sim.si_state.all_guaranteed_si_gen(self.priority, self.group_id):
+                    if self.super_affordance_klobberers is not None and self.super_affordance_klobberers(si.affordance):
+                        continue
+                    si_participant_type = si.get_participant_type(required_sim)
+                    if bool(participant_type in ParticipantTypeSingle) != bool(si_participant_type in ParticipantTypeSingle):
+                        continue
+                    if not required_sim.si_state.are_sis_compatible(self, si, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
+                        incompatible_sims.add(required_sim)
+                        if required_sim is not self.sim:
+                            break
+                            owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
+                            if owned_posture is None:
+                                continue
+                            if owned_posture.track != PostureTrack.BODY:
+                                continue
+                            source_interaction = owned_posture.source_interaction
+                            if not source_interaction is None:
+                                if source_interaction.is_finishing:
+                                    continue
+                                if not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
                                     incompatible_sims.add(required_sim)
                                     if required_sim is not self.sim:
                                         break
-                                        owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
-                                        if owned_posture is None:
-                                            pass
-                                        elif owned_posture.track != PostureTrack.BODY:
-                                            pass
-                                        else:
-                                            source_interaction = owned_posture.source_interaction
-                                            if not source_interaction is None:
-                                                if source_interaction.is_finishing:
-                                                    pass
-                                                elif not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
-                                                    incompatible_sims.add(required_sim)
-                                                    if required_sim is not self.sim:
-                                                        break
-                                elif required_sim is self.sim:
-                                    included_sis.add(si)
-                                    if required_sim in incompatible_sims:
-                                        pass
-                                    else:
-                                        owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
-                                        if owned_posture is None:
-                                            pass
-                                        elif owned_posture.track != PostureTrack.BODY:
-                                            pass
-                                        else:
-                                            source_interaction = owned_posture.source_interaction
-                                            if not source_interaction is None:
-                                                if source_interaction.is_finishing:
-                                                    pass
-                                                elif not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
-                                                    incompatible_sims.add(required_sim)
-                                                    if required_sim is not self.sim:
-                                                        break
-                                else:
-                                    owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
-                                    if owned_posture is None:
-                                        pass
-                                    elif owned_posture.track != PostureTrack.BODY:
-                                        pass
-                                    else:
-                                        source_interaction = owned_posture.source_interaction
-                                        if not source_interaction is None:
-                                            if source_interaction.is_finishing:
-                                                pass
-                                            elif not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
-                                                incompatible_sims.add(required_sim)
-                                                if required_sim is not self.sim:
-                                                    break
-                                owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
-                                if owned_posture is None:
-                                    pass
-                                elif owned_posture.track != PostureTrack.BODY:
-                                    pass
-                                else:
-                                    source_interaction = owned_posture.source_interaction
-                                    if not source_interaction is None:
-                                        if source_interaction.is_finishing:
-                                            pass
-                                        elif not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
-                                            incompatible_sims.add(required_sim)
-                                            if required_sim is not self.sim:
-                                                break
+                    elif required_sim is self.sim:
+                        included_sis.add(si)
+                        if required_sim in incompatible_sims:
+                            continue
+                    else:
+                        owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
+                        if owned_posture is None:
+                            continue
+                        if owned_posture.track != PostureTrack.BODY:
+                            continue
+                        source_interaction = owned_posture.source_interaction
+                        if not source_interaction is None:
+                            if source_interaction.is_finishing:
+                                continue
+                            if not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
+                                incompatible_sims.add(required_sim)
+                                if required_sim is not self.sim:
+                                    break
+                    owned_posture = required_sim.posture_state.get_source_or_owned_posture_for_si(si)
+                    if owned_posture is None:
+                        continue
+                    if owned_posture.track != PostureTrack.BODY:
+                        continue
+                    source_interaction = owned_posture.source_interaction
+                    if not source_interaction is None:
+                        if source_interaction.is_finishing:
+                            continue
+                        if not required_sim.si_state.are_sis_compatible(self, source_interaction, participant_type_a=participant_type, participant_type_b=si_participant_type, for_sim=required_sim):
+                            incompatible_sims.add(required_sim)
+                            if required_sim is not self.sim:
+                                break
             for si in self.sim.si_state:
                 if si in included_sis:
-                    pass
-                elif self.sim.si_state.are_sis_compatible(self, si, participant_type_b=si.get_participant_type(self.sim)):
+                    continue
+                if self.sim.si_state.are_sis_compatible(self, si, participant_type_b=si.get_participant_type(self.sim)):
                     included_sis.add(si)
             if incompatible_sims:
                 return (False, incompatible_sims, included_sis)
@@ -225,6 +204,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         self._trying_to_go_nearby_target = False
         self._target_was_going_far_away = False
         self.last_social_group = None
+        self._processing_social_group_change = False
 
     @property
     def target_sim(self):
@@ -241,17 +221,19 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         return [mixer for mixer in self.sim.queue.mixer_interactions_gen() if mixer.super_affordance.get_interaction_type() is self.get_interaction_type()]
 
     def _greet_sim(self, target_sim, social_group):
-        if self._greeting_interaction.is_finishing:
-            self._greeting_interaction = None
+        if self._greeting_interaction is not None:
+            if self._greeting_interaction.is_finishing:
+                self._greeting_interaction = None
         mixer_interactions = self.get_queued_mixers()
         should_greet = True
-        if self._greeting_interaction is not None and self.ignores_greetings or self._greeting_interaction is not None or any(mixer.ignores_greetings for mixer in mixer_interactions):
+        if self.ignores_greetings or self._greeting_interaction is not None or any(mixer.ignores_greetings for mixer in mixer_interactions):
             should_greet = False
         should_play_targeted_greeting = True
         for target_social_group in target_sim.get_groups_for_sim_gen():
-            if social_group is target_social_group and sum(1 for group_sim in target_social_group if group_sim is not self.sim) > 1:
-                should_play_targeted_greeting = False
-                break
+            if social_group is target_social_group:
+                if sum(1 for group_sim in target_social_group if group_sim is not self.sim) > 1:
+                    should_play_targeted_greeting = False
+                    break
         actor_greeting_resolver = DoubleSimResolver(self.sim.sim_info, target_sim.sim_info)
         result = False
         rel_tracker = self.sim.sim_info.relationship_tracker
@@ -270,10 +252,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
                     picked_sim_ids = set()
                     for group_sim in target_social_group:
                         if group_sim is self.sim:
-                            pass
-                        elif not rel_tracker.has_bit(group_sim.sim_info.sim_id, greetings.Greetings.GREETED_RELATIONSHIP_BIT):
-                            picked_sim_ids.add(group_sim.sim_id)
-                            greetings.add_greeted_rel_bit(self.sim.sim_info, group_sim.sim_info)
+                            continue
                     interaction_parameters['picked_item_ids'] = frozenset(picked_sim_ids)
             if should_greet and picked_sim_ids:
                 source_interaction = mixer_interactions[0] if mixer_interactions else self
@@ -402,9 +381,8 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         for social_group in sim.get_groups_for_sim_gen():
             if type(social_group) is cls._social_group_type:
                 if social_group.has_been_shutdown:
-                    pass
-                else:
-                    return social_group
+                    continue
+                return social_group
 
     @flexmethod
     def _test(cls, inst, target, context, initiated=True, join=False, **kwargs):
@@ -463,7 +441,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
             for constraint in super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type):
                 yield constraint
             return
-        if inst is None or inst.social_group is None or not inst.social_group.constraint_initialized:
+        if inst is None or not (inst.social_group is None or not inst.social_group.constraint_initialized):
             for constraint in super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type):
                 yield constraint
             if inst is not None and inst.is_finishing:
@@ -554,7 +532,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
     def apply_posture_state(self, posture_state, participant_type=ParticipantType.Actor, **kwargs):
         if participant_type == ParticipantType.TargetSim:
             (target_si, test_result) = self.get_target_si()
-            if target_si is not None and (test_result or posture_state is not None):
+            if target_si is not None and not test_result and posture_state is not None:
                 posture_state.add_constraint(target_si, Nowhere('SocialSuperInteraction.apply_posture_state, target SI test failed({}) SI: {}, posture_state: {}', test_result, target_si, posture_state))
             if target_si is not None:
                 return target_si.apply_posture_state(posture_state, participant_type=ParticipantType.Actor, **kwargs)
@@ -577,8 +555,15 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         if target_sim is not None:
             if target_sim.queue is None:
                 logger.error('Trying to displace Sim {} but his queue is None', target_sim, owner='camilogarcia')
-            elif target_sim.queue.running is not None and can_displace(self, target_sim.queue.running):
-                target_sim.queue.running.displace(self, cancel_reason_msg='Target of higher priority social')
+            else:
+                interaction_to_displace = target_sim.queue.running
+                if interaction_to_displace is None:
+                    interaction_to_displace = target_sim.queue.get_head()
+                    if interaction_to_displace is not None:
+                        if interaction_to_displace.context.source is not InteractionContext.SOURCE_AUTONOMY:
+                            interaction_to_displace = None
+                if interaction_to_displace is not None and can_displace(self, interaction_to_displace):
+                    interaction_to_displace.displace(self, cancel_reason_msg='Target of higher priority social: {}'.format(self))
         if self._social_group is None:
             self._choose_social_group()
         if self.sim.sim_info.get_current_outfit()[0] == OutfitCategory.BATHING and (self.target.is_sim and self.target.sim_info.age <= Age.TEEN) and not any(si.affordance is SocialSuperInteraction.SKINNY_DIP_SAFEGUARD_INTERACTION for si in self.sim.get_all_running_and_queued_interactions()):
@@ -595,24 +580,29 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
             social_group = self._get_social_group_for_sim(target_sim)
         if social_group is None:
             social_group = self._get_social_group_for_sim(self.sim)
-            if target_sim is None:
-                for participant in self.get_participants(ParticipantType.OtherSimsInteractingWithTarget):
-                    social_group = self._get_social_group_for_sim(participant)
-                    if social_group is not None:
-                        break
+            if social_group is None:
+                if target_sim is None:
+                    for participant in self.get_participants(ParticipantType.OtherSimsInteractingWithTarget):
+                        social_group = self._get_social_group_for_sim(participant)
+                        if social_group is not None:
+                            break
         if social_group is None:
             target_object = self.get_participant(ParticipantType.Object)
             if target_object is not None:
                 if target_object.is_part:
                     target_object = target_object.part_owner
                 for existing_social_group in services.social_group_manager().objects:
-                    if type(existing_social_group) is self._social_group_type and existing_social_group.validate_anchor(target_object):
-                        social_group = existing_social_group
+                    if type(existing_social_group) is self._social_group_type:
+                        if existing_social_group.validate_anchor(target_object):
+                            social_group = existing_social_group
         if social_group is not None:
             if social_group.has_room_in_group(self.sim) and target_sim is not None and not social_group.has_room_in_group(target_sim):
                 social_group = None
-            elif target_sim.discourage_route_to_join_social_group():
-                social_group = None
+            elif self.sim in social_group:
+                if target_sim is not None:
+                    if target_sim not in social_group:
+                        if target_sim.discourage_route_to_join_social_group():
+                            social_group = None
         return social_group
 
     def _derail_on_target_sim_posture_change(self, *args, **kwargs):
@@ -621,7 +611,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
             return
         if self.transition is None:
             return
-        if target_sim in self.transition.get_transitioning_sims() and self.transition.get_transitioning_sims() != self.is_target_sim_location_and_posture_valid():
+        if target_sim in self.transition.get_transitioning_sims() != self.is_target_sim_location_and_posture_valid():
             return
         if target_sim not in self.transition.get_transitioning_sims() and self.is_target_sim_location_and_posture_valid():
             return
@@ -660,7 +650,7 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
 
     def _get_required_sims(self, for_threading=False):
         required_sims = super()._get_required_sims()
-        if self.require_shared_body_target or not (self.initiated and self.basic_content.staging and for_threading):
+        if not (not self.require_shared_body_target and not (self.initiated and self.basic_content.staging and for_threading)):
             return required_sims
         target_sim = self.target_sim
         if target_sim is None:
@@ -679,10 +669,13 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         social_group = self.social_group
         if social_group is None:
             social_group = self._get_social_group_for_this_interaction()
-            if social_group.picked_object not in self.preferred_objects:
-                social_group.shutdown(finishing_type=FinishingType.OBJECT_CHANGED)
-                social_group = None
-            if social_group is not None and social_group.picked_object is not None and (social_group.picked_object.is_sim or social_group is None):
+            if social_group is not None:
+                if social_group.picked_object is not None:
+                    if not social_group.picked_object.is_sim:
+                        if social_group.picked_object not in self.preferred_objects:
+                            social_group.shutdown(finishing_type=FinishingType.OBJECT_CHANGED)
+                            social_group = None
+            if social_group is None:
                 target_sim = self.get_participant(ParticipantType.TargetSim)
                 social_group = self._social_group_type(si=self, target_sim=target_sim, participant_slot_overrides=self._social_group_participant_slot_overrides)
             self._social_group = social_group
@@ -697,17 +690,20 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
         result = yield from super().prepare_gen(timeline, *args, **kwargs)
         if result != InteractionQueuePreparationStatus.SUCCESS:
             return result
+            yield
         self._choose_social_group()
         (target_si, target_si_test_result) = self.get_target_si()
         if target_si is not None:
             if not target_si_test_result:
                 sims.sim_log.log_interaction('Preparing', self, 'social super interaction failed: {}'.format(target_si_test_result))
                 return InteractionQueuePreparationStatus.FAILURE
+                yield
             if target_si._social_group is not None and target_si._social_group is not self.social_group:
                 logger.error('Social group mismatch between Sim and TargetSim in social_super_interaction.prepare')
             target_si._social_group = self.social_group
             result = yield from target_si.prepare_gen(timeline, *args, **kwargs)
         return result
+        yield
 
     def _pre_perform(self):
         result = super()._pre_perform()
@@ -731,9 +727,8 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
             actor = self.sim
             for sim in self.social_group:
                 if sim is actor:
-                    pass
-                else:
-                    sim_names.append(sims4.localization.LocalizationHelperTuning.get_sim_name(sim))
+                    continue
+                sim_names.append(sims4.localization.LocalizationHelperTuning.get_sim_name(sim))
             sim_names_loc = sims4.localization.LocalizationHelperTuning.get_comma_separated_list(*sim_names)
             display_text = self.multi_sim_override_data.display_text(sim_names_loc)
         return (icon_info, display_text)
@@ -750,35 +745,47 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
     def _retarget_social_interaction(self, social_group):
         actor = self.sim
         target_is_sim = self.target is not None and self.target.is_sim
-        if self.target not in social_group:
-            for target in social_group:
-                if actor is target:
-                    pass
-                else:
+        if target_is_sim:
+            if self.target not in social_group:
+                if self._target_si is not None:
+                    if self.target is self._target_si.sim:
+                        if self._target_si.pipeline_progress == PipelineProgress.NONE:
+                            sims.sim_log.log_interaction('Invalidate', self._target_si, 'retarget_social :{}'.format(self))
+                            self._target_si.on_removed_from_queue()
+                            self._target_si = None
+                for target in social_group:
+                    if actor is target:
+                        continue
                     self.set_target(target)
                     break
 
     def _on_social_group_changed(self, social_group, invalidate_mixers=True):
         if social_group is None:
             return
-        actor = self.sim
-        if invalidate_mixers:
-            actor.invalidate_mixer_interaction_cache(None)
-        self._retarget_social_interaction(social_group)
-        if self.multi_sim_override_data is not None and len(social_group) > self.multi_sim_override_data.threshold:
-            (icon_info, display_name) = self.get_multi_sim_icon_and_name()
-            actor.ui_manager.set_interaction_icon_and_name(self.id, icon_info, display_name)
-        else:
-            (_, visual_type_data) = self.get_interaction_queue_visual_type()
-            if visual_type_data.icon is not None:
-                icon_info = (visual_type_data.icon, None)
+        if self._processing_social_group_change:
+            return
+        try:
+            self._processing_social_group_change = True
+            actor = self.sim
+            if invalidate_mixers:
+                actor.invalidate_mixer_interaction_cache(None)
+            self._retarget_social_interaction(social_group)
+            if self.multi_sim_override_data is not None and len(social_group) > self.multi_sim_override_data.threshold:
+                (icon_info, display_name) = self.get_multi_sim_icon_and_name()
+                actor.ui_manager.set_interaction_icon_and_name(self.id, icon_info, display_name)
             else:
-                icon_info = self.get_icon_info()
-            if visual_type_data.tooltip_text is not None:
-                display_name = self.create_localized_string(visual_type_data.tooltip_text)
-            else:
-                display_name = self.get_name()
-            actor.ui_manager.set_interaction_icon_and_name(self.id, icon_info, display_name)
+                (_, visual_type_data) = self.get_interaction_queue_visual_type()
+                if visual_type_data.icon is not None:
+                    icon_info = (visual_type_data.icon, None)
+                else:
+                    icon_info = self.get_icon_info()
+                if visual_type_data.tooltip_text is not None:
+                    display_name = self.create_localized_string(visual_type_data.tooltip_text)
+                else:
+                    display_name = self.get_name()
+                actor.ui_manager.set_interaction_icon_and_name(self.id, icon_info, display_name)
+        finally:
+            self._processing_social_group_change = False
 
     @property
     def initiated(self):
@@ -813,8 +820,10 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
             else:
                 return
         basic_content = cls.basic_content
-        if linked_interaction_type is not None:
-            linked_interaction_type = SocialPlaceholderSuperInteraction.generate(linked_interaction_type)
+        if not basic_content.staging:
+            if basic_content.sleeping:
+                if linked_interaction_type is not None:
+                    linked_interaction_type = SocialPlaceholderSuperInteraction.generate(linked_interaction_type)
         return linked_interaction_type
 
     @property
@@ -831,16 +840,17 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
                 (self._target_si, self._target_si_test_result) = super().get_target_si()
         elif self.social_group is not None:
             target_sim = self._target_si.sim
-            if self.social_group.is_sim_active_in_social_group(target_sim):
-                self._target_si.invalidate()
-                self._target_si = None
-                self._target_si_test_result = TestResult.TRUE
+            if target_sim is not None:
+                if self.social_group.is_sim_active_in_social_group(target_sim):
+                    self._target_si.invalidate()
+                    self._target_si = None
+                    self._target_si_test_result = TestResult.TRUE
         return (self._target_si, self._target_si_test_result)
 
     def _get_target_aop_and_context(self):
         target_affordance = self.linked_interaction_type
         target_sim = self.get_participant(ParticipantType.TargetSim)
-        if self.initiated and (target_affordance is None or target_sim is None):
+        if not self.initiated or target_affordance is None or target_sim is None:
             return (None, None)
         if self.social_group is not None and self.social_group.is_sim_active_in_social_group(target_sim):
             return (None, None)
@@ -865,7 +875,9 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
                     yield from sim_si.run_direct_gen(timeline, source_interaction=self)
                     yield from target_si.run_direct_gen(timeline, source_interaction=self)
                     return True
+                    yield
         return False
+        yield
 
     def invalidate(self):
         super().invalidate()
@@ -895,15 +907,19 @@ class SocialSuperInteraction(SocialInteractionMixin, SocialCompatibilityMixin, S
     def _cancel(self, finishing_type, *args, propagate_cancelation_to_socials=True, **kwargs):
         if super()._cancel(finishing_type, *args, **kwargs):
             self._detach_from_group()
-            if self._source_social_si.sim is not None:
-                self._source_social_si.sim.add_lockout(self.sim, autonomy.autonomy_modes.AutonomyMode.LOCKOUT_TIME)
-                self.sim.add_lockout(self._source_social_si.sim, autonomy.autonomy_modes.AutonomyMode.LOCKOUT_TIME)
-        elif self._social_group is not None:
-            group_count = len(self._social_group) - 1
-            if group_count < self._social_group.minimum_sim_count:
-                for interaction in list(self._social_group.get_all_interactions_gen()):
-                    if interaction is not self and interaction.running:
-                        interaction.cancel(finishing_type, propagate_cancelation_to_socials=False, cancel_reason_msg='Propagating social cancelation pending deferred cancel from running')
+            if finishing_type == FinishingType.USER_CANCEL:
+                if self._source_social_si is not None:
+                    if self._source_social_si.sim is not None:
+                        self._source_social_si.sim.add_lockout(self.sim, autonomy.autonomy_modes.AutonomyMode.LOCKOUT_TIME)
+                        self.sim.add_lockout(self._source_social_si.sim, autonomy.autonomy_modes.AutonomyMode.LOCKOUT_TIME)
+        elif propagate_cancelation_to_socials:
+            if self._social_group is not None:
+                group_count = len(self._social_group) - 1
+                if group_count < self._social_group.minimum_sim_count:
+                    for interaction in list(self._social_group.get_all_interactions_gen()):
+                        if interaction is not self:
+                            if interaction.running:
+                                interaction.cancel(finishing_type, propagate_cancelation_to_socials=False, cancel_reason_msg='Propagating social cancelation pending deferred cancel from running')
 
     def _trigger_interaction_start_event(self):
         super()._trigger_interaction_start_event()

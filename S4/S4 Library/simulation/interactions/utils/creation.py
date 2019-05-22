@@ -83,6 +83,7 @@ class ObjectCreationElement(XevtTriggeredElement, ObjectCreationMixin):
         def enter_carry(timeline):
             result = yield from element_utils.run_child(timeline, enter_carry_while_holding(self.interaction, obj=self.interaction.created_target, carry_track_override=self.location.carry_track_override, owning_affordance=None, sequence=build_critical_section(sequence, flush_all_animations)))
             return result
+            yield
 
         location_type = getattr(self.location, 'location', None)
         if location_type == self.CARRY:
@@ -179,13 +180,11 @@ class SimCreationElement(XevtTriggeredElement):
                 obj_position = obj.position
                 distance_from_pos = obj_position - position
                 if distance_from_pos.magnitude_squared() > self.radius:
-                    pass
-                else:
-                    sim_info = obj.get_stored_sim_info()
-                    if sim_info is None:
-                        pass
-                    else:
-                        sim_infos_and_positions.append((sim_info, obj_position, None, use_fgl))
+                    continue
+                sim_info = obj.get_stored_sim_info()
+                if sim_info is None:
+                    continue
+                sim_infos_and_positions.append((sim_info, obj_position, None, use_fgl))
             return tuple(sim_infos_and_positions)
 
         def do_pre_spawn_behavior(self, sim_info, resolver, household):

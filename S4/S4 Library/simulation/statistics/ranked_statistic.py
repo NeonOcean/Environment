@@ -98,7 +98,7 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
         if rank_data is None:
             logger.error('Sim {}: {} is trying to rank up to level {} but there is no rank tuning.', sim_info, self, current_rank)
             return
-        if from_add or sim_info.is_selectable and rank_up_data is not None and self.can_show_notification(rank_up_data):
+        if not from_add and (sim_info.is_selectable and rank_up_data is not None) and self.can_show_notification(rank_up_data):
             icon_override = None if rank_data.icon is None else IconInfoData(icon_resource=rank_data.icon)
             if new_rank:
                 self._show_initial_rank_up_notifications(sim_info, current_rank, rank_data, rank_up_data, icon_override)
@@ -177,6 +177,9 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
                 if self.tracker.owner.is_simulating:
                     for loot in event_data.loot_always:
                         loot.apply_to_resolver(resolver)
+            if self.tracker.owner.is_npc:
+                if not from_add:
+                    self._handle_level_up_telemetry(old_level)
             self._handle_level_up_telemetry(old_level)
         self.create_and_send_commodity_update_msg(is_rate_change=False)
 
@@ -298,9 +301,10 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
         level = 0
         running_sum = 0
         level_list = cls.get_level_list()
-        while level < len(level_list) and level < event_level:
-            running_sum += level_list[level]
-            level += 1
+        while level < len(level_list):
+            while level < event_level:
+                running_sum += level_list[level]
+                level += 1
         return running_sum
 
     @classmethod
@@ -309,13 +313,15 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
         level = 0
         running_sum = 0
         level_list = cls.get_level_list()
-        while rank < rank_level and level < len(level_list):
-            event_data = cls.event_data.get(level)
-            if cls.event_data[level].rank_up:
-                rank += 1
-            if event_data is not None and rank < rank_level:
-                running_sum += level_list[level]
-            level += 1
+        while rank < rank_level:
+            while level < len(level_list):
+                event_data = cls.event_data.get(level)
+                if event_data is not None:
+                    if cls.event_data[level].rank_up:
+                        rank += 1
+                if rank < rank_level:
+                    running_sum += level_list[level]
+                level += 1
         return running_sum
 
     def points_to_current_rank(self):
@@ -377,9 +383,10 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
             while old_score <= new_score:
                 old_score += 1
                 event_data = self.event_data.get(old_score)
-                if event_data is not None and not event_data.tests.run_tests(resolver=resolver):
-                    points = self.points_to_level(old_score - 1)
-                    return points
+                if event_data is not None:
+                    if not event_data.tests.run_tests(resolver=resolver):
+                        points = self.points_to_level(old_score - 1)
+                        return points
         return value
 
     def on_lock(self, max_out=True, zero_out=False):

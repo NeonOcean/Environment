@@ -116,9 +116,10 @@ class _WaitstaffDeliverOrderToChefState(_WaitstaffSituationStateBase):
             assign_to_chef_situation = random.choice(chef_situations)
             chef_situations.remove(assign_to_chef_situation)
             chef = assign_to_chef_situation.get_staff_member()
-            if chef is not None and self.owner._current_order is not None:
-                self.owner._current_order.assign_chef(chef)
-                return (role_state_type, assign_to_chef_situation.get_staffed_object())
+            if chef is not None:
+                if self.owner._current_order is not None:
+                    self.owner._current_order.assign_chef(chef)
+                    return (role_state_type, assign_to_chef_situation.get_staffed_object())
         return (role_state_type, role_affordance_target)
 
 class _WaitstaffDeliverOrderToTableState(_WaitstaffSituationStateBase):

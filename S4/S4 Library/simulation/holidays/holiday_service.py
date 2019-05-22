@@ -102,34 +102,31 @@ class HolidayService(Service):
         drama_scheduler = services.drama_scheduler_service()
         for (season, day, holiday_id) in self._holiday_times[current_season_length].holidays_to_schedule_gen():
             if holiday_id in holiday_ids_to_ignore:
-                pass
-            else:
-                holiday_start_time = season_data[season].start_time + create_time_span(days=day)
-                drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
+                continue
+            holiday_start_time = season_data[season].start_time + create_time_span(days=day)
+            drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
 
     def on_season_content_changed(self):
         drama_scheduler = services.drama_scheduler_service()
         drama_scheduler.cancel_scheduled_nodes_with_types((HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE,))
         for drama_node in tuple(drama_scheduler.get_running_nodes_by_class(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE)):
             if drama_node.is_running:
-                pass
-            else:
-                drama_scheduler.complete_node(drama_node.uid)
+                continue
+            drama_scheduler.complete_node(drama_node.uid)
         self._schedule_all_holidays()
         holidays = {}
         for drama_node in tuple(drama_scheduler.scheduled_nodes_gen()):
             if drama_node.drama_node_type != DramaNodeType.HOLIDAY:
-                pass
+                continue
+            day = drama_node.day
+            existing_node = holidays.get(day)
+            if existing_node is None:
+                holidays[day] = drama_node
+            elif type(existing_node) is HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE:
+                drama_scheduler.cancel_scheduled_node(drama_node.uid)
             else:
-                day = drama_node.day
-                existing_node = holidays.get(day)
-                if existing_node is None:
-                    holidays[day] = drama_node
-                elif type(existing_node) is HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE:
-                    drama_scheduler.cancel_scheduled_node(drama_node.uid)
-                else:
-                    drama_scheduler.cancel_scheduled_node(existing_node.uid)
-                    holidays[day] = drama_node
+                drama_scheduler.cancel_scheduled_node(existing_node.uid)
+                holidays[day] = drama_node
 
     def on_all_households_and_sim_infos_loaded(self, client):
         holiday_ids_to_ignore = {drama_node.holiday_id for drama_node in services.drama_scheduler_service().all_nodes_gen() if type(drama_node) is HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE}
@@ -154,18 +151,16 @@ class HolidayService(Service):
         drama_scheduler_service = services.drama_scheduler_service()
         for drama_node in tuple(drama_scheduler_service.scheduled_nodes_gen()):
             if drama_node.drama_node_type != DramaNodeType.HOLIDAY:
-                pass
-            elif drama_node.holiday_id != holiday_id:
-                pass
-            else:
-                drama_scheduler_service.cancel_scheduled_node(drama_node.uid)
+                continue
+            if drama_node.holiday_id != holiday_id:
+                continue
+            drama_scheduler_service.cancel_scheduled_node(drama_node.uid)
         for drama_node in tuple(drama_scheduler_service.active_nodes_gen()):
             if drama_node.drama_node_type != DramaNodeType.HOLIDAY:
-                pass
-            elif drama_node.holiday_id != holiday_id:
-                pass
-            else:
-                drama_scheduler_service.complete_node(drama_node.uid)
+                continue
+            if drama_node.holiday_id != holiday_id:
+                continue
+            drama_scheduler_service.complete_node(drama_node.uid)
         for holiday_year_data in self._holiday_times.values():
             holiday_year_data.remove_holiday(holiday_id)
         if holiday_id in self._holidays:

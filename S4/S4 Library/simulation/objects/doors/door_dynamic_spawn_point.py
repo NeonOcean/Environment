@@ -29,8 +29,9 @@ class InactiveApartmentDoorDynamicSpawnPoint(SpawnPoint):
         for plex_door_info in services.get_door_service().get_plex_door_infos():
             if plex_door_info.door_id == self._owner.id:
                 break
-        logger.error('Failed to find plex door info for door {}', self._owner)
-        return False
+        else:
+            logger.error('Failed to find plex door info for door {}', self._owner)
+            return False
         if spawn_point_request_reason == SpawnPointRequestReason.SPAWN:
             if sim_info.prespawn_zone_id == plex_door_info.zone_id:
                 return True

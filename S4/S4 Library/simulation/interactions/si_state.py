@@ -30,7 +30,7 @@ class SIState:
 
     @staticmethod
     def _are_dissimilar_and_linked(si_a, si_or_affordance_b, b_target):
-        if si_a.affordance == si_or_affordance_b.affordance or si_a.super_affordance_can_share_target or not si_or_affordance_b.super_affordance_can_share_target:
+        if si_a.affordance == si_or_affordance_b.affordance or not (not si_a.super_affordance_can_share_target and not si_or_affordance_b.super_affordance_can_share_target):
             target_a = si_a.target
             if target_a == b_target:
                 return False
@@ -134,13 +134,12 @@ class SIState:
         to_be_canceled_si_ids = set()
         for si in sim.si_state:
             if si is interaction:
-                pass
-            else:
-                participant_type = si.get_participant_type(sim)
-                si_constraint = si.constraint_intersection(participant_type=participant_type, posture_state=None)
-                for cancel_constraint in cancel_constraints:
-                    if not cancel_constraint.intersect(si_constraint).valid:
-                        to_be_canceled_si_ids.add(si.id)
+                continue
+            participant_type = si.get_participant_type(sim)
+            si_constraint = si.constraint_intersection(participant_type=participant_type, posture_state=None)
+            for cancel_constraint in cancel_constraints:
+                if not cancel_constraint.intersect(si_constraint).valid:
+                    to_be_canceled_si_ids.add(si.id)
         return to_be_canceled_si_ids
 
     @staticmethod
@@ -170,6 +169,7 @@ class SIState:
         def _remove_gen(timeline):
             result = yield from actor.si_state._remove_gen(timeline, si, allow_yield=False)
             return result
+            yield
 
         reset_timeline = scheduling.Timeline(services.time_service().sim_timeline.now)
         reset_timeline.schedule(elements.GeneratorElement(_remove_gen))
@@ -241,9 +241,9 @@ class SIState:
 
     def all_si_gen(self, priority=None, group_id=None):
         for si in self._super_interactions:
-            if not group_id is not None or si.group_id == group_id:
-                pass
-            elif priority is None or not can_priority_displace(priority, si.priority):
+            if not not group_id is not None and si.group_id == group_id:
+                continue
+            if priority is None or can_priority_displace(priority, si.priority):
                 yield si
 
     def is_running_affordance(self, affordance, target=DEFAULT):
@@ -269,18 +269,17 @@ class SIState:
         intersection = constraint
         for existing_si in self._sis_sorted(to_consider):
             if existing_si is si:
-                pass
-            elif existing_si.disable_cancel_by_posture_change:
-                pass
-            else:
-                role = existing_si.get_participant_type(self.sim)
-                test_intersection = self._get_constraint_intersection_for_sis(si, existing_si, participant_type_a=participant_type, participant_type_b=role, existing_intersection=intersection)
-                if test_intersection.valid:
-                    if not pairwise_intersection:
-                        intersection = test_intersection
-                        incompatible_sis.add(existing_si)
-                else:
+                continue
+            if existing_si.disable_cancel_by_posture_change:
+                continue
+            role = existing_si.get_participant_type(self.sim)
+            test_intersection = self._get_constraint_intersection_for_sis(si, existing_si, participant_type_a=participant_type, participant_type_b=role, existing_intersection=intersection)
+            if test_intersection.valid:
+                if not pairwise_intersection:
+                    intersection = test_intersection
                     incompatible_sis.add(existing_si)
+            else:
+                incompatible_sis.add(existing_si)
         return incompatible_sis
 
     def is_compatible(self, si, priority, group_id, context, participant_type=ParticipantType.Actor, force_concrete=False, pairwise_intersection=False, force_inertial_sis=False, check_constraints=True):
@@ -292,17 +291,16 @@ class SIState:
             to_consider = []
             for existing_si in self.all_guaranteed_si_gen(priority, group_id=group_id):
                 if si.super_affordance_klobberers and si.super_affordance_klobberers(existing_si.affordance):
-                    pass
-                else:
-                    to_consider.append(existing_si)
+                    continue
+                to_consider.append(existing_si)
             if not to_consider:
                 return TestResult.TRUE
         else:
             to_consider = self._super_interactions
         for existing_si in to_consider:
             if existing_si is si:
-                pass
-            elif not SIState.test_non_constraint_compatibility(si, existing_si, existing_si.target):
+                continue
+            if not SIState.test_non_constraint_compatibility(si, existing_si, existing_si.target):
                 return TestResult(False, 'Failed test_non_constraint_compatibility check with {}', existing_si)
         if not check_constraints:
             return TestResult.TRUE
@@ -317,13 +315,14 @@ class SIState:
         to_consider = []
         for existing_si in self.all_guaranteed_si_gen(priority):
             if existing_si is to_exclude:
-                pass
-            else:
-                to_consider.append(existing_si)
+                continue
+            to_consider.append(existing_si)
         for si in to_consider:
             owned_posture = self.sim.posture_state.get_source_or_owned_posture_for_si(si)
-            if owned_posture is not None and owned_posture.source_interaction and owned_posture.source_interaction not in to_consider:
-                to_consider.append(owned_posture.source_interaction)
+            if owned_posture is not None:
+                if owned_posture.source_interaction:
+                    if owned_posture.source_interaction not in to_consider:
+                        to_consider.append(owned_posture.source_interaction)
         incompatible_constraint_sis = self._build_incompatible_constraint_sis(None, to_consider, constraint=constraint)
         if incompatible_constraint_sis:
             return False
@@ -337,13 +336,12 @@ class SIState:
         for existing_si in sis:
             if not existing_si is si_or_aop:
                 if existing_si.is_finishing:
-                    pass
+                    continue
+                my_role = existing_si.get_participant_type(self.sim)
+                if participant_type != ParticipantType.Actor or my_role != ParticipantType.Actor or self.test_non_constraint_compatibility(si_or_aop, existing_si, existing_si.target):
+                    to_consider.append(existing_si)
                 else:
-                    my_role = existing_si.get_participant_type(self.sim)
-                    if participant_type != ParticipantType.Actor or my_role != ParticipantType.Actor or self.test_non_constraint_compatibility(si_or_aop, existing_si, existing_si.target):
-                        to_consider.append(existing_si)
-                    else:
-                        incompatible.add(existing_si)
+                    incompatible.add(existing_si)
         if to_consider:
             incompatible_constraint_sis = self._build_incompatible_constraint_sis(si_or_aop, to_consider, participant_type=participant_type, force_concrete=force_concrete, pairwise_intersection=pairwise_intersection)
             incompatible.update(incompatible_constraint_sis)
@@ -367,7 +365,7 @@ class SIState:
         return True
 
     def _get_must_include_sis(self, priority, group_id, existing_si=None):
-        return set(si_mi for si_mi in self.all_guaranteed_si_gen(priority, group_id=group_id) if not (self._common_included_si_tests(si_mi) and (existing_si is None or existing_si.super_affordance_klobberers is None or existing_si.super_affordance_klobberers(si_mi.affordance))))
+        return set(si_mi for si_mi in self.all_guaranteed_si_gen(priority, group_id=group_id) if self._common_included_si_tests(si_mi) if existing_si is None or existing_si.super_affordance_klobberers is None or existing_si.super_affordance_klobberers(si_mi.affordance))
 
     def get_combined_constraint(self, existing_constraint=None, priority=None, group_id=None, to_exclude=None, include_inertial_sis=False, force_inertial_sis=False, existing_si=None, posture_state=DEFAULT, allow_posture_providers=True, include_existing_constraint=True, participant_type=ParticipantType.Actor):
         included_sis = set()
@@ -379,21 +377,19 @@ class SIState:
             if force_inertial_sis:
                 for si in self._super_interactions:
                     if si in sis_must_include:
-                        pass
-                    elif allow_posture_providers or self.sim.posture_state.is_source_interaction(si):
-                        pass
-                    elif not self._common_included_si_tests(si):
-                        pass
-                    else:
-                        sis_must_include.add(si)
+                        continue
+                    if not allow_posture_providers and self.sim.posture_state.is_source_interaction(si):
+                        continue
+                    if not self._common_included_si_tests(si):
+                        continue
+                    sis_must_include.add(si)
             to_consider = set()
             for non_guaranteed_si in self._super_interactions:
                 if non_guaranteed_si in sis_must_include:
-                    pass
-                elif allow_posture_providers or self.sim.posture_state.is_source_interaction(non_guaranteed_si):
-                    pass
-                else:
-                    to_consider.add(non_guaranteed_si)
+                    continue
+                if not allow_posture_providers and self.sim.posture_state.is_source_interaction(non_guaranteed_si):
+                    continue
+                to_consider.add(non_guaranteed_si)
         else:
             sis_must_include = self._get_must_include_sis(priority, group_id, existing_si=existing_si)
             to_consider = set()
@@ -402,59 +398,58 @@ class SIState:
             for si in sis_must_include:
                 owned_posture = self.sim.posture_state.get_source_or_owned_posture_for_si(si)
                 if owned_posture is None:
-                    pass
-                elif owned_posture.track != postures.PostureTrack.BODY:
-                    pass
-                else:
-                    source_interaction = owned_posture.source_interaction
-                    if not source_interaction is None:
-                        if source_interaction.is_finishing:
-                            pass
-                        else:
-                            additional_posture_sis.add(source_interaction)
+                    continue
+                if owned_posture.track != postures.PostureTrack.BODY:
+                    continue
+                source_interaction = owned_posture.source_interaction
+                if not source_interaction is None:
+                    if source_interaction.is_finishing:
+                        continue
+                    additional_posture_sis.add(source_interaction)
             sis_must_include.update(additional_posture_sis)
             additional_posture_sis.clear()
         total_constraint = Anywhere()
         included_carryables = set()
         for si_must_include in sis_must_include:
             if si_must_include.is_finishing:
-                pass
-            elif not si_must_include is to_exclude:
+                continue
+            if not si_must_include is to_exclude:
                 if si_must_include is existing_si:
-                    pass
-                elif existing_si is not None and existing_si.group_id == si_must_include.group_id:
-                    pass
-                else:
-                    my_role = si_must_include.get_participant_type(self.sim)
-                    if existing_si is not None:
-                        existing_participant_type = existing_si.get_participant_type(self.sim)
-                        if not self.are_sis_compatible(si_must_include, existing_si, my_role, existing_participant_type, ignore_geometry=True):
-                            return (Nowhere('SIState.get_combined_constraint, Two SIs are incompatible: SI_A: {}, SI_B: {}', si_must_include, existing_si), sis_must_include)
-                    si_constraint = si_must_include.constraint_intersection(participant_type=my_role, posture_state=posture_state)
-                    if existing_si is not None:
-                        if si_must_include.social_group is si_must_include.sim.get_main_group():
-                            si_constraint = si_constraint.generate_posture_only_constraint()
-                        si_constraint = si_constraint.apply_posture_state(None, existing_si.get_constraint_resolver(None, participant_type=participant_type))
-                    if existing_constraint is not None:
-                        si_constraint = si_constraint.apply(existing_constraint)
-                    test_constraint = total_constraint.intersect(si_constraint)
-                    if not test_constraint.valid:
-                        break
-                    carry_target = si_must_include.targeted_carryable
-                    if carry_target is not None:
-                        if len(included_carryables) == 2 and carry_target not in included_carryables:
-                            pass
-                        else:
-                            included_carryables.add(carry_target)
-                            total_constraint = test_constraint
-                            included_sis.add(si_must_include)
-                    total_constraint = test_constraint
-                    included_sis.add(si_must_include)
-        if existing_si is not None:
-            existing_carry_target = existing_si.carry_target
-            if existing_carry_target not in included_carryables:
-                total_constraint = Nowhere('Cannot include more than two interactions that are carrying objects.')
-        if len(included_carryables) == 2 and included_sis != sis_must_include:
+                    continue
+                if existing_si is not None and existing_si.group_id == si_must_include.group_id:
+                    continue
+                my_role = si_must_include.get_participant_type(self.sim)
+                if existing_si is not None:
+                    existing_participant_type = existing_si.get_participant_type(self.sim)
+                    if not self.are_sis_compatible(si_must_include, existing_si, my_role, existing_participant_type, ignore_geometry=True):
+                        return (Nowhere('SIState.get_combined_constraint, Two SIs are incompatible: SI_A: {}, SI_B: {}', si_must_include, existing_si), sis_must_include)
+                si_constraint = si_must_include.constraint_intersection(participant_type=my_role, posture_state=posture_state)
+                if existing_si is not None:
+                    if existing_si.should_rally or existing_si.relocate_main_group:
+                        if si_must_include.is_social:
+                            if si_must_include.social_group is not None:
+                                if si_must_include.social_group is si_must_include.sim.get_main_group():
+                                    si_constraint = si_constraint.generate_posture_only_constraint()
+                    si_constraint = si_constraint.apply_posture_state(None, existing_si.get_constraint_resolver(None, participant_type=participant_type))
+                if existing_constraint is not None:
+                    si_constraint = si_constraint.apply(existing_constraint)
+                test_constraint = total_constraint.intersect(si_constraint)
+                if not test_constraint.valid:
+                    break
+                carry_target = si_must_include.targeted_carryable
+                if carry_target is not None:
+                    if len(included_carryables) == 2 and carry_target not in included_carryables:
+                        continue
+                    included_carryables.add(carry_target)
+                total_constraint = test_constraint
+                included_sis.add(si_must_include)
+        if len(included_carryables) == 2:
+            if existing_si is not None:
+                existing_carry_target = existing_si.carry_target
+                if existing_carry_target is not None:
+                    if existing_carry_target not in included_carryables:
+                        total_constraint = Nowhere('Cannot include more than two interactions that are carrying objects.')
+        if included_sis != sis_must_include:
             total_constraint = Nowhere('Unable to combine SIs that are must include.')
         if not total_constraint.valid:
             return (total_constraint, included_sis)
@@ -463,74 +458,51 @@ class SIState:
         if to_consider:
             for si in self._sis_sorted(to_consider):
                 if si is to_exclude:
-                    pass
-                elif existing_si is not None and existing_si.group_id == si.group_id:
-                    pass
-                elif not self._common_included_si_tests(si):
-                    pass
+                    continue
+                if existing_si is not None and existing_si.group_id == si.group_id:
+                    continue
+                if not self._common_included_si_tests(si):
+                    continue
+                my_role = si.get_participant_type(self.sim)
+                if existing_si is not None:
+                    existing_participant_type = existing_si.get_participant_type(self.sim)
+                    if not self.are_sis_compatible(si, existing_si, my_role, existing_participant_type, ignore_geometry=True):
+                        continue
                 else:
-                    my_role = si.get_participant_type(self.sim)
+                    si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=posture_state)
                     if existing_si is not None:
-                        existing_participant_type = existing_si.get_participant_type(self.sim)
-                        if not self.are_sis_compatible(si, existing_si, my_role, existing_participant_type, ignore_geometry=True):
-                            pass
-                        else:
-                            si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=posture_state)
-                            if existing_si is not None:
-                                si_constraint = si_constraint.apply_posture_state(None, existing_si.get_constraint_resolver(None, participant_type=participant_type))
-                            if si_constraint.tentative:
-                                si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=DEFAULT)
-                            test_constraint = total_constraint.intersect(si_constraint)
-                            if existing_constraint is not None:
-                                test_constraint_plus_existing = test_constraint.intersect(existing_constraint)
-                                if test_constraint_plus_existing.valid:
-                                    if test_constraint_plus_existing.tentative:
-                                        pass
-                                    else:
-                                        test_constraint = test_constraint.apply(existing_constraint)
-                                        if test_constraint.valid:
-                                            total_constraint = test_constraint
-                                            included_sis.add(si)
-                                        if total_constraint.tentative:
-                                            break
+                        si_constraint = si_constraint.apply_posture_state(None, existing_si.get_constraint_resolver(None, participant_type=participant_type))
+                    if si_constraint.tentative:
+                        si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=DEFAULT)
+                    test_constraint = total_constraint.intersect(si_constraint)
+                    if existing_constraint is not None:
+                        test_constraint_plus_existing = test_constraint.intersect(existing_constraint)
+                        if test_constraint_plus_existing.valid:
+                            if test_constraint_plus_existing.tentative:
+                                continue
+                            test_constraint = test_constraint.apply(existing_constraint)
                             if test_constraint.valid:
                                 total_constraint = test_constraint
                                 included_sis.add(si)
                             if total_constraint.tentative:
                                 break
-                    else:
-                        si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=posture_state)
-                        if existing_si is not None:
-                            si_constraint = si_constraint.apply_posture_state(None, existing_si.get_constraint_resolver(None, participant_type=participant_type))
-                        if si_constraint.tentative:
-                            si_constraint = si.constraint_intersection(participant_type=my_role, posture_state=DEFAULT)
-                        test_constraint = total_constraint.intersect(si_constraint)
-                        if existing_constraint is not None:
-                            test_constraint_plus_existing = test_constraint.intersect(existing_constraint)
-                            if test_constraint_plus_existing.valid:
-                                if test_constraint_plus_existing.tentative:
-                                    pass
-                                else:
-                                    test_constraint = test_constraint.apply(existing_constraint)
-                                    if test_constraint.valid:
-                                        total_constraint = test_constraint
-                                        included_sis.add(si)
-                                    if total_constraint.tentative:
-                                        break
-                        if test_constraint.valid:
-                            total_constraint = test_constraint
-                            included_sis.add(si)
-                        if total_constraint.tentative:
-                            break
+                    if test_constraint.valid:
+                        total_constraint = test_constraint
+                        included_sis.add(si)
+                    if total_constraint.tentative:
+                        break
         if allow_posture_providers:
             additional_posture_sis = set()
             for si in included_sis:
                 owned_posture = self.sim.posture_state.get_source_or_owned_posture_for_si(si)
-                if owned_posture is not None and owned_posture.source_interaction not in included_sis and owned_posture.track == postures.PostureTrack.BODY:
-                    additional_posture_sis.add(owned_posture.source_interaction)
+                if owned_posture is not None:
+                    if owned_posture.source_interaction not in included_sis:
+                        if owned_posture.track == postures.PostureTrack.BODY:
+                            additional_posture_sis.add(owned_posture.source_interaction)
             included_sis.update(additional_posture_sis)
-        if existing_constraint is not None:
-            total_constraint = total_constraint.intersect(existing_constraint)
+        if include_existing_constraint:
+            if existing_constraint is not None:
+                total_constraint = total_constraint.intersect(existing_constraint)
         return (total_constraint, included_sis)
 
     def get_total_constraint(self, **kwargs):
@@ -549,8 +521,8 @@ class SIState:
     def has_visible_si(self, ignore_pending_complete=False):
         for si in self.sis_actor_gen():
             if ignore_pending_complete and si.pending_complete:
-                pass
-            elif si.visible:
+                continue
+            if si.visible:
                 return True
         return False
 
@@ -577,20 +549,21 @@ class SIState:
         self.notify_dirty()
         self.on_changed(si)
         for interaction in self.sim.queue:
-            if interaction.transition is not None and not interaction.transition.running:
-                interaction.transition.reset_all_progress()
+            if interaction.transition is not None:
+                if not interaction.transition.running:
+                    interaction.transition.reset_all_progress()
         return True
 
     def pre_resolve_posture_change(self, posture_state):
         incompatible = {}
         for si in self._super_interactions:
             if posture_state.sim.posture_state.is_source_or_owning_interaction(si):
-                pass
-            elif si.disable_cancel_by_posture_change:
-                pass
-            else:
-                my_role = si.get_participant_type(self.sim)
-                if si.performing or not si.is_finishing:
+                continue
+            if si.disable_cancel_by_posture_change:
+                continue
+            my_role = si.get_participant_type(self.sim)
+            if not si.performing:
+                if not si.is_finishing:
                     result = si.supports_posture_state(posture_state, participant_type=my_role)
                     if not result:
                         incompatible[si] = result
@@ -606,30 +579,36 @@ class SIState:
     def notify_posture_change_and_remove_incompatible_gen(self, timeline, prev_posture_state, posture_state):
         incompatible = OrderedDict()
         for (aspect_old, aspect_new) in zip(prev_posture_state.aspects, posture_state.aspects):
-            if aspect_old != aspect_new and aspect_old is not None:
-                old_source_interaction = aspect_old.source_interaction
-                new_source_interaction = aspect_new.source_interaction
-                if self._should_cancel_previous_posture_interaction(old_source_interaction, new_source_interaction):
-                    incompatible[old_source_interaction] = TestResult(False, 'Must cancel previous source interaction for {}', aspect_old)
-                for old_owning_interaction in aspect_old.owning_interactions:
-                    if old_owning_interaction is not None and not old_owning_interaction.disable_cancel_by_posture_change:
-                        if aspect_new.owning_interactions:
-                            for new_owning_interaction in aspect_new.owning_interactions:
-                                if self._should_cancel_previous_posture_interaction(old_owning_interaction, new_owning_interaction):
+            if aspect_old != aspect_new:
+                if aspect_old is not None:
+                    old_source_interaction = aspect_old.source_interaction
+                    new_source_interaction = aspect_new.source_interaction
+                    if self._should_cancel_previous_posture_interaction(old_source_interaction, new_source_interaction):
+                        incompatible[old_source_interaction] = TestResult(False, 'Must cancel previous source interaction for {}', aspect_old)
+                    for old_owning_interaction in aspect_old.owning_interactions:
+                        if old_owning_interaction is not None and not old_owning_interaction.disable_cancel_by_posture_change:
+                            if aspect_new.owning_interactions:
+                                for new_owning_interaction in aspect_new.owning_interactions:
+                                    if self._should_cancel_previous_posture_interaction(old_owning_interaction, new_owning_interaction):
+                                        incompatible[old_owning_interaction] = TestResult(False, 'Must cancel previous owning interaction for {}', aspect_old)
+                                else:
                                     incompatible[old_owning_interaction] = TestResult(False, 'Must cancel previous owning interaction for {}', aspect_old)
-                        else:
-                            incompatible[old_owning_interaction] = TestResult(False, 'Must cancel previous owning interaction for {}', aspect_old)
+                            else:
+                                incompatible[old_owning_interaction] = TestResult(False, 'Must cancel previous owning interaction for {}', aspect_old)
         for si in self._super_interactions:
             my_role = si.get_participant_type(self.sim)
-            if si not in incompatible and not (si.performing or (si.is_finishing or si.has_active_cancel_replacement) or si.disable_cancel_by_posture_change):
-                result = si.supports_posture_state(posture_state, participant_type=my_role)
-                if not result:
-                    incompatible[si] = result
+            if si not in incompatible:
+                if not si.performing:
+                    if not si.is_finishing:
+                        if not si.has_active_cancel_replacement:
+                            if not si.disable_cancel_by_posture_change:
+                                result = si.supports_posture_state(posture_state, participant_type=my_role)
+                                if not result:
+                                    incompatible[si] = result
         for (si, result) in incompatible.items():
             if self.sim.queue.running is si:
-                pass
-            else:
-                si.cancel(FinishingType.INTERACTION_INCOMPATIBILITY, immediate=True, cancel_reason_msg='SI State incompatible with new posture. {}'.format(result))
+                continue
+            si.cancel(FinishingType.INTERACTION_INCOMPATIBILITY, immediate=True, cancel_reason_msg='SI State incompatible with new posture. {}'.format(result))
         yield from self.process_gen(timeline)
 
     def on_reset(self):
@@ -651,9 +630,11 @@ class SIState:
         if si.performing:
             si.log_info('SIState:Remove', msg='Failed to Remove: SIIsPerforming')
             return True
+            yield
         if si in self._removing_interactions:
             si.log_info('SIState:Remove', msg='Failed to Remove: AlreadyRemoving')
             return True
+            yield
         si_in_super_interactions = si in self._super_interactions
         if si_in_super_interactions:
             try:
@@ -673,8 +654,10 @@ class SIState:
                 si.log_info('SIState:Remove', msg='Success')
                 si.on_removed_from_si_state(participant_type=participant_type)
             return True
+            yield
         si.log_info('SIState:Remove', msg='Failed')
         return False
+        yield
 
     def find_interaction_by_id(self, super_interaction_id):
         for test_si in self:
@@ -725,31 +708,30 @@ class SIState:
         sorted_sis = sorted(self._super_interactions, key=lambda si: 0 if self.sim.posture_state.is_source_interaction(si) else 1)
         for si in sorted_sis:
             if not si.saveable:
-                pass
-            else:
-                with ProtocolBufferRollback(interaction_save_state.interactions) as si_save_data:
-                    si.fill_save_data(si_save_data)
+                continue
+            with ProtocolBufferRollback(interaction_save_state.interactions) as si_save_data:
+                si.fill_save_data(si_save_data)
         sim_queue = self.sim.queue
         transition_controller = sim_queue.transition_controller
         interaction = None if transition_controller is None else transition_controller.interaction
         if interaction is not None:
             is_transitioning = interaction.transition is not None and (interaction.transition.running and interaction.pipeline_progress < PipelineProgress.RUNNING)
-            if interaction.saveable:
-                transitioning_interaction = interaction_save_state.transitioning_interaction
-                interaction.fill_save_data(transitioning_interaction.base_interaction_data)
-                current_sim_posture = self.sim.posture_state
-                if current_sim_posture is not None:
-                    transitioning_interaction.posture_aspect_body = current_sim_posture.body.guid64
-                    transitioning_interaction.posture_carry_left = current_sim_posture.left.guid64
-                    transitioning_interaction.posture_carry_right = current_sim_posture.right.guid64
+            if is_transitioning:
+                if interaction.saveable:
+                    transitioning_interaction = interaction_save_state.transitioning_interaction
+                    interaction.fill_save_data(transitioning_interaction.base_interaction_data)
+                    current_sim_posture = self.sim.posture_state
+                    if current_sim_posture is not None:
+                        transitioning_interaction.posture_aspect_body = current_sim_posture.body.guid64
+                        transitioning_interaction.posture_carry_left = current_sim_posture.left.guid64
+                        transitioning_interaction.posture_carry_right = current_sim_posture.right.guid64
         for si in sim_queue.queued_super_interactions_gen():
             if not si.saveable:
-                pass
-            elif si is interaction:
-                pass
-            else:
-                with ProtocolBufferRollback(interaction_save_state.queued_interactions) as si_save_data:
-                    si.fill_save_data(si_save_data)
+                continue
+            if si is interaction:
+                continue
+            with ProtocolBufferRollback(interaction_save_state.queued_interactions) as si_save_data:
+                si.fill_save_data(si_save_data)
         return interaction_save_state
 
     def load_staged_interactions(self, interaction_save_state):
@@ -779,9 +761,11 @@ class SIState:
         target = services.object_manager().get(interaction_data.target_id)
         if target is None:
             target = services.current_zone().inventory_manager.get(interaction_data.target_id)
-        if interaction_data.HasField('target_part_group_index'):
-            target = target.parts[interaction_data.target_part_group_index]
-        if target is not None and (target.is_part or target is None):
+        if target is not None:
+            if not target.is_part:
+                if interaction_data.HasField('target_part_group_index'):
+                    target = target.parts[interaction_data.target_part_group_index]
+        if target is None:
             target = interaction.create_special_load_target(self.sim)
         if target is None and interaction_data.HasField('target_id'):
             return ExecuteResult.NONE

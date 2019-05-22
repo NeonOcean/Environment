@@ -81,13 +81,12 @@ class DeathTracker(SimInfoTracker):
             resolver = DoubleSimResolver(target_sim_info, self._sim_info)
             for death_data in self.DEATH_BUFFS:
                 if not death_data.test_set(resolver):
-                    pass
-                else:
-                    target_sim_info.add_buff_from_op(death_data.buff.buff_type, buff_reason=death_data.buff.buff_reason)
-                    if is_npc and not target_sim_info.is_npc:
-                        notification = death_data.notification(target_sim_info, resolver=resolver)
-                        notification.show_dialog()
-                    break
+                    continue
+                target_sim_info.add_buff_from_op(death_data.buff.buff_type, buff_reason=death_data.buff.buff_reason)
+                if is_npc and not target_sim_info.is_npc:
+                    notification = death_data.notification(target_sim_info, resolver=resolver)
+                    notification.show_dialog()
+                break
         ghost_trait = DeathTracker.DEATH_TYPE_GHOST_TRAIT_MAP.get(death_type)
         if ghost_trait is not None:
             self._sim_info.add_trait(ghost_trait)

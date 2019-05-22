@@ -2,14 +2,15 @@ from interactions.constraints import Circle
 from routing.waypoints.waypoint_generator import _WaypointGeneratorBase
 from sims.sim_info_types import SimInfoSpawnerTags
 from sims4.random import pop_weighted
-from sims4.tuning.tunable import TunableRange
+from sims4.tuning.tunable import OptionalTunable, TunableEnumWithFilter, TunableSet, TunableRange
+from tag import Tag, SPAWN_PREFIX
 from world.spawn_point import SpawnPoint
 import routing
 import services
 import sims4.math
 
 class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
-    FACTORY_TUNABLES = {'constraint_radius': TunableRange(description='\n            The radius, in meters, for each of the generated waypoint\n            constraints.\n            ', tunable_type=float, default=6, minimum=0)}
+    FACTORY_TUNABLES = {'constraint_radius': TunableRange(description='\n            The radius, in meters, for each of the generated waypoint\n            constraints.\n            ', tunable_type=float, default=6, minimum=0), 'spawn_point_tags': OptionalTunable(description='\n            Controls which spawn points can be used as waypoints.\n            ', tunable=TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, filter_prefixes=SPAWN_PREFIX)))}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -20,7 +21,7 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
             self._pick_vector /= self._pick_vector.magnitude()
         else:
             self._pick_vector = self._sim.forward
-        if self._sim.is_on_active_lot:
+        if self._sim.is_on_active_lot():
             plex_service = services.get_plex_service()
             if plex_service.is_active_zone_a_plex():
                 tags = (SpawnPoint.VISITOR_ARRIVAL_SPAWN_POINT_TAG,)
@@ -41,7 +42,7 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
 
     def get_waypoint_constraints_gen(self, sim, waypoint_count):
         zone = services.current_zone()
-        constraint_set = zone.get_spawn_points_constraint(except_lot_id=self._except_lot_id, generalize=True)
+        constraint_set = zone.get_spawn_points_constraint(except_lot_id=self._except_lot_id, sim_spawner_tags=self.spawn_point_tags, generalize=True)
         constraints_weighted = []
         min_score = sims4.math.MAX_FLOAT
         for constraint in constraint_set:
@@ -64,6 +65,7 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
                 distance_last = (average_position - last_waypoint_position).magnitude_2d()
                 distance_home = (average_position - self._origin_position).magnitude_2d()
                 constraints_weighted_next.append((distance_last + distance_home, constraint))
+            break
             next_constraint = pop_weighted(constraints_weighted_next)
             next_constraint_circle = Circle(next_constraint.average_position, self.constraint_radius, routing_surface=next_constraint.routing_surface)
             jog_waypoint_constraints.append(next_constraint_circle)

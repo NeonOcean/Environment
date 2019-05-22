@@ -17,7 +17,7 @@ class ConcatenationStyle(enum.Int):
 def _create_localized_string(string_id, *tokens) -> LocalizedString:
     proto = LocalizedString()
     proto.hash = string_id
-    create_tokens(proto.tokens, tokens)
+    create_tokens(proto.tokens, *tokens)
     return proto
 
 def create_sub_token_list(token_msg, token):
@@ -28,7 +28,7 @@ def create_sub_token_list(token_msg, token):
                 with ProtocolBufferRollback(token_msg.sim_list) as sub_token_msg:
                     sub_token.populate_localization_token(sub_token_msg)
             else:
-                raise Exception()
+                raise
     except:
         logger.error('Trying to populate localization token with invalid token: {}.', token)
         return False
@@ -65,7 +65,7 @@ class TunableLocalizedStringFactory(Tunable):
             self._string_id = string_id
 
         def __call__(self, *tokens):
-            return _create_localized_string(self._string_id, tokens)
+            return _create_localized_string(self._string_id, *tokens)
 
         def __bool__(self):
             if self._string_id:
@@ -88,8 +88,9 @@ class TunableLocalizedStringFactory(Tunable):
     def display_name(self):
         if self._display_name is None:
             name = self.name
-            if self.name.startswith('create_'):
-                name = name[7:]
+            if name is not None:
+                if self.name.startswith('create_'):
+                    name = name[7:]
             return get_default_display_name(name)
         return super().display_name
 
@@ -153,8 +154,9 @@ class TunableLocalizedStringFactoryVariant(TunableVariant):
     def display_name(self):
         if self._display_name is DEFAULT:
             name = self.name
-            if self.name.startswith('create_'):
-                name = name[7:]
+            if name is not None:
+                if self.name.startswith('create_'):
+                    name = name[7:]
             return get_default_display_name(name)
         return super().display_name
 

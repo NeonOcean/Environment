@@ -80,9 +80,10 @@ def get_module_for_filename(filename):
     module = None
     for _module in sys.modules.values():
         _filename = _module.__dict__.get('__file__')
-        if _filename is not None and os.path.normcase(_filename) == os.path.normcase(filename):
-            module = _module
-            break
+        if _filename is not None:
+            if os.path.normcase(_filename) == os.path.normcase(filename):
+                module = _module
+                break
     return module
 
 def reload_file(filename):

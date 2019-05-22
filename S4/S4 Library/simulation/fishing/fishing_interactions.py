@@ -42,7 +42,7 @@ class MountFishSuperInteraction(interactions.base.immediate_interaction.Immediat
         mounted_fish = objects.system.create_object(mounted_definition)
         if mounted_fish is None:
             logger.error('Tried to create the wall mounted version of a fish, {}, and failed to create the object.', self.target)
-            return
+            yield
         weight_stat = fishing.fish_object.Fish.WEIGHT_STATISTIC
         fish_stat_tracker = target_fish.get_tracker(weight_stat)
         mounted_fish_stat_tracker = mounted_fish.get_tracker(weight_stat)
@@ -167,8 +167,9 @@ class FishingLocationExamineWaterSuperInteraction(FishingLocationSuperInteractio
         resolver = self.get_resolver()
         for fish in fishing_data.get_possible_fish_gen():
             bait = fish.fish.cls.required_bait_buff
-            if bait in self._notification_bait_types and fish.fish.cls.can_catch(resolver):
-                required_baits.add(bait)
+            if bait in self._notification_bait_types:
+                if fish.fish.cls.can_catch(resolver):
+                    required_baits.add(bait)
         if required_baits:
             chosen_bait = random.choice(list(required_baits))
             loc_string = self.BAIT_NOTIFICATION_TEXT_MAP.get(chosen_bait)

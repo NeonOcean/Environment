@@ -204,10 +204,11 @@ class ZoneInteractionTriggers(HasTunableSingletonFactory, AutoFactoryInit):
 
     def handle_interaction_event(self, sim_info, event, resolver):
         for test in self.trigger_conditions:
-            if test.applies_to_event(event) and resolver(test):
-                for loot in self.on_interaction_loot:
-                    loot.apply_to_resolver(resolver)
-                break
+            if test.applies_to_event(event):
+                if resolver(test):
+                    for loot in self.on_interaction_loot:
+                        loot.apply_to_resolver(resolver)
+                    break
 
     def get_trigger_tests(self):
         tests = list()

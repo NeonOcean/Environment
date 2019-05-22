@@ -46,10 +46,11 @@ class profile_function:
         self.total_time += self.time
         self.num_calls += 1
         warning_str = ''
-        if self.threshold < self.time:
-            warning_str = '(WARNING)'
+        if self.threshold is not None:
+            if self.threshold < self.time:
+                warning_str = '(WARNING)'
         debug_stack_depth -= 1
-        if self.threshold is not None and self.stack_indent:
+        if self.stack_indent:
             self.indent = debug_stack_depth
         output_strings.append(('Exit: {1}({2}), Num Calls: {3}, Time this Run: {4:.{7}f}{5}, Total Time: {6:.{7}f}', self.indent, (func_name, self.id_str, self.num_calls, self.time, warning_str, self.total_time, self.precision)))
         if debug_stack_depth == 0:
@@ -59,7 +60,7 @@ class profile_function:
 
         def wrapper(*args, **kwargs):
             global debug_stack_depth
-            if self.only_in_stack and debug_stack_depth > 0:
+            if not self.only_in_stack or debug_stack_depth > 0:
                 if self.stack_indent:
                     self.indent = debug_stack_depth
                 debug_stack_depth += 1
@@ -86,9 +87,9 @@ class profile_function:
                 indent_str = indent*'   '
                 string_args = debug_output[2]
                 if self.output_to_file:
-                    f.write(output_string.format(indent_str, string_args) + '\n')
+                    f.write(output_string.format(indent_str, *string_args) + '\n')
                 else:
-                    logger.error(output_string, indent_str, string_args)
+                    logger.error(output_string, indent_str, *string_args)
         finally:
             if self.output_to_file:
                 f.close()

@@ -73,9 +73,8 @@ class _SituationManagerSimData:
             for bi in sim_job.blacklist_info:
                 new_blacklisted_till_time = services.time_service().sim_now + date_and_time.create_time_span(hours=bi.blacklist_time)
                 if bi.blacklist_tag in self._blacklist_times and self._blacklist_times[bi.blacklist_tag] >= new_blacklisted_till_time:
-                    pass
-                else:
-                    self._blacklist_times[bi.blacklist_tag] = new_blacklisted_till_time
+                    continue
+                self._blacklist_times[bi.blacklist_tag] = new_blacklisted_till_time
         else:
             self._blacklist_times[SituationJob.BLACKLIST_FROM_ALL_JOBS_TAG] = services.time_service().sim_now + date_and_time.create_time_span(hours=blacklist_all_jobs_time)
 
@@ -95,8 +94,9 @@ class _SituationManagerSimData:
                     return True
         if sim_job is not None:
             for bi in sim_job.blacklist_info:
-                if bi.blacklist_tag in self._blacklist_times and time_now < self._blacklist_times[bi.blacklist_tag]:
-                    return True
+                if bi.blacklist_tag in self._blacklist_times:
+                    if time_now < self._blacklist_times[bi.blacklist_tag]:
+                        return True
         return False
 
     def get_blacklist_info(self):
@@ -255,6 +255,7 @@ class SituationManager(DistributableObjectManager):
         if zone.is_zone_shutting_down:
             return
         current_zone_id = services.current_zone_id()
+        situation_type = services.narrative_service().get_possible_replacement_situation(situation_type)
         if services.get_zone_modifier_service().is_situation_prohibited(zone_id if zone_id else current_zone_id, situation_type):
             return
         if guest_list is None:
@@ -314,8 +315,9 @@ class SituationManager(DistributableObjectManager):
             return
         if seed.user_facing:
             for situation in tuple(self.get_user_facing_situations_gen()):
-                if seed.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID and situation.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID:
-                    self.destroy_situation_by_id(situation.id)
+                if seed.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID:
+                    if situation.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID:
+                        self.destroy_situation_by_id(situation.id)
         if seed.situation_type.is_unique_situation:
             for situation in self.running_situations():
                 if type(situation) is seed.situation_type:
@@ -430,12 +432,11 @@ class SituationManager(DistributableObjectManager):
         all_situations = tuple(self.values())
         for situation in all_situations:
             if include_system == False and situation.id == self._leave_situation_id:
-                pass
-            else:
-                try:
-                    self.destroy_situation_by_id(situation.id)
-                except Exception:
-                    logger.error('Error when destroying situation {}. You are probably screwed.', situation)
+                continue
+            try:
+                self.destroy_situation_by_id(situation.id)
+            except Exception:
+                logger.error('Error when destroying situation {}. You are probably screwed.', situation)
 
     def register_for_callback(self, situation_id, situation_callback_option, callback_fn):
         if situation_id not in self:
@@ -476,7 +477,8 @@ class SituationManager(DistributableObjectManager):
             if type(situation) is waiting_situation_type:
                 self._player_waiting_to_be_greeted_situation_id = situation.id
                 break
-        self._create_player_waiting_to_be_greeted_situation()
+        else:
+            self._create_player_waiting_to_be_greeted_situation()
 
     def make_player_greeted_during_zone_spin_up(self):
         greeted_situation_type = services.current_zone().venue_service.venue.player_greeted_situation_type
@@ -484,7 +486,8 @@ class SituationManager(DistributableObjectManager):
             if type(situation) is greeted_situation_type:
                 self._player_greeted_situation_id = situation.id
                 break
-        self._create_greeted_player_visiting_npc_situation()
+        else:
+            self._create_greeted_player_visiting_npc_situation()
 
     def destroy_player_waiting_to_be_greeted_situation(self):
         if self._player_waiting_to_be_greeted_situation_id is 0:
@@ -540,16 +543,15 @@ class SituationManager(DistributableObjectManager):
         holiday_seeds = []
         for situation in self.running_situations():
             if not situation.save_to_situation_manager:
-                pass
-            else:
-                seed = situation.save_situation()
-                if seed is not None:
-                    if situation.situation_serialization_option == SituationSerializationOption.OPEN_STREETS:
-                        street_seeds.append(seed)
-                    elif situation.situation_serialization_option == SituationSerializationOption.LOT:
-                        zone_seeds.append(seed)
-                    else:
-                        holiday_seeds.append(seed)
+                continue
+            seed = situation.save_situation()
+            if seed is not None:
+                if situation.situation_serialization_option == SituationSerializationOption.OPEN_STREETS:
+                    street_seeds.append(seed)
+                elif situation.situation_serialization_option == SituationSerializationOption.LOT:
+                    zone_seeds.append(seed)
+                else:
+                    holiday_seeds.append(seed)
         SituationSeed.serialize_seeds_to_zone(zone_seeds=zone_seeds, zone_data_msg=zone_data, blacklist_data=self._sim_data)
         SituationSeed.serialize_seeds_to_open_street(open_street_seeds=street_seeds, open_street_data_msg=open_street_data)
         active_household = services.active_household()
@@ -620,17 +622,15 @@ class SituationManager(DistributableObjectManager):
         venue_service = services.current_zone().venue_service
         for seed in itertools.chain((self._arriving_situation_seed,), self._zone_seeds_for_zone_spinup, self._open_street_seeds_for_zone_spinup):
             if seed is None:
-                pass
-            else:
-                (zone_director, request_type) = seed.situation_type.get_zone_director_request()
-                if not zone_director is None:
-                    if request_type is None:
-                        pass
-                    elif seed.is_loadable and not seed.situation_type.should_seed_be_loaded(seed):
-                        pass
-                    else:
-                        preserve_state = seed.is_loadable
-                        venue_service.request_zone_director(zone_director, request_type, preserve_state=preserve_state)
+                continue
+            (zone_director, request_type) = seed.situation_type.get_zone_director_request()
+            if not zone_director is None:
+                if request_type is None:
+                    continue
+                if seed.is_loadable and not seed.situation_type.should_seed_be_loaded(seed):
+                    continue
+                preserve_state = seed.is_loadable
+                venue_service.request_zone_director(zone_director, request_type, preserve_state=preserve_state)
 
     def get_sim_serialization_option(self, sim):
         result = sims.sim_info_types.SimSerializationOption.UNDECLARED
@@ -671,17 +671,18 @@ class SituationManager(DistributableObjectManager):
         self._sim_being_created = None
 
     def get_situations_sim_is_in(self, sim):
-        return [situation for situation in self.values() if situation.is_sim_in_situation(sim) and situation._stage == SituationStage.RUNNING]
+        return [situation for situation in self.values() if situation.is_sim_in_situation(sim) if situation._stage == SituationStage.RUNNING]
 
     def get_situations_sim_is_in_by_tag(self, sim, tag):
         return [situation for situation in self.get_situations_sim_is_in(sim) if tag in situation.tags]
 
     def is_user_facing_situation_running(self, global_user_facing_only=False):
         for situation in self.values():
-            if not global_user_facing_only:
-                return True
-            if situation.is_user_facing and situation.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID:
-                return True
+            if situation.is_user_facing:
+                if not global_user_facing_only:
+                    return True
+                if situation.linked_sim_id == GLOBAL_SITUATION_LINKED_SIM_ID:
+                    return True
         return False
 
     def get_user_facing_situations_gen(self):
@@ -694,12 +695,13 @@ class SituationManager(DistributableObjectManager):
 
     def is_situation_with_tags_running(self, tags):
         for situation in self.values():
-            if situation._stage == SituationStage.RUNNING and situation.tags & tags:
-                return True
+            if situation._stage == SituationStage.RUNNING:
+                if situation.tags & tags:
+                    return True
         return False
 
     def user_ask_sim_to_leave_now_must_run(self, sim):
-        if sim.sim_info.is_npc and sim.sim_info.lives_here:
+        if not sim.sim_info.is_npc or sim.sim_info.lives_here:
             return
         ask_to_leave = True
         for situation in self.get_situations_sim_is_in(sim):
@@ -727,12 +729,11 @@ class SituationManager(DistributableObjectManager):
         for sim in sim_info_manager.instanced_sims_gen():
             if sim.is_npc:
                 if sim.is_on_active_lot():
-                    pass
-                elif sim.sim_info.vacation_or_home_zone_id == current_zone_id:
-                    pass
-                else:
-                    sim.add_buff(buff_type=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_type, buff_reason=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_reason)
-                    self.make_sim_leave_now_must_run(sim)
+                    continue
+                if sim.sim_info.vacation_or_home_zone_id == current_zone_id:
+                    continue
+                sim.add_buff(buff_type=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_type, buff_reason=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_reason)
+                self.make_sim_leave_now_must_run(sim)
 
     def make_sim_leave(self, sim):
         leave_situation = self.get(self._leave_situation_id)
@@ -799,7 +800,9 @@ class SituationManager(DistributableObjectManager):
         for (sim_id, sim_data) in self._sim_data.items():
             sim_info = services.sim_info_manager().get(sim_id)
             if not sim_info is None:
-                pass
+                if not sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                    if sim_data.is_blacklisted == False:
+                        to_remove_ids.append(sim_id)
             if sim_data.is_blacklisted == False:
                 to_remove_ids.append(sim_id)
         for sim_id in to_remove_ids:
@@ -822,18 +825,16 @@ class SituationManager(DistributableObjectManager):
                 for guest_infos in guest_list._job_type_to_guest_infos.values():
                     for guest_info in guest_infos:
                         if guest_info.sim_id == 0:
-                            pass
-                        else:
-                            guest_sim = sim_info_manager.get(guest_info.sim_id)
-                            if guest_sim is None:
-                                pass
+                            continue
+                        guest_sim = sim_info_manager.get(guest_info.sim_id)
+                        if guest_sim is None:
+                            continue
+                        client = services.client_manager().get_client_by_household_id(guest_sim.household_id)
+                        with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_GUEST) as hook:
+                            hook.write_int('situ', situation_id)
+                            hook.write_guid('type', situation_type.guid64)
+                            if client is None:
+                                hook.write_int('npcg', guest_info.sim_id)
                             else:
-                                client = services.client_manager().get_client_by_household_id(guest_sim.household_id)
-                                with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_GUEST) as hook:
-                                    hook.write_int('situ', situation_id)
-                                    hook.write_guid('type', situation_type.guid64)
-                                    if client is None:
-                                        hook.write_int('npcg', guest_info.sim_id)
-                                    else:
-                                        hook.write_int('pcgu', guest_info.sim_id)
-                                        hook.write_guid('jobb', guest_info.job_type.guid64)
+                                hook.write_int('pcgu', guest_info.sim_id)
+                                hook.write_guid('jobb', guest_info.job_type.guid64)

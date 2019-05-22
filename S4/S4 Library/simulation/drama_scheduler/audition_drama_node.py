@@ -62,21 +62,17 @@ class AuditionDramaNode(BaseDramaNode):
                     audition_time = possible_audition_time[0]
                     break
         gig = self.gig
-        min_gig_time = audition_time + gig.gig_prep_time()
-        (time_till_gig, _) = gig.gig_time().time_until_next_scheduled_event(min_gig_time)
+        time_till_gig = gig.get_time_until_next_possible_gig(audition_time)
         if time_till_gig is None:
-            gig_time = min_gig_time
-        else:
-            gig_time = min_gig_time + time_till_gig
+            return
+        gig_time = audition_time + time_till_gig
         if self.skip_audition and self.skip_audition.skip_audition_tests.run_tests(SingleSimResolver(owner)):
-            formatted_string = Career.GIG_PICKER_SKIPPED_AUDITION_LOCALIZATION_FORMAT(gig.gig_pay_range.lower_bound, gig.gig_pay_range.upper_bound, gig_time, self.audition_prep_recommendation())
+            formatted_string = Career.GIG_PICKER_SKIPPED_AUDITION_LOCALIZATION_FORMAT(gig.gig_pay.lower_bound, gig.gig_pay.upper_bound, gig_time, self.audition_prep_recommendation())
         else:
-            formatted_string = Career.GIG_PICKER_LOCALIZATION_FORMAT(gig.gig_pay_range.lower_bound, gig.gig_pay_range.upper_bound, audition_time, gig_time, self.audition_prep_recommendation())
+            formatted_string = Career.GIG_PICKER_LOCALIZATION_FORMAT(gig.gig_pay.lower_bound, gig.gig_pay.upper_bound, audition_time, gig_time, self.audition_prep_recommendation())
         self._calculated_audition_time = audition_time
         self._calculated_gig_time = gig_time
-        row_tooltip = None if gig.display_description is None else lambda *_: gig.display_description(owner)
-        row = ObjectPickerRow(name=gig.display_name(owner), icon=gig.display_icon, row_description=formatted_string, row_tooltip=row_tooltip)
-        return row
+        return gig.create_picker_row(formatted_string, owner)
 
     def schedule(self, resolver, specific_time=None, time_modifier=TimeSpan.ZERO):
         if self.skip_audition and self.skip_audition.skip_audition_tests.run_tests(resolver):

@@ -18,11 +18,11 @@ def get_all_gsi_schema_names():
     normal_schemas = []
     for gsi_schema_name in dispatch_table:
         if ARCHIVE_TOGGLE_SUFFIX in gsi_schema_name:
-            pass
-        elif not gsi_schema_name == 'directory':
+            continue
+        if not gsi_schema_name == 'directory':
             if gsi_schema_name == 'command':
-                pass
-            elif gsi_schema_name + ARCHIVE_TOGGLE_SUFFIX in dispatch_table:
+                continue
+            if gsi_schema_name + ARCHIVE_TOGGLE_SUFFIX in dispatch_table:
                 archive_schemas.append(gsi_schema_name)
             else:
                 normal_schemas.append(gsi_schema_name)
@@ -108,12 +108,14 @@ def handle_request(path, query):
 def parse_args(spec, kwargs):
     for name in spec.args:
         arg_type = spec.annotations.get(name)
-        if arg_type is not None and name in kwargs:
-            kwargs[name] = _parse_arg(arg_type, kwargs[name], name)
+        if arg_type is not None:
+            if name in kwargs:
+                kwargs[name] = _parse_arg(arg_type, kwargs[name], name)
     for name in spec.kwonlyargs:
         arg_type = spec.annotations.get(name)
-        if arg_type is not None and name in kwargs:
-            kwargs[name] = _parse_arg(arg_type, kwargs[name], name)
+        if arg_type is not None:
+            if name in kwargs:
+                kwargs[name] = _parse_arg(arg_type, kwargs[name], name)
     return kwargs
 
 def _parse_arg(arg_type, arg_value, name):
@@ -142,6 +144,7 @@ def directory_handler(client_version:int=CLIENT_GSI_BASE_VERSION):
     gsi_client_version = client_version
     directory = {'gsi_server_version': LATEST_GSI_SERVER_VERSION}
     for (path, (_callback, schema)) in dispatch_table.items():
-        if path != 'directory' and ARCHIVE_TOGGLE_SUFFIX not in path:
-            directory[path] = schema
+        if path != 'directory':
+            if ARCHIVE_TOGGLE_SUFFIX not in path:
+                directory[path] = schema
     return directory

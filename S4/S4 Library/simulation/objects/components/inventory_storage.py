@@ -181,12 +181,12 @@ class InventoryStorage:
         stack_id = obj.inventoryitem_component.get_stack_id()
         for other in self._objects.values():
             if def_id != other.definition.id:
-                pass
-            elif other is obj:
-                pass
-            elif stack_id != other.inventoryitem_component.get_stack_id():
-                pass
-            elif not any(interaction.should_reset_based_on_pipeline_progress for interaction in other.interaction_refs):
+                continue
+            if other is obj:
+                continue
+            if stack_id != other.inventoryitem_component.get_stack_id():
+                continue
+            if not any(interaction.should_reset_based_on_pipeline_progress for interaction in other.interaction_refs):
                 other_data = self._get_compact_data(other)
                 if data == other_data:
                     similar = other
@@ -226,7 +226,7 @@ class InventoryStorage:
     def _get_inventory_update_message(self, update_type, obj, obj_id=None, allow_while_zone_not_running=False):
         if not self._allow_ui:
             return
-        if services.current_zone().is_zone_running or not allow_while_zone_not_running:
+        if not services.current_zone().is_zone_running and not allow_while_zone_not_running:
             return
         if services.current_zone().is_zone_shutting_down:
             return

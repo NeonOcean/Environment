@@ -28,7 +28,7 @@ OUTFITS_TO_POPULATE_ON_SPAWN = frozendict({Species.HUMAN: (OutfitCategory.SWIMWE
 
 class SimCreator:
 
-    def __init__(self, gender=None, age=None, species=None, first_name='', last_name='', breed_name='', first_name_key=0, last_name_key=0, full_name_key=0, breed_name_key=0, tunable_tag_set=None, additional_tags=(), resource_key=None, traits=(), sim_name_type=SimNameType.DEFAULT):
+    def __init__(self, gender=None, age=None, species=None, first_name='', last_name='', breed_name='', first_name_key=0, last_name_key=0, full_name_key=0, breed_name_key=0, tunable_tag_set=None, weighted_tag_lists=None, additional_tags=(), resource_key=None, traits=(), sim_name_type=SimNameType.DEFAULT):
         self.gender = random.choice(list(sim_info_types.Gender)) if gender is None else gender
         self.age = sim_info_types.Age.ADULT if age is None else age
         self.species = sim_info_types.Species.HUMAN if species is None else species
@@ -40,9 +40,14 @@ class SimCreator:
         self.full_name_key = full_name_key
         self.breed_name_key = breed_name_key
         self.resource_key = resource_key
-        self.tag_set = [tag for tag in tunable_tag_set.tags] if tunable_tag_set is not None else []
+        self.tag_set = set(tag for tag in tunable_tag_set.tags) if tunable_tag_set is not None else set()
         if additional_tags:
-            self.tag_set.extend(additional_tags)
+            self.tag_set.update(additional_tags)
+        if weighted_tag_lists:
+            for weighted_tag_list in weighted_tag_lists:
+                weighted_tags = [(entry.weight, entry.tag) for entry in weighted_tag_list.weighted_tags]
+                picked_tag = sims4.random.weighted_random_item(weighted_tags)
+                self.tag_set.add(picked_tag)
         self.traits = set(traits)
         self.sim_name_type = sim_name_type
         self.randomization_mode = None
@@ -95,7 +100,7 @@ class SimSpawner:
 
     RANDOM_NAME_TUNING = TunableMapping(description="\n        A mapping of sim name language to lists of random family name and first\n        names appropriate for that language. This is used to generate random sim\n        names appropriate for each account's specified locale.\n        ", key_name='language', value_name='random_name_tuning', key_type=TunableEnumEntry(Language, Language.ENGLISH, export_modes=ExportModes.All), value_type=TunableRandomNamesForLanguage(), tuple_name='TunableRandomNameMappingTuple', verify_tunable_callback=verify_random_name_tuning, export_modes=ExportModes.All)
     SIM_NAME_TYPE_TO_LOCALE_NAMES = TunableMapping(description='\n        A mapping of SimNameType to locale-specific names. Normally, Sims pull\n        from Random Name Tuning. But if specified with a SimNameType, they will\n        instead pull from this mapping of names.\n        ', key_name='name_type', value_name='name_type_random_names', key_type=TunableEnumEntry(tunable_type=SimNameType, default=SimNameType.DEFAULT, invalid_enums=(SimNameType.DEFAULT,), binary_type=EnumBinaryExportType.EnumUint32), value_type=TunableMapping(key_name='language', value_name='random_name_tuning', key_type=TunableEnumEntry(tunable_type=Language, default=Language.ENGLISH), value_type=TunableRandomNamesForLanguage(), tuple_name='TunableRandomNameMappingTuple', verify_tunable_callback=verify_random_name_tuning), tuple_name='TunableNameTypeToRandomNamesMappingTuple', export_modes=ExportModes.All)
-    SPECIES_TO_NAME_TYPE = TunableMapping(description='\n        A mapping of species type to the type of names to use for that species. \n        ', key_name='species', value_name='species_name_type', key_type=TunableEnumEntry(tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, binary_type=EnumBinaryExportType.EnumUint32), value_type=TunableEnumEntry(tunable_type=SimNameType, default=SimNameType.DEFAULT, binary_type=EnumBinaryExportType.EnumUint32), tuple_name='TunableSpeciesToNameTypeMappingTuple', export_modes=ExportModes.All)
+    SPECIES_TO_NAME_TYPE = TunableMapping(description='\n        A mapping of species type to the type of names to use for that species. \n        ', key_name='species', value_name='species_name_type', key_type=TunableEnumEntry(tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,), binary_type=EnumBinaryExportType.EnumUint32), value_type=TunableEnumEntry(tunable_type=SimNameType, default=SimNameType.DEFAULT, binary_type=EnumBinaryExportType.EnumUint32), tuple_name='TunableSpeciesToNameTypeMappingTuple', export_modes=ExportModes.All)
     NAME_TYPES_WITH_OPTIONAL_NAMES = TunableSet(description='\n        A set of name types with optional last names. \n        ', tunable=TunableEnumEntry(tunable_type=SimNameType, default=SimNameType.DEFAULT, binary_type=EnumBinaryExportType.EnumUint32), export_modes=ExportModes.All)
 
     @classmethod
@@ -159,7 +164,7 @@ class SimSpawner:
 
     @classmethod
     def spawn_sim(cls, sim_info, sim_position:sims4.math.Vector3=None, sim_location=None, sim_spawner_tags=None, spawn_point_option=None, saved_spawner_tags=None, spawn_action=None, additional_fgl_search_flags=None, from_load=False, is_debug=False, use_fgl=True, spawn_point=None, spawn_at_lot=True, update_skewer=True, **kwargs):
-        if is_debug or not (disable_spawning_non_selectable_sims and sim_info.is_selectable):
+        if not is_debug and not not (disable_spawning_non_selectable_sims and sim_info.is_selectable):
             return False
         try:
             sim_info.set_zone_on_spawn()
@@ -208,42 +213,49 @@ class SimSpawner:
         sim_info_list = []
         if account is None:
             account = cls._get_default_account()
-        if not skip_adding_to_household:
-            household = sims.household.Household(account, starting_funds=starting_funds)
+        if household is None:
+            if not skip_adding_to_household:
+                household = sims.household.Household(account, starting_funds=starting_funds)
         sim_creation_dictionaries = tuple(sim_creator.build_creation_dictionary() for sim_creator in sim_creators)
         new_sim_data = generate_household(sim_creation_dictionaries=sim_creation_dictionaries, household_name=household.name, generate_deterministic_sim=generate_deterministic_sim)
         zone = services.current_zone()
         world_id = zone.world_id
-        if household is None and zone_id is None:
+        if zone_id is None:
             zone_id = zone.id
         elif zone_id != 0:
             world_id = services.get_persistence_service().get_world_id_from_zone(zone_id)
         language = cls._get_language_for_locale(account.locale)
         family_name = cls._get_random_last_name(language, sim_name_type=sim_name_type)
-        if not skip_adding_to_household:
-            household.id = new_sim_data['id']
-            services.household_manager().add(household)
-            household.name = family_name
+        if household.id == 0:
+            if not skip_adding_to_household:
+                household.id = new_sim_data['id']
+                services.household_manager().add(household)
+                household.name = family_name
         for (index, sim_data) in enumerate(new_sim_data['sims']):
             sim_proto = serialization.SimData()
             sim_proto.ParseFromString(sim_data)
             first_name = sim_creators[index].first_name
-            if not sim_creators[index].full_name_key:
-                if sim_name_type == SimNameType.DEFAULT:
-                    first_name = cls.get_random_first_name(sim_proto.gender, sim_proto.extended_species)
-                else:
-                    first_name = cls._get_random_first_name(language, sim_proto.gender == Gender.FEMALE, sim_name_type=sim_name_type)
+            if not first_name:
+                if not sim_creators[index].first_name_key:
+                    if not sim_creators[index].full_name_key:
+                        if sim_name_type == SimNameType.DEFAULT:
+                            first_name = cls.get_random_first_name(sim_proto.gender, sim_proto.extended_species)
+                        else:
+                            first_name = cls._get_random_first_name(language, sim_proto.gender == Gender.FEMALE, sim_name_type=sim_name_type)
             last_name = sim_creators[index].last_name
             last_name_key = sim_creators[index].last_name_key
-            if not sim_creators[index].full_name_key:
-                if sim_name_type == SimNameType.DEFAULT:
-                    last_name = cls.get_last_name(family_name, sim_proto.gender, sim_proto.extended_species)
-                else:
-                    last_name = cls._get_family_name_for_gender(language, family_name, sim_proto.gender == Gender.FEMALE, sim_name_type=sim_name_type)
+            if not last_name:
+                if not last_name_key:
+                    if last_name_key is not UNSET:
+                        if not sim_creators[index].full_name_key:
+                            if sim_name_type == SimNameType.DEFAULT:
+                                last_name = cls.get_last_name(family_name, sim_proto.gender, sim_proto.extended_species)
+                            else:
+                                last_name = cls._get_family_name_for_gender(language, family_name, sim_proto.gender == Gender.FEMALE, sim_name_type=sim_name_type)
             sim_proto.first_name = first_name
             sim_proto.last_name = last_name
             sim_proto.first_name_key = sim_creators[index].first_name_key
-            if first_name or sim_creators[index].first_name_key or last_name or last_name_key or last_name_key is not UNSET and last_name_key is not UNSET:
+            if last_name_key is not UNSET:
                 sim_proto.last_name_key = last_name_key
             sim_proto.full_name_key = sim_creators[index].full_name_key
             sim_proto.age = sim_creators[index].age
@@ -294,7 +306,7 @@ class SimSpawner:
                 gsi_handlers.sim_info_lifetime_handlers.archive_sim_info_event(sim_info, 'new sim info')
             services.sim_info_manager().on_sim_info_created()
             sim_info_list.append(sim_info)
-        if not (household.id == 0 and skip_adding_to_household):
+        if not skip_adding_to_household:
             household.save_data()
         if is_debug:
             services.get_zone_situation_manager().add_debug_sim_id(sim_info.id)

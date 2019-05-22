@@ -23,17 +23,17 @@ class GameTeamAutoBalanced(GameTeam):
                 excess_index = i
             elif team_length < min_value:
                 starvation_index = i
-            if excess_index is not None and starvation_index is not None:
-                game._teams[starvation_index].players.append(game._teams[excess_index].players.pop())
-                break
+            if excess_index is not None:
+                if starvation_index is not None:
+                    game._teams[starvation_index].players.append(game._teams[excess_index].players.pop())
+                    break
 
     def remove_player(self, game, sim):
         for team in game._teams:
             if sim not in team.players:
-                pass
-            else:
-                team.players.remove(sim)
-                if game.winning_team is None:
-                    self._rebalance_teams(game)
-                if not team.players:
-                    game._teams.remove(team)
+                continue
+            team.players.remove(sim)
+            if game.winning_team is None:
+                self._rebalance_teams(game)
+            if not team.players:
+                game._teams.remove(team)

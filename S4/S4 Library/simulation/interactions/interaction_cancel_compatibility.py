@@ -35,8 +35,9 @@ class InteractionCancelCompatibility:
     def cancel_interactions_for_reason(cls, sim, reason, finishing_type, cancel_reason_msg, additional_cancel_sources=None):
         sim_interactions = sim.get_all_running_and_queued_interactions()
         for interaction in sim_interactions:
-            if cls.check_if_source_should_be_canceled(interaction.context, additional_cancel_sources) and cls.can_cancel_interaction_for_reason(interaction.affordance, reason):
-                interaction.cancel(finishing_type, cancel_reason_msg=cancel_reason_msg)
+            if cls.check_if_source_should_be_canceled(interaction.context, additional_cancel_sources):
+                if cls.can_cancel_interaction_for_reason(interaction.affordance, reason):
+                    interaction.cancel(finishing_type, cancel_reason_msg=cancel_reason_msg)
 
     @classmethod
     def check_if_source_should_be_canceled(cls, context, additional_cancel_sources=None):

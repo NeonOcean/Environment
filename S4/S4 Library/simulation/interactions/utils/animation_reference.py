@@ -46,43 +46,46 @@ class TunableAnimationReference(TunableReferenceFactory):
                 if animation_element_factory._child_animations:
                     for child_args in animation_element_factory._child_animations:
                         cls.register_tuned_animation(*child_args)
-                if interactions.interaction_instance_manager.BUILD_AC_CACHE or cls.resource_key not in sims4.resources.localwork_no_groupid and asm_key not in sims4.resources.localwork_no_groupid and caches.USE_ACC_AND_BCC & caches.AccBccUsage.ACC:
+                if not interactions.interaction_instance_manager.BUILD_AC_CACHE and (cls.resource_key not in sims4.resources.localwork_no_groupid and asm_key not in sims4.resources.localwork_no_groupid) and caches.USE_ACC_AND_BCC & caches.AccBccUsage.ACC:
                     return
                 if animation_element_factory._child_constraints:
                     for child_args in animation_element_factory._child_constraints:
                         cls.add_auto_constraint(*child_args)
                 from animation.animation_constants import InteractionAsmType
-                if not interaction_asm_type == InteractionAsmType.Outcome:
-                    if interaction_asm_type == InteractionAsmType.Response:
-                        from interactions.constraints import create_animation_constraint
+                if not interaction_asm_type == InteractionAsmType.Interaction:
+                    if not interaction_asm_type == InteractionAsmType.Canonical:
+                        if not interaction_asm_type == InteractionAsmType.Outcome:
+                            if interaction_asm_type == InteractionAsmType.Response:
+                                from interactions.constraints import create_animation_constraint
 
-                        def add_participant_constraint(participant_type, animation_constraint):
-                            if animation_constraint is not None:
-                                if interaction_asm_type == InteractionAsmType.Canonical:
-                                    is_canonical = True
-                                else:
-                                    is_canonical = False
-                                if run_in_sequence:
-                                    cls.add_auto_constraint(participant_type, animation_constraint, is_canonical=is_canonical)
-                                else:
-                                    if participant_type not in participant_constraint_lists:
-                                        participant_constraint_lists[participant_type] = []
-                                    participant_constraint_lists[participant_type].append(animation_constraint)
+                                def add_participant_constraint(participant_type, animation_constraint):
+                                    if animation_constraint is not None:
+                                        if interaction_asm_type == InteractionAsmType.Canonical:
+                                            is_canonical = True
+                                        else:
+                                            is_canonical = False
+                                        if run_in_sequence:
+                                            cls.add_auto_constraint(participant_type, animation_constraint, is_canonical=is_canonical)
+                                        else:
+                                            if participant_type not in participant_constraint_lists:
+                                                participant_constraint_lists[participant_type] = []
+                                            participant_constraint_lists[participant_type].append(animation_constraint)
 
-                        animation_constraint_actor = None
-                        try:
-                            animation_constraint_actor = create_animation_constraint(asm_key, actor_name, target_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
-                        except:
-                            if interaction_asm_type != InteractionAsmType.Outcome:
-                                logger.exception('Exception while processing tuning for {}', cls)
-                        add_participant_constraint(actor_participant_type, animation_constraint_actor)
-                        if target_name is not None:
-                            animation_context = get_throwaway_animation_context()
-                            asm = animation.asm.create_asm(asm_key, animation_context, posture_manifest_overrides=total_overrides.manifests)
-                            target_actor_definition = asm.get_actor_definition(target_name)
-                            if target_actor_definition.actor_type == ASM_ACTORTYPE_SIM and not target_actor_definition.is_virtual:
-                                animation_constraint_target = create_animation_constraint(asm_key, target_name, actor_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
-                                add_participant_constraint(target_participant_type, animation_constraint_target)
+                                animation_constraint_actor = None
+                                try:
+                                    animation_constraint_actor = create_animation_constraint(asm_key, actor_name, target_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
+                                except:
+                                    if interaction_asm_type != InteractionAsmType.Outcome:
+                                        logger.exception('Exception while processing tuning for {}', cls)
+                                add_participant_constraint(actor_participant_type, animation_constraint_actor)
+                                if target_name is not None:
+                                    animation_context = get_throwaway_animation_context()
+                                    asm = animation.asm.create_asm(asm_key, animation_context, posture_manifest_overrides=total_overrides.manifests)
+                                    target_actor_definition = asm.get_actor_definition(target_name)
+                                    if target_actor_definition.actor_type == ASM_ACTORTYPE_SIM:
+                                        if not target_actor_definition.is_virtual:
+                                            animation_constraint_target = create_animation_constraint(asm_key, target_name, actor_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
+                                            add_participant_constraint(target_participant_type, animation_constraint_target)
                 from interactions.constraints import create_animation_constraint
 
                 def add_participant_constraint(participant_type, animation_constraint):
@@ -105,16 +108,18 @@ class TunableAnimationReference(TunableReferenceFactory):
                     if interaction_asm_type != InteractionAsmType.Outcome:
                         logger.exception('Exception while processing tuning for {}', cls)
                 add_participant_constraint(actor_participant_type, animation_constraint_actor)
-                if interaction_asm_type == InteractionAsmType.Interaction or interaction_asm_type == InteractionAsmType.Canonical or target_name is not None:
+                if target_name is not None:
                     animation_context = get_throwaway_animation_context()
                     asm = animation.asm.create_asm(asm_key, animation_context, posture_manifest_overrides=total_overrides.manifests)
                     target_actor_definition = asm.get_actor_definition(target_name)
-                    if target_actor_definition.actor_type == ASM_ACTORTYPE_SIM and not target_actor_definition.is_virtual:
-                        animation_constraint_target = create_animation_constraint(asm_key, target_name, actor_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
-                        add_participant_constraint(target_participant_type, animation_constraint_target)
-            if participant_constraint_lists is not None:
-                for (participant_type, constraints_list) in participant_constraint_lists.items():
-                    cls.add_auto_constraint(participant_type, create_constraint_set(constraints_list))
+                    if target_actor_definition.actor_type == ASM_ACTORTYPE_SIM:
+                        if not target_actor_definition.is_virtual:
+                            animation_constraint_target = create_animation_constraint(asm_key, target_name, actor_name, carry_target_name, create_target_name, initial_state, begin_states, end_states, total_overrides, base_object_name=base_object_name)
+                            add_participant_constraint(target_participant_type, animation_constraint_target)
+            if not run_in_sequence:
+                if participant_constraint_lists is not None:
+                    for (participant_type, constraints_list) in participant_constraint_lists.items():
+                        cls.add_auto_constraint(participant_type, create_constraint_set(constraints_list))
 
         return callback
 
@@ -184,14 +189,13 @@ class TunableRoutingSlotConstraint(TunableSingletonFactory):
             boundary_conditions = asm.get_boundary_conditions_list(actor, state_name)
             for (_, slots_to_params_entry) in boundary_conditions:
                 if not slots_to_params_entry:
-                    pass
-                else:
-                    slots_to_params_entry_absolute = []
-                    for (boundary_condition_entry, param_sequences_entry) in slots_to_params_entry:
-                        (routing_transform_entry, containment_transform, _, reference_joint_exit) = boundary_condition_entry.get_transforms(asm, target)
-                        slots_to_params_entry_absolute.append((routing_transform_entry, reference_joint_exit, param_sequences_entry))
-                    slot_constraint = RequiredSlotSingle(actor, target, asm, asm_key, None, actor_name, target_name, state_name, containment_transform, None, tuple(slots_to_params_entry_absolute), None, asm_name=asm.name, age=age)
-                    slot_constraints.append(slot_constraint)
+                    continue
+                slots_to_params_entry_absolute = []
+                for (boundary_condition_entry, param_sequences_entry) in slots_to_params_entry:
+                    (routing_transform_entry, containment_transform, _, reference_joint_exit) = boundary_condition_entry.get_transforms(asm, target)
+                    slots_to_params_entry_absolute.append((routing_transform_entry, reference_joint_exit, param_sequences_entry))
+                slot_constraint = RequiredSlotSingle(actor, target, asm, asm_key, None, actor_name, target_name, state_name, containment_transform, None, tuple(slots_to_params_entry_absolute), None, asm_name=asm.name, age=age)
+                slot_constraints.append(slot_constraint)
             return create_constraint_set(slot_constraints)
 
     FACTORY_TYPE = _TunedRoutingSlotConstraint

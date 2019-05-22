@@ -105,11 +105,10 @@ class AutonomyRequest:
     def invalidate_created_interactions(self, excluded_si=None):
         for interaction in self._interactions_to_invalidate:
             if not interaction.is_super:
-                pass
-            elif interaction is excluded_si:
-                pass
-            else:
-                interaction.invalidate()
+                continue
+            if interaction is excluded_si:
+                continue
+            interaction.invalidate()
         self._interactions_to_invalidate.clear()
 
     @cached
@@ -128,39 +127,30 @@ class AutonomyRequest:
             return any(relbit.commodity_flags() & motives for relbit in relationship_service.get_all_bits(self.sim.id, target_sim.id))
 
     def objects_to_score_gen(self, motives:set=singletons.DEFAULT):
-        if not self.object_list:
-            object_manager = services.object_manager()
-            provided_affordance_datas = []
-            for provided_affordance_data in itertools.chain(self.sim.sim_info.get_target_provided_affordances_data_gen(), self.sim.sim_info.trait_tracker.get_cached_target_provided_affordances_data_gen(), self.sim.sim_info.commodity_tracker.get_cached_target_provided_affordances_data_gen()):
-                if provided_affordance_data.affordance.commodity_flags & motives:
-                    provided_affordance_datas.append(provided_affordance_data)
-            autonomy_rule = self.sim.get_off_lot_autonomy_rule() if self.off_lot_autonomy_rule_override is None else self.off_lot_autonomy_rule_override
-            for obj in object_manager.valid_objects():
-                if not self.ignored_object_list or obj in self.ignored_object_list:
-                    pass
-                elif not motives is singletons.DEFAULT or obj.commodity_flags or not motives or (obj.commodity_flags & motives or any(provided_affordance_data.object_filter.is_object_valid(obj) for provided_affordance_data in provided_affordance_datas)) or not obj.is_sim or self._check_sim_relbits_commodity_flags(obj, motives):
-                    if not self._check_object_connectivity_and_rules(obj, autonomy_rule):
-                        pass
-                    else:
-                        yield obj
-            for obj in self.sim.inventory_component:
-                if not self.ignored_object_list or obj in self.ignored_object_list:
-                    pass
-                else:
-                    yield obj
-        elif not motives:
+        provided_affordance_datas = []
+        for provided_affordance_data in itertools.chain(self.sim.sim_info.get_target_provided_affordances_data_gen(), self.sim.sim_info.trait_tracker.get_cached_target_provided_affordances_data_gen(), self.sim.sim_info.commodity_tracker.get_cached_target_provided_affordances_data_gen()):
+            if provided_affordance_data.affordance.commodity_flags & motives:
+                provided_affordance_datas.append(provided_affordance_data)
+
+        def is_valid_to_score(obj):
+            if self.ignored_object_list and obj in self.ignored_object_list:
+                return False
+            elif motives is singletons.DEFAULT and obj.commodity_flags or (motives and obj.commodity_flags & motives or any(provided_affordance_data.object_filter.is_object_valid(obj) for provided_affordance_data in provided_affordance_datas)) or obj.is_sim and self._check_sim_relbits_commodity_flags(obj, motives):
+                return True
+            return False
+
+        if self.object_list:
             for obj in self.object_list:
-                if not self.ignored_object_list or obj in self.ignored_object_list:
-                    pass
-                else:
+                if is_valid_to_score(obj):
                     yield obj
         else:
-            for obj in self.object_list:
-                if obj.commodity_flags & motives:
-                    if not self.ignored_object_list or obj in self.ignored_object_list:
-                        pass
-                    else:
-                        yield obj
+            autonomy_rule = self.sim.get_off_lot_autonomy_rule() if self.off_lot_autonomy_rule_override is None else self.off_lot_autonomy_rule_override
+            for obj in services.object_manager().valid_objects():
+                if not not is_valid_to_score(obj) and self._check_object_connectivity_and_rules(obj, autonomy_rule):
+                    yield obj
+            for obj in self.sim.inventory_component:
+                if is_valid_to_score(obj):
+                    yield obj
 
     def get_gsi_data(self):
         archive = [AutonomyRequestGsiArchive('Sim', str(self.sim)), AutonomyRequestGsiArchive('All Commodities', [str(stat) for stat in self.all_commodities] if self.all_commodities is not None else 'None'), AutonomyRequestGsiArchive('Commodity List', [str(stat) for stat in self.commodity_list] if self.commodity_list is not None else 'None'), AutonomyRequestGsiArchive('Static Commodity List', [str(stat) for stat in self.static_commodity_list] if self.static_commodity_list is not None else 'None'), AutonomyRequestGsiArchive('Skipped Static Commodities', [str(stat) for stat in self.skipped_static_commodities] if self.skipped_static_commodities is not None else 'None'), AutonomyRequestGsiArchive('Object List', [str(obj) for obj in self.object_list] if self.object_list is not None else 'None'), AutonomyRequestGsiArchive('Ignored Object List', [str(obj) for obj in self.ignored_object_list] if self.ignored_object_list is not None else 'None'), AutonomyRequestGsiArchive('Affordance List', [str(affordance) for affordance in self.affordance_list] if self.affordance_list is not None else 'None'), AutonomyRequestGsiArchive('Skipped Affordance List', [str(affordance) for affordance in self.skipped_affordance_list] if self.skipped_affordance_list is not None else 'None'), AutonomyRequestGsiArchive('Is Script Request?', 'True' if self.is_script_request else 'False'), AutonomyRequestGsiArchive('Ignore User Directed & Autonomous', 'True' if self.ignore_user_directed_and_autonomous else 'False'), AutonomyRequestGsiArchive('Posture Behavior', str(self.posture_behavior)), AutonomyRequestGsiArchive('Distance Estimation Behavior', str(self.distance_estimation_behavior)), AutonomyRequestGsiArchive('Consider Scores of Zero?', 'True' if self.consider_scores_of_zero else 'False'), AutonomyRequestGsiArchive('Ignore Lockouts?', 'True' if self.ignore_lockouts else 'False'), AutonomyRequestGsiArchive('Apply Opportunity Cost?', 'True' if self.apply_opportunity_cost else 'False'), AutonomyRequestGsiArchive('Push Super on Prepare?', 'True' if self.push_super_on_prepare else 'False'), AutonomyRequestGsiArchive('Radius to Consider Squared', self.radius_to_consider_squared), AutonomyRequestGsiArchive('Off Lot Autonomy Override', str(self.off_lot_autonomy_rule_override) if self.off_lot_autonomy_rule_override is not None else 'None'), AutonomyRequestGsiArchive('Context', str(self.context))]
@@ -183,27 +173,26 @@ class AutonomyRequest:
             self.autonomy_ping_request_record.total_time_slicing += time.time() - time_slice_start_time
 
     def on_end_of_calculate_route_time(self, time_slice_start_time):
-        if self.autonomy_ping_request_record is not None:
-            self.autonomy_ping_request_record.total_distance_estimation += time.time() - time_slice_start_time
+        if time_slice_start_time is not None:
+            if self.autonomy_ping_request_record is not None:
+                self.autonomy_ping_request_record.total_distance_estimation += time.time() - time_slice_start_time
 
 class PrerollAutonomyRequest(AutonomyRequest):
 
     def objects_to_score_gen(self, motives:set=singletons.DEFAULT):
         if self.object_list:
             for obj in self.object_list:
-                if motives is singletons.DEFAULT or not obj.preroll_commodity_flags & motives or not self.ignored_object_list or obj not in self.ignored_object_list:
+                if not (motives is singletons.DEFAULT or not obj.preroll_commodity_flags & motives) and (not self.ignored_object_list or obj not in self.ignored_object_list):
                     yield obj
         else:
             object_manager = services.object_manager()
             autonomy_rule = self.sim.get_off_lot_autonomy_rule() if self.off_lot_autonomy_rule_override is None else self.off_lot_autonomy_rule_override
             for obj in object_manager.valid_objects():
-                if not self.ignored_object_list or obj in self.ignored_object_list:
-                    pass
-                else:
-                    commodity_flags = obj.preroll_commodity_flags
-                    if not motives is not singletons.DEFAULT or commodity_flags.isdisjoint(motives):
-                        pass
-                    elif not self._check_object_connectivity_and_rules(obj, autonomy_rule):
-                        pass
-                    else:
-                        yield obj
+                if not not self.ignored_object_list and obj in self.ignored_object_list:
+                    continue
+                commodity_flags = obj.preroll_commodity_flags
+                if not not motives is not singletons.DEFAULT and commodity_flags.isdisjoint(motives):
+                    continue
+                if not self._check_object_connectivity_and_rules(obj, autonomy_rule):
+                    continue
+                yield obj

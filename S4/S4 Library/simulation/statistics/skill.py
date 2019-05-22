@@ -396,7 +396,7 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
 
     def _show_level_notification(self, skill_level, ignore_npc_check=False):
         sim_info = self._tracker._owner
-        if not (ignore_npc_check or sim_info.is_npc):
+        if not (ignore_npc_check or not sim_info.is_npc):
             if skill_level == 1:
                 tutorial_service = services.get_tutorial_service()
                 if tutorial_service is not None and tutorial_service.is_tutorial_running():
@@ -404,11 +404,12 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
             level_data = self._get_level_data_for_skill_level(skill_level)
             if level_data is not None:
                 tutorial_id = None
-                if skill_level == 1:
-                    tutorial_id = self.tutorial.guid64
+                if self.tutorial is not None:
+                    if skill_level == 1:
+                        tutorial_id = self.tutorial.guid64
                 notification = level_data.level_up_notification(sim_info, resolver=SingleSimResolver(sim_info))
                 notification.show_dialog(icon_override=IconInfoData(icon_resource=self.icon), secondary_icon_override=IconInfoData(obj_instance=sim_info), additional_tokens=(skill_level,), tutorial_id=tutorial_id)
-                if self.tutorial is not None and level_data.level_up_screen_slam is not None:
+                if level_data.level_up_screen_slam is not None:
                     level_data.level_up_screen_slam.send_screen_slam_message(sim_info, sim_info, self.stat_name, skill_level)
 
     def _update_skill_level_buff(self, skill_level):

@@ -102,6 +102,9 @@ class ParticipantType(enum.LongFlags):
     StoredObjectsOnActor = 75557863725914323419136
     StoredObjectsOnTarget = 151115727451828646838272
     ObjectInventoryOwner = 302231454903657293676544
+    LotOwnersOrRenters = 604462909807314587353088
+    ActorFiance = 1208925819614629174706176
+    TargetFiance = 2417851639229258349412352
 
 class ParticipantTypeSavedActor(enum.IntFlags):
     SavedActor1 = ParticipantType.SavedActor1
@@ -146,6 +149,8 @@ class ParticipantTypeSingle(enum.LongFlags):
     MissingPet = ParticipantType.MissingPet
     OwnerSim = ParticipantType.OwnerSim
     ObjectInventoryOwner = ParticipantType.ObjectInventoryOwner
+    ActorFiance = ParticipantType.ActorFiance
+    TargetFiance = ParticipantType.TargetFiance
 
 class ParticipantTypeReactionlet(enum.IntFlags):
     Invalid = ParticipantType.Invalid
@@ -172,6 +177,7 @@ class ParticipantTypeSingleSim(enum.LongFlags):
     StoredSim = ParticipantType.StoredSim
     RoutingMaster = ParticipantType.RoutingMaster
     ObjectCrafter = ParticipantType.ObjectCrafter
+    LotOwnerSingleAndInstanced = ParticipantType.LotOwnerSingleAndInstanced
 
 class ParticipantTypeResponsePaired(enum.IntFlags):
     TargetSim = ParticipantType.TargetSim
@@ -232,6 +238,9 @@ class ParticipantTypeSim(enum.LongFlags):
     ObjectCrafter = ParticipantType.ObjectCrafter
     MissingPet = ParticipantType.MissingPet
     AllInstancedSims = ParticipantType.AllInstancedSims
+    LotOwnersOrRenters = ParticipantType.LotOwnersOrRenters
+    ActorFiance = ParticipantType.ActorFiance
+    TargetFiance = ParticipantType.TargetFiance
 
 class MixerInteractionGroup(DynamicEnum):
     DEFAULT = 0

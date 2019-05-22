@@ -115,8 +115,9 @@ class StatThresholdTest(SpecifiedStatThresholdMixin, HasTunableSingletonFactory,
             if self.stat is not None:
                 tracker = target.get_tracker(self.stat)
                 stat_inst = tracker.get_statistic(self.stat)
-                if not (self.stat.is_skill and stat_inst.is_initial_value):
-                    curr_value = self.score_to_use.get_value(target, self.stat)
+                if stat_inst is not None:
+                    if not (self.stat.is_skill and stat_inst.is_initial_value):
+                        curr_value = self.score_to_use.get_value(target, self.stat)
             else:
                 stat_inst = None
             if stat_inst is None and self.must_have_stat:
@@ -146,11 +147,10 @@ class RelativeStatTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
             logger.error(error_str)
         for target_stat in target_stats:
             if target_stat is None:
-                pass
-            else:
-                error_str = value.score_to_use.validate(instance_class, target_stat)
-                if error_str is not None:
-                    logger.error(error_str)
+                continue
+            error_str = value.score_to_use.validate(instance_class, target_stat)
+            if error_str is not None:
+                logger.error(error_str)
 
     FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'source': TunableEnumEntry(description='\n            Who or what to apply this test to\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor, invalid_enums=(ParticipantType.Invalid,)), 'target': TunableEnumEntry(description='\n            Who or what to use for the comparison\n            ', tunable_type=ParticipantType, default=ParticipantType.TargetSim), 'stat': TunablePackSafeReference(description='\n            The stat we are using for the comparison\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)), 'target_stats': TunableList(description='\n            The stat on the target we want to compare against.\n            If there is more than one, all must pass the comparison.\n            If there is none, it compares the same stat.\n            ', tunable=TunablePackSafeReference(manager=services.get_instance_manager(sims4.resources.Types.STATISTIC))), 'comparison': TunableOperator(description='\n            The comparison to perform against the value. The test passes if (source_stat comparison target)\n            ', default=sims4.math.Operator.GREATER_OR_EQUAL), 'score_to_use': TunableVariant(description='\n            Depending on the choice, this decides what value to use for the \n            threshold comparison.\n            ', points=_PointsValue.TunableFactory(description='\n                Use the raw points for the comparison in the test.\n                '), user_value=_UserValue.TunableFactory(description='\n                Use the user value for the comparison in the test.\n                '), rank=_RankValue.TunableFactory(description='\n                Use the rank value for the comparison in the test.\n                '), default='user_value'), 'difference': Tunable(description='\n            The difference between the source and target stat in order to pass \n            the threshold. This value is added to the source stat value and the \n            threshold is checked against the resulting value.\n            ', tunable_type=int, default=0)}
 
@@ -181,6 +181,12 @@ class RelativeStatTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
                         if not threshold.compare(source_curr_value):
                             operator_symbol = Operator.from_function(self.comparison).symbol
                             return TestResult(False, '{} failed relative stat check: {}.{} {} {} (current value: {})', self.source.name, target_obj.__class__.__name__, target_stat.__name__, operator_symbol, target_curr_value, source_curr_value)
+                    else:
+                        target_curr_value = self.score_to_use.get_value(target_obj, self.stat)
+                        threshold = sims4.math.Threshold(target_curr_value, self.comparison)
+                        if not threshold.compare(source_curr_value):
+                            operator_symbol = Operator.from_function(self.comparison).symbol
+                            return TestResult(False, '{} failed relative stat check: {}.{} {} {} (current value: {})', self.source.name, target_obj.__class__.__name__, self.stat.__name__, operator_symbol, target_curr_value, source_curr_value, tooltip=self.tooltip)
                 else:
                     target_curr_value = self.score_to_use.get_value(target_obj, self.stat)
                     threshold = sims4.math.Threshold(target_curr_value, self.comparison)
@@ -221,11 +227,12 @@ class RankedStatThresholdTest(SpecifiedStatThresholdMixin, HasTunableSingletonFa
             if self.ranked_stat is not None:
                 tracker = target.get_tracker(self.ranked_stat)
                 ranked_stat_inst = tracker.get_statistic(self.ranked_stat)
-                if not (self.ranked_stat.is_skill and ranked_stat_inst.is_initial_value):
-                    if self.test_against_highest_rank:
-                        value = ranked_stat_inst.highest_rank_achieved
-                    else:
-                        value = ranked_stat_inst.rank_level
+                if ranked_stat_inst is not None:
+                    if not (self.ranked_stat.is_skill and ranked_stat_inst.is_initial_value):
+                        if self.test_against_highest_rank:
+                            value = ranked_stat_inst.highest_rank_achieved
+                        else:
+                            value = ranked_stat_inst.rank_level
             else:
                 ranked_stat_inst = None
             if ranked_stat_inst is None and self.must_have_ranked_stat and self.num_participants is None:
@@ -323,13 +330,15 @@ class TunableStatOfCategoryTest(HasTunableSingletonFactory, AutoFactoryInit, eve
         for target in test_targets:
             found_category_on_sim = False
             for commodity in target.commodity_tracker.get_all_commodities():
-                if category in commodity.get_categories() and not commodity.is_at_convergence():
-                    if check_exist:
-                        found_category_on_sim = True
-                    else:
-                        return TestResult(False, 'Sim has a commodity disallowed by StatOfCategoryTest')
-            if check_exist and not found_category_on_sim:
-                TestResult(False, 'Sim does not have a commodity required by StatOfCategoryTest')
+                if category in commodity.get_categories():
+                    if not commodity.is_at_convergence():
+                        if check_exist:
+                            found_category_on_sim = True
+                        else:
+                            return TestResult(False, 'Sim has a commodity disallowed by StatOfCategoryTest')
+            if check_exist:
+                if not found_category_on_sim:
+                    TestResult(False, 'Sim does not have a commodity required by StatOfCategoryTest')
         return TestResult.TRUE
 
 class _AllObjectCommodityAdvertised(HasTunableSingletonFactory):
@@ -368,19 +377,16 @@ class CommodityAdvertisedTest(HasTunableSingletonFactory, AutoFactoryInit, event
     def _has_valid_aop(self, obj, motives, context, test_aops, check_suppression):
         for affordance in obj.super_affordances(context):
             if not affordance.commodity_flags & motives:
-                pass
-            else:
-                for aop in affordance.potential_interactions(obj, context):
-                    if check_suppression and obj.check_affordance_for_suppression(context.sim, aop, False):
-                        pass
-                    elif test_aops:
-                        test_result = aop.test(context)
-                        if not test_result:
-                            pass
-                        else:
-                            return True
-                    else:
-                        return True
+                continue
+            for aop in affordance.potential_interactions(obj, context):
+                if check_suppression and obj.check_affordance_for_suppression(context.sim, aop, False):
+                    continue
+                if test_aops:
+                    test_result = aop.test(context)
+                    if not test_result:
+                        continue
+                else:
+                    return True
         return False
 
     @cached_test
@@ -397,42 +403,38 @@ class CommodityAdvertisedTest(HasTunableSingletonFactory, AutoFactoryInit, event
                 if obj.is_sim:
                     sim_instance = obj.get_sim_instance()
                     if sim_instance is None:
-                        pass
-                    else:
-                        reference_object = sim_instance
-                        break
-                        if not obj.is_in_inventory():
-                            reference_object = obj
-                            break
+                        continue
+                    reference_object = sim_instance
+                    break
                 if not obj.is_in_inventory():
                     reference_object = obj
                     break
         motives = self.static_commodities.union(self.commodities)
         autonomy_rule = actor.get_off_lot_autonomy_rule()
         for obj in self.tested_objects.get_objects_gen():
-            if self.allow_targeted_objects or obj in targets:
+            if not self.allow_targeted_objects and obj in targets:
+                continue
+            motive_intersection = obj.commodity_flags & motives
+            if not motive_intersection:
+                continue
+            if self.test_autonomous_availability and not actor.autonomy_component.get_autonomous_availability_of_object(obj, autonomy_rule, reference_object=reference_object):
+                continue
+            if self.test_reservations and reserve_participants is not None:
+                for sim in reserve_participants:
+                    sim_instance = sim.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+                    if sim_instance is not None and obj.may_reserve(sim_instance):
+                        break
+            elif (self.test_aops or self.check_affordance_suppression) and not self._has_valid_aop(obj, motives, context, self.test_aops, self.check_affordance_suppression):
+                pass
+            elif self.test_connectivity_to_target and not obj.is_connected(actor):
                 pass
             else:
-                motive_intersection = obj.commodity_flags & motives
-                if not motive_intersection:
-                    pass
-                elif self.test_autonomous_availability and not actor.autonomy_component.get_autonomous_availability_of_object(obj, autonomy_rule, reference_object=reference_object):
-                    pass
-                elif self.test_reservations and reserve_participants is not None:
-                    for sim in reserve_participants:
-                        sim_instance = sim.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-                        if sim_instance is not None and obj.may_reserve(sim_instance):
-                            break
-                elif (self.test_aops or self.check_affordance_suppression) and not self._has_valid_aop(obj, motives, context, self.test_aops, self.check_affordance_suppression):
-                    pass
-                elif self.test_connectivity_to_target and not obj.is_connected(actor):
-                    pass
-                else:
-                    if self.requirements == self.REQUIRE_NONE:
-                        return TestResult(False, 'A specified commodity was found, but we are requiring that no specified commodities are found.', tooltip=self.tooltip)
-                    if self.requirements == self.REQUIRE_ANY:
-                        return TestResult.TRUE
-                    if self.requirements == self.REQUIRE_ALL and motive_intersection == motives:
+                if self.requirements == self.REQUIRE_NONE:
+                    return TestResult(False, 'A specified commodity was found, but we are requiring that no specified commodities are found.', tooltip=self.tooltip)
+                if self.requirements == self.REQUIRE_ANY:
+                    return TestResult.TRUE
+                if self.requirements == self.REQUIRE_ALL:
+                    if motive_intersection == motives:
                         return TestResult.TRUE
         if self.requirements == self.REQUIRE_NONE:
             return TestResult.TRUE
@@ -453,12 +455,12 @@ class CommodityDesiredByOtherSims(HasTunableSingletonFactory, AutoFactoryInit, e
         total_passed = 0
         for sim in services.sim_info_manager().instanced_sims_gen():
             if self.only_other_sims and context is not None and context.sim is sim:
-                pass
-            elif self.only_household_sims and context is not None and context.sim.household_id != sim.household_id:
-                pass
-            else:
-                commodity_inst = sim.get_stat_instance(self.commodity.commodity)
-                if commodity_inst is not None and self.commodity.threshold.compare(commodity_inst.get_value()):
+                continue
+            if self.only_household_sims and context is not None and context.sim.household_id != sim.household_id:
+                continue
+            commodity_inst = sim.get_stat_instance(self.commodity.commodity)
+            if commodity_inst is not None:
+                if self.commodity.threshold.compare(commodity_inst.get_value()):
                     total_passed += 1
                     if total_passed >= self.count:
                         if not self.invert:

@@ -73,17 +73,17 @@ class GardeningPlantComponent(_GardeningComponent, component_name=objects.compon
         for fruit in tuple(self.owner.children):
             gardening_component = fruit.get_component(types.GARDENING_COMPONENT)
             if gardening_component is None:
-                pass
-            elif not gardening_component.is_on_tree:
-                pass
-            elif fruit_state_behavior is not None and random.random() < fruit_state_behavior and self._on_fruit_fall_to_ground(fruit):
+                continue
+            if not gardening_component.is_on_tree:
+                continue
+            if fruit_state_behavior is not None and random.random() < fruit_state_behavior and self._on_fruit_fall_to_ground(fruit):
                 gardening_component.update_hovertip()
             else:
                 objs_to_destroy.append(fruit)
         if objs_to_destroy:
             services.get_reset_and_delete_service().trigger_batch_destroy(objs_to_destroy)
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         self._on_fruit_support_state_changed(state, old_value, new_value)
         self.update_hovertip()
 

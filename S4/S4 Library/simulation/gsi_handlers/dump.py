@@ -31,7 +31,7 @@ def save_dump_to_location(location, filename=None, console_output=None, compress
         pickle.dump({'version': GSI_DUMP_VERSION}, file, protocol=3)
         for (entry, schema, entry_data_gen) in get_dump_gen(console_output):
             try:
-                pickle.dump({'schema': schema, 'entry': entry, ENTRY_START_KEY: True}, file, protocol=3)
+                pickle.dump({ENTRY_START_KEY: True, 'entry': entry, 'schema': schema}, file, protocol=3)
                 for data_entry in entry_data_gen():
                     pickle.dump(data_entry, file, protocol=3)
             except pickle.PickleError as e:
@@ -58,37 +58,35 @@ def get_dump_gen(console_output):
                 schema = dispatch_data[1]
                 if not schema is None:
                     if 'exclude_from_dump' in schema:
-                        pass
-                    else:
-                        schema = schema.output
-                        if not isinstance(schema, GsiSchema) or not 'is_global_cheat' in schema or schema['is_global_cheat']:
-                            pass
-                        elif entry == 'command':
-                            pass
+                        continue
+                    schema = schema.output
+                    if not (not isinstance(schema, GsiSchema) or not not 'is_global_cheat' in schema) and schema['is_global_cheat']:
+                        continue
+                    if entry == 'command':
+                        continue
+
+                    def schema_entry_gen():
+                        if 'sim_specific' in schema and schema['sim_specific']:
+                            for sim_id in sim_ids:
+                                new_entry = _build_dump_entry(entry, schema, {'sim_id': sim_id, 'zone_id': zone_id, 'uncompress': 'false'})
+                                if new_entry is not None:
+                                    yield new_entry
+                                elif console_output is not None:
+                                    try:
+                                        console_output('Failed to collect data for {} on Sim ID {}'.format(entry, sim_id))
+                                    except:
+                                        pass
                         else:
+                            new_entry = _build_dump_entry(entry, schema, {'zone_id': zone_id, 'uncompress': 'false'})
+                            if new_entry is not None:
+                                yield new_entry
+                            elif console_output is not None:
+                                try:
+                                    console_output('Failed to collect data for {}'.format(entry))
+                                except:
+                                    pass
 
-                            def schema_entry_gen():
-                                if 'sim_specific' in schema and schema['sim_specific']:
-                                    for sim_id in sim_ids:
-                                        new_entry = _build_dump_entry(entry, schema, {'sim_id': sim_id, 'zone_id': zone_id, 'uncompress': 'false'})
-                                        if new_entry is not None:
-                                            yield new_entry
-                                        elif console_output is not None:
-                                            try:
-                                                console_output('Failed to collect data for {} on Sim ID {}'.format(entry, sim_id))
-                                            except:
-                                                pass
-                                else:
-                                    new_entry = _build_dump_entry(entry, schema, {'zone_id': zone_id, 'uncompress': 'false'})
-                                    if new_entry is not None:
-                                        yield new_entry
-                                    elif console_output is not None:
-                                        try:
-                                            console_output('Failed to collect data for {}'.format(entry))
-                                        except:
-                                            pass
-
-                            yield (entry, schema, schema_entry_gen)
+                    yield (entry, schema, schema_entry_gen)
 
 def _build_dump_entry(entry, schema, params):
     string_params = {key: str(value) for (key, value) in params.items()}

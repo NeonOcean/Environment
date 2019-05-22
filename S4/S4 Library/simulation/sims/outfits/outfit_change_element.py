@@ -11,7 +11,7 @@ class XevtOutfitChangeForReason(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'reason': TunableEnumEntry(description="\n            Outfit to change into. Tuning 'Invalid' will keep the Sim in their\n            current outfit.\n            ", tunable_type=OutfitChangeReason, default=OutfitChangeReason.Invalid)}
 
     def get_xevt_outfit(self, sim_info, interaction):
-        return sim_info.get_outfit_for_clothing_change(interaction, self.xevt_outfit_change.reason)
+        return sim_info.get_outfit_for_clothing_change(interaction, self.reason)
 
     def generate_xevt_outfit(self, sim_info):
         pass

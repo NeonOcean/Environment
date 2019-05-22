@@ -49,10 +49,13 @@ class NotebookTrackerSimInfo(SimInfoTracker):
 
     def remove_entry_by_reference(self, subcategory_id, entry):
         notebook_entries = self._notebook_entries.get(subcategory_id)
-        if notebook_entries and entry in notebook_entries:
-            notebook_entries.remove(entry)
-            if not notebook_entries:
-                self.remove_entries_by_subcategory(subcategory_id)
+        if not notebook_entries:
+            return
+        entries_to_remove = set(entry_inst for entry_inst in notebook_entries if isinstance(entry_inst, entry))
+        for to_remove in entries_to_remove:
+            notebook_entries.remove(to_remove)
+        if not notebook_entries:
+            self.remove_entries_by_subcategory(subcategory_id)
 
     def generate_notebook_information(self):
         msg = UI_pb2.NotebookView()
@@ -76,15 +79,14 @@ class NotebookTrackerSimInfo(SimInfoTracker):
                         subcategory_entries = self._notebook_entries[subcategory_id]
                         for entry in subcategory_entries:
                             if entry is None:
-                                pass
+                                continue
+                            if entry.is_definition_based():
+                                definition_data = entry.get_definition_notebook_data(ingredient_cache=ingredient_cache)
+                                if definition_data is not None:
+                                    self._fill_notebook_entry_data(notebook_subcategory_message, definition_data, True, entry.new_entry)
                             else:
-                                if entry.is_definition_based():
-                                    definition_data = entry.get_definition_notebook_data(ingredient_cache=ingredient_cache)
-                                    if definition_data is not None:
-                                        self._fill_notebook_entry_data(notebook_subcategory_message, definition_data, True, entry.new_entry)
-                                else:
-                                    self._fill_notebook_entry_data(notebook_subcategory_message, entry, False, entry.new_entry)
-                                entry.new_entry = False
+                                self._fill_notebook_entry_data(notebook_subcategory_message, entry, False, entry.new_entry)
+                            entry.new_entry = False
         op = GenericProtocolBufferOp(Operation.NOTEBOOK_VIEW, msg)
         Distributor.instance().add_op_with_no_owner(op)
 
@@ -133,11 +135,10 @@ class NotebookTrackerSimInfo(SimInfoTracker):
             tuning_reference_id = notebook_data.tuning_reference_id
             tuning_instance = manager.get(tuning_reference_id)
             if tuning_instance is None:
-                pass
-            else:
-                object_entry_ids = list(notebook_data.object_entry_ids)
-                object_recipe_id = notebook_data.object_recipe_id
-                self._owner.notebook_tracker.unlock_entry(tuning_instance(object_recipe_id, object_entry_ids, notebook_data.new_entry), from_load=True)
+                continue
+            object_entry_ids = list(notebook_data.object_entry_ids)
+            object_recipe_id = notebook_data.object_recipe_id
+            self._owner.notebook_tracker.unlock_entry(tuning_instance(object_recipe_id, object_entry_ids, notebook_data.new_entry), from_load=True)
 
     @classproperty
     def _tracker_lod_threshold(cls):

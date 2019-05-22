@@ -28,8 +28,9 @@ class Aquarium(objects.game_object.GameObject):
 
     def on_object_stack_id_updated(self, obj, old_obj_id, old_stack_count):
         for (i, fish_vfx_handle) in enumerate(self._fish_vfx_handles):
-            if fish_vfx_handle is not None and fish_vfx_handle[0] == old_obj_id:
-                self._fish_vfx_handles[i] = (obj.id, fish_vfx_handle[1])
+            if fish_vfx_handle is not None:
+                if fish_vfx_handle[0] == old_obj_id:
+                    self._fish_vfx_handles[i] = (obj.id, fish_vfx_handle[1])
         stack_delta = obj.stack_count() - old_stack_count
         if stack_delta > 0:
             for _ in range(stack_delta):
@@ -78,7 +79,8 @@ class Aquarium(objects.game_object.GameObject):
 
     def _remove_fish_effect(self, fish_obj_id):
         for (i, fish_vfx_handle) in enumerate(self._fish_vfx_handles):
-            if fish_vfx_handle is not None and fish_vfx_handle[0] == fish_obj_id:
-                fish_vfx_handle[1].stop()
-                self._fish_vfx_handles[i] = None
-                break
+            if fish_vfx_handle is not None:
+                if fish_vfx_handle[0] == fish_obj_id:
+                    fish_vfx_handle[1].stop()
+                    self._fish_vfx_handles[i] = None
+                    break

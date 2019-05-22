@@ -39,6 +39,9 @@ class ObjectBoundSituationMixin:
     def bind_object(self, obj):
         self._bound_object_id = obj.id
 
+    def bind_object_id(self, obj_id):
+        self._bound_object_id = obj_id
+
     @property
     def bound_object_id(self):
         return self._bound_object_id

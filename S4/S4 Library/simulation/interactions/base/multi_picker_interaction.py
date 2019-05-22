@@ -12,6 +12,7 @@ class MultiPickerInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):

@@ -138,7 +138,7 @@ class BaseSituation(IBouncerClient):
             if not cls.time_jump.should_load(seed):
                 logger.debug("Don't load lot situation:{} due to Sim Time passing", seed.situation_type, owner='sscholl')
                 return False
-            if cls.survives_active_household_change or zone.active_household_changed_between_save_and_load():
+            if not cls.survives_active_household_change and zone.active_household_changed_between_save_and_load():
                 logger.debug("Don't load lot situation:{} due to active_household_change", seed.situation_type, owner='sscholl')
                 return False
             if zone.venue_type_changed_between_save_and_load():
@@ -184,24 +184,25 @@ class BaseSituation(IBouncerClient):
         self._load_situation_jobs()
         zone = services.current_zone()
         sim_info_manager = services.sim_info_manager()
-        if zone.active_household_changed_between_save_and_load():
-            still_here = set()
-            removed_sim_job_data = None
-            for sim_info in sim_info_manager.get_sim_infos_saved_in_zone():
-                still_here.add(sim_info.sim_id)
-            for guest_info in self._guest_list.get_persisted_sim_guest_infos():
-                logger.debug('Sim:{} in guest list for situation:{}', sim_info_manager.get(guest_info.sim_id), self)
-                if guest_info.sim_id not in still_here:
-                    logger.debug('Sim: {} is not here. Removed from guest list for {}', sim_info_manager.get(guest_info.sim_id), self)
-                    self._guest_list.remove_guest_info(guest_info)
-                    if self.maintain_sims_consistency:
-                        if removed_sim_job_data is None:
-                            removed_sim_job_data = {}
-                        removed_sim_job_data[guest_info.sim_id] = guest_info.job_type
-            if removed_sim_job_data is not None:
-                self._expand_guest_list_from_sim_job_data(removed_sim_job_data)
-            self._expand_guest_list_based_on_tuning()
-            self._seed._spawn_sims_during_zone_spin_up = True
+        if self.time_jump.require_guest_list_regeneration(self) or self.survives_active_household_change:
+            if zone.active_household_changed_between_save_and_load():
+                still_here = set()
+                removed_sim_job_data = None
+                for sim_info in sim_info_manager.get_sim_infos_saved_in_zone():
+                    still_here.add(sim_info.sim_id)
+                for guest_info in self._guest_list.get_persisted_sim_guest_infos():
+                    logger.debug('Sim:{} in guest list for situation:{}', sim_info_manager.get(guest_info.sim_id), self)
+                    if guest_info.sim_id not in still_here:
+                        logger.debug('Sim: {} is not here. Removed from guest list for {}', sim_info_manager.get(guest_info.sim_id), self)
+                        self._guest_list.remove_guest_info(guest_info)
+                        if self.maintain_sims_consistency:
+                            if removed_sim_job_data is None:
+                                removed_sim_job_data = {}
+                            removed_sim_job_data[guest_info.sim_id] = guest_info.job_type
+                if removed_sim_job_data is not None:
+                    self._expand_guest_list_from_sim_job_data(removed_sim_job_data)
+                self._expand_guest_list_based_on_tuning()
+                self._seed._spawn_sims_during_zone_spin_up = True
         self._issue_requests()
         self._notify_guests_of_request()
 
@@ -258,7 +259,11 @@ class BaseSituation(IBouncerClient):
             for (sim, situation_sim) in self._situation_sims.items():
                 job_type = situation_sim.current_job_type
                 if not sim.is_selectable:
-                    pass
+                    if job_type.give_rewards_to_npc:
+                        if job_type.rewards:
+                            rewards = job_type.rewards.get(level, None)
+                            if rewards is not None:
+                                rewards.apply(sim, self)
                 if job_type.rewards:
                     rewards = job_type.rewards.get(level, None)
                     if rewards is not None:
@@ -393,7 +398,7 @@ class BaseSituation(IBouncerClient):
 
     def handle_event(self, sim_info, event, resolver):
         if self.scoring_enabled:
-            if self._main_goal_visibility or self.main_goal_visibility_test is not None and event in self.main_goal_visibility_test.test_events and resolver(self.main_goal_visibility_test):
+            if not self._main_goal_visibility and (self.main_goal_visibility_test is not None and event in self.main_goal_visibility_test.test_events) and resolver(self.main_goal_visibility_test):
                 self._main_goal_visibility = True
                 services.get_event_manager().unregister(self, self.main_goal_visibility_test.test_events)
                 goal_tracker = self._get_goal_tracker()
@@ -489,10 +494,11 @@ class BaseSituation(IBouncerClient):
     def _on_remove_sim_from_situation(self, sim):
         logger.debug('removing sim {0} from situation: {1}', sim, self)
         sim_job = self.get_current_job_for_sim(sim)
-        if sim_job.user_facing_sim_headline_display_override:
-            sim.sim_info.sim_headline = None
+        if self.is_user_facing or sim_job is not None:
+            if sim_job.user_facing_sim_headline_display_override:
+                sim.sim_info.sim_headline = None
         situation_sim = self._situation_sims.pop(sim, None)
-        if (self.is_user_facing or sim_job is not None) and situation_sim is not None and services.current_zone().is_zone_shutting_down == False:
+        if situation_sim is not None and services.current_zone().is_zone_shutting_down == False:
             if situation_sim.outfit_priority_handle is not None:
                 sim.sim_info.remove_default_outfit_priority(situation_sim.outfit_priority_handle)
             if self._stage != SituationStage.DEAD:
@@ -524,9 +530,10 @@ class BaseSituation(IBouncerClient):
         pass
 
     def _add_situation_buff_to_sim(self, sim):
-        if self._buff.buff_type is not None:
-            situation_sim = self._situation_sims[sim]
-            situation_sim.buff_handle = sim.add_buff(self._buff.buff_type)
+        if sim is not None:
+            if self._buff.buff_type is not None:
+                situation_sim = self._situation_sims[sim]
+                situation_sim.buff_handle = sim.add_buff(self._buff.buff_type)
 
     def _remove_situation_buff_from_sim(self, sim, situation_sim):
         if sim is not None and situation_sim.buff_handle is not None:
@@ -717,8 +724,9 @@ class BaseSituation(IBouncerClient):
         sim_key = list(self._situation_sims)
         for sim in sim_key:
             situation_sim = self._situation_sims.get(sim, None)
-            if situation_sim is not None and situation_sim.current_job_type == job_type:
-                self._set_sim_role_state(sim, role_state_type, role_affordance_target)
+            if situation_sim is not None:
+                if situation_sim.current_job_type == job_type:
+                    self._set_sim_role_state(sim, role_state_type, role_affordance_target)
 
     def _set_sim_role_state(self, sim, role_state_type, role_affordance_target=None, **kwargs):
         situation_sim = self._situation_sims[sim]
@@ -809,7 +817,7 @@ class BaseSituation(IBouncerClient):
         self._create_uninvited_request()
 
     def _create_uninvited_request(self):
-        if self._is_invite_only or self.default_job() is not None:
+        if not self._is_invite_only and self.default_job() is not None:
             request = BouncerFallbackRequestFactory(self, callback_data=_RequestUserData(), job_type=self.default_job(), user_facing=self.is_user_facing, exclusivity=self.exclusivity)
             self.manager.bouncer.submit_request(request)
 
@@ -893,12 +901,13 @@ class BaseSituation(IBouncerClient):
                 resolver = SingleSimResolver(sim.sim_info)
                 found_outfit = False
                 outfit_generators_test = list(outfit_generators)
-                while outfit_generators_test and not found_outfit:
-                    outfit_generator = random.choice(outfit_generators_test)
-                    if not outfit_generator.tests.run_tests(resolver):
-                        outfit_generators_test.remove(outfit_generator)
-                    else:
-                        found_outfit = True
+                while outfit_generators_test:
+                    while not found_outfit:
+                        outfit_generator = random.choice(outfit_generators_test)
+                        if not outfit_generator.tests.run_tests(resolver):
+                            outfit_generators_test.remove(outfit_generator)
+                        else:
+                            found_outfit = True
                 if found_outfit:
                     outfit_generator.generator(sim.sim_info, OutfitCategory.SITUATION, outfit_index=0)
                 else:
@@ -988,8 +997,9 @@ class BaseSituation(IBouncerClient):
         if not self._situation_sims:
             return sims
         for (sim, situation_sim) in tuple(self._situation_sims.items()):
-            if situation_sim.current_job_type is job_type and self is self.manager._bouncer.get_most_important_situation_for_sim(sim):
-                sims.append(sim)
+            if situation_sim.current_job_type is job_type:
+                if self is self.manager._bouncer.get_most_important_situation_for_sim(sim):
+                    sims.append(sim)
         return sims
 
     def get_num_sims_in_job_for_churn(self, job_type):
@@ -1016,7 +1026,7 @@ class BaseSituation(IBouncerClient):
                         bullet_points.append(recommended_object_tuning.object_display_name)
             if bullet_points:
                 sim_info = services.sim_info_manager().get(self._guest_list.host_sim_id)
-                return self._display_role_objects_notification(sim_info, LocalizationHelperTuning.get_bulleted_list((None,), bullet_points))
+                return self._display_role_objects_notification(sim_info, LocalizationHelperTuning.get_bulleted_list(None, *bullet_points))
 
     def _display_role_objects_notification(self, sim, bullets):
         raise NotImplementedError
@@ -1039,6 +1049,10 @@ class BaseSituation(IBouncerClient):
 
     @property
     def start_audio_sting(self):
+        pass
+
+    @property
+    def audio_background(self):
         pass
 
     @property
@@ -1121,7 +1135,7 @@ class BaseSituation(IBouncerClient):
     def gsi_additional_data(self, gsi_key_name, gsi_value_name):
         gsi_additional_data = []
         for (key, value) in self._gsi_additional_data_gen():
-            gsi_additional_data.append({gsi_value_name: value, gsi_key_name: key})
+            gsi_additional_data.append({gsi_key_name: key, gsi_value_name: value})
         return gsi_additional_data
 
     def _gsi_additional_data_gen(self):
@@ -1314,20 +1328,24 @@ class BaseSituation(IBouncerClient):
         start_msg.current_level = self.build_situation_level_update_message()
         for sim in self._situation_sims.keys():
             if not sim.is_selectable:
-                pass
-            else:
-                sim_job = self.get_current_job_for_sim(sim)
-                if sim_job is not None:
-                    with ProtocolBufferRollback(start_msg.sim_jobs) as job_msg:
-                        job_msg.sim_id = sim.id
-                        job_msg.name = sim_job.display_name
-                        job_msg.desc = sim_job.job_description
+                continue
+            sim_job = self.get_current_job_for_sim(sim)
+            if sim_job is not None:
+                with ProtocolBufferRollback(start_msg.sim_jobs) as job_msg:
+                    job_msg.sim_id = sim.id
+                    job_msg.name = sim_job.display_name
+                    job_msg.desc = sim_job.job_description
         start_msg.start_time = self._start_time.absolute_ticks()
         start_audio_sting = self.start_audio_sting
         if start_audio_sting is not None:
             start_msg.start_audio_sting.type = start_audio_sting.type
             start_msg.start_audio_sting.group = start_audio_sting.group
             start_msg.start_audio_sting.instance = start_audio_sting.instance
+        background_audio = self.audio_background
+        if background_audio is not None:
+            start_msg.background_audio.type = background_audio.type
+            start_msg.background_audio.group = background_audio.group
+            start_msg.background_audio.instance = background_audio.instance
         start_msg.display_type = self.situation_display_type.value
         start_msg.user_facing_type = self.user_facing_type.value
         start_msg.linked_sim_id = self.linked_sim_id
@@ -1352,9 +1370,8 @@ class BaseSituation(IBouncerClient):
                 level_reward.give_reward(self.initiating_sim_info)
             for sim in self._situation_sims.keys():
                 if not sim.is_selectable:
-                    pass
-                else:
-                    end_msg.sim_ids.append(sim.id)
+                    continue
+                end_msg.sim_ids.append(sim.id)
             end_msg.final_score = int(round(self._score))
             end_msg.final_level = self.build_situation_level_update_message()
             end_audio_sting = self.end_audio_sting
@@ -1461,20 +1478,25 @@ class BaseSituation(IBouncerClient):
         for target_sim in active_household.instanced_sims_gen():
             target_sim_info = target_sim.sim_info
             if target_sim_info == sim_info:
-                pass
-            else:
-                bucks_tracker = BucksUtils.get_tracker_for_bucks_type(FameTunables.TRAILBLAZER_PERK.associated_bucks_type, target_sim.id)
-                if bucks_tracker is None:
-                    pass
-                elif target_sim_info.species == sim_info.species and (sim_info.clothing_preference_gender == target_sim_info.clothing_preference_gender and bucks_tracker.is_perk_unlocked(FameTunables.TRAILBLAZER_PERK)) and random.random() <= FameTunables.CHANCE_TO_WEAR_TRAILBLAZER_OUTFIT:
-                    number_of_outfits = len(target_sim_info.get_outfits_in_category(OutfitCategory.EVERYDAY))
-                    index = random.randrange(number_of_outfits - 1) if number_of_outfits > 1 else 0
-                    with target_sim_info.set_temporary_outfit_flags(OutfitCategory.EVERYDAY, index, BodyTypeFlag.CLOTHING_ALL):
-                        sim_info.generate_merged_outfit(target_sim_info, (OutfitCategory.SITUATION, 0), sim.sim_info.get_current_outfit(), (OutfitCategory.EVERYDAY, index), preserve_outfit_flags=True)
-                    if self.manager.sim_being_created is sim or not services.current_zone().is_zone_running:
-                        sim.set_current_outfit((OutfitCategory.SITUATION, 0))
-                        return True
-                    context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, interactions.priority.Priority.High, insert_strategy=QueueInsertStrategy.NEXT, bucket=interactions.context.InteractionBucketType.DEFAULT)
-                    sim.push_super_affordance(self.CHANGE_TO_SITUATION_OUTFIT, None, context)
-                    return True
+                continue
+            bucks_tracker = BucksUtils.get_tracker_for_bucks_type(FameTunables.TRAILBLAZER_PERK.associated_bucks_type, target_sim.id)
+            if bucks_tracker is None:
+                continue
+            if target_sim_info.species == sim_info.species:
+                if sim_info.clothing_preference_gender == target_sim_info.clothing_preference_gender:
+                    if bucks_tracker.is_perk_unlocked(FameTunables.TRAILBLAZER_PERK):
+                        if random.random() <= FameTunables.CHANCE_TO_WEAR_TRAILBLAZER_OUTFIT:
+                            number_of_outfits = len(target_sim_info.get_outfits_in_category(OutfitCategory.EVERYDAY))
+                            index = random.randrange(number_of_outfits - 1) if number_of_outfits > 1 else 0
+                            with target_sim_info.set_temporary_outfit_flags(OutfitCategory.EVERYDAY, index, BodyTypeFlag.CLOTHING_ALL):
+                                sim_info.generate_merged_outfit(target_sim_info, (OutfitCategory.SITUATION, 0), sim.sim_info.get_current_outfit(), (OutfitCategory.EVERYDAY, index), preserve_outfit_flags=True)
+                            if self.manager.sim_being_created is sim or not services.current_zone().is_zone_running:
+                                sim.set_current_outfit((OutfitCategory.SITUATION, 0))
+                                return True
+                            context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, interactions.priority.Priority.High, insert_strategy=QueueInsertStrategy.NEXT, bucket=interactions.context.InteractionBucketType.DEFAULT)
+                            sim.push_super_affordance(self.CHANGE_TO_SITUATION_OUTFIT, None, context)
+                            return True
         return False
+
+    def _on_proxy_situation_goal_added(self, goal):
+        logger.error('Situation {} does not support proxy goals.  Please check with your GPE partner why a proxy situation goal is being used and have this function implimented if it is intended.', self)

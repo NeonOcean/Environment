@@ -1,3 +1,4 @@
+import itertools
 from distributor.shared_messages import IconInfoData
 from notebook.notebook_entry import NotebookEntry, EntryData, SubListData
 from objects.collection_manager import ObjectCollectionData, CollectionIdentifier
@@ -31,7 +32,7 @@ class NotebookEntryGardeningPlant(NotebookEntry):
         for (splice_fruit, splice_fruit_result) in gardening_tuned_values.splicing_recipies.items():
             sub_list_data.append(SubListData(None, 0, 0, True, self.entry_text_splicing(splice_fruit, splice_fruit_result)))
         gardening_collection_data = ObjectCollectionData.get_collection_data(CollectionIdentifier.Gardening)
-        for obj_data in gardening_collection_data.object_list:
+        for obj_data in itertools.chain(gardening_collection_data.object_list, gardening_collection_data.bonus_object_list):
             if obj_data.collectable_item is fruit_definition:
                 rarity_text = ObjectCollectionData.COLLECTION_RARITY_MAPPING[obj_data.rarity].text_value
                 sub_list_data.append(SubListData(None, 0, 0, True, self.entry_text_rarity(rarity_text)))

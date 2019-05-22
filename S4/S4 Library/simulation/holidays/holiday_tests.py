@@ -37,12 +37,12 @@ class SpecificHolidaysTest(HasTunableSingletonFactory, AutoFactoryInit):
             return TestResult(False, 'Requesting node that is not in this pack.')
         for node in drama_scheduler.active_nodes_gen():
             if type(node) is not self.holiday_drama_node:
-                pass
-            else:
-                if node.is_running:
-                    drama_node_in_required_state = True
-                    break
-                if self.count_pre_holiday_time and node.is_in_preholiday:
+                continue
+            if node.is_running:
+                drama_node_in_required_state = True
+                break
+            if self.count_pre_holiday_time:
+                if node.is_in_preholiday:
                     drama_node_in_required_state = True
                     break
         if self.invert:

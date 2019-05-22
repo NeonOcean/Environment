@@ -52,9 +52,11 @@ class WalkState(CommonInteractionCompletedSituationState):
         if sim.has_any_interaction_running_or_queued_of_types((self.attractor_node_affordance,)):
             return
         for (_, carry_posture, carry_target) in get_carried_objects_gen(sim):
-            if carry_target.transient and carry_posture.source_interaction.running:
-                break
-        return
+            if carry_target.transient:
+                if carry_posture.source_interaction.running:
+                    break
+        else:
+            return
         self._cancel_alarm(WalkState.RETRY_ALARM_NAME)
         self._attempts += 1
         if self._attempts > self.max_attempts:

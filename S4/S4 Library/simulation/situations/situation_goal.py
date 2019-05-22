@@ -193,7 +193,8 @@ class SituationGoal(SituationGoalDisplayMixin, metaclass=HashedTunedInstanceMeta
                 for sim in loot_sims:
                     loot.apply_to_resolver(sim.get_resolver())
         self._display_goal_completed_dialogs()
-        self._on_goal_completed_callbacks(self, True)
+        with situations.situation_manager.DelayedSituationDestruction():
+            self._on_goal_completed_callbacks(self, True)
 
     def _on_iteration_completed(self):
         self._on_goal_completed_callbacks(self, False)

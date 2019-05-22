@@ -142,12 +142,8 @@ def build_buy_pause_unpause(is_pause:bool=True, _connection=None):
     return True
 
 @sims4.commands.Command('clock.set_speed_multiplier_type', command_type=CommandType.Automation)
-def set_speed_multipliers(speed_multiplier_type:str, _connection=None):
-    try:
-        multiplier_type = clock.ClockSpeedMultiplierType(speed_multiplier_type)
-        services.game_clock_service()._set_clock_speed_multiplier_type(multiplier_type)
-    except ValueError:
-        sims4.commands.CheatOutput(_connection)('{} is not a valid ClockSpeedMultiplierType entry'.format(speed_multiplier_type))
+def set_speed_multipliers(speed_multiplier_type:clock.ClockSpeedMultiplierType, _connection=None):
+    services.game_clock_service()._set_clock_speed_multiplier_type(speed_multiplier_type)
 
 @sims4.commands.Command('clock.show_speed_info', command_type=CommandType.Automation)
 def show_speed_info(_connection=None):

@@ -54,7 +54,7 @@ class SimInfoCreationSource(enum.IntFlags, export=False):
     PREGNANCY = 256
     CHEAT = 512
     FILTER = 1024
-    _CREATION_PATH_TO_CREATION_SOURCE = {FileSerialization_pb2.SimData.SIMCREATION_GALLERY: GALLERY, FileSerialization_pb2.SimData.SIMCREATION_CLONED: CLONED, FileSerialization_pb2.SimData.SIMCREATION_PRE_MADE: PRE_MADE, FileSerialization_pb2.SimData.SIMCREATION_REENTRY_ADDSIM: CAS_REENTRY, FileSerialization_pb2.SimData.SIMCREATION_INIT: CAS_INITIAL}
+    _CREATION_PATH_TO_CREATION_SOURCE = {FileSerialization_pb2.SimData.SIMCREATION_INIT: CAS_INITIAL, FileSerialization_pb2.SimData.SIMCREATION_REENTRY_ADDSIM: CAS_REENTRY, FileSerialization_pb2.SimData.SIMCREATION_PRE_MADE: PRE_MADE, FileSerialization_pb2.SimData.SIMCREATION_CLONED: CLONED, FileSerialization_pb2.SimData.SIMCREATION_GALLERY: GALLERY}
     _LEGACY_SOURCE_TO_CREATION_SOURCE = {'cas: initial': CAS_INITIAL, 'cas: re-entry': CAS_REENTRY, 'pre-made': PRE_MADE, 'cloned': CLONED, 'gallery': GALLERY, 'pregnancy': PREGNANCY, 'premade_household': HOUSEHOLD_TEMPLATE, 'unknown': UNKNOWN, 'cheat': CHEAT, 'adoption': ADOPTION, 'neigh_pop_service': NEIGHBORHOOD_POPULATION_SERVICE, 'filter': FILTER}
 
     @staticmethod
@@ -73,7 +73,8 @@ class SimInfoCreationSource(enum.IntFlags, export=False):
             if k.lower() in legacy_creation_source.lower():
                 creation_source = SimInfoCreationSource(v)
                 break
-        creation_source = SimInfoCreationSource.UNKNOWN
+        else:
+            creation_source = SimInfoCreationSource.UNKNOWN
         creation_source = SimInfoCreationSource.SimInfoCreationSourceData(creation_source, legacy_creation_source)
         return creation_source
 

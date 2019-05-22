@@ -72,11 +72,12 @@ class WeddingSituation(situations.situation_complex.SituationComplexCommon):
             self._change_state(FailedReceptionState())
 
     def is_ceremony_starting(self, event, resolver):
-        if resolver(self.ceremony):
-            participants = resolver.get_participants(interactions.ParticipantType.Actor)
-            for sim in self._betrothed_sims:
-                if sim.sim_info in participants:
-                    return True
+        if event == TestEvent.InteractionStart:
+            if resolver(self.ceremony):
+                participants = resolver.get_participants(interactions.ParticipantType.Actor)
+                for sim in self._betrothed_sims:
+                    if sim.sim_info in participants:
+                        return True
         return False
 
     def _save_custom_state(self, writer):
@@ -106,9 +107,10 @@ class GatherState(SituationState):
         self._impatient_alarm_handle = alarms.add_alarm(self, clock.interval_in_sim_minutes(time_out), lambda _: self.timer_expired())
         for custom_key in self.owner.ceremony.custom_keys_gen():
             self._test_event_register(TestEvent.InteractionStart, custom_key)
-        if reader.read_bool('saved_during_ceremony', False):
-            for (job_type, role_state_type) in self.owner._get_tuned_job_and_default_role_state_tuples():
-                self.owner._set_job_role_state(job_type, role_state_type)
+        if reader is not None:
+            if reader.read_bool('saved_during_ceremony', False):
+                for (job_type, role_state_type) in self.owner._get_tuned_job_and_default_role_state_tuples():
+                    self.owner._set_job_role_state(job_type, role_state_type)
 
     def save_state(self, writer):
         super().save_state(writer)
@@ -180,8 +182,9 @@ class CeremonyState(SituationState):
                 InteractionCancelCompatibility.cancel_interactions_for_reason(sim, InteractionCancelReason.WEDDING, FinishingType.WEDDING, 'Interaction was cancelled due to the wedding situation.')
                 autonomy_request = AutonomyRequest(sim, autonomy_mode=FullAutonomy, object_list=object_list, static_commodity_list=static_commodity_list, limited_autonomy_allowed=False, autonomy_mode_label_override='WeddingMakeGuestsWatch')
                 selected_interaction = services.autonomy_service().find_best_action(autonomy_request)
-                if selected_interaction is not None and AffordanceObjectPair.execute_interaction(selected_interaction):
-                    self._guest_sim_infos_to_force_watch.remove(sim_info)
+                if selected_interaction is not None:
+                    if AffordanceObjectPair.execute_interaction(selected_interaction):
+                        self._guest_sim_infos_to_force_watch.remove(sim_info)
         if self._guest_sim_infos_to_force_watch:
             self._alarm_handle = alarms.add_alarm(self, create_time_span(minutes=self.MAKE_GUESTS_WATCH_ALARM_TIME), self._make_guests_watch)
 

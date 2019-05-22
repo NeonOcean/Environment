@@ -47,23 +47,22 @@ class UiMultiPicker(UiDialogOkCancel):
             aop = AffordanceObjectPair(picker_data.picker_interaction, None, picker_data.picker_interaction, None)
             result = aop.interaction_factory(context)
             if not result:
-                pass
+                continue
+            interaction = result.interaction
+            picker_tuning = picker_data.picker_interaction.picker_dialog
+            if picker_tuning.title is None:
+                title = lambda *_, **__: interaction.get_name(apply_name_modifiers=False)
             else:
-                interaction = result.interaction
-                picker_tuning = picker_data.picker_interaction.picker_dialog
-                if picker_tuning.title is None:
-                    title = lambda *_, **__: interaction.get_name(apply_name_modifiers=False)
-                else:
-                    title = self.picker_dialog.title
-                dialog = picker_tuning(self._owner(), title=title, resolver=interaction.get_resolver(context=context))
-                interaction._setup_dialog(dialog)
-                dialog.add_listener(interaction._on_picker_selected)
-                self._picker_dialogs[dialog.dialog_id] = dialog
-                new_message = dialog.build_msg()
-                multi_picker_item = multi_picker_msg.multi_picker_items.add()
-                multi_picker_item.picker_data = new_message.picker_data
-                multi_picker_item.picker_id = new_message.dialog_id
-                multi_picker_item.disabled_tooltip = picker_data.disabled_tooltip
+                title = self.picker_dialog.title
+            dialog = picker_tuning(self._owner(), title=title, resolver=interaction.get_resolver(context=context))
+            interaction._setup_dialog(dialog)
+            dialog.add_listener(interaction._on_picker_selected)
+            self._picker_dialogs[dialog.dialog_id] = dialog
+            new_message = dialog.build_msg()
+            multi_picker_item = multi_picker_msg.multi_picker_items.add()
+            multi_picker_item.picker_data = new_message.picker_data
+            multi_picker_item.picker_id = new_message.dialog_id
+            multi_picker_item.disabled_tooltip = picker_data.disabled_tooltip
         message.multi_picker_data = multi_picker_msg
         return message
 
@@ -79,8 +78,9 @@ class UiMultiPicker(UiDialogOkCancel):
         for picker_result in response_proto.picker_responses:
             if picker_result.picker_id in self._picker_dialogs:
                 dialog = self._picker_dialogs[picker_result.picker_id]
-                if self._check_for_changes(dialog, picker_result.choices):
-                    self._changes_made = True
+                if not self._changes_made:
+                    if self._check_for_changes(dialog, picker_result.choices):
+                        self._changes_made = True
                 dialog.pick_results(picker_result.choices)
                 dialog.respond(ButtonType.DIALOG_RESPONSE_OK)
         if self.existing_text[1] != response_proto.text_input:
@@ -89,7 +89,7 @@ class UiMultiPicker(UiDialogOkCancel):
 
     def _check_for_changes(self, dialog, choices):
         for (index, row) in enumerate(dialog.picker_rows):
-            if row.is_selected is not index in choices:
+            if row.is_selected is not (index in choices):
                 return True
         return False
 

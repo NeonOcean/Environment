@@ -66,31 +66,31 @@ class _PortalTypeDataPosture(_PortalTypeDataBase):
                     break
                 if handle_species_param == species_param:
                     break
-            return
+            else:
+                return
             return next(iter(handle.get_goals()), None)
 
         posture_species = self.posture_end.get_animation_species()
         for species in SpeciesExtended:
+            if species == SpeciesExtended.INVALID:
+                continue
             if SpeciesExtended.get_species(species) not in posture_species:
-                pass
-            else:
-                stub_actor = get_global_stub_actor(species)
-                portal_posture = postures.create_posture(self.posture_end, stub_actor, obj, is_throwaway=True)
-                slot_constraint = portal_posture.slot_constraint
-                containment_constraint = next(iter(slot_constraint))
-                there_start = get_outer_portal_goal(slot_constraint, stub_actor)
-                if there_start is None:
-                    pass
-                else:
-                    there_end = containment_constraint.containment_transform
-                    back_start = containment_constraint.containment_transform_exit
-                    back_end = get_outer_portal_goal(slot_constraint, stub_actor, entry=False)
-                    if back_end is None:
-                        pass
-                    else:
-                        there_entry = Location(there_start.position, orientation=there_start.orientation, routing_surface=routing_surface_start)
-                        there_exit = Location(there_end.translation, orientation=there_end.orientation, routing_surface=routing_surface_end)
-                        back_entry = Location(back_start.translation, orientation=back_start.orientation, routing_surface=routing_surface_end)
-                        back_exit = Location(back_end.position, orientation=back_end.orientation, routing_surface=routing_surface_start)
-                        species_portals.append((there_entry, there_exit, back_entry, back_exit, SpeciesExtended.get_portal_flag(species)))
+                continue
+            stub_actor = get_global_stub_actor(species)
+            portal_posture = postures.create_posture(self.posture_end, stub_actor, obj, is_throwaway=True)
+            slot_constraint = portal_posture.slot_constraint
+            containment_constraint = next(iter(slot_constraint))
+            there_start = get_outer_portal_goal(slot_constraint, stub_actor)
+            if there_start is None:
+                continue
+            there_end = containment_constraint.containment_transform
+            back_start = containment_constraint.containment_transform_exit
+            back_end = get_outer_portal_goal(slot_constraint, stub_actor, entry=False)
+            if back_end is None:
+                continue
+            there_entry = Location(there_start.position, orientation=there_start.orientation, routing_surface=routing_surface_start)
+            there_exit = Location(there_end.translation, orientation=there_end.orientation, routing_surface=routing_surface_end)
+            back_entry = Location(back_start.translation, orientation=back_start.orientation, routing_surface=routing_surface_end)
+            back_exit = Location(back_end.position, orientation=back_end.orientation, routing_surface=routing_surface_start)
+            species_portals.append((there_entry, there_exit, back_entry, back_exit, SpeciesExtended.get_portal_flag(species)))
         return species_portals

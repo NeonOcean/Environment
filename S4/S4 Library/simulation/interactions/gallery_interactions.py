@@ -62,7 +62,7 @@ class MoveInFromGallerySuperInteraction(TerrainImmediateSuperInteraction):
 
     def _run_interaction_gen(self, timeline):
         if services.get_persistence_service().is_save_locked():
-            return
+            yield
         (solo_zone_id, zone_ids) = self._get_zone_ids_from_context(self.context)
         persistence_service = services.get_persistence_service()
         household_id = persistence_service.get_household_id_from_zone_id(solo_zone_id)

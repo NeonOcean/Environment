@@ -26,14 +26,15 @@ def generate_broadcaster_data():
         try:
             broadcaster_service = services.current_zone().broadcaster_service
             broadcaster_service_real_time = services.current_zone().broadcaster_real_time_service
-            if broadcaster_service_real_time is not None:
-                for broadcaster in itertools.chain(broadcaster_service.get_broadcasters_debug_gen(), broadcaster_service_real_time.get_broadcasters_debug_gen()):
-                    yield ('Active', broadcaster)
-                    linked_broadcasters = list(broadcaster.get_linked_broadcasters_gen())
-                    for linked_broadcaster in linked_broadcasters:
-                        yield ('Linked/{}'.format(broadcaster.broadcaster_id), linked_broadcaster)
-                for broadcaster in itertools.chain(broadcaster_service.get_pending_broadcasters_gen(), broadcaster_service_real_time.get_pending_broadcasters_gen()):
-                    yield ('Pending', broadcaster)
+            if broadcaster_service is not None:
+                if broadcaster_service_real_time is not None:
+                    for broadcaster in itertools.chain(broadcaster_service.get_broadcasters_debug_gen(), broadcaster_service_real_time.get_broadcasters_debug_gen()):
+                        yield ('Active', broadcaster)
+                        linked_broadcasters = list(broadcaster.get_linked_broadcasters_gen())
+                        for linked_broadcaster in linked_broadcasters:
+                            yield ('Linked/{}'.format(broadcaster.broadcaster_id), linked_broadcaster)
+                    for broadcaster in itertools.chain(broadcaster_service.get_pending_broadcasters_gen(), broadcaster_service_real_time.get_pending_broadcasters_gen()):
+                        yield ('Pending', broadcaster)
         except RuntimeError:
             pass
 

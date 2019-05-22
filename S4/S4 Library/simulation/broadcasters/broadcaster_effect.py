@@ -80,7 +80,7 @@ class _BroadcasterEffectTestedOneShot(_BroadcasterEffectTested):
         return result
 
 class BroadcasterEffectBuff(_BroadcasterEffectTested):
-    FACTORY_TUNABLES = {'buff': buffs.tunable.TunableBuffReference(description='\n            The buff to apply while the broadcaster actively affects the Sim.\n            ')}
+    FACTORY_TUNABLES = {'buff': buffs.tunable.TunableBuffReference(description='\n            The buff to apply while the broadcaster actively affects the Sim.\n            '), 'remove_buff': Tunable(description='\n            If enabled, the buff is automatically cleared on broadcaster\n            ends. If disabled, the buff will remain.\n            ', tunable_type=bool, default=True)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -95,9 +95,12 @@ class BroadcasterEffectBuff(_BroadcasterEffectTested):
             return
         key = (affected_object.id, broadcaster.broadcaster_id)
         if key not in self._buff_handles:
-            handle_id = affected_object.add_buff(self.buff.buff_type, buff_reason=self.buff.buff_reason)
-            if handle_id:
-                self._buff_handles[key] = handle_id
+            if self.remove_buff:
+                handle_id = affected_object.add_buff(self.buff.buff_type, buff_reason=self.buff.buff_reason)
+                if handle_id:
+                    self._buff_handles[key] = handle_id
+            else:
+                affected_object.add_buff_from_op(self.buff.buff_type, buff_reason=self.buff.buff_reason)
 
     def remove_broadcaster_effect(self, broadcaster, affected_object):
         if not affected_object.is_sim:
@@ -151,10 +154,11 @@ class BroadcasterEffectStateChange(_BroadcasterEffectTested):
             self._broadcaster_object_dict[broadcaster_id].remove(object_id)
             if not self._broadcaster_object_dict[broadcaster_id]:
                 del self._broadcaster_object_dict[broadcaster_id]
-            self._state_ref_counts[key] -= 1
-            if not self._state_ref_counts[key]:
-                affected_object.set_state(self.state_change_on_exit.state, self.state_change_on_exit)
-                del self._state_ref_counts[key]
+            if key in self._state_ref_counts:
+                self._state_ref_counts[key] -= 1
+                if not self._state_ref_counts[key]:
+                    affected_object.set_state(self.state_change_on_exit.state, self.state_change_on_exit)
+                    del self._state_ref_counts[key]
 
 class BroadcasterEffectAffordance(_BroadcasterEffectTestedOneShot):
     FACTORY_TUNABLES = {'affordances': TunableList(description='\n            A list of affordances to choose from to push as a result of the\n            broadcaster.\n            ', tunable=TunableTuple(description='\n                A tuple of affordance to push and weight for how likely the\n                affordance is to be picked.\n                ', affordance=TunableReference(description='\n                    The affordance to push on Sims affected by the broadcaster.\n                    ', manager=services.affordance_manager(), pack_safe=True), weight=TunableRange(description='\n                    How likely this affordance is to be picked.\n                    ', tunable_type=int, minimum=1, default=1))), 'affordance_target': OptionalTunable(description='\n            If enabled, the pushed interaction will target a specified\n            participant.\n            ', tunable=TunableEnumEntry(description='\n                The participant to be targeted by the pushed interaction.\n                ', tunable_type=ParticipantType, default=ParticipantType.Object), enabled_by_default=True), 'affordance_priority': TunableEnumEntry(description='\n            The priority at which the specified affordance is to be pushed.\n            ', tunable_type=Priority, default=Priority.Low), 'affordance_run_priority': OptionalTunable(description="\n            If enabled, specify the priority at which the affordance runs. This\n            may be different than 'affordance_priority'. For example. you might\n            want an affordance to push at high priority such that it cancels\n            existing interactions, but it runs at a lower priority such that it\n            can be more easily canceled.\n            ", tunable=TunableEnumEntry(description='\n                The run priority for the specified affordance.\n                ', tunable_type=Priority, default=Priority.Low)), 'affordance_must_run_next': Tunable(description="\n            If set, the affordance will be inserted at the beginning of the\n            Sim's queue.\n            ", tunable_type=bool, default=False), 'actor_can_violate_privacy_from_owning_interaction': Tunable(description='\n            If enabled, the actor of the pushed affordance will be allowed to\n            violate the privacy region from the owning interaction. If\n            disabled, the actor of the pushed affordance will not be able to\n            violate the privacy region created by the owning interaction.\n            ', tunable_type=bool, default=True)}
@@ -175,9 +179,10 @@ class BroadcasterEffectAffordance(_BroadcasterEffectTestedOneShot):
 
     def _get_target_and_context(self, resolver, affected_object):
         affordance_target = resolver.get_participant(self.affordance_target) if self.affordance_target is not None else None
-        if affordance_target.is_sim:
-            affordance_target = affordance_target.get_sim_instance()
-        insert_strategy = QueueInsertStrategy.NEXT if affordance_target is not None and self.affordance_must_run_next else QueueInsertStrategy.LAST
+        if affordance_target is not None:
+            if affordance_target.is_sim:
+                affordance_target = affordance_target.get_sim_instance()
+        insert_strategy = QueueInsertStrategy.NEXT if self.affordance_must_run_next else QueueInsertStrategy.LAST
         context = InteractionContext(affected_object, InteractionContext.SOURCE_SCRIPT, self.affordance_priority, run_priority=self.affordance_run_priority, insert_strategy=insert_strategy)
         return (affordance_target, context)
 

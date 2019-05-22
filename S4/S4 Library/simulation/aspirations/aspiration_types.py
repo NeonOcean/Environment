@@ -11,3 +11,4 @@ class AspriationType(enum.Int):
     ASSIGNMENT = 7
     ZONE_DIRECTOR = 8
     TIMED_ASPIRATION = 9
+    GIG = 10

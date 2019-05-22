@@ -44,10 +44,12 @@ class AdoptionSuperInteraction(SuperInteraction, NameOffspringSuperInteractionMi
         adopted_sim_info = self.get_participant(ParticipantType.PickedSim)
         if adopted_sim_info is None:
             return False
+            yield
         last_name = SimSpawner.get_last_name(self.sim.last_name, adopted_sim_info.gender, adopted_sim_info.species)
         result = yield from self._do_renames_gen(timeline, (adopted_sim_info,), additional_tokens=(last_name,))
         if not result:
             return result
+            yield
         parent_a = self.sim.sim_info
         parent_b = services.sim_info_manager().get(parent_a.spouse_sim_id)
         adoption_service = services.get_adoption_service()
@@ -63,3 +65,4 @@ class AdoptionSuperInteraction(SuperInteraction, NameOffspringSuperInteractionMi
         else:
             SimSpawner.spawn_sim(adopted_sim_info, sim_position=self.sim.position)
         return True
+        yield

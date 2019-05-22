@@ -42,8 +42,10 @@ class NameOffspringSuperInteractionMixin:
             if not result:
                 self.cancel(FinishingType.DIALOG, cancel_reason_msg='Time out or missing first/last name')
                 return False
+                yield
             offspring_index += 1
         return True
+        yield
 
 class DeliverBabySuperInteraction(SuperInteraction, NameOffspringSuperInteractionMixin):
     INSTANCE_TUNABLES = {'inherited_loots': OptionalTunable(description='\n             If enabled, these loots will be applied to the baby if the parents\n             passed the test.\n             ', tunable=TunableList(description='\n                 List of loot given to the child based on the tests on the parents.\n                 ', tunable=TunableTuple(description='\n                     Tuple of tests on parents to loots given to children.\n                     ', birther_test=TunableTestSet(description='\n                        Test to run on the sim giving birth. \n                        '), non_birther_test=TunableTestSet(description='\n                        Test to run on the sim not giving birth. \n                        '), child_loot=TunableList(description='\n                        A list of loots to apply when both parents pass their tests.\n                        Actor = birther sim\n                        Target = baby\n                        ', tunable=LootActions.TunableReference(pack_safe=True)))))}
@@ -61,15 +63,18 @@ class DeliverBabySuperInteraction(SuperInteraction, NameOffspringSuperInteractio
         pregnancy_tracker = self.sim.sim_info.pregnancy_tracker
         if not pregnancy_tracker.is_pregnant:
             return False
+            yield
         pregnancy_tracker.create_offspring_data()
         if not self.sim.is_npc:
             result = yield from self._do_renames_gen(timeline, list(pregnancy_tracker.get_offspring_data_gen()))
             if not result:
                 return result
+                yield
         else:
             pregnancy_tracker.assign_random_first_names_to_offspring_data()
         result = yield from self._complete_pregnancy_gen(timeline, pregnancy_tracker)
         return result
+        yield
 
     def _reset_actor_in_asms(self, target, actor_name):
         animation_context = self.animation_context
@@ -88,8 +93,9 @@ class DeliverBabySuperInteraction(SuperInteraction, NameOffspringSuperInteractio
         for offspring_data in extra_baby_list:
             sim_info = pregnancy_tracker.create_sim_info(offspring_data)
             created_sim_infos.append(sim_info)
-            if assign_bassinet_for_baby(sim_info) or create_bassinet:
-                create_and_place_baby(sim_info, position=position, routing_surface=routing_surface)
+            if not assign_bassinet_for_baby(sim_info):
+                if create_bassinet:
+                    create_and_place_baby(sim_info, position=position, routing_surface=routing_surface)
         return created_sim_infos
 
     def _create_non_baby_offspring(self, pregnancy_tracker, offspring_data_list, target):
@@ -132,10 +138,11 @@ class DeliverBabySuperInteraction(SuperInteraction, NameOffspringSuperInteractio
         else:
             sim_infos = self._create_non_baby_offspring(pregnancy_tracker, offspring_data_list, self.sim)
         self._handle_hide_pregnant_sims_belly(self.animation_context, pregnancy_tracker)
-        if pregnant_sim.is_npc or self.inherited_loots:
+        if not pregnant_sim.is_npc and self.inherited_loots:
             self._apply_inherited_loots(sim_infos, pregnancy_tracker)
         pregnancy_tracker.complete_pregnancy()
         return True
+        yield
 
     def _apply_inherited_loots(self, sim_infos, pregnancy_tracker):
         inherited_loots = self.inherited_loots
@@ -144,14 +151,13 @@ class DeliverBabySuperInteraction(SuperInteraction, NameOffspringSuperInteractio
         (birther, non_birther) = pregnancy_tracker.get_parents()
         for inherited_loot in inherited_loots:
             if birther and not inherited_loot.birther_test.run_tests(SingleSimResolver(birther)):
-                pass
-            elif non_birther and not inherited_loot.non_birther_test.run_tests(SingleSimResolver(non_birther)):
-                pass
-            else:
-                for sim_info in sim_infos:
-                    resolver = DoubleSimResolver(self.sim.sim_info, sim_info)
-                    for individual_loot in inherited_loot.child_loot:
-                        individual_loot.apply_to_resolver(resolver)
+                continue
+            if non_birther and not inherited_loot.non_birther_test.run_tests(SingleSimResolver(non_birther)):
+                continue
+            for sim_info in sim_infos:
+                resolver = DoubleSimResolver(self.sim.sim_info, sim_info)
+                for individual_loot in inherited_loot.child_loot:
+                    individual_loot.apply_to_resolver(resolver)
 
 class HaveBabyAtHospitalInteraction(DeliverBabySuperInteraction):
     INSTANCE_TUNABLES = {'partner_affordance': TunableReference(description='\n             When the Pregnant Sim leaves the lot to give birth, this is the affordance \n             that will get pushed on the other Sim involved with the pregnancy if\n             there is one and the Sim is on lot.\n             ', manager=services.affordance_manager()), 'off_lot_birth_dialog': UiDialogOkCancel.TunableFactory(description='\n            This dialog informs the player that the babies are on the home lot\n            and they can follow the birthing Sim to their home lot. We always\n            display this, even if the birthing Sim is not the last selectable\n            one on the lot.\n            ')}
@@ -193,24 +199,28 @@ class HaveBabyAtHospitalInteraction(DeliverBabySuperInteraction):
             travel_dialog_element = UiDialogElement(self.sim, self.get_resolver(), dialog=self.off_lot_birth_dialog, on_response=on_travel_dialog_response, additional_tokens=(offspring_count,))
             result = yield from element_utils.run_child(timeline, travel_dialog_element)
             return result
+            yield
         return True
+        yield
 
     def prepare_gen(self, timeline, *args, **kwargs):
         result = yield from super().prepare_gen(timeline, *args, **kwargs)
         if result != InteractionQueuePreparationStatus.FAILURE:
             self._push_spouse_to_hospital()
         return result
+        yield
 
     def _push_spouse_to_hospital(self):
         pregnancy_tracker = self.sim.sim_info.pregnancy_tracker
         sim_info = None
         (parent_a, parent_b) = pregnancy_tracker.get_parents()
-        if parent_b is not None:
-            if parent_a.sim_id == self.sim.sim_id:
-                sim_info = parent_b
-            else:
-                sim_info = parent_a
-        if parent_a is not None and sim_info is None:
+        if parent_a is not None:
+            if parent_b is not None:
+                if parent_a.sim_id == self.sim.sim_id:
+                    sim_info = parent_b
+                else:
+                    sim_info = parent_a
+        if sim_info is None:
             return
         sim = sim_info.get_sim_instance()
         if sim is None:
@@ -287,8 +297,9 @@ class DeliverBabyOnSurgeryTableInteraction(DeliverBabySuperInteraction):
 
     def _parent_is_playable(self, sim_info):
         for parent_info in sim_info.genealogy.get_parent_sim_infos_gen():
-            if parent_info is not None and parent_info.is_player_sim:
-                return True
+            if parent_info is not None:
+                if parent_info.is_player_sim:
+                    return True
         return False
 
     def _complete_pregnancy_gen(self, timeline, pregnancy_tracker):
@@ -300,7 +311,7 @@ class DeliverBabyOnSurgeryTableInteraction(DeliverBabySuperInteraction):
         self.interaction_parameters['created_target_id'] = new_baby.id
         self._baby_object = new_baby
         sim_infos = []
-        if self.sim.is_npc and self._parent_is_playable(new_baby.sim_info):
+        if not self.sim.is_npc or self._parent_is_playable(new_baby.sim_info):
             sim_infos = self._create_additional_babies(pregnancy_tracker, offspring_data_list[1:], position=new_baby.position, routing_surface=new_baby.routing_surface, create_bassinet=not self.sim.is_npc)
         sim_infos.append(new_baby.sim_info)
         if not self.sim.is_npc:
@@ -309,6 +320,7 @@ class DeliverBabyOnSurgeryTableInteraction(DeliverBabySuperInteraction):
             self._push_post_delivery_interaction(sim_infos)
         pregnancy_tracker.complete_pregnancy()
         return True
+        yield
 
     def _push_post_delivery_interaction(self, sim_infos):
         if self._baby_object is not None and self.after_delivery_interaction is not None:

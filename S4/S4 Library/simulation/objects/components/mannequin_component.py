@@ -203,7 +203,7 @@ class MannequinComponent(Component, HasTunableFactory, AutoFactoryInit, componen
         sim_spawner_service = services.sim_spawner_service()
         sim_spawner_service.add_npc_cap_modifier(self.cap_modifier)
         zone = services.current_zone()
-        if zone.is_zone_loading or not self.owner.is_downloaded:
+        if not zone.is_zone_loading and not self.owner.is_downloaded:
             self.reconcile_mannequin_data(is_add=True)
         self._update_outfit_state()
 
@@ -215,23 +215,25 @@ class MannequinComponent(Component, HasTunableFactory, AutoFactoryInit, componen
             self._sim_info_data.on_outfit_generated.remove(self._on_outfit_generated)
             self._sim_info_data.on_preload_outfits_changed.remove(self._on_preload_outfits_changed)
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         old_appearance_modifier = self.outfit_modifiers.get(old_value)
         if old_appearance_modifier is not None:
             self._sim_info_data.appearance_tracker.remove_appearance_modifiers(state, source=self)
         new_appearance_modifier = self.outfit_modifiers.get(new_value)
         if new_appearance_modifier is not None:
             self._sim_info_data.appearance_tracker.add_appearance_modifiers(new_appearance_modifier.appearance_modifiers, state, new_appearance_modifier.priority, new_appearance_modifier.apply_to_all_outfits, source=self)
-        if state is self.state_trigger_singed.state:
-            if new_value is self.state_trigger_singed:
-                self.mannequin_is_singed = True
-            else:
-                self.mannequin_is_singed = False
-        if state is self.state_trigger_grubby.state:
-            if new_value is self.state_trigger_grubby:
-                self.mannequin_is_grubby = True
-            else:
-                self.mannequin_is_grubby = False
+        if self.state_trigger_singed is not None:
+            if state is self.state_trigger_singed.state:
+                if new_value is self.state_trigger_singed:
+                    self.mannequin_is_singed = True
+                else:
+                    self.mannequin_is_singed = False
+        if self.state_trigger_grubby is not None:
+            if state is self.state_trigger_grubby.state:
+                if new_value is self.state_trigger_grubby:
+                    self.mannequin_is_grubby = True
+                else:
+                    self.mannequin_is_grubby = False
         self._resend_sim_info_data()
         self._resend_mannequin_outfit()
 
@@ -285,13 +287,12 @@ class MannequinComponent(Component, HasTunableFactory, AutoFactoryInit, componen
         default_outfit = (OutfitCategory.BATHING, 0)
         for (outfit_category, outfit_list) in sim_info_data.get_all_outfits():
             if outfit_category not in REGULAR_OUTFIT_CATEGORIES:
-                pass
-            else:
-                self._sim_info_data.remove_outfits_in_category(outfit_category)
-                for (outfit_index, outfit_data) in enumerate(outfit_list):
-                    source_outfit = (outfit_category, outfit_index)
-                    destination_outfit = self._sim_info_data.add_outfit(outfit_category, outfit_data)
-                    self._sim_info_data.generate_merged_outfit(sim_info_data, destination_outfit, default_outfit, source_outfit, preserve_outfit_flags=True)
+                continue
+            self._sim_info_data.remove_outfits_in_category(outfit_category)
+            for (outfit_index, outfit_data) in enumerate(outfit_list):
+                source_outfit = (outfit_category, outfit_index)
+                destination_outfit = self._sim_info_data.add_outfit(outfit_category, outfit_data)
+                self._sim_info_data.generate_merged_outfit(sim_info_data, destination_outfit, default_outfit, source_outfit, preserve_outfit_flags=True)
         if self._sim_info_data.has_outfit(current_outfit):
             self._sim_info_data.set_current_outfit(current_outfit)
         else:
@@ -333,17 +334,15 @@ class MannequinComponent(Component, HasTunableFactory, AutoFactoryInit, componen
                 if mannequin_group_sharing_mode == MannequinGroupSharingMode.ACCEPT_MERGED:
                     for (outfit_category, outfit_list) in self._sim_info_data.get_all_outfits():
                         if outfit_category not in REGULAR_OUTFIT_CATEGORIES:
-                            pass
-                        else:
-                            for (outfit_index, outfit_data) in enumerate(outfit_list):
-                                if mannequin_data.is_generated_outfit_duplicate_in_category(self._sim_info_data, (outfit_category, outfit_index)):
-                                    pass
-                                else:
-                                    outfits_in_category = mannequin_data.get_outfits_in_category(outfit_category)
-                                    if outfits_in_category is not None and len(outfits_in_category) >= get_maximum_outfits_for_category(outfit_category):
-                                        show_mannequin_group_sharing_warning_notification()
-                                    else:
-                                        mannequin_data.generate_merged_outfit(self._sim_info_data, mannequin_data.add_outfit(outfit_category, outfit_data), mannequin_data.get_current_outfit(), (outfit_category, outfit_index), preserve_outfit_flags=True)
+                            continue
+                        for (outfit_index, outfit_data) in enumerate(outfit_list):
+                            if mannequin_data.is_generated_outfit_duplicate_in_category(self._sim_info_data, (outfit_category, outfit_index)):
+                                continue
+                            outfits_in_category = mannequin_data.get_outfits_in_category(outfit_category)
+                            if outfits_in_category is not None and len(outfits_in_category) >= get_maximum_outfits_for_category(outfit_category):
+                                show_mannequin_group_sharing_warning_notification()
+                            else:
+                                mannequin_data.generate_merged_outfit(self._sim_info_data, mannequin_data.add_outfit(outfit_category, outfit_data), mannequin_data.get_current_outfit(), (outfit_category, outfit_index), preserve_outfit_flags=True)
                 mannequin_group_data.reconcile_mannequin_data()
                 return
             if self.owner.id:

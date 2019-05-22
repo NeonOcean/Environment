@@ -173,11 +173,10 @@ class GlobalLotTuningAndCleanup:
         stat_counter = cls._get_stat_count_optimizer()
         for obj in services.object_manager().values():
             if obj.is_sim:
-                pass
-            elif not obj.is_on_active_lot():
-                pass
-            else:
-                stat_counter.increment_statistics(obj, new_statistic_values)
+                continue
+            if not obj.is_on_active_lot():
+                continue
+            stat_counter.increment_statistics(obj, new_statistic_values)
         for (statistic, value) in new_statistic_values.items():
             lot.set_stat_value(statistic, value)
 
@@ -190,24 +189,22 @@ class GlobalLotTuningAndCleanup:
         for cleanup in GlobalLotTuningAndCleanup.OBJECT_CLEANUP_TUNING:
             items_to_cleanup = cleanup.count(lot)
             if items_to_cleanup == 0:
-                pass
-            else:
-                items_cleaned_up = 0
-                for obj in services.object_manager().values():
-                    if items_cleaned_up >= items_to_cleanup:
-                        break
-                    if obj.is_sim:
-                        pass
-                    else:
-                        resolver = SingleObjectResolver(obj)
-                        run_action = False
-                        for possible_action in cleanup.possible_actions:
-                            if possible_action.tests.run_tests(resolver):
-                                for action in possible_action.actions:
-                                    action(obj, lot)
-                                    run_action = True
-                        if run_action:
-                            items_cleaned_up += 1
+                continue
+            items_cleaned_up = 0
+            for obj in services.object_manager().values():
+                if items_cleaned_up >= items_to_cleanup:
+                    break
+                if obj.is_sim:
+                    continue
+                resolver = SingleObjectResolver(obj)
+                run_action = False
+                for possible_action in cleanup.possible_actions:
+                    if possible_action.tests.run_tests(resolver):
+                        for action in possible_action.actions:
+                            action(obj, lot)
+                            run_action = True
+                if run_action:
+                    items_cleaned_up += 1
         for obj in cls.objects_to_destroy:
             obj.destroy(source=lot, cause='Cleaning up the lot')
         cls.objects_to_destroy = None

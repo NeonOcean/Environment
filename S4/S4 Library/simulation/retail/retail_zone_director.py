@@ -46,11 +46,12 @@ class RetailZoneDirector(BusinessZoneDirectorMixin, SchedulingZoneDirector):
         situation_data_proto = zone_director_proto.situations.add()
         situation_data_proto.situation_list_guid = self.CUSTOMER_SITUATION_LIST_GUID
         situation_data_proto.situation_ids.extend(self._customer_situation_ids)
-        if not self.business_manager.is_owned_by_npc:
-            situation_data_proto = zone_director_proto.situations.add()
-            situation_data_proto.situation_list_guid = self.EMPLOYEE_SITUATION_LIST_GUID
-            for situation_ids in self._employee_situation_ids.values():
-                situation_data_proto.situation_ids.extend(situation_ids)
+        if self.business_manager is not None:
+            if not self.business_manager.is_owned_by_npc:
+                situation_data_proto = zone_director_proto.situations.add()
+                situation_data_proto.situation_list_guid = self.EMPLOYEE_SITUATION_LIST_GUID
+                for situation_ids in self._employee_situation_ids.values():
+                    situation_data_proto.situation_ids.extend(situation_ids)
         super()._save_custom_zone_director(zone_director_proto, writer)
 
     def _save_employee_situations(self, zone_director_proto, writer):
@@ -64,7 +65,7 @@ class RetailZoneDirector(BusinessZoneDirectorMixin, SchedulingZoneDirector):
 
     def create_situations_during_zone_spin_up(self):
         is_owned_business = self.business_manager is not None and self.business_manager.owner_household_id is not None
-        if is_owned_business and (self.business_manager.is_owner_household_active or (services.current_zone().time_has_passed_in_world_since_zone_save() or services.current_zone().active_household_changed_between_save_and_load()) and self.business_manager.is_open):
+        if is_owned_business and (not self.business_manager.is_owner_household_active and (services.current_zone().time_has_passed_in_world_since_zone_save() or services.current_zone().active_household_changed_between_save_and_load())) and self.business_manager.is_open:
             self._business_manager.start_already_opened_business()
         if is_owned_business:
             return
@@ -76,7 +77,8 @@ class RetailZoneDirector(BusinessZoneDirectorMixin, SchedulingZoneDirector):
         for (customer_situation_markup_multiplier, customer_situation_datas) in self.customer_situations.items():
             if almost_equal(markup_multiplier, customer_situation_markup_multiplier):
                 break
-        return ()
+        else:
+            return ()
         valid_situations = []
         resolver = SingleSimResolver(services.active_sim_info())
         for customer_situation_data in customer_situation_datas:

@@ -138,6 +138,7 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
         super().__init__(*args, **kwargs)
         self._variant_group_stack_id_map = {}
         self._definition_stack_id_map = {}
+        self._dynamic_stack_scheme_id_map = {}
         self._last_stack_id = 0
         self._claimed_items = set()
 
@@ -174,8 +175,9 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
             if definition_id not in self._definition_stack_id_map:
                 self._definition_stack_id_map[definition_id] = self._get_new_stack_id()
             return self._definition_stack_id_map[definition_id]
-        logger.warn("Can't get stack id for unrecognized stack scheme {}", stack_scheme, owner='tingyul')
-        return 0
+        if stack_scheme not in self._dynamic_stack_scheme_id_map:
+            self._dynamic_stack_scheme_id_map[stack_scheme] = self._get_new_stack_id()
+        return self._dynamic_stack_scheme_id_map[stack_scheme]
 
     def _get_new_stack_id(self):
         self._last_stack_id += 1
@@ -198,8 +200,9 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
         for persistable_data in inventory_data:
             if persistable_data.type == persistable_data.InventoryItemComponent:
                 data = persistable_data.Extensions[protocols.PersistableInventoryItemComponent.persistable_data]
-                if data.requires_claiming and not self.has_item_been_claimed(obj_id):
-                    return True
+                if data.requires_claiming:
+                    if not self.has_item_been_claimed(obj_id):
+                        return True
         return False
 
 BED_PREFIX_FILTER = ('buycat', 'buycatee', 'buycatss', 'func')
@@ -276,15 +279,13 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
     def remove_object_from_object_tags_cache(self, obj):
         for tag in obj.get_tags():
             if tag not in self._tag_to_object_list:
-                pass
-            else:
-                object_list = self._tag_to_object_list[tag]
-                if obj not in object_list:
-                    pass
-                else:
-                    object_list.remove(obj)
-                    if not object_list:
-                        del self._tag_to_object_list[tag]
+                continue
+            object_list = self._tag_to_object_list[tag]
+            if obj not in object_list:
+                continue
+            object_list.remove(obj)
+            if not object_list:
+                del self._tag_to_object_list[tag]
 
     def _should_save_object_on_lot(self, obj):
         parent = obj.parent
@@ -308,6 +309,19 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         for game_object in all_objects:
             game_object.update_all_commodities()
 
+    @staticmethod
+    def save_game_object(game_object, object_list, open_street_objects):
+        save_result = None
+        if game_object.persistence_group == objects.persistence_groups.PersistenceGroups.OBJECT:
+            save_result = game_object.save_object(object_list.objects, ItemLocation.ON_LOT, 0)
+        else:
+            if game_object.item_location == ItemLocation.ON_LOT or game_object.item_location == ItemLocation.INVALID_LOCATION:
+                item_location = ItemLocation.FROM_OPEN_STREET
+            else:
+                item_location = game_object.item_location
+            save_result = game_object.save_object(open_street_objects.objects, item_location, 0)
+        return save_result
+
     def save(self, object_list=None, zone_data=None, open_street_data=None, store_travel_group_placed_objects=False, **kwargs):
         if object_list is None:
             return
@@ -320,35 +334,27 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
             objects_to_save_for_clean_up = []
         for game_object in self._objects.values():
             if self._should_save_object_on_lot(game_object):
-                if game_object.persistence_group == objects.persistence_groups.PersistenceGroups.OBJECT:
-                    save_result = game_object.save_object(object_list.objects, ItemLocation.ON_LOT, 0)
-                else:
-                    if game_object.item_location == ItemLocation.ON_LOT or game_object.item_location == ItemLocation.INVALID_LOCATION:
-                        item_location = ItemLocation.FROM_OPEN_STREET
-                    else:
-                        item_location = game_object.item_location
-                    save_result = game_object.save_object(open_street_objects.objects, item_location, 0)
+                save_result = ObjectManager.save_game_object(game_object, object_list, open_street_objects)
                 if not save_result:
-                    pass
-                elif zone_data is None:
-                    pass
-                else:
-                    if store_travel_group_placed_objects and save_result.owner_id != 0:
-                        placement_flags = build_buy.get_object_placement_flags(game_object.definition.id)
-                        if build_buy.PlacementFlags.NON_INVENTORYABLE not in placement_flags:
-                            objects_to_save_for_clean_up.append(save_result)
-                    if not game_object.definition.has_build_buy_tag(*self._all_bed_tags):
-                        pass
-                    elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.double_beds):
-                        double_bed_exist = True
-                        total_beds += 1
-                    elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.kid_beds):
-                        total_beds += 1
-                        kid_bed_exist = True
-                    elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.other_sleeping_spots):
-                        alternative_sleeping_spots += 1
-                    elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.beds):
-                        total_beds += 1
+                    continue
+                if zone_data is None:
+                    continue
+                if store_travel_group_placed_objects and save_result.owner_id != 0:
+                    placement_flags = build_buy.get_object_placement_flags(game_object.definition.id)
+                    if build_buy.PlacementFlags.NON_INVENTORYABLE not in placement_flags:
+                        objects_to_save_for_clean_up.append(save_result)
+                if not game_object.definition.has_build_buy_tag(*self._all_bed_tags):
+                    continue
+                if game_object.definition.has_build_buy_tag(*self.BED_TAGS.double_beds):
+                    double_bed_exist = True
+                    total_beds += 1
+                elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.kid_beds):
+                    total_beds += 1
+                    kid_bed_exist = True
+                elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.other_sleeping_spots):
+                    alternative_sleeping_spots += 1
+                elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.beds):
+                    total_beds += 1
         if open_street_data is not None:
             open_street_data.objects = open_street_objects
         if zone_data is not None:
@@ -398,17 +404,13 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
                     travel_group = household.get_travel_group()
                 for clean_up_save_data in save_game_protocol_buffer.destination_clean_up_data:
                     if clean_up_save_data.household_id != owner_id:
-                        pass
-                    else:
+                        continue
+                    if travel_group is not None:
                         if travel_group.id == clean_up_save_data.travel_group_id:
                             break
-                        if travel_group is not None and clean_up_save_data.travel_group_id in travel_group_manager:
-                            pass
-                        else:
-                            break
-                with ProtocolBufferRollback(save_game_protocol_buffer.destination_clean_up_data) as clean_up_save_data:
-                    clean_up_save_data.household_id = owner_id
-                    clean_up_save_data.travel_group_id = travel_group.id if travel_group is not None else 0
+                    if clean_up_save_data.travel_group_id in travel_group_manager:
+                        continue
+                    break
             with ProtocolBufferRollback(clean_up_save_data.object_clean_up_data_list) as object_clean_up_data:
                 if object_data.loc_type == ItemLocation.ON_LOT:
                     object_clean_up_data.zone_id = current_zone.id
@@ -517,8 +519,8 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
     def clear_commodity_flags_for_objs_with_affordance(self, affordances):
         for obj in self.valid_objects():
             if not obj.has_updated_commodity_flags():
-                pass
-            elif any(affordance in affordances for affordance in obj.super_affordances()):
+                continue
+            if any(affordance in affordances for affordance in obj.super_affordances()):
                 obj.clear_commodity_flags()
 
     def get_all_objects_with_component_gen(self, component_definition):

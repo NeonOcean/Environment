@@ -97,8 +97,8 @@ class StoryProgressionRelationshipCulling(_StoryProgressionAction):
                         for rel in sorted_relationships:
                             if not rel.get_other_sim_id(sim_info.sim_id) in active_sim_ids:
                                 if not rel.can_cull_relationship(consider_convergence=False):
-                                    pass
-                                elif rel.get_relationship_depth(sim_info.sim_id) < cls.PLAYED_NPC_REL_DEPTH_CULLING_THRESHOLD:
+                                    continue
+                                if rel.get_relationship_depth(sim_info.sim_id) < cls.PLAYED_NPC_REL_DEPTH_CULLING_THRESHOLD:
                                     ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), BELOW_DEPTH))
                                     num_to_cull -= 1
                                 elif num_to_cull > 0:
@@ -109,15 +109,13 @@ class StoryProgressionRelationshipCulling(_StoryProgressionAction):
                     else:
                         for rel in sim_info.relationship_tracker:
                             if rel.get_other_sim_id(sim_info.sim_id) in active_sim_ids:
-                                pass
-                            else:
-                                target_sim_info = rel.get_other_sim_info(sim_info.sim_id)
-                                if target_sim_info is not None and target_sim_info.is_player_sim:
-                                    pass
-                                elif not rel.can_cull_relationship(consider_convergence=False):
-                                    pass
-                                else:
-                                    ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), UNPLAYED_TO_UNPLAYED))
+                                continue
+                            target_sim_info = rel.get_other_sim_info(sim_info.sim_id)
+                            if target_sim_info is not None and target_sim_info.is_player_sim:
+                                continue
+                            if not rel.can_cull_relationship(consider_convergence=False):
+                                continue
+                            ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), UNPLAYED_TO_UNPLAYED))
                     if num_to_cull > 0:
                         logger.warn('Relationship Culling could not find enough valid relationships to cull to bring the total number below the cap. Cap exceeded by: {}, Sim {}', num_to_cull, sim_info)
                     for (rel_id, reason) in ids_to_cull_with_reasons:
@@ -140,8 +138,8 @@ class StoryProgressionRelationshipCulling(_StoryProgressionAction):
                     for rel in sorted_relationships:
                         if not rel.get_other_sim_id(sim_info.sim_id) in active_sim_ids:
                             if not rel.can_cull_relationship(consider_convergence=False):
-                                pass
-                            elif rel.get_relationship_depth(sim_info.sim_id) < cls.PLAYED_NPC_REL_DEPTH_CULLING_THRESHOLD:
+                                continue
+                            if rel.get_relationship_depth(sim_info.sim_id) < cls.PLAYED_NPC_REL_DEPTH_CULLING_THRESHOLD:
                                 ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), BELOW_DEPTH))
                                 num_to_cull -= 1
                             elif num_to_cull > 0:
@@ -152,15 +150,13 @@ class StoryProgressionRelationshipCulling(_StoryProgressionAction):
                 else:
                     for rel in sim_info.relationship_tracker:
                         if rel.get_other_sim_id(sim_info.sim_id) in active_sim_ids:
-                            pass
-                        else:
-                            target_sim_info = rel.get_other_sim_info(sim_info.sim_id)
-                            if target_sim_info is not None and target_sim_info.is_player_sim:
-                                pass
-                            elif not rel.can_cull_relationship(consider_convergence=False):
-                                pass
-                            else:
-                                ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), UNPLAYED_TO_UNPLAYED))
+                            continue
+                        target_sim_info = rel.get_other_sim_info(sim_info.sim_id)
+                        if target_sim_info is not None and target_sim_info.is_player_sim:
+                            continue
+                        if not rel.can_cull_relationship(consider_convergence=False):
+                            continue
+                        ids_to_cull_with_reasons.add((rel.get_other_sim_id(sim_info.sim_id), UNPLAYED_TO_UNPLAYED))
                 if num_to_cull > 0:
                     logger.warn('Relationship Culling could not find enough valid relationships to cull to bring the total number below the cap. Cap exceeded by: {}, Sim {}', num_to_cull, sim_info)
                 for (rel_id, reason) in ids_to_cull_with_reasons:

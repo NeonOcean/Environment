@@ -84,6 +84,8 @@ class ArbElement(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                 errors_found = True
                 for error in record.errors:
                     log_records.append((True, record, error))
+                else:
+                    log_records.append((False, record, None))
             else:
                 log_records.append((False, record, None))
         if errors_found:
@@ -91,12 +93,11 @@ class ArbElement(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
         if errors_found or not only_errors:
             for (is_error, record, message) in log_records:
                 if only_errors and not is_error:
-                    pass
-                else:
-                    event_type = clip_event_type_name(record.event_type)
-                    if message:
-                        message = ': ' + str(message)
-                    log_fn('  {}: {}#{:03}{}'.format(record.clip_name, event_type, record.event_id, message))
+                    continue
+                event_type = clip_event_type_name(record.event_type)
+                if message:
+                    message = ': ' + str(message)
+                log_fn('  {}: {}#{:03}{}'.format(record.clip_name, event_type, record.event_id, message))
             self.arb.log_request_history(log_fn)
 
     def _add_block_tags_for_event_records(self, event_records):
@@ -175,9 +176,11 @@ class ArbElement(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
     def _run_gen(self, timeline=None):
         if not self.arb.is_valid():
             return False
+            yield
         actors = self._actors()
-        if actors or not self._objects_to_reset:
+        if not actors and not self._objects_to_reset:
             return True
+            yield
         animation_sleep_element = None
         with distributor.system.Distributor.instance().dependent_block():
             self.attach(*actors)
@@ -188,17 +191,19 @@ class ArbElement(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             self._log_event_records(dump_logger.error, True)
             for actor in actors:
                 actor.update_reference_arb(self.arb)
-            if timeline is not None:
-                (self._duration_total, self._duration_must_run, self._duration_repeat) = self.arb.get_timing()
-                self._duration_interrupt = self._duration_total - self._duration_must_run
-                if self._duration_must_run or self._duration_repeat:
-                    animation_sleep_element = AnimationSleepElement(self._duration_must_run, self._duration_interrupt, self._duration_repeat, enable_optional_sleep_time=self.enable_optional_sleep_time, arbs=(self.arb,))
-            if sleep and gsi_handlers.animation_archive_handlers.archiver.enabled:
+            if sleep:
+                if timeline is not None:
+                    (self._duration_total, self._duration_must_run, self._duration_repeat) = self.arb.get_timing()
+                    self._duration_interrupt = self._duration_total - self._duration_must_run
+                    if self._duration_must_run or self._duration_repeat:
+                        animation_sleep_element = AnimationSleepElement(self._duration_must_run, self._duration_interrupt, self._duration_repeat, enable_optional_sleep_time=self.enable_optional_sleep_time, arbs=(self.arb,))
+            if gsi_handlers.animation_archive_handlers.archiver.enabled:
                 gsi_handlers.animation_archive_handlers.archive_animation_request(self.arb)
         if animation_sleep_element is not None and not services.current_zone().animate_instantly:
             yield from element_utils.run_child(timeline, animation_sleep_element)
         self.detach(*self._attached_actors)
         return True
+        yield
 
     def write(self, msg):
         from protocolbuffers import Animation_pb2 as animation_protocols

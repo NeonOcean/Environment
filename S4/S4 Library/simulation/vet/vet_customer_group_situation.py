@@ -133,7 +133,7 @@ class _WaitingForServiceState(_VetCustomerGroupSituationStateBase):
 
     def _on_dialog_response(self, dialog):
         self._showing_dialog = False
-        if dialog.response == dialog.response and dialog.response == ButtonType.DIALOG_RESPONSE_OK:
+        if dialog.response == dialog.response == ButtonType.DIALOG_RESPONSE_OK:
             assigned_vet = dialog.owner.get_sim_instance()
             pet = self.owner.get_pet()
             if assigned_vet is None or pet is None:
@@ -166,13 +166,12 @@ class _ReceivingServiceState(_VetCustomerGroupSituationStateBase):
                 self.owner._sickness_difficulty = sim.sim_info.current_sickness.difficulty_rating
             for interaction in sim.get_all_running_and_queued_interactions():
                 if not interaction.queued:
-                    pass
-                else:
-                    interaction.cancel(FinishingType.SITUATIONS, cancel_reason_msg='Pet examination.')
+                    continue
+                interaction.cancel(FinishingType.SITUATIONS, cancel_reason_msg='Pet examination.')
             for interaction in tuple(sim.interaction_refs):
                 if not interaction.queued:
-                    pass
-                elif interaction.context.sim.sim_info is not self.owner.assigned_vet:
+                    continue
+                if interaction.context.sim.sim_info is not self.owner.assigned_vet:
                     interaction.cancel(FinishingType.SITUATIONS, cancel_reason_msg='Pet examination.')
 
     def _on_interaction_of_interest_complete(self, **kwargs):

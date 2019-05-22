@@ -32,11 +32,10 @@ class RabbitHoleLiability(DaycareLiability):
             valid_sims = (self._interaction.sim, self._interaction.target)
             for interaction in tuple(sim.interaction_refs):
                 if interaction not in sim.interaction_refs:
-                    pass
-                elif interaction.sim in valid_sims:
-                    pass
-                else:
-                    interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Target Sim went into rabbit hole')
+                    continue
+                if interaction.sim in valid_sims:
+                    continue
+                interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Target Sim went into rabbit hole')
             sim.remove_location_from_quadtree(placement.ItemType.SIM_POSITION)
             sim.remove_location_from_quadtree(placement.ItemType.SIM_INTENDED_POSITION)
             self._has_hidden = True

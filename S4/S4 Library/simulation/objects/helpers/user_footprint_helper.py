@@ -89,9 +89,8 @@ class UserFootprintHelper:
                 total_constraint = near_sim.si_state.get_total_constraint(include_inertial_sis=True, force_inertial_sis=True)
                 (single_point, _) = total_constraint.single_point()
                 if single_point is not None:
-                    pass
-                else:
-                    push_route_away(near_sim)
+                    continue
+                push_route_away(near_sim)
 
     def _on_sim_posture_event(self, change, dest_state, track, old_posture, new_posture):
         if not PostureTrack.is_body(track):

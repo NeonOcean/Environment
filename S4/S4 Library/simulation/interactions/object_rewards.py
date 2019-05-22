@@ -31,7 +31,7 @@ class ObjectRewardsOperation(BaseLootOperation):
         self._place_in_mailbox = place_in_mailbox
         self._needs_compositing = needs_compositing
 
-    def _create_object_rewards(self, obj_weight_states_tuple, obj_counter, resolver, subject=None):
+    def _create_object_rewards(self, obj_weight_states_tuple, obj_counter, resolver, subject=None, placement_override_func=None):
         (obj_result, obj_states, quantity) = weighted_random_item(obj_weight_states_tuple)
         object_rewards = []
         if quantity is None:
@@ -39,26 +39,30 @@ class ObjectRewardsOperation(BaseLootOperation):
         else:
             object_rewards.extend(random.choice(obj_result) for _ in range(quantity))
         for obj_reward in object_rewards:
-            created_obj = obj_reward(init=None, post_add=lambda *args: self._place_object(*args, resolver=resolver, subject=subject))
-            obj_counter[created_obj.definition] += 1
-            if created_obj is not None and obj_states:
-                for obj_state in obj_states:
-                    created_obj.set_state(obj_state.state, obj_state)
+            created_obj = obj_reward(init=None, post_add=lambda *args: self._place_object(*args, resolver=resolver, subject=subject, placement_override_func=placement_override_func))
+            if created_obj is not None:
+                obj_counter[created_obj.definition] += 1
+                if obj_states:
+                    for obj_state in obj_states:
+                        created_obj.set_state(obj_state.state, obj_state)
 
-    def _apply_to_subject_and_target(self, subject, target, resolver):
+    def apply_with_placement_override(self, subject, resolver, placement_override_func):
+        self._apply_to_subject_and_target(subject, None, resolver, placement_override_func=placement_override_func)
+
+    def _apply_to_subject_and_target(self, subject, target, resolver, placement_override_func=None):
         if subject.is_npc:
             return
         obj_counter = Counter()
         for _ in range(self._object_rewards.quantity):
             weight_pairs = [(data.weight, (data.reward, data.states_on_reward_object, data.quantity)) for data in self._object_rewards.reward_objects]
-            self._create_object_rewards(weight_pairs, obj_counter, resolver, subject=subject)
+            self._create_object_rewards(weight_pairs, obj_counter, resolver, subject=subject, placement_override_func=placement_override_func)
         if obj_counter and self._notification is not None:
             obj_names = [LocalizationHelperTuning.get_object_count(count, obj) for (obj, count) in obj_counter.items()]
             dialog = self._notification(subject, resolver=resolver)
-            dialog.show_dialog(additional_tokens=(LocalizationHelperTuning.get_bulleted_list((None,), obj_names),))
+            dialog.show_dialog(additional_tokens=(LocalizationHelperTuning.get_bulleted_list(None, *obj_names),))
         return True
 
-    def _place_object(self, created_object, resolver=None, subject=None):
+    def _place_object(self, created_object, resolver=None, subject=None, placement_override_func=None):
         subject_to_apply = subject if subject is not None else resolver.get_participant(ParticipantType.Actor)
         created_object.update_ownership(subject_to_apply, make_sim_owner=self._make_sim_owner)
         if self._store_sim_info_on_reward is not None:
@@ -72,6 +76,9 @@ class ObjectRewardsOperation(BaseLootOperation):
                 if self._store_sim_info_on_reward.transfer_from_stored_sim_info:
                     stored_sim_source.remove_component(types.STORED_SIM_INFO_COMPONENT)
                 created_object.update_object_tooltip()
+        if placement_override_func is not None:
+            placement_override_func(subject_to_apply, created_object)
+            return
         if self._place_in_mailbox:
             sim_household = subject_to_apply.household
             if sim_household is not None:

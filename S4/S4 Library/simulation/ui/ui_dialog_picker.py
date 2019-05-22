@@ -296,6 +296,12 @@ class PurchasePickerRow(BasePickerRow):
             purchase_row_data.object_id = obj.id
             icon_info = obj.get_icon_info_data()
             build_icon_info_msg(icon_info, None, purchase_row_data.base_data.icon_info)
+        elif self.def_id is not None:
+            definition_tuning = services.definition_manager().get_object_tuning(self.def_id)
+            icon_override = definition_tuning.icon_override
+            if icon_override is not None:
+                icon_info = IconInfoData(icon_resource=icon_override)
+                build_icon_info_msg(icon_info, None, purchase_row_data.base_data.icon_info)
 
     def __format__(self, fmt):
         super_dump_str = super().__format__(fmt)
@@ -443,10 +449,11 @@ class UiDialogObjectPicker(UiDialogOkCancel):
             if self.target is not None:
                 slot_target_object = self.target if not self.max_selectable.check_target_parent else self.target.parent
                 if slot_target_object is not None:
-                    if self.max_selectable.check_part_owner:
-                        slot_target_object = slot_target_object.part_owner
+                    if slot_target_object.is_part:
+                        if self.max_selectable.check_part_owner:
+                            slot_target_object = slot_target_object.part_owner
                     get_slots = slot_target_object.get_runtime_slots_gen(slot_types={self.max_selectable.slot_type}, bone_name_hash=None)
-                    if slot_target_object.is_part and self.max_selectable.require_empty:
+                    if self.max_selectable.require_empty:
                         picker_data.max_selectable = sum(1 for slot in get_slots if slot.empty)
                     else:
                         picker_data.max_selectable = sum(1 for slot in get_slots if not slot.empty)

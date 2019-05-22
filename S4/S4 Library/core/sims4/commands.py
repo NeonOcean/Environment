@@ -111,10 +111,12 @@ def parse_args(spec, args, account):
     index = 0
     for (name, index) in zip(spec.args, range(len(spec.args))):
         arg_type = spec.annotations.get(name)
-        if index < len(args) and isinstance(arg_type, type) and issubclass(arg_type, CustomParam):
-            arg_value = args[index]
-            if not isinstance(arg_value, arg_type):
-                args[index] = arg_type(arg_value)
+        if index < len(args):
+            if isinstance(arg_type, type):
+                if issubclass(arg_type, CustomParam):
+                    arg_value = args[index]
+                    if not isinstance(arg_value, arg_type):
+                        args[index] = arg_type(arg_value)
     if spec.varargs is not None:
         arg_type = spec.annotations.get(spec.varargs)
         if arg_type is not None:

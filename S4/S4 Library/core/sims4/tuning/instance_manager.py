@@ -233,9 +233,10 @@ class InstanceManager:
                     key = self._remapped_keys[key]
                 (tuning_callback_helpers, verify_tunable_callback_helpers) = sims4.tuning.serialization.load_from_xml(key, self.TYPE, cls)
                 additional_pack = getattr(cls, 'additional_pack', None)
-                if not is_available_pack(cls.additional_pack):
-                    del self._tuned_classes[tuned_classes_key]
-                    continue
+                if additional_pack is not None:
+                    if not is_available_pack(cls.additional_pack):
+                        del self._tuned_classes[tuned_classes_key]
+                        continue
                 self._callback_helper[cls] = tuning_callback_helpers
             except Exception:
                 logger.exception('Exception while finalizing tuning for {}.', cls, owner='manus')

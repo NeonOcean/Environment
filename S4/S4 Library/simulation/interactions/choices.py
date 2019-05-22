@@ -66,16 +66,15 @@ class ChoiceMenu:
             si_content_score = aop.affordance.get_content_score(context.sim, SingleSimResolver(context.sim), [aop], scoring_gsi_handler, **aop.interaction_parameters)
             aop.content_score = si_content_score
             result = self.add_aop(aop, context, user_pick_target=target)
-            if result or not result.tooltip:
-                pass
-            else:
-                if result:
-                    result = DEFAULT
-                potentials = aop.affordance.potential_pie_menu_sub_interactions_gen(aop.target, context, scoring_gsi_handler, **aop.interaction_parameters)
-                for (mixer_aop, mixer_aop_result) in potentials:
-                    if result is not DEFAULT:
-                        mixer_aop_result = result
-                    self.add_aop(mixer_aop, context, result_override=mixer_aop_result, do_test=False)
+            if not result and not result.tooltip:
+                continue
+            if result:
+                result = DEFAULT
+            potentials = aop.affordance.potential_pie_menu_sub_interactions_gen(aop.target, context, scoring_gsi_handler, **aop.interaction_parameters)
+            for (mixer_aop, mixer_aop_result) in potentials:
+                if result is not DEFAULT:
+                    mixer_aop_result = result
+                self.add_aop(mixer_aop, context, result_override=mixer_aop_result, do_test=False)
         if gsi_handlers.sim_handlers_log.pie_menu_generation_archiver.enabled:
             gsi_handlers.sim_handlers_log.archive_pie_menu_option(context.sim, target, scoring_gsi_handler)
 
@@ -128,7 +127,7 @@ class ChoiceMenu:
                     failure_result = result
                 self._add_menu_item(aop, context, failure_result)
             return result
-        if result or not result.tooltip:
+        if not result and not result.tooltip:
             return result
         self._add_menu_item(aop, context, result)
         return result
@@ -147,7 +146,7 @@ class ChoiceMenu:
     def select(self, choice_id):
         selection = self.menu_items.get(choice_id)
         context = selection.context
-        if context.sim is not None and (selection.aop.affordance.immediate or context.sim.queue.visible_len() >= context.sim.queue.max_interactions):
+        if context.sim is not None and not selection.aop.affordance.immediate and context.sim.queue.visible_len() >= context.sim.queue.max_interactions:
             return EnqueueResult.NONE
         if selection is not None:
             if selection.result and not selection.target_invalid:

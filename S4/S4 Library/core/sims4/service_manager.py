@@ -279,8 +279,9 @@ class ServiceManager:
                     service.pre_save()
                 self._perf_log(context, PERF_FINISHED_MSG, service, 'pre_save')
             except BaseException:
-                if initial_persistence_error_code == persistence_service.save_error_code:
-                    persistence_service.save_error_code = service.save_error_code
+                if persistence_service is not None:
+                    if initial_persistence_error_code == persistence_service.save_error_code:
+                        persistence_service.save_error_code = service.save_error_code
                 self._perf_log(context, PERF_ERROR_MSG, service, 'pre_save')
                 raise
         for service in reversed(self.services):
@@ -290,8 +291,9 @@ class ServiceManager:
                     service.save(**kwargs)
                 self._perf_log(context, PERF_FINISHED_MSG, service, 'save')
             except BaseException:
-                if initial_persistence_error_code == persistence_service.save_error_code:
-                    persistence_service.save_error_code = service.save_error_code
+                if persistence_service is not None:
+                    if initial_persistence_error_code == persistence_service.save_error_code:
+                        persistence_service.save_error_code = service.save_error_code
                 self._perf_log(context, PERF_ERROR_MSG, service, 'save')
                 raise
 

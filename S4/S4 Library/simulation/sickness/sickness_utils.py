@@ -10,10 +10,8 @@ def all_sicknesses_gen():
 def all_sickness_weights_gen(resolver, criteria_func=lambda x: True):
     for sickness in all_sicknesses_gen():
         if not criteria_func(sickness):
-            pass
-        else:
-            weight = sickness.get_sickness_weight(resolver)
-            if not weight:
-                pass
-            else:
-                yield (weight, sickness)
+            continue
+        weight = sickness.get_sickness_weight(resolver)
+        if not weight:
+            continue
+        yield (weight, sickness)

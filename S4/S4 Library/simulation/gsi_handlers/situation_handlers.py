@@ -99,10 +99,11 @@ def _setup_bouncer_schema(bouncer_schema):
     bouncer_schema.add_field('priority', label='Priority')
     bouncer_schema.add_field('sim_name', label='Assigned Sim')
     bouncer_schema.add_field('spawning_option', label='Spawning Option')
+    bouncer_schema.add_field('additional_filter_terms', label='Additional Filter Terms')
     bouncer_schema.add_field('unique', label='unique', unique_field=True, hidden=True)
 
 def _get_bouncer_request_gsi_data(request):
-    return {'bouncer_id': str(request._creation_id), 'situation': str(request._situation), 'situation_id': str(request._situation.id), 'job': request._job_type.__name__, 'filter': request._sim_filter.__name__ if request._sim_filter is not None else 'None', 'status': request._status.name, 'klout': request._get_request_klout() if request._get_request_klout() is not None else 10000, 'priority': request._request_priority.name, 'sim_name': request.assigned_sim.full_name if request.assigned_sim is not None else 'None', 'spawning_option': request.spawning_option.name, 'unique': str(id(request))}
+    return {'bouncer_id': str(request._creation_id), 'situation': str(request._situation), 'situation_id': str(request._situation.id), 'job': request._job_type.__name__, 'filter': request._sim_filter.__name__ if request._sim_filter is not None else 'None', 'status': request._status.name, 'klout': request._get_request_klout() if request._get_request_klout() is not None else 10000, 'priority': request._request_priority.name, 'sim_name': request.assigned_sim.full_name if request.assigned_sim is not None else 'None', 'spawning_option': request.spawning_option.name, 'additional_filter_terms': str(request.get_additional_filter_terms()), 'unique': str(id(request))}
 
 situation_bouncer_schema = GsiGridSchema(label='Situations/Situation Bouncer')
 _setup_bouncer_schema(situation_bouncer_schema)
@@ -133,7 +134,7 @@ def archive_bouncer_request(request, script_status, status_reason=None, sim_over
     bouncer_archiver.archive(data=request_data)
 
 sim_situation_schema = GsiGridSchema(label='Situations/Sim Situation View')
-sim_situation_schema.add_field('sim_id', label='Sim Id')
+sim_situation_schema.add_field('sim_id', label='Sim Id', unique_field=True)
 sim_situation_schema.add_field('sim', label='Sim')
 sim_situation_schema.add_field('time_on_lot', label='On Lot Time')
 sim_situation_schema.add_field('creation_source', label='Creation Source')

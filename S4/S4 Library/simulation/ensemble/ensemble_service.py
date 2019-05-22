@@ -33,17 +33,15 @@ class EnsembleService(Service):
             for sim in tuple(ensemble_sims):
                 visible_ensemble = self.get_visible_ensemble_for_sim(sim)
                 if visible_ensemble is None:
-                    pass
+                    continue
+                visible_ensemble_type = type(visible_ensemble)
+                if visible_ensemble_type is new_ensemble_type:
+                    continue
+                priority = Ensemble.get_ensemble_priority(visible_ensemble_type)
+                if priority < new_ensemble_priority:
+                    self.remove_sim_from_ensemble(visible_ensemble_type, sim)
                 else:
-                    visible_ensemble_type = type(visible_ensemble)
-                    if visible_ensemble_type is new_ensemble_type:
-                        pass
-                    else:
-                        priority = Ensemble.get_ensemble_priority(visible_ensemble_type)
-                        if priority < new_ensemble_priority:
-                            self.remove_sim_from_ensemble(visible_ensemble_type, sim)
-                        else:
-                            ensemble_sims.remove(sim)
+                    ensemble_sims.remove(sim)
         if len(ensemble_sims) <= 1:
             return
         chosen_sims = ensemble_sims
@@ -77,8 +75,9 @@ class EnsembleService(Service):
                     for sim in ensemble_sims:
                         final_ensemble.add_sim_to_ensemble(sim)
             for sim in chosen_sims:
-                if len(final_ensemble) >= final_ensemble.max_limit:
-                    break
+                if final_ensemble.max_limit is not None:
+                    if len(final_ensemble) >= final_ensemble.max_limit:
+                        break
                 final_ensemble.add_sim_to_ensemble(sim)
         else:
             final_ensemble = new_ensemble_type()
@@ -155,19 +154,18 @@ class EnsembleService(Service):
         sim_instances = []
         for sim_info in traveled_sim_infos:
             if not sim_info.is_human:
-                pass
-            else:
-                sim = sim_info.get_sim_instance()
-                if sim is None:
-                    pass
-                else:
-                    sim_instances.append(sim)
+                continue
+            sim = sim_info.get_sim_instance()
+            if sim is None:
+                continue
+            sim_instances.append(sim)
         if not any([sim for sim in sim_instances if self.get_all_ensembles_for_sim(sim)]):
             self.create_ensemble(EnsembleService.DEFAULT_ENSEMBLE_TYPE, sim_instances)
 
     def load(self, zone_data=None):
-        if zone_data.gameplay_zone_data.HasField('ensemble_service_data'):
-            self._ensemble_service_data = zone_data.gameplay_zone_data.ensemble_service_data
+        if zone_data is not None:
+            if zone_data.gameplay_zone_data.HasField('ensemble_service_data'):
+                self._ensemble_service_data = zone_data.gameplay_zone_data.ensemble_service_data
 
     def _load_persisted_data(self):
         if self._ensemble_service_data is None:
@@ -181,17 +179,16 @@ class EnsembleService(Service):
         for ensemble_data in ensemble_datas:
             ensemble_type = instance_manager.get(ensemble_data.ensemble_type_id)
             if ensemble_type is None:
+                continue
+            sims = set()
+            for sim_id in ensemble_data.sim_ids:
+                sim = object_manager.get(sim_id)
+                if sim is not None:
+                    sims.add(sim)
+            if not sims:
                 pass
             else:
-                sims = set()
-                for sim_id in ensemble_data.sim_ids:
-                    sim = object_manager.get(sim_id)
-                    if sim is not None:
-                        sims.add(sim)
-                if not sims:
-                    pass
-                else:
-                    self.create_ensemble(ensemble_type, sims)
+                self.create_ensemble(ensemble_type, sims)
 
     def save(self, object_list=None, zone_data=None, open_street_data=None, store_travel_group_placed_objects=False, save_slot_data=None):
         if zone_data is None:
@@ -212,19 +209,18 @@ class EnsembleService(Service):
         for (ensemble_type, ensembles) in self._ensembles.items():
             for ensemble in ensembles:
                 if not ensemble.rally:
-                    pass
-                elif not ensemble.is_sim_in_ensemble(sim):
-                    pass
-                else:
-                    priority = Ensemble.get_ensemble_priority(ensemble_type)
-                    if not best_priority is None:
-                        if priority > best_priority:
-                            best_priority = priority
-                            best_ensemble = ensemble
-                            break
-                    best_priority = priority
-                    best_ensemble = ensemble
-                    break
+                    continue
+                if not ensemble.is_sim_in_ensemble(sim):
+                    continue
+                priority = Ensemble.get_ensemble_priority(ensemble_type)
+                if not best_priority is None:
+                    if priority > best_priority:
+                        best_priority = priority
+                        best_ensemble = ensemble
+                        break
+                best_priority = priority
+                best_ensemble = ensemble
+                break
         if best_ensemble:
             return set(best_ensemble)
         return set()

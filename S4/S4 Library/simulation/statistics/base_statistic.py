@@ -113,8 +113,9 @@ class BaseStatistic(HasTunableLodMixin):
 
     def on_remove(self, on_destroy=False):
         owner = self._tracker.owner if self._tracker is not None else None
-        if not owner.is_sim:
-            self._tracker = None
+        if owner is not None:
+            if not owner.is_sim:
+                self._tracker = None
         for callback_listener in self._statistic_callback_listeners:
             callback_listener.destroy()
         self._statistic_callback_listeners.clear()
@@ -248,6 +249,11 @@ class BaseStatistic(HasTunableLodMixin):
                     self._statistic_multiplier_decrease = 1.0
                     for statistic_multiplier in self._statistic_multipliers:
                         self._recalculate_statistic_multiplier(statistic_multiplier)
+                    else:
+                        if value.apply_direction == StatisticChangeDirection.BOTH or value.apply_direction == StatisticChangeDirection.INCREASE:
+                            self._statistic_multiplier_increase /= value.multiplier
+                        if value.apply_direction == StatisticChangeDirection.BOTH or value.apply_direction == StatisticChangeDirection.DECREASE:
+                            self._statistic_multiplier_decrease /= value.multiplier
                 else:
                     if value.apply_direction == StatisticChangeDirection.BOTH or value.apply_direction == StatisticChangeDirection.INCREASE:
                         self._statistic_multiplier_increase /= value.multiplier

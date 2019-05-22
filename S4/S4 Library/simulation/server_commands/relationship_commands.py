@@ -70,10 +70,9 @@ def introduce_all_sims():
             sim_info_a = all_sims[sim_a_index]
             sim_info_b = all_sims[sim_b_index]
             if sim_info_a.relationship_tracker.has_bit(sim_info_b.sim_id, bit):
-                pass
-            else:
-                sim_info_a.relationship_tracker.add_relationship_score(sim_info_b.sim_id, RelationshipCommandTuning.INTRODUCE_VALUE, RelationshipCommandTuning.INTRODUCE_TRACK)
-                sim_info_a.relationship_tracker.add_relationship_bit(sim_info_b.sim_id, bit)
+                continue
+            sim_info_a.relationship_tracker.add_relationship_score(sim_info_b.sim_id, RelationshipCommandTuning.INTRODUCE_VALUE, RelationshipCommandTuning.INTRODUCE_TRACK)
+            sim_info_a.relationship_tracker.add_relationship_bit(sim_info_b.sim_id, bit)
 
 @sims4.commands.Command('relationship.make_all_sims_friends', command_type=sims4.commands.CommandType.Cheat)
 def make_all_sims_friends(opt_sim:OptionalTargetParam=None, _connection=None):
@@ -125,9 +124,8 @@ def introduce_sim_to_all_others(opt_sim:OptionalTargetParam=None, _connection=No
         return
     for target_sim in services.sim_info_manager().objects:
         if target_sim.id == sim.id:
-            pass
-        else:
-            sim.relationship_tracker.add_relationship_score(target_sim.sim_id, RelationshipCommandTuning.INTRODUCE_VALUE, RelationshipCommandTuning.INTRODUCE_TRACK)
+            continue
+        sim.relationship_tracker.add_relationship_score(target_sim.sim_id, RelationshipCommandTuning.INTRODUCE_VALUE, RelationshipCommandTuning.INTRODUCE_TRACK)
 
 @sims4.commands.Command('relationship.clear')
 def clear_relationships(source_sim_id:OptionalTargetParam=None, _connection=None):
@@ -151,6 +149,29 @@ def clear_relationships(source_sim_id:OptionalTargetParam=None, _connection=None
     else:
         logger.error("Sim {} doesn't have a RelationshipTracker", source_sim_info)
     return True
+
+@sims4.commands.Command('relationships.set_object_relationship')
+def set_object_relationship(sim_id:int, obj_def_id:int, value:int, _connection=None):
+    obj_tag_set = services.relationship_service().get_mapped_tag_set_of_id(obj_def_id)
+    if obj_tag_set is None:
+        logger.error('Invalid object definition ID, relationship creation failed.')
+        sims4.commands.output('The object definition ID is invalid', _connection)
+        return False
+    obj_relationship = services.relationship_service()._find_object_relationship(sim_id, obj_tag_set, obj_def_id, create=True)
+    stat_type = services.relationship_service().get_mapped_track_of_tag_set(obj_tag_set)
+    obj_relationship.relationship_track_tracker.set_value(stat_type, value)
+
+@sims4.commands.Command('relationships.print_object_relationship')
+def print_object_relationship(sim_id:int, obj_def_id:int, _connection=None):
+    obj_tag_set = services.relationship_service().get_mapped_tag_set_of_id(obj_def_id)
+    if obj_tag_set is None:
+        sims4.commands.output('No rel exists', _connection)
+        return False
+    obj_relationship = services.relationship_service()._find_object_relationship(sim_id, obj_tag_set, obj_def_id, create=False).relationship_track_tracker
+    if obj_relationship is None:
+        sims4.commands.output('No rel exists', _connection)
+    stat_type = services.relationship_service().get_mapped_track_of_tag_set(obj_tag_set)
+    sims4.commands.output('{} : Object Relationship Type Value between sim with sim id {} and object of def id {}.'.format(obj_relationship._rel_data.relationship_track_tracker.get_value(stat_type), sim_id, obj_def_id), _connection)
 
 @sims4.commands.Command('relationship.add_score', command_type=sims4.commands.CommandType.Automation)
 def add_score(source_sim_id:int, target_sim_id:int, score_delta:float, track_type:TunableInstanceParam(sims4.resources.Types.STATISTIC), _connection=None):
@@ -288,18 +309,17 @@ def test_marriage(_connection=None):
 
     for (x, illegals) in spouses.items():
         if len(illegals) <= 1:
-            pass
-        else:
-            polygamies = True
-            output('{} with sim id: ({}) is married to the following sims: '.format(get_name(x), x))
-            for illegal in illegals:
-                illegal_spouses = spouses.get(illegal)
-                if illegal_spouses is None:
-                    illegal_spouses = 'None'
-                else:
-                    illegal_spouses = ', '.join('{} with sim id: ({})'.format(get_name(i), i) for i in illegal_spouses)
-                illegal_name = get_name(illegal)
-                output('\t{} with sim id: ({}). \n \t \t {} is married to {}'.format(illegal_name, illegal, illegal_name, illegal_spouses))
+            continue
+        polygamies = True
+        output('{} with sim id: ({}) is married to the following sims: '.format(get_name(x), x))
+        for illegal in illegals:
+            illegal_spouses = spouses.get(illegal)
+            if illegal_spouses is None:
+                illegal_spouses = 'None'
+            else:
+                illegal_spouses = ', '.join('{} with sim id: ({})'.format(get_name(i), i) for i in illegal_spouses)
+            illegal_name = get_name(illegal)
+            output('\t{} with sim id: ({}). \n \t \t {} is married to {}'.format(illegal_name, illegal, illegal_name, illegal_spouses))
     if not polygamies:
         output('There are no inappropriate marriages in this save.')
 
@@ -340,13 +360,17 @@ def set_average_relationships(avg_relationships:float, _connection=None):
         for (sim_info_id_a, sim_info_id_b) in sim_info_combinations:
             sim_info_a = sim_info_manager.get(sim_info_id_a)
             sim_info_b = sim_info_manager.get(sim_info_id_b)
-            if sim_info_a.is_npc and (sim_info_a.lod != SimInfoLODLevel.MINIMUM and (sim_info_b.is_npc and sim_info_b.lod != SimInfoLODLevel.MINIMUM)) and not sim_info_a.relationship_tracker.has_relationship(sim_info_b.sim_id):
-                sim_info_a.relationship_tracker.set_default_tracks(sim_info_b, update_romance=False)
-                sim_info_b.relationship_tracker.set_default_tracks(sim_info_a, update_romance=False)
-                needed_relationships -= 1
-                modified_relationship_count += 1
-                if needed_relationships <= 0:
-                    break
+            if sim_info_a.is_npc:
+                if sim_info_a.lod != SimInfoLODLevel.MINIMUM:
+                    if sim_info_b.is_npc:
+                        if sim_info_b.lod != SimInfoLODLevel.MINIMUM:
+                            if not sim_info_a.relationship_tracker.has_relationship(sim_info_b.sim_id):
+                                sim_info_a.relationship_tracker.set_default_tracks(sim_info_b, update_romance=False)
+                                sim_info_b.relationship_tracker.set_default_tracks(sim_info_a, update_romance=False)
+                                needed_relationships -= 1
+                                modified_relationship_count += 1
+                                if needed_relationships <= 0:
+                                    break
     elif needed_relationships < 0:
         relationships = list(relationship_service)
         random.shuffle(relationships)
@@ -365,7 +389,11 @@ def check_culling_alarms(_connection=None):
     num_of_culling_alarms = 0
     for relationship in services.relationship_service():
         if not relationship.find_sim_info_a().is_player_sim:
-            pass
+            if relationship.find_sim_info_b().is_player_sim:
+                if relationship.can_cull_relationship():
+                    num_rels_that_should_be_culled += 1
+                    if relationship._culling_alarm_handle is not None:
+                        num_of_culling_alarms += 1
         if relationship.can_cull_relationship():
             num_rels_that_should_be_culled += 1
             if relationship._culling_alarm_handle is not None:

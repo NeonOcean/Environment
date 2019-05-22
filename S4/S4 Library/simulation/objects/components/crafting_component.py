@@ -157,7 +157,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             tracker = crafting_process.current_ico.get_tracker(stat)
         if tracker is None:
             tracker = self.owner.get_tracker(stat)
-        if not (tracker is None or tracker.has_statistic(stat)):
+        if not (tracker is None or not tracker.has_statistic(stat)):
             tracker = crafting_process.get_tracker(stat)
         if tracker.has_statistic(stat) and tracker.get_value(stat) != stat.max_value:
             return crafting_process.is_complete
@@ -263,15 +263,16 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         self._last_spoiled_time = None
 
     def _add_spoil_listener(self):
-        if self.owner.has_state(CraftingTuning.SPOILED_STATE_VALUE.state):
-            linked_stat = CraftingTuning.SPOILED_STATE_VALUE.state.linked_stat
-            tracker = self.owner.get_tracker(linked_stat)
-            if tracker is None:
-                return
-            threshold = sims4.math.Threshold()
-            threshold.value = CraftingTuning.SPOILED_STATE_VALUE.range.upper_bound
-            threshold.comparison = operator.lt
-            self._spoil_listener_handle = tracker.create_and_add_listener(linked_stat, threshold, self._on_spoiled, on_callback_alarm_reset=self._on_spoil_time_changed)
+        if self._spoil_listener_handle is None:
+            if self.owner.has_state(CraftingTuning.SPOILED_STATE_VALUE.state):
+                linked_stat = CraftingTuning.SPOILED_STATE_VALUE.state.linked_stat
+                tracker = self.owner.get_tracker(linked_stat)
+                if tracker is None:
+                    return
+                threshold = sims4.math.Threshold()
+                threshold.value = CraftingTuning.SPOILED_STATE_VALUE.range.upper_bound
+                threshold.comparison = operator.lt
+                self._spoil_listener_handle = tracker.create_and_add_listener(linked_stat, threshold, self._on_spoiled, on_callback_alarm_reset=self._on_spoil_time_changed)
 
     def _on_crafting_process_updated(self):
         if self._crafting_process.recipe is not None:
@@ -280,7 +281,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
 
     @componentmethod
     def set_crafting_process(self, crafting_process, use_base_recipe=False, is_final_product=False, from_load=False):
-        if is_final_product and (from_load or self._crafting_process is not None and crafting_process.multiple_order_process):
+        if is_final_product and (not from_load and self._crafting_process is not None) and crafting_process.multiple_order_process:
             new_process = crafting_process.copy_for_serve_interaction(crafting_process.get_order_or_recipe())
             self._crafting_process.linked_process = new_process
             self._crafting_process = new_process
@@ -363,8 +364,9 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
                     return consume_affordance
         for affordance in self.owner.super_affordances():
             from crafting.crafting_interactions import GrabServingSuperInteraction
-            if issubclass(affordance, GrabServingSuperInteraction) and not affordance.consume_affordances_override:
-                return affordance
+            if issubclass(affordance, GrabServingSuperInteraction):
+                if not affordance.consume_affordances_override:
+                    return affordance
         if error_dict:
             logger.error('Failed to find valid consume affordance. Consumable component affordances tested as follows:\n\n{}', error_dict)
 
@@ -387,14 +389,14 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
     def component_super_affordances_gen(self, **kwargs):
         recipe = self.get_recipe()
         recipe = recipe.get_base_recipe()
-        if self._use_base_recipe and recipe is None:
+        if not self._use_base_recipe or recipe is None:
             return
         for sa in recipe.final_product.super_affordances:
             yield sa
         for linked_recipe in recipe.linked_recipes_map.values():
             for sa in linked_recipe.final_product.super_affordances:
                 yield sa
-        if (self._crafting_process.is_complete or self._crafting_process.ready_to_serve) and recipe.resume_affordance:
+        if not (self._crafting_process.is_complete or self._crafting_process.ready_to_serve) or recipe.resume_affordance:
             yield recipe.resume_affordance
         else:
             yield CraftingTuning.DEFAULT_RESUME_AFFORDANCE

@@ -279,139 +279,140 @@ except ImportError:
         NO_CONNECTIVITY = 1024
         UNKNOWN_ERROR = 2048
 
-get_default_traversal_cost = _pathing.get_default_traversal_cost
-get_default_discouragement_cost = _pathing.get_default_discouragement_cost
-get_default_obstacle_cost = _pathing.get_default_obstacle_cost
-get_min_agent_radius = _pathing.get_min_agent_radius
-get_default_agent_radius = _pathing.get_default_agent_radius
-get_default_agent_extra_clearance_multiplier = _pathing.get_default_agent_extra_clearance_multiplier
-set_default_agent_extra_clearance_multiplier = _pathing.set_default_agent_extra_clearance_multiplier
-get_world_size = _pathing.get_world_size
-get_world_bounds = _pathing.get_world_bounds
-is_position_in_world_bounds = _pathing.is_position_in_world_bounds
-is_position_in_surface_bounds = _pathing.is_position_in_surface_bounds
-get_world_center = _pathing.get_world_center
-invalidate_navmesh = _pathing.invalidate_navmesh
-add_footprint = _pathing.add_footprint
-remove_footprint = _pathing.remove_footprint
-invalidate_footprint = _pathing.invalidate_footprint
-get_footprint_polys = _pathing.get_footprint_polys
-add_portal = _pathing.add_portal
-remove_portal = _pathing.remove_portal
-get_stair_portals = _pathing.get_stair_portals
-test_connectivity_pt_pt = _pathing.test_connectivity_pt_pt
-test_point_placement_in_navmesh = _pathing.test_point_placement_in_navmesh
-test_polygon_placement_in_navmesh = _pathing.test_polygon_placement_in_navmesh
-ray_test = _pathing.ray_test
-get_portals_in_connectivity_path = _pathing.get_portals_in_connectivity_path
-update_portal_cost = _pathing.update_portal_cost
-is_portal_valid = _pathing.is_portal_valid
-RAYCAST_HIT_TYPE_NONE = _pathing.RAYCAST_HIT_TYPE_NONE
-RAYCAST_HIT_TYPE_IMPASSABLE = _pathing.RAYCAST_HIT_TYPE_IMPASSABLE
-RAYCAST_HIT_TYPE_LOS_IMPASSABLE = _pathing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE
-ray_test_verbose = _pathing.ray_test_verbose
-get_walkstyle_info = _pathing.get_walkstyle_info
-get_walkstyle_info_full = _pathing.get_walkstyle_info_full
-has_walkstyle_info = _pathing.has_walkstyle_info
-planner_build_id = _pathing.planner_build_id
-get_walkstyle_hash_from_resource = _pathing.get_walkstyle_hash_from_resource
-get_walkstyle_name_from_resource = _pathing.get_walkstyle_name_from_resource
-planner_build_record = _pathing.planner_build_record
-flush_planner = _pathing.flush_planner
-add_fence = _pathing.add_fence
-get_last_fence = _pathing.get_last_fence
-LocationBase = _pathing.Location
-SurfaceIdentifier = _pathing.SurfaceIdentifier
-path_wrapper = _pathing.PathNodeList
-Destination = _pathing.Destination
-RoutingContext = _pathing.RoutingContext
-PathPlanContext = _pathing.PathPlanContext
+else:
+    get_default_traversal_cost = _pathing.get_default_traversal_cost
+    get_default_discouragement_cost = _pathing.get_default_discouragement_cost
+    get_default_obstacle_cost = _pathing.get_default_obstacle_cost
+    get_min_agent_radius = _pathing.get_min_agent_radius
+    get_default_agent_radius = _pathing.get_default_agent_radius
+    get_default_agent_extra_clearance_multiplier = _pathing.get_default_agent_extra_clearance_multiplier
+    set_default_agent_extra_clearance_multiplier = _pathing.set_default_agent_extra_clearance_multiplier
+    get_world_size = _pathing.get_world_size
+    get_world_bounds = _pathing.get_world_bounds
+    is_position_in_world_bounds = _pathing.is_position_in_world_bounds
+    is_position_in_surface_bounds = _pathing.is_position_in_surface_bounds
+    get_world_center = _pathing.get_world_center
+    invalidate_navmesh = _pathing.invalidate_navmesh
+    add_footprint = _pathing.add_footprint
+    remove_footprint = _pathing.remove_footprint
+    invalidate_footprint = _pathing.invalidate_footprint
+    get_footprint_polys = _pathing.get_footprint_polys
+    add_portal = _pathing.add_portal
+    remove_portal = _pathing.remove_portal
+    get_stair_portals = _pathing.get_stair_portals
+    test_connectivity_pt_pt = _pathing.test_connectivity_pt_pt
+    test_point_placement_in_navmesh = _pathing.test_point_placement_in_navmesh
+    test_polygon_placement_in_navmesh = _pathing.test_polygon_placement_in_navmesh
+    ray_test = _pathing.ray_test
+    get_portals_in_connectivity_path = _pathing.get_portals_in_connectivity_path
+    update_portal_cost = _pathing.update_portal_cost
+    is_portal_valid = _pathing.is_portal_valid
+    RAYCAST_HIT_TYPE_NONE = _pathing.RAYCAST_HIT_TYPE_NONE
+    RAYCAST_HIT_TYPE_IMPASSABLE = _pathing.RAYCAST_HIT_TYPE_IMPASSABLE
+    RAYCAST_HIT_TYPE_LOS_IMPASSABLE = _pathing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE
+    ray_test_verbose = _pathing.ray_test_verbose
+    get_walkstyle_info = _pathing.get_walkstyle_info
+    get_walkstyle_info_full = _pathing.get_walkstyle_info_full
+    has_walkstyle_info = _pathing.has_walkstyle_info
+    planner_build_id = _pathing.planner_build_id
+    get_walkstyle_hash_from_resource = _pathing.get_walkstyle_hash_from_resource
+    get_walkstyle_name_from_resource = _pathing.get_walkstyle_name_from_resource
+    planner_build_record = _pathing.planner_build_record
+    flush_planner = _pathing.flush_planner
+    add_fence = _pathing.add_fence
+    get_last_fence = _pathing.get_last_fence
+    LocationBase = _pathing.Location
+    SurfaceIdentifier = _pathing.SurfaceIdentifier
+    path_wrapper = _pathing.PathNodeList
+    Destination = _pathing.Destination
+    RoutingContext = _pathing.RoutingContext
+    PathPlanContext = _pathing.PathPlanContext
 
-class SurfaceType(enum.Int):
-    SURFACETYPE_UNKNOWN = _pathing.SURFACETYPE_UNKNOWN
-    SURFACETYPE_WORLD = _pathing.SURFACETYPE_WORLD
-    SURFACETYPE_OBJECT = _pathing.SURFACETYPE_OBJECT
-    SURFACETYPE_POOL = _pathing.SURFACETYPE_POOL
+    class SurfaceType(enum.Int):
+        SURFACETYPE_UNKNOWN = _pathing.SURFACETYPE_UNKNOWN
+        SURFACETYPE_WORLD = _pathing.SURFACETYPE_WORLD
+        SURFACETYPE_OBJECT = _pathing.SURFACETYPE_OBJECT
+        SURFACETYPE_POOL = _pathing.SURFACETYPE_POOL
 
-object_routing_surfaces = (SurfaceType.SURFACETYPE_OBJECT, SurfaceType.SURFACETYPE_POOL)
+    object_routing_surfaces = (SurfaceType.SURFACETYPE_OBJECT, SurfaceType.SURFACETYPE_POOL)
 
-def test_connectivity_math_locations(loc1:sims4.math.Location, loc2:sims4.math.Location, routing_context):
-    return test_connectivity_pt_pt(Location(loc1.transform.translation, orientation=loc1.transform.orientation, routing_surface=loc1.routing_surface), Location(loc2.transform.translation, orientation=loc2.transform.orientation, routing_surface=loc2.routing_surface), routing_context)
+    def test_connectivity_math_locations(loc1:sims4.math.Location, loc2:sims4.math.Location, routing_context):
+        return test_connectivity_pt_pt(Location(loc1.transform.translation, orientation=loc1.transform.orientation, routing_surface=loc1.routing_surface), Location(loc2.transform.translation, orientation=loc2.transform.orientation, routing_surface=loc2.routing_surface), routing_context)
 
-def test_connectivity_batch(src, dst, routing_context=None, compute_cost=False, flush_planner=False, allow_permissive_connections=False, ignore_objects=False):
-    return _pathing.test_connectivity_batch(src, dst, routing_context, compute_cost, flush_planner, allow_permissive_connections, ignore_objects)
+    def test_connectivity_batch(src, dst, routing_context=None, compute_cost=False, flush_planner=False, allow_permissive_connections=False, ignore_objects=False):
+        return _pathing.test_connectivity_batch(src, dst, routing_context, compute_cost, flush_planner, allow_permissive_connections, ignore_objects)
 
-def estimate_path_batch(src, dst, routing_context=None, flush_planner=False, allow_permissive_connections=False, ignore_objects=False):
-    return _pathing.estimate_path_batch(src, dst, routing_context, flush_planner, allow_permissive_connections, ignore_objects)
+    def estimate_path_batch(src, dst, routing_context=None, flush_planner=False, allow_permissive_connections=False, ignore_objects=False):
+        return _pathing.estimate_path_batch(src, dst, routing_context, flush_planner, allow_permissive_connections, ignore_objects)
 
-def estimate_distance_between_multiple_points(sources, dests, routing_context=None, allow_permissive_connections=False):
-    return _pathing.estimate_distance_between_multiple_points(sources, dests, routing_context, allow_permissive_connections)
+    def estimate_distance_between_multiple_points(sources, dests, routing_context=None, allow_permissive_connections=False):
+        return _pathing.estimate_distance_between_multiple_points(sources, dests, routing_context, allow_permissive_connections)
 
-def test_connectivity_permissions_for_handle(handle, routing_context=None, flush_planner=False):
-    return _pathing.test_connectivity_permissions_for_handle(handle, routing_context, flush_planner)
+    def test_connectivity_permissions_for_handle(handle, routing_context=None, flush_planner=False):
+        return _pathing.test_connectivity_permissions_for_handle(handle, routing_context, flush_planner)
 
-PATH_RESULT_UNKNOWN = _pathing.PATH_RESULT_UNKNOWN
-PATH_RESULT_SUCCESS_TRIVIAL = _pathing.PATH_RESULT_SUCCESS_TRIVIAL
-PATH_RESULT_SUCCESS_LOCAL = _pathing.PATH_RESULT_SUCCESS_LOCAL
-PATH_RESULT_SUCCESS_GLOBAL = _pathing.PATH_RESULT_SUCCESS_GLOBAL
-PATH_RESULT_FAIL_NO_GOALS = _pathing.PATH_RESULT_FAIL_NO_GOALS
-PATH_RESULT_FAIL_INVALID_START_SURFACE = _pathing.PATH_RESULT_FAIL_INVALID_START_SURFACE
-PATH_RESULT_FAIL_INVALID_START_POINT = _pathing.PATH_RESULT_FAIL_INVALID_START_POINT
-PATH_RESULT_FAIL_START_POINT_IN_IMPASSABLE_REGION = _pathing.PATH_RESULT_FAIL_START_POINT_IN_IMPASSABLE_REGION
-PATH_RESULT_FAIL_TOO_MANY_CYCLES = _pathing.PATH_RESULT_FAIL_TOO_MANY_CYCLES
-PATH_RESULT_FAIL_PARTIAL_PATH = _pathing.PATH_RESULT_FAIL_PARTIAL_PATH
-PATH_RESULT_FAIL_NO_PATH = _pathing.PATH_RESULT_FAIL_NO_PATH
-FAIL_PATH_TYPE_UNKNOWN = _pathing.FAIL_PATH_TYPE_UNKNOWN
-FAIL_PATH_TYPE_OBJECT_BLOCKING = _pathing.FAIL_PATH_TYPE_OBJECT_BLOCKING
-FAIL_PATH_TYPE_BUILD_BLOCKING = _pathing.FAIL_PATH_TYPE_BUILD_BLOCKING
-FAIL_PATH_TYPE_UNKNOWN_BLOCKING = _pathing.FAIL_PATH_TYPE_UNKNOWN_BLOCKING
-GOAL_STATUS_PENDING = _pathing.GOAL_STATUS_PENDING
-GOAL_STATUS_INVALID_SURFACE = _pathing.GOAL_STATUS_INVALID_SURFACE
-GOAL_STATUS_INVALID_POINT = _pathing.GOAL_STATUS_INVALID_POINT
-GOAL_STATUS_DUPLICATE_GOAL = _pathing.GOAL_STATUS_DUPLICATE_GOAL
-GOAL_STATUS_CONNECTIVITY_GROUP_UNREACHABLE = _pathing.GOAL_STATUS_CONNECTIVITY_GROUP_UNREACHABLE
-GOAL_STATUS_COMPONENT_DIFFERENT = _pathing.GOAL_STATUS_COMPONENT_DIFFERENT
-GOAL_STATUS_NOTEVALUATED = _pathing.GOAL_STATUS_NOTEVALUATED
-GOAL_STATUS_LOWER_SCORE = _pathing.GOAL_STATUS_LOWER_SCORE
-GOAL_STATUS_IMPASSABLE = _pathing.GOAL_STATUS_IMPASSABLE
-GOAL_STATUS_BLOCKED = _pathing.GOAL_STATUS_BLOCKED
-GOAL_STATUS_REJECTED_UNKNOWN = _pathing.GOAL_STATUS_REJECTED_UNKNOWN
-GOAL_STATUS_SUCCESS = _pathing.GOAL_STATUS_SUCCESS
-GOAL_STATUS_SUCCESS_TRIVIAL = _pathing.GOAL_STATUS_SUCCESS_TRIVIAL
-GOAL_STATUS_SUCCESS_LOCAL = _pathing.GOAL_STATUS_SUCCESS_LOCAL
-FOOTPRINT_KEY_ON_LOT = _pathing.FOOTPRINT_KEY_ON_LOT
-FOOTPRINT_KEY_OFF_LOT = _pathing.FOOTPRINT_KEY_OFF_LOT
-FOOTPRINT_KEY_REQUIRE_NO_CARRY = _pathing.FOOTPRINT_KEY_REQUIRE_NO_CARRY
-FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT
-FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT
-FOOTPRINT_KEY_REQUIRE_FLOATING = _pathing.FOOTPRINT_KEY_REQUIRE_FLOATING
-FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT
-FOOTPRINT_KEY_DEFAULT = _pathing.FOOTPRINT_KEY_DEFAULT
-SPECIES_FLAG_RESERVE_INDEX = _pathing.SPECIES_FLAG_RESERVE_INDEX
+    PATH_RESULT_UNKNOWN = _pathing.PATH_RESULT_UNKNOWN
+    PATH_RESULT_SUCCESS_TRIVIAL = _pathing.PATH_RESULT_SUCCESS_TRIVIAL
+    PATH_RESULT_SUCCESS_LOCAL = _pathing.PATH_RESULT_SUCCESS_LOCAL
+    PATH_RESULT_SUCCESS_GLOBAL = _pathing.PATH_RESULT_SUCCESS_GLOBAL
+    PATH_RESULT_FAIL_NO_GOALS = _pathing.PATH_RESULT_FAIL_NO_GOALS
+    PATH_RESULT_FAIL_INVALID_START_SURFACE = _pathing.PATH_RESULT_FAIL_INVALID_START_SURFACE
+    PATH_RESULT_FAIL_INVALID_START_POINT = _pathing.PATH_RESULT_FAIL_INVALID_START_POINT
+    PATH_RESULT_FAIL_START_POINT_IN_IMPASSABLE_REGION = _pathing.PATH_RESULT_FAIL_START_POINT_IN_IMPASSABLE_REGION
+    PATH_RESULT_FAIL_TOO_MANY_CYCLES = _pathing.PATH_RESULT_FAIL_TOO_MANY_CYCLES
+    PATH_RESULT_FAIL_PARTIAL_PATH = _pathing.PATH_RESULT_FAIL_PARTIAL_PATH
+    PATH_RESULT_FAIL_NO_PATH = _pathing.PATH_RESULT_FAIL_NO_PATH
+    FAIL_PATH_TYPE_UNKNOWN = _pathing.FAIL_PATH_TYPE_UNKNOWN
+    FAIL_PATH_TYPE_OBJECT_BLOCKING = _pathing.FAIL_PATH_TYPE_OBJECT_BLOCKING
+    FAIL_PATH_TYPE_BUILD_BLOCKING = _pathing.FAIL_PATH_TYPE_BUILD_BLOCKING
+    FAIL_PATH_TYPE_UNKNOWN_BLOCKING = _pathing.FAIL_PATH_TYPE_UNKNOWN_BLOCKING
+    GOAL_STATUS_PENDING = _pathing.GOAL_STATUS_PENDING
+    GOAL_STATUS_INVALID_SURFACE = _pathing.GOAL_STATUS_INVALID_SURFACE
+    GOAL_STATUS_INVALID_POINT = _pathing.GOAL_STATUS_INVALID_POINT
+    GOAL_STATUS_DUPLICATE_GOAL = _pathing.GOAL_STATUS_DUPLICATE_GOAL
+    GOAL_STATUS_CONNECTIVITY_GROUP_UNREACHABLE = _pathing.GOAL_STATUS_CONNECTIVITY_GROUP_UNREACHABLE
+    GOAL_STATUS_COMPONENT_DIFFERENT = _pathing.GOAL_STATUS_COMPONENT_DIFFERENT
+    GOAL_STATUS_NOTEVALUATED = _pathing.GOAL_STATUS_NOTEVALUATED
+    GOAL_STATUS_LOWER_SCORE = _pathing.GOAL_STATUS_LOWER_SCORE
+    GOAL_STATUS_IMPASSABLE = _pathing.GOAL_STATUS_IMPASSABLE
+    GOAL_STATUS_BLOCKED = _pathing.GOAL_STATUS_BLOCKED
+    GOAL_STATUS_REJECTED_UNKNOWN = _pathing.GOAL_STATUS_REJECTED_UNKNOWN
+    GOAL_STATUS_SUCCESS = _pathing.GOAL_STATUS_SUCCESS
+    GOAL_STATUS_SUCCESS_TRIVIAL = _pathing.GOAL_STATUS_SUCCESS_TRIVIAL
+    GOAL_STATUS_SUCCESS_LOCAL = _pathing.GOAL_STATUS_SUCCESS_LOCAL
+    FOOTPRINT_KEY_ON_LOT = _pathing.FOOTPRINT_KEY_ON_LOT
+    FOOTPRINT_KEY_OFF_LOT = _pathing.FOOTPRINT_KEY_OFF_LOT
+    FOOTPRINT_KEY_REQUIRE_NO_CARRY = _pathing.FOOTPRINT_KEY_REQUIRE_NO_CARRY
+    FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT
+    FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT
+    FOOTPRINT_KEY_REQUIRE_FLOATING = _pathing.FOOTPRINT_KEY_REQUIRE_FLOATING
+    FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT
+    FOOTPRINT_KEY_DEFAULT = _pathing.FOOTPRINT_KEY_DEFAULT
+    SPECIES_FLAG_RESERVE_INDEX = _pathing.SPECIES_FLAG_RESERVE_INDEX
 
-class EstimatePathFlag(enum.IntFlags, export=False):
-    NONE = 0
-    RETURN_DISTANCE_ON_FAIL = _pathing.ESTIMATE_PATH_OPTION_RETURN_DISTANCE_ON_FAIL
-    IGNORE_CONNECTIVITY_HANDLES = _pathing.ESTIMATE_PATH_OPTION_IGNORE_CONNECTIVITY_HANDLES
-    RETURN_DISTANCE_FROM_FIRST_CONNECTION_FOUND = _pathing.ESTIMATE_PATH_OPTION_RETURN_DISTANCE_FROM_FIRST_CONNECTION_FOUND
-    ALWAYS_RETURN_MINIMUM_DISTANCE = _pathing.ESTIMATE_PATH_OPTION_ALWAYS_RETURN_MINIMUM_DISTANCE
-    ZERO_DISTANCE_IS_OPTIMAL = _pathing.ESTIMATE_PATH_OPTION_ZERO_DISTANCE_IS_OPTIMAL
-    NO_NEAREST_VALID_POINT_SEARCH = _pathing.ESTIMATE_PATH_OPTION_NO_NEAREST_VALID_POINT_SEARCH
+    class EstimatePathFlag(enum.IntFlags, export=False):
+        NONE = 0
+        RETURN_DISTANCE_ON_FAIL = _pathing.ESTIMATE_PATH_OPTION_RETURN_DISTANCE_ON_FAIL
+        IGNORE_CONNECTIVITY_HANDLES = _pathing.ESTIMATE_PATH_OPTION_IGNORE_CONNECTIVITY_HANDLES
+        RETURN_DISTANCE_FROM_FIRST_CONNECTION_FOUND = _pathing.ESTIMATE_PATH_OPTION_RETURN_DISTANCE_FROM_FIRST_CONNECTION_FOUND
+        ALWAYS_RETURN_MINIMUM_DISTANCE = _pathing.ESTIMATE_PATH_OPTION_ALWAYS_RETURN_MINIMUM_DISTANCE
+        ZERO_DISTANCE_IS_OPTIMAL = _pathing.ESTIMATE_PATH_OPTION_ZERO_DISTANCE_IS_OPTIMAL
+        NO_NEAREST_VALID_POINT_SEARCH = _pathing.ESTIMATE_PATH_OPTION_NO_NEAREST_VALID_POINT_SEARCH
 
-class EstimatePathResults(enum.IntFlags, export=False):
-    NONE = 0
-    SUCCESS = _pathing.ESTIMATE_PATH_RESULT_SUCCESS
-    PATHPLANNER_NOT_INITIALIZED = _pathing.ESTIMATE_PATH_RESULT_PATHPLANNER_NOT_INITIALIZED
-    START_SURFACE_INVALID = _pathing.ESTIMATE_PATH_RESULT_START_SURFACE_INVALID
-    START_LOCATION_INVALID = _pathing.ESTIMATE_PATH_RESULT_START_LOCATION_INVALID
-    START_LOCATION_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_START_LOCATION_BLOCKED
-    ALL_START_HANDLES_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_ALL_START_HANDLES_BLOCKED
-    GOAL_SURFACE_INVALID = _pathing.ESTIMATE_PATH_RESULT_GOAL_SURFACE_INVALID
-    GOAL_LOCATION_INVALID = _pathing.ESTIMATE_PATH_RESULT_GOAL_LOCATION_INVALID
-    GOAL_LOCATION_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_GOAL_LOCATION_BLOCKED
-    ALL_GOAL_HANDLES_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_ALL_GOAL_HANDLES_BLOCKED
-    NO_CONNECTIVITY = _pathing.ESTIMATE_PATH_RESULT_NO_CONNECTIVITY
-    UNKNOWN_ERROR = _pathing.ESTIMATE_PATH_RESULT_UNKNOWN_ERROR
+    class EstimatePathResults(enum.IntFlags, export=False):
+        NONE = 0
+        SUCCESS = _pathing.ESTIMATE_PATH_RESULT_SUCCESS
+        PATHPLANNER_NOT_INITIALIZED = _pathing.ESTIMATE_PATH_RESULT_PATHPLANNER_NOT_INITIALIZED
+        START_SURFACE_INVALID = _pathing.ESTIMATE_PATH_RESULT_START_SURFACE_INVALID
+        START_LOCATION_INVALID = _pathing.ESTIMATE_PATH_RESULT_START_LOCATION_INVALID
+        START_LOCATION_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_START_LOCATION_BLOCKED
+        ALL_START_HANDLES_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_ALL_START_HANDLES_BLOCKED
+        GOAL_SURFACE_INVALID = _pathing.ESTIMATE_PATH_RESULT_GOAL_SURFACE_INVALID
+        GOAL_LOCATION_INVALID = _pathing.ESTIMATE_PATH_RESULT_GOAL_LOCATION_INVALID
+        GOAL_LOCATION_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_GOAL_LOCATION_BLOCKED
+        ALL_GOAL_HANDLES_BLOCKED = _pathing.ESTIMATE_PATH_RESULT_ALL_GOAL_HANDLES_BLOCKED
+        NO_CONNECTIVITY = _pathing.ESTIMATE_PATH_RESULT_NO_CONNECTIVITY
+        UNKNOWN_ERROR = _pathing.ESTIMATE_PATH_RESULT_UNKNOWN_ERROR
 
 PORTAL_PLAN_LOCK = 5000
 PORTAL_USE_LOCK = 25000

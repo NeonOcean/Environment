@@ -1,4 +1,5 @@
-from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference
+from narrative.narrative_enums import NarrativeSituationShiftType
+from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableEnumEntry
 import services
 import sims4.resources
 
@@ -25,4 +26,19 @@ class ZoneModifierSituations(AdditionalSituationSource):
             weighted_situations = self.zone_modifier.additional_situations.get_weighted_situations(predicate=predicate)
             if weighted_situations is None:
                 return ()
+        return weighted_situations
+
+class NarrativeSituations(AdditionalSituationSource):
+    FACTORY_TUNABLES = {'narrative_situation_shift_type': TunableEnumEntry(description='\n            Shift type to look for.\n            ', tunable_type=NarrativeSituationShiftType, default=NarrativeSituationShiftType.INVALID, invalid_enums=(NarrativeSituationShiftType.INVALID,), pack_safe=True)}
+
+    def get_additional_situations(self, predicate=lambda _: True):
+        weighted_situations = []
+        narrative_service = services.narrative_service()
+        for narrative in narrative_service.active_narratives:
+            if self.narrative_situation_shift_type not in narrative.additional_situation_shifts:
+                continue
+            shift = narrative.additional_situation_shifts[self.narrative_situation_shift_type]
+            shift_situations = shift.get_weighted_situations(predicate=predicate)
+            if shift_situations is not None:
+                weighted_situations.extend(shift_situations)
         return weighted_situations

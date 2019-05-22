@@ -25,7 +25,7 @@ class UniqueIdGenerator:
 
     def __reload_update__(self, oldobj, newobj, _update):
         uid = oldobj.next_uid
-        if newobj.min_uid <= uid and uid <= newobj.max_uid:
+        if newobj.min_uid <= uid <= newobj.max_uid:
             newobj.next_uid = uid
         else:
             newobj.next_uid = newobj.min_uid

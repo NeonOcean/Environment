@@ -52,10 +52,9 @@ class PetSocialGroup(SocialGroup):
         scoring_constraints = []
         for other_sim in self:
             if other_sim is sim:
-                pass
-            else:
-                scoring_constraint = self.facing_restriction.create_constraint(sim, other_sim, scoring_functions=(self.scoring_function(sim, other_sim),))
-                scoring_constraints.append(scoring_constraint)
+                continue
+            scoring_constraint = self.facing_restriction.create_constraint(sim, other_sim, scoring_functions=(self.scoring_function(sim, other_sim),))
+            scoring_constraints.append(scoring_constraint)
         scoring_constraints = create_constraint_set(scoring_constraints)
         geometric_constraint = geometric_constraint.intersect(scoring_constraints)
         return geometric_constraint
@@ -69,9 +68,10 @@ class PetSocialGroup(SocialGroup):
         return any(tag in self.main_social_tags for tag in interaction.get_category_tags())
 
     def _on_interaction_start(self, interaction):
-        if self._is_main_pet_social(interaction):
-            now = services.time_service().sim_now
-            lock_out_time = now + create_time_span(minutes=self.main_social_lockout_time)
-            self._lock_side_group_until = lock_out_time
+        if interaction.social_group is not None:
+            if self._is_main_pet_social(interaction):
+                now = services.time_service().sim_now
+                lock_out_time = now + create_time_span(minutes=self.main_social_lockout_time)
+                self._lock_side_group_until = lock_out_time
 
 lock_instance_tunables(PetSocialGroup, include_default_facing_constraint=False)

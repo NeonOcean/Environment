@@ -82,7 +82,7 @@ class StoryProgressionActionCareer(_StoryProgressionFilterAction):
             subaction_multiplier = get_unemployment_multiplier(career)
             return subaction_multiplier.get_multiplier(SingleSimResolver(candidate))
 
-        weights = list(itertools.chain.from_iterable(((_get_weight(candidate, career), candidate, career) for career in candidate.career_tracker if career.can_quit and get_unemployment_multiplier(career) is not None) for candidate in self._employed if self._is_valid_candidate(candidate)))
+        weights = list(itertools.chain.from_iterable(((_get_weight(candidate, career), candidate, career) for career in candidate.career_tracker if career.can_quit if get_unemployment_multiplier(career) is not None) for candidate in self._employed if self._is_valid_candidate(candidate)))
         if not weights:
             return
         selected_candidate_index = weighted_random_index(weights)

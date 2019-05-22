@@ -52,9 +52,8 @@ class AdoptionService(Service):
         for sim_data in save_slot_data.gameplay_data.adoption_service.adoptable_sim_data:
             sim_info = sim_info_manager.get(sim_data.adoptable_sim_id)
             if sim_info is None:
-                pass
-            else:
-                self._creation_times[sim_data.adoptable_sim_id] = DateAndTime(sim_data.creation_time)
+                continue
+            self._creation_times[sim_data.adoptable_sim_id] = DateAndTime(sim_data.creation_time)
 
     def stop(self):
         self._sim_infos.clear()

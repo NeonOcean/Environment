@@ -127,8 +127,9 @@ class BusinessTracker:
     def run_off_lot_simulation(self):
         current_zone_id = services.current_zone_id()
         for business_manager in self._business_managers.values():
-            if business_manager.business_zone_id != current_zone_id and business_manager.is_open:
-                business_manager.run_off_lot_simulation()
+            if business_manager.business_zone_id != current_zone_id:
+                if business_manager.is_open:
+                    business_manager.run_off_lot_simulation()
 
     def get_business_manager_for_zone(self, zone_id=None):
         if zone_id is None:

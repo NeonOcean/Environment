@@ -25,13 +25,12 @@ class ObjectDestructionElement(XevtTriggeredElement):
         for obj in objects:
             resolver = interaction.get_resolver(target=obj, context=context, **interaction_parameters)
             if not obj.can_be_destroyed():
-                pass
-            elif not cls.tag_restriction is not None or not obj.definition.has_build_buy_tag(*cls.tag_restriction):
-                pass
-            elif not cls.tests.run_tests(resolver):
-                pass
-            else:
-                yield obj
+                continue
+            if not not cls.tag_restriction is not None and not not obj.definition.has_build_buy_tag(*cls.tag_restriction):
+                continue
+            if not cls.tests.run_tests(resolver):
+                continue
+            yield obj
 
     def _get_object_value(cls, obj, interaction, target=DEFAULT, context=DEFAULT, **interaction_parameters):
         award = cls.award_value

@@ -14,15 +14,13 @@ class EnsembleComponent(Component, HasTunableFactory, AutoFactoryInit, component
             target_sims = []
             for target in rel_tracker.get_target_sim_infos():
                 if target is None:
-                    pass
-                else:
-                    target_instance = target.get_sim_instance()
-                    if target_instance is None:
-                        pass
-                    elif not rel_tracker.has_bit(target.sim_id, relationship_bit):
-                        pass
-                    else:
-                        target_sims.append(target_instance)
+                    continue
+                target_instance = target.get_sim_instance()
+                if target_instance is None:
+                    continue
+                if not rel_tracker.has_bit(target.sim_id, relationship_bit):
+                    continue
+                target_sims.append(target_instance)
             if not target_sims:
                 pass
             else:

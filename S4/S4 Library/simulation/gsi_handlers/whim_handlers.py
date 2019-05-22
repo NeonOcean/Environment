@@ -19,11 +19,10 @@ def generate_sim_whim_view_data(sim_id:int=None):
             if sim_info.sim_id == sim_id:
                 whim_tracker = sim_info._whim_tracker
                 if whim_tracker is None:
-                    pass
-                else:
-                    for (whim, source_whimset) in whim_tracker.whims_and_parents_gen():
-                        whim_data = {'sim_id': str(sim_info.sim_id), 'whim': whim.get_gsi_name(), 'instance': whim.__class__.__name__, 'whimset': source_whimset.__name__, 'target': str(whim_tracker.get_whimset_target(source_whimset)), 'value': whim.score}
-                        whim_view_data.append(whim_data)
+                    continue
+                for (whim, source_whimset) in whim_tracker.whims_and_parents_gen():
+                    whim_data = {'sim_id': str(sim_info.sim_id), 'whim': whim.get_gsi_name(), 'instance': whim.__class__.__name__, 'whimset': source_whimset.__name__, 'target': str(whim_tracker.get_whimset_target(source_whimset)), 'value': whim.score}
+                    whim_view_data.append(whim_data)
     return whim_view_data
 
 sim_activeset_schema = GsiGridSchema(label='Whims/Whimsets Active', sim_specific=True)
@@ -48,24 +47,23 @@ def generate_sim_activeset_view_data(sim_id:int=None):
             if sim_info.sim_id == sim_id:
                 whim_tracker = sim_info._whim_tracker
                 if whim_tracker is None:
-                    pass
-                else:
-                    active_sets = []
-                    emotional_whimset = whim_tracker.get_emotional_whimset()
-                    if emotional_whimset is not None:
-                        active_sets.append(emotional_whimset)
-                    active_sets.extend(whim_tracker.get_active_whimsets())
-                    for whimset in active_sets:
-                        set_data = {'sim_id': str(sim_info.sim_id), 'whimset': whimset.__name__, 'priority': whim_tracker.get_priority(whimset), 'target': str(whim_tracker.get_whimset_target(whimset))}
-                        sub_data = []
-                        for whim in whimset.whims:
-                            test_result = 'Not Chosen'
-                            if whim.goal in whim_tracker._test_results_map:
-                                test_result = whim_tracker._test_results_map[whim.goal]
-                            whim_data = {'whim': whim.goal.__name__, 'status': test_result, 'weight': whim.weight}
-                            sub_data.append(whim_data)
-                        set_data['potential_whims_view'] = sub_data
-                        activeset_view_data.append(set_data)
+                    continue
+                active_sets = []
+                emotional_whimset = whim_tracker.get_emotional_whimset()
+                if emotional_whimset is not None:
+                    active_sets.append(emotional_whimset)
+                active_sets.extend(whim_tracker.get_active_whimsets())
+                for whimset in active_sets:
+                    set_data = {'sim_id': str(sim_info.sim_id), 'whimset': whimset.__name__, 'priority': whim_tracker.get_priority(whimset), 'target': str(whim_tracker.get_whimset_target(whimset))}
+                    sub_data = []
+                    for whim in whimset.whims:
+                        test_result = 'Not Chosen'
+                        if whim.goal in whim_tracker._test_results_map:
+                            test_result = whim_tracker._test_results_map[whim.goal]
+                        whim_data = {'whim': whim.goal.__name__, 'status': test_result, 'weight': whim.weight}
+                        sub_data.append(whim_data)
+                    set_data['potential_whims_view'] = sub_data
+                    activeset_view_data.append(set_data)
     return activeset_view_data
 
 sim_whimset_schema = GsiGridSchema(label='Whims/Whimsets All', sim_specific=True)

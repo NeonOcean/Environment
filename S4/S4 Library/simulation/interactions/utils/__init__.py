@@ -17,3 +17,4 @@ class LootType(enum.Int, export=False):
     GAME_RESET = 15
     DISCOVER_CLUE = 16
     NEW_CRIME = 17
+    SCHEDULED_DELIVERY = 18

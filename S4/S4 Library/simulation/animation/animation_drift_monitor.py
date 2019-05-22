@@ -54,10 +54,11 @@ class _AnimationDriftMonitorRecord:
         parent_element = animation_sleep_element
         while parent_element is not None:
             required_resources = getattr(parent_element, '_required_sims_threading', None)
-            if isinstance(parent_element, _RunWorkGenElement):
-                required_resources = parent_element._work_entry.resources
-                self.record_name = parent_element._work_entry._debug_name
-            if required_resources is None and required_resources is not None:
+            if required_resources is None:
+                if isinstance(parent_element, _RunWorkGenElement):
+                    required_resources = parent_element._work_entry.resources
+                    self.record_name = parent_element._work_entry._debug_name
+            if required_resources is not None:
                 if self.record_name is None:
                     self.record_name = str(parent_element)
                 self.resource_ids = tuple(r.id for r in required_resources)
@@ -95,8 +96,9 @@ class _AnimationDriftMonitorRecord:
         relevant_objects = set()
         for actor_id in self._actor_ids:
             actor = object_manager.get(actor_id)
-            if actor is not None and actor.is_sim:
-                relevant_objects.add(actor)
+            if actor is not None:
+                if actor.is_sim:
+                    relevant_objects.add(actor)
         return relevant_objects
 
     def _on_arb_container_event(self, arb_network_id, container, *, fn):
@@ -144,8 +146,9 @@ def _animation_drift_monitor_archive(record):
     all_resources = set(relevant_objects)
     for resource_id in record.resource_ids:
         resource = object_manager.get(resource_id)
-        if resource is not None and resource.is_sim:
-            all_resources.add(resource)
+        if resource is not None:
+            if resource.is_sim:
+                all_resources.add(resource)
     if record.record_name is not None:
         for relevant_object in relevant_objects:
             if relevant_object.id not in record.resource_ids:
@@ -159,9 +162,8 @@ def _remove_completed_records():
     completed_records = []
     for record in _animation_drift_monitor_records:
         if any(t is None for t in record.timestamps_client_started.values()):
-            pass
-        else:
-            completed_records.append(record)
+            continue
+        completed_records.append(record)
     arb_accumulator_service = services.current_zone().arb_accumulator_service
     for completed_record in completed_records:
         _animation_drift_monitor_records.remove(completed_record)

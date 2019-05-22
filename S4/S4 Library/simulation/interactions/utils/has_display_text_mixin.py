@@ -9,16 +9,16 @@ class HasDisplayTextMixin:
     def __init__(self, *args, text=None, **kwargs):
         super().__init__(*args, **kwargs)
         if text is None and hasattr(self, 'text'):
-            self._HasDisplayTextMixin__display_text = self.text
+            self.__display_text = self.text
         else:
-            self._HasDisplayTextMixin__display_text = text
+            self.__display_text = text
 
     def get_display_text(self):
-        if self._HasDisplayTextMixin__display_text == self.TEXT_USE_DEFAULT:
+        if self.__display_text == self.TEXT_USE_DEFAULT:
             return self._get_display_text()
-        if self._HasDisplayTextMixin__display_text == self.TEXT_NONE:
+        if self.__display_text == self.TEXT_NONE:
             return
-        return self._HasDisplayTextMixin__display_text(*self._get_display_text_tokens())
+        return self.__display_text(*self._get_display_text_tokens())
 
     def _get_display_text(self):
         pass

@@ -1,11 +1,11 @@
-from protocolbuffers import Consts_pb2
 from audio.primitive import TunablePlayAudio, play_tunable_audio
 from clock import interval_in_sim_weeks
 from date_and_time import TimeSpan, create_date_and_time, DateAndTime
 from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import IconInfoData
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, GlobalResolver
 from event_testing.tests import TunableTestSet
+from protocolbuffers import Consts_pb2
 from sims.funds import get_funds_for_source, FundsSource
 from sims.household_utilities.utility_types import Utilities, UtilityShutoffReasonPriority
 from sims4.localization import TunableLocalizedStringFactory
@@ -24,7 +24,8 @@ logger = sims4.log.Logger('Bills', default_owner='rmccord')
 class Bills:
     BILL_ARRIVAL_NOTIFICATION = TunableList(description='\n        A list of notifications that show up if bills are delivered. We run\n        through the notifications and tests in order to see which one passes\n        first.\n        ', tunable=TunableTuple(description='\n            Tests and Notification for when bills are delivered. We run the\n            tests first before popping the notification.\n            ', notification=UiDialogNotification.TunableFactory(description='\n                A notification which pops up when bills are delivered.\n                '), tests=TunableTestSet(description='\n                Tests to determine if we should show this notification.\n                ')))
     UTILITY_INFO = TunableMapping(key_type=Utilities, value_type=TunableList(description='\n            A list of notifications and tooltips that show up if a utility will\n            soon become delinquent or is shut off. We run through the tests in\n            order to decide which set of notifications and tooltips to show.\n            ', tunable=TunableTuple(description='\n                Notifications and tooltips related to shutting off utilities,\n                accompanied by tests which must pass before we show the\n                notification or tooltip.\n                ', warning_notification=UiDialogNotification.TunableFactory(description='\n                    A notification which appears when the player will be losing this\n                    utility soon due to delinquency.\n                    '), shutoff_notification=UiDialogNotification.TunableFactory(description='\n                    A notification which appears when the player loses this utility\n                    due to delinquency.\n                    '), shutoff_tooltip=TunableLocalizedStringFactory(description='\n                    A tooltip to show when an interaction cannot be run due to this\n                    utility being shutoff.\n                    '), tests=TunableTestSet(description='\n                    Test set which determines if we show the notification and\n                    tooltip or not.\n                    '))))
-    BILL_COST_MODIFIERS = TunableMultiplier.TunableFactory(description='\n        A tunable list of test sets and associated multipliers to apply to the total bill cost per payment.\n        ')
+    BILL_COST_MODIFIERS_SIM = TunableMultiplier.TunableFactory(description='\n        A tunable list of test sets and associated multipliers to apply to the\n        total bill cost per payment on a per Sim basis.\n        ')
+    BILL_COST_MODIFIERS_HOUSEHOLD = TunableMultiplier.TunableFactory(description='\n        A tunable list of test sets and associated multipliers to apply to the\n        total bill cost per payment on a per household basis.\n        ')
     BILL_OBJECT = TunableReference(description="\n        The object that will be delivered to the lot's mailbox once bills have\n        been scheduled.\n        ", manager=services.definition_manager())
     DELINQUENCY_FREQUENCY = Tunable(description='\n        Tunable representing the number of Sim hours between utility shut offs.\n        ', tunable_type=int, default=24)
     DELINQUENCY_WARNING_OFFSET_TIME = Tunable(description='\n        Tunable representing the number of Sim hours before a delinquency state\n        kicks in that a warning notification pops up.\n        ', tunable_type=int, default=2)
@@ -107,14 +108,14 @@ class Bills:
         next_delinquent_utility = None
         for utility in self._utility_delinquency:
             if self._utility_delinquency[utility]:
-                pass
-            else:
-                next_delinquent_utility = utility
-                break
-        logger.error('Household {} has stored shutoff {} or warning {} ticks but all utilities are already delinquent.', self._household, self._stored_shutoff_timer_ticks, self._stored_warning_timer_ticks)
-        self._stored_shutoff_timer_ticks = 0
-        self._stored_warning_timer_ticks = 0
-        return
+                continue
+            next_delinquent_utility = utility
+            break
+        else:
+            logger.error('Household {} has stored shutoff {} or warning {} ticks but all utilities are already delinquent.', self._household, self._stored_shutoff_timer_ticks, self._stored_warning_timer_ticks)
+            self._stored_shutoff_timer_ticks = 0
+            self._stored_warning_timer_ticks = 0
+            return
         utility_info = self.get_utility_info(next_delinquent_utility)
         if utility_info is not None:
             warning_notification = utility_info.warning_notification
@@ -139,7 +140,7 @@ class Bills:
     def on_all_households_and_sim_infos_loaded(self):
         if self._household.id != services.active_household_id():
             return
-        if self._current_payment_owed is not None and self._stored_shutoff_timer_ticks == 0 and not (self._can_deliver_bill or self.is_any_utility_delinquent()):
+        if self._current_payment_owed is not None and (self._stored_shutoff_timer_ticks == 0 and not self._can_deliver_bill) and not self.is_any_utility_delinquent():
             logger.error('Household {} loaded in a state where bills will never advance. Kickstarting the system.', self._household)
             self.trigger_bill_notifications_from_delivery()
             return
@@ -161,15 +162,13 @@ class Bills:
         for (key_tuple, money_info) in self._lot_unpaid_bill.items():
             (zone_id, _) = key_tuple
             if zone_id == current_zone_id:
-                pass
-            else:
-                (money_amount, sim_ids) = money_info
-                if not any(sim_id in sim_ids for sim_id in sim_ids_at_current_zone):
-                    pass
-                else:
-                    money_to_pay += money_amount
-                    bills_paid_key_tuple.append(key_tuple)
-                    previous_zone_id = zone_id
+                continue
+            (money_amount, sim_ids) = money_info
+            if not any(sim_id in sim_ids for sim_id in sim_ids_at_current_zone):
+                continue
+            money_to_pay += money_amount
+            bills_paid_key_tuple.append(key_tuple)
+            previous_zone_id = zone_id
         if money_to_pay > 0:
             active_sim = services.get_active_sim()
             funds = get_funds_for_source(FundsSource.HOUSEHOLD, sim=active_sim)
@@ -243,7 +242,8 @@ class Bills:
             bill_amount += additional_cost
         multiplier = 1
         for sim_info in self._household._sim_infos:
-            multiplier *= Bills.BILL_COST_MODIFIERS.get_multiplier(SingleSimResolver(sim_info))
+            multiplier *= Bills.BILL_COST_MODIFIERS_SIM.get_multiplier(SingleSimResolver(sim_info))
+        multiplier *= Bills.BILL_COST_MODIFIERS_HOUSEHOLD.get_multiplier(SingleSimResolver(GlobalResolver()))
         bill_amount *= multiplier
         if bill_amount <= 0 and self._household.is_active_household:
             logger.error('\n                Player household {} has been determined to owe {} Simoleons. \n                Player households are always expected to owe at least some amount \n                of money for bills.\n                ', self._household, bill_amount)
@@ -280,7 +280,7 @@ class Bills:
         if self.mailman_has_delivered_bills():
             return
         self._can_deliver_bill = False
-        if self.autopay_bills or self._current_payment_owed == 0 or not self._household:
+        if self.autopay_bills or not (self._current_payment_owed == 0 or not self._household):
             self.pay_bill(sound=False)
             return
         self._set_next_delinquency_timers()
@@ -313,8 +313,9 @@ class Bills:
                 if status:
                     play_tunable_audio(self.AUDIO.delinquency_removed_sfx)
                     break
-            if sound:
-                play_tunable_audio(self.AUDIO.bills_paid_sfx)
+            else:
+                if sound:
+                    play_tunable_audio(self.AUDIO.bills_paid_sfx)
         self._current_payment_owed = None
         self._clear_delinquency_status()
         self._set_up_bill_timer()
@@ -334,21 +335,19 @@ class Bills:
         for obj in services.object_manager().valid_objects():
             state_component = obj.state_component
             if state_component is None:
-                pass
-            else:
-                state_component.clear_delinquent_states()
+                continue
+            state_component.clear_delinquent_states()
 
     def _set_next_delinquency_timers(self):
         for utility in self._utility_delinquency:
             if self._utility_delinquency[utility]:
-                pass
-            else:
-                utility_info = self.get_utility_info(utility)
-                if utility_info is not None:
-                    warning_notification = utility_info.warning_notification
-                    self._warning_handle = alarms.add_alarm(self, clock.interval_in_sim_hours(self.DELINQUENCY_FREQUENCY - self.DELINQUENCY_WARNING_OFFSET_TIME), lambda _: self._send_notification(warning_notification), cross_zone=True)
-                self._shutoff_handle = alarms.add_alarm(self, clock.interval_in_sim_hours(self.DELINQUENCY_FREQUENCY), lambda _: self._shut_off_utility(utility), cross_zone=True)
-                break
+                continue
+            utility_info = self.get_utility_info(utility)
+            if utility_info is not None:
+                warning_notification = utility_info.warning_notification
+                self._warning_handle = alarms.add_alarm(self, clock.interval_in_sim_hours(self.DELINQUENCY_FREQUENCY - self.DELINQUENCY_WARNING_OFFSET_TIME), lambda _: self._send_notification(warning_notification), cross_zone=True)
+            self._shutoff_handle = alarms.add_alarm(self, clock.interval_in_sim_hours(self.DELINQUENCY_FREQUENCY), lambda _: self._shut_off_utility(utility), cross_zone=True)
+            break
 
     def _shut_off_utility(self, utility):
         if self._current_payment_owed == None:
@@ -384,8 +383,9 @@ class Bills:
                 dialog = notification(active_sim_info, None)
                 icon_override = DEFAULT
                 plex_service = services.get_plex_service()
-                if plex_service.is_zone_a_plex(self._household.home_zone_id):
-                    icon_override = IconInfoData(obj_instance=services.get_landlord_service().get_landlord_sim_info())
+                if plex_service is not None:
+                    if plex_service.is_zone_a_plex(self._household.home_zone_id):
+                        icon_override = IconInfoData(obj_instance=services.get_landlord_service().get_landlord_sim_info())
                 dialog.show_dialog(icon_override=icon_override, additional_tokens=(remaining_time, self._current_payment_owed))
 
     def add_additional_bill_cost(self, additional_bill_source, cost):
@@ -420,13 +420,15 @@ class Bills:
         self._stored_bill_timer_ticks = householdProto.gameplay_data.bill_timer
         self._stored_shutoff_timer_ticks = householdProto.gameplay_data.shutoff_timer
         self._stored_warning_timer_ticks = householdProto.gameplay_data.warning_timer
-        if self._stored_shutoff_timer_ticks > 0 or self._stored_warning_timer_ticks > 0:
-            logger.error('Household {} loaded with utility shutoff or warning timers but no owed payment. Clearing utility shutoff and warning timers.', self._household)
-            self._stored_shutoff_timer_ticks = 0
-            self._stored_warning_timer_ticks = 0
-        if self._stored_bill_timer_ticks > 0:
-            logger.error('Household {} loaded with both a bill delivery timer and an owed payment. Clearing bill delivery timer.', self._household)
-            self._stored_bill_timer_ticks = 0
+        if self._current_payment_owed is None:
+            if self._stored_shutoff_timer_ticks > 0 or self._stored_warning_timer_ticks > 0:
+                logger.error('Household {} loaded with utility shutoff or warning timers but no owed payment. Clearing utility shutoff and warning timers.', self._household)
+                self._stored_shutoff_timer_ticks = 0
+                self._stored_warning_timer_ticks = 0
+        if self._current_payment_owed is not None:
+            if self._stored_bill_timer_ticks > 0:
+                logger.error('Household {} loaded with both a bill delivery timer and an owed payment. Clearing bill delivery timer.', self._household)
+                self._stored_bill_timer_ticks = 0
         for utility in householdProto.gameplay_data.delinquent_utilities:
             self._utility_delinquency[utility] = True
             utility_info = self.get_utility_info(utility)

@@ -24,5 +24,6 @@ class VoicePitchModifier(HasTunableFactory, AutoFactoryInit):
             self.target.voice_pitch_override = self.expected_override
 
     def stop(self, *_, **__):
-        if self.expected_override is None or self.target.voice_pitch_override == self.expected_override:
-            self.target.voice_pitch_override = None
+        if self.target.is_sim:
+            if self.expected_override is None or self.target.voice_pitch_override == self.expected_override:
+                self.target.voice_pitch_override = None

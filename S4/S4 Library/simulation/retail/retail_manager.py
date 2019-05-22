@@ -177,16 +177,18 @@ class RetailManager(BusinessManager):
         should_open = False
         for retail_obj in RetailUtils.all_retail_objects_gen(allow_not_for_sale=True):
             self._adjust_commodities_if_necessary(retail_obj)
-            if should_open or not retail_obj.retail_component.is_not_for_sale:
-                should_open = True
+            if not should_open:
+                if not retail_obj.retail_component.is_not_for_sale:
+                    should_open = True
         self.set_open(should_open)
 
     @classmethod
     def _adjust_commodities_if_necessary(cls, obj):
         for obj_commodity in cls.NPC_STORE_ITEM_COMMODITIES_TO_MAX_ON_OPEN:
             tracker = obj.get_tracker(obj_commodity)
-            if tracker is not None and tracker.has_statistic(obj_commodity):
-                tracker.set_max(obj_commodity)
+            if tracker is not None:
+                if tracker.has_statistic(obj_commodity):
+                    tracker.set_max(obj_commodity)
 
     def show_summary_dialog(self, is_from_close=False):
         RetailSummaryDialog.show_dialog(self, is_from_close=is_from_close)

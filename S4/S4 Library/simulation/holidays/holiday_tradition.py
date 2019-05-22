@@ -154,12 +154,11 @@ class HolidayTradition(HasTunableReference, HolidayTraditionDisplayMixin, metacl
         for (sim_id, buff_handles) in self._buffs_added.items():
             sim_info = sim_info_manager.get(sim_id)
             if sim_info is None:
-                pass
-            elif sim_info.Buffs is None:
-                pass
-            else:
-                for buff_handle in buff_handles:
-                    sim_info.remove_buff(buff_handle)
+                continue
+            if sim_info.Buffs is None:
+                continue
+            for buff_handle in buff_handles:
+                sim_info.remove_buff(buff_handle)
         self._buffs_added.clear()
 
     def _deactivate_pre_holiday(self):

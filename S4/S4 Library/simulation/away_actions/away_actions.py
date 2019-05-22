@@ -39,8 +39,8 @@ class AwayAction(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, ma
         for interaction_data in sim_info.si_state.interactions:
             interaction = services.get_instance_manager(sims4.resources.Types.INTERACTION).get(interaction_data.interaction)
             if interaction is None:
-                pass
-            elif len(interaction.get_category_tags() & cls._apply_on_load_tags) > 0:
+                continue
+            if len(interaction.get_category_tags() & cls._apply_on_load_tags) > 0:
                 return True
         return False
 

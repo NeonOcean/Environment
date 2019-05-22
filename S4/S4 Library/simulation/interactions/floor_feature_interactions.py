@@ -37,16 +37,15 @@ class GoToNearestFloorFeatureInteraction(SuperInteraction):
             return Nowhere('Radius filter is enabled but the radius actor has a None value.')
         for floor_feature in floor_features:
             if inst_or_cls.indoors_only and build_buy.is_location_natural_ground(zone_id, floor_feature[0], floor_feature[1]):
-                pass
-            else:
-                routing_surface = routing.SurfaceIdentifier(zone_id, floor_feature[1], routing.SurfaceType.SURFACETYPE_WORLD)
-                floor_feature_location = floor_feature[0]
-                if inst_or_cls.radius_filter is not None:
-                    if (radius_object.position - floor_feature_location).magnitude_squared() <= inst_or_cls.radius_filter.radius:
-                        floor_features_and_surfaces.append((floor_feature_location, routing_surface))
-                        floor_features_and_surfaces.append((floor_feature_location, routing_surface))
-                else:
+                continue
+            routing_surface = routing.SurfaceIdentifier(zone_id, floor_feature[1], routing.SurfaceType.SURFACETYPE_WORLD)
+            floor_feature_location = floor_feature[0]
+            if inst_or_cls.radius_filter is not None:
+                if (radius_object.position - floor_feature_location).magnitude_squared() <= inst_or_cls.radius_filter.radius:
                     floor_features_and_surfaces.append((floor_feature_location, routing_surface))
+                    floor_features_and_surfaces.append((floor_feature_location, routing_surface))
+            else:
+                floor_features_and_surfaces.append((floor_feature_location, routing_surface))
         if floor_features_and_surfaces:
             for floor_feature_and_surface in floor_features_and_surfaces:
                 circle_constraint = inst_or_cls.routing_circle_constraint.create_constraint(sim, None, target_position=floor_feature_and_surface[0], routing_surface=floor_feature_and_surface[1])

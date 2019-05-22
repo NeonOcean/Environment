@@ -56,12 +56,13 @@ def test_path_list(paths, modules_to_ignore, file_=sys.stdout, verbose=False, fa
     result = TestResult()
     for path in paths:
         result += test_path(path, modules_to_ignore, file_, verbose, failfast)
-        if file_ is sys.stdout:
-            ConsoleColor.change_color(ConsoleColor.RED)
-        file_.write('ERROR in ' + path + '\n')
-        if result.succeeded or failfast == True:
-            file_.write("Because of 'failfast', aborting remainder of tests\n")
-            return result
+        if not result.succeeded:
+            if file_ is sys.stdout:
+                ConsoleColor.change_color(ConsoleColor.RED)
+            file_.write('ERROR in ' + path + '\n')
+            if failfast == True:
+                file_.write("Because of 'failfast', aborting remainder of tests\n")
+                return result
     return result
 
 def test_path(path, modules_to_ignore, file_=sys.stdout, verbose=False, failfast=False):
@@ -83,7 +84,7 @@ def test_module_by_name(module_name, modules_to_ignore, file_=sys.stdout, verbos
     try:
         builtins.__import__(module_name)
         ans = test_module(sys.modules.get(module_name, None), modules_to_ignore, file_, verbose)
-        if ans is None or ans.succeeded or file_:
+        if not (ans is None or not ans.succeeded) and file_:
             if file_ is sys.stdout:
                 ConsoleColor.change_color(ConsoleColor.RED)
             file_.write('ERROR in ' + module_name + '\n')

@@ -64,8 +64,9 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             logger.error('No default mood tuned in buff_component.py')
         elif self._active_mood.buffs:
             initial_buff_ref = self._active_mood.buffs[0]
-            if initial_buff_ref.buff_type:
-                self._active_mood_buff_handle = self.add_buff(initial_buff_ref.buff_type)
+            if initial_buff_ref:
+                if initial_buff_ref.buff_type:
+                    self._active_mood_buff_handle = self.add_buff(initial_buff_ref.buff_type)
 
     def __iter__(self):
         return self._active_buffs.values().__iter__()
@@ -82,9 +83,8 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             weather_service.apply_weather_option_buffs(self.owner)
         for (buff_type, buff) in tuple(self._active_buffs.items()):
             if buff_type not in self._active_buffs:
-                pass
-            else:
-                buff.on_sim_ready_to_simulate()
+                continue
+            buff.on_sim_ready_to_simulate()
         self._publish_mood_update()
 
     def on_sim_removed(self, *args, **kwargs):
@@ -174,16 +174,18 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             trait_tracker = self.owner.trait_tracker
             for (trait, replacement_buff_data) in sorted(buff_type.trait_replacement_buffs.items(), key=lambda item: item[1].buff_replacement_priority, reverse=True):
                 replacement_buff_type = replacement_buff_data.buff_type
-                if trait_tracker.has_trait(trait) and replacement_buff_type.can_add(self.owner):
-                    replacement_buff_reason = buff_reason if replacement_buff_data.buff_reason is None else replacement_buff_data.buff_reason
-                    return (replacement_buff_type, replacement_buff_reason)
+                if trait_tracker.has_trait(trait):
+                    if replacement_buff_type.can_add(self.owner):
+                        replacement_buff_reason = buff_reason if replacement_buff_data.buff_reason is None else replacement_buff_data.buff_reason
+                        return (replacement_buff_type, replacement_buff_reason)
         return (None, None)
 
     def register_auto_update(self, sim_info_in, buff_type_in):
         if buff_type_in in self.buff_update_alarms:
             self.remove_auto_update(buff_type_in)
-        if buff_type_in.visible:
-            self.buff_update_alarms[buff_type_in] = alarms.add_alarm(self, create_time_span(minutes=15), lambda _, sim_info=sim_info_in, buff_type=buff_type_in: services.get_event_manager().process_event(test_events.TestEvent.BuffUpdateEvent, sim_info=sim_info, sim_id=sim_info.sim_id, buff=buff_type), True)
+        if sim_info_in.is_selectable:
+            if buff_type_in.visible:
+                self.buff_update_alarms[buff_type_in] = alarms.add_alarm(self, create_time_span(minutes=15), lambda _, sim_info=sim_info_in, buff_type=buff_type_in: services.get_event_manager().process_event(test_events.TestEvent.BuffUpdateEvent, sim_info=sim_info, sim_id=sim_info.sim_id, buff=buff_type), True)
 
     def remove_auto_update(self, buff_type):
         if buff_type in self.buff_update_alarms:
@@ -216,6 +218,10 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         for (buff_type, buff_entry) in self._active_buffs.items():
             if handle_id in buff_entry.handle_ids:
                 return buff_type
+
+    @objects.components.componentmethod
+    def get_buff_by_type(self, buff_type):
+        return self._active_buffs.get(buff_type)
 
     @objects.components.componentmethod
     def has_buff(self, buff_type):
@@ -286,17 +292,19 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
                     return
                 tracker.remove_statistic(buff_entry.commodity, on_destroy=on_destroy)
             elif buff_entry.buff_type in self._active_buffs:
-                del self._active_buffs[buff_entry.buff_type]
+                buff_type = buff_entry.buff_type
+                del self._active_buffs[buff_type]
                 buff_entry.on_remove(apply_loot_on_remove=not self.load_in_progress and not on_destroy)
                 if not on_destroy:
                     self.update_affordance_caches()
                     self._update_chance_modifier()
                     self._update_current_mood()
                     self.send_buff_update_msg(buff_entry, False)
-                    services.get_event_manager().process_event(test_events.TestEvent.BuffEndedEvent, sim_info=self.owner, buff=type(buff_entry), sim_id=self.owner.id)
+                    services.get_event_manager().process_event(test_events.TestEvent.BuffEndedEvent, sim_info=self.owner, buff=buff_type, sim_id=self.owner.id)
                 elif self.owner.is_selectable:
                     self._update_current_mood()
                     self.send_buff_update_msg(buff_entry, False)
+                self.on_buff_removed(buff_type, self.owner.id)
 
     @objects.components.componentmethod
     def set_buff_reason(self, buff_type, buff_reason, use_replacement=False):
@@ -380,6 +388,21 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
     def get_actor_basic_extras_reversed_gen(self, affordance, resolver):
         for buff_entry in self._active_buffs.values():
             yield from buff_entry.effect_modification.get_affordance_basic_extras_reversed_gen(affordance, resolver)
+
+    @objects.components.componentmethod
+    def test_pie_menu_modifiers(self, affordance):
+        buffs = self._get_buffs_with_pie_menu_modifiers()
+        for buff in buffs:
+            (visible, tooltip) = buff.effect_modification.test_pie_menu_modifiers(affordance)
+            if visible:
+                if tooltip is not None:
+                    return (visible, tooltip)
+            return (visible, tooltip)
+        return (True, None)
+
+    @caches.cached
+    def _get_buffs_with_pie_menu_modifiers(self):
+        return tuple(buff for buff in self._active_buffs.values() if buff.effect_modification.has_pie_menu_modifiers())
 
     @objects.components.componentmethod
     def get_mood(self):
@@ -508,9 +531,8 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             for teleport_style in active_teleports:
                 (teleport_data, cost) = self._get_teleport_data_and_cost(teleport_style, active_multiplier)
                 if teleport_data is None:
-                    pass
-                else:
-                    return (teleport_data, cost, False)
+                    continue
+                return (teleport_data, cost, False)
         return (None, None, False)
 
     @objects.components.componentmethod_with_fallback(lambda *_, **__: False)
@@ -565,20 +587,21 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         buff_msg.equipped = equipped
         if buff.buff_reason is not None:
             buff_msg.reason = buff.buff_reason
-        if buff.show_timeout:
-            (timeout, rate_multiplier) = buff.get_timeout_time()
-            buff_msg.timeout = timeout
-            buff_msg.rate_multiplier = rate_multiplier
-            if change_rate is not None:
-                if change_rate == 0:
-                    progress_arrow = Sims_pb2.BUFF_PROGRESS_NONE
-                elif change_rate > 0:
-                    progress_arrow = Sims_pb2.BUFF_PROGRESS_UP if not buff.flip_arrow_for_progress_update else Sims_pb2.BUFF_PROGRESS_DOWN
-                else:
-                    progress_arrow = Sims_pb2.BUFF_PROGRESS_DOWN if not buff.flip_arrow_for_progress_update else Sims_pb2.BUFF_PROGRESS_UP
-                buff_msg.buff_progress = progress_arrow
+        if equipped:
+            if buff.show_timeout:
+                (timeout, rate_multiplier) = buff.get_timeout_time()
+                buff_msg.timeout = timeout
+                buff_msg.rate_multiplier = rate_multiplier
+                if change_rate is not None:
+                    if change_rate == 0:
+                        progress_arrow = Sims_pb2.BUFF_PROGRESS_NONE
+                    elif change_rate > 0:
+                        progress_arrow = Sims_pb2.BUFF_PROGRESS_UP if not buff.flip_arrow_for_progress_update else Sims_pb2.BUFF_PROGRESS_DOWN
+                    else:
+                        progress_arrow = Sims_pb2.BUFF_PROGRESS_DOWN if not buff.flip_arrow_for_progress_update else Sims_pb2.BUFF_PROGRESS_UP
+                    buff_msg.buff_progress = progress_arrow
         buff_msg.is_mood_buff = buff.is_mood_buff
-        buff_msg.commodity_guid = equipped and buff.commodity_guid or 0
+        buff_msg.commodity_guid = buff.commodity_guid or 0
         if buff.mood_override is not None:
             buff_msg.mood_type_override = buff.mood_override.guid64
         buff_msg.transition_into_buff_id = buff.transition_into_buff_id
@@ -589,7 +612,7 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         return buff_msg
 
     def send_buff_update_msg(self, buff, equipped, change_rate=None, immediate=False):
-        if buff.visible or not buff.motive_panel_overlays:
+        if not buff.visible and not buff.motive_panel_overlays:
             return
         if self.owner.valid_for_distribution and self.owner.is_sim and self.owner.is_selectable:
             buff_msg = self._create_buff_update_msg(buff, equipped, change_rate=change_rate)
@@ -612,8 +635,8 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             return (True, None)
         for conflicting_buff_type in self._active_buffs:
             if conflicting_buff_type is buff_type:
-                pass
-            elif conflicting_buff_type.exclusive_index == buff_type.exclusive_index:
+                continue
+            if conflicting_buff_type.exclusive_index == buff_type.exclusive_index:
                 if buff_type.exclusive_weight < conflicting_buff_type.exclusive_weight:
                     return (False, None)
                 return (True, conflicting_buff_type)
@@ -644,24 +667,23 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             current_weight = buff_entry.mood_weight
             if not current_mood is None:
                 if current_weight == 0:
-                    pass
-                elif predicate is not None and not predicate(current_mood):
-                    pass
-                elif buff_entry in buffs_to_ignore:
-                    pass
+                    continue
+                if predicate is not None and not predicate(current_mood):
+                    continue
+                if buff_entry in buffs_to_ignore:
+                    continue
+                current_polarity = current_mood.buff_polarity
+                if buff_entry.is_changeable:
+                    polarity_to_changeable_buffs[current_polarity].append(buff_entry)
                 else:
-                    current_polarity = current_mood.buff_polarity
-                    if buff_entry.is_changeable:
-                        polarity_to_changeable_buffs[current_polarity].append(buff_entry)
-                    else:
-                        total_current_weight = weights.get(current_mood, 0)
-                        total_current_weight += current_weight*mood_modifiers_mapping.get(current_mood, 1.0)
-                        weights[current_mood] = total_current_weight
-                        (largest_mood, largest_weight) = polarity_to_largest_mood_and_weight.get(current_polarity, (None, None))
-                        if largest_mood is None:
-                            polarity_to_largest_mood_and_weight[current_polarity] = (current_mood, total_current_weight)
-                        elif total_current_weight > largest_weight:
-                            polarity_to_largest_mood_and_weight[current_polarity] = (current_mood, total_current_weight)
+                    total_current_weight = weights.get(current_mood, 0)
+                    total_current_weight += current_weight*mood_modifiers_mapping.get(current_mood, 1.0)
+                    weights[current_mood] = total_current_weight
+                    (largest_mood, largest_weight) = polarity_to_largest_mood_and_weight.get(current_polarity, (None, None))
+                    if largest_mood is None:
+                        polarity_to_largest_mood_and_weight[current_polarity] = (current_mood, total_current_weight)
+                    elif total_current_weight > largest_weight:
+                        polarity_to_largest_mood_and_weight[current_polarity] = (current_mood, total_current_weight)
         all_changeable_buffs = []
         for (buff_polarity, changeable_buffs) in polarity_to_changeable_buffs.items():
             (largest_mood, largest_weight) = polarity_to_largest_mood_and_weight.get(buff_polarity, (None, None))
@@ -685,16 +707,18 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
                     if total_current_weight > largest_weight:
                         largest_weight = total_current_weight
                         largest_mood = current_mood
-                if largest_mood is not None and largest_weight != 0:
-                    polarity_to_largest_mood_and_weight[buff_polarity] = (largest_mood, largest_weight)
+                if largest_mood is not None:
+                    if largest_weight != 0:
+                        polarity_to_largest_mood_and_weight[buff_polarity] = (largest_mood, largest_weight)
         largest_weight = 0
         largest_mood = self.DEFAULT_MOOD
         active_mood = self._active_mood
         if polarity_to_largest_mood_and_weight:
             (mood, weight) = max(polarity_to_largest_mood_and_weight.values(), key=operator.itemgetter(1))
-            if mood is active_mood:
-                largest_weight = weight
-                largest_mood = mood
+            if weight > largest_weight or weight == largest_weight:
+                if mood is active_mood:
+                    largest_weight = weight
+                    largest_mood = mood
         return (largest_mood, largest_weight, all_changeable_buffs)
 
     def _update_current_mood(self):
@@ -714,8 +738,9 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
                 self._active_mood_intensity = intensity
                 if len(largest_mood.buffs) >= intensity:
                     tuned_buff = largest_mood.buffs[intensity]
-                    if tuned_buff.buff_type is not None:
-                        self._active_mood_buff_handle = self.add_buff(tuned_buff.buff_type, update_mood=False)
+                    if tuned_buff is not None:
+                        if tuned_buff.buff_type is not None:
+                            self._active_mood_buff_handle = self.add_buff(tuned_buff.buff_type, update_mood=False)
                 if gsi_handlers.buff_handlers.sim_mood_log_archiver.enabled and self.owner.valid_for_distribution and self.owner.visible_to_client == True:
                     gsi_handlers.buff_handlers.archive_mood_message(self.owner.id, self._active_mood, self._active_mood_intensity, self._active_buffs, changeable_buffs)
                 caches.clear_all_caches()
@@ -744,22 +769,29 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             return intensity != active_mood_intensity
         total_weight = sum(buff_entry.mood_weight for buff_entry in self._active_buffs.values() if buff_entry.mood_type is active_mood)
         active_mood_intensity = self._get_intensity_from_mood(active_mood, total_weight)
-        if not self._active_mood.is_changeable:
-            buffs_to_ignore = [changeable_buff for (changeable_buff, _) in changeable_buffs]
-            (largest_mood, largest_weight, _) = self._get_largest_mood(buffs_to_ignore=buffs_to_ignore)
-            new_intensity = self._get_intensity_from_mood(largest_mood, largest_weight)
-            if self._should_update_mood(largest_mood, new_intensity, None):
-                active_mood = largest_mood
-                active_mood_intensity = new_intensity
-        if changeable_buffs and active_mood.is_changeable and mood.buff_polarity == active_mood.buff_polarity:
+        if changeable_buffs:
+            if not self._active_mood.is_changeable:
+                buffs_to_ignore = [changeable_buff for (changeable_buff, _) in changeable_buffs]
+                (largest_mood, largest_weight, _) = self._get_largest_mood(buffs_to_ignore=buffs_to_ignore)
+                new_intensity = self._get_intensity_from_mood(largest_mood, largest_weight)
+                if self._should_update_mood(largest_mood, new_intensity, None):
+                    active_mood = largest_mood
+                    active_mood_intensity = new_intensity
+        if active_mood.is_changeable and mood.buff_polarity == active_mood.buff_polarity:
             return True
-        if intensity and intensity < active_mood_intensity:
+        if not intensity or intensity < active_mood_intensity:
             return True
         if intensity >= active_mood_intensity + self.UPDATE_INTENSITY_BUFFER:
             return True
         elif mood is self.DEFAULT_MOOD or active_mood is self.DEFAULT_MOOD:
             return True
         return False
+
+    def on_zone_load(self):
+        if services.game_services.service_manager.is_traveling:
+            self._active_mood = self.DEFAULT_MOOD
+            self._active_mood_intensity = 0
+            self._active_mood_buff_handle = None
 
     def on_zone_unload(self):
         if not services.game_services.service_manager.is_traveling:
@@ -770,7 +802,9 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         buff_types_to_remove = set()
         for (buff_type, buff) in self._active_buffs.items():
             if not buff.commodity is None:
-                pass
+                if not buff.commodity.persisted:
+                    if buff._remove_on_zone_unload:
+                        buff_types_to_remove.add(buff_type)
             if buff._remove_on_zone_unload:
                 buff_types_to_remove.add(buff_type)
         if buff_types_to_remove:
@@ -813,6 +847,7 @@ class BuffPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim)
         return True
+        yield
 
     @classmethod
     def _buff_type_selection_gen(cls, target):
@@ -833,7 +868,7 @@ class BuffPickerSuperInteraction(PickerSuperInteraction):
         if not participants:
             return
         single_sim = len(participants) == 1
-        if single_sim or not inst_or_cls.is_add:
+        if not single_sim and not inst_or_cls.is_add:
             logger.error('{} is trying to do a remove buff picker with multiple subjects', self)
         target = participants[0]
         for (buff_type, name, icon, description) in inst_or_cls._buff_type_selection_gen(target):
@@ -841,18 +876,16 @@ class BuffPickerSuperInteraction(PickerSuperInteraction):
             is_selected = False
             row_tooltip = None
             if inst_or_cls.handle_existing & BuffPickerSuperInteraction.BuffHandlingType.HIDE:
-                pass
-            else:
-                is_selected = True
-                is_enable = False
-                if inst_or_cls.handle_invalid & BuffPickerSuperInteraction.BuffHandlingType.HIDE:
-                    pass
-                else:
-                    is_selected = True
-                    is_enable = False
-                    row_tooltip = inst_or_cls.disabled_row_tooltip
-                    row = BasePickerRow(is_enable=is_enable, name=name(target.sim_info), icon=icon, tag=buff_type, row_description=description, row_tooltip=row_tooltip, is_selected=is_selected)
-                    yield row
+                continue
+            is_selected = True
+            is_enable = False
+            if inst_or_cls.handle_invalid & BuffPickerSuperInteraction.BuffHandlingType.HIDE:
+                continue
+            is_selected = True
+            is_enable = False
+            row_tooltip = inst_or_cls.disabled_row_tooltip
+            row = BasePickerRow(is_enable=is_enable, name=name(target.sim_info), icon=icon, tag=buff_type, row_description=description, row_tooltip=row_tooltip, is_selected=is_selected)
+            yield row
 
     def _on_buff_picker_choice_selected(self, choice_tag, **kwargs):
         if choice_tag is None:

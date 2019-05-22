@@ -57,6 +57,7 @@ class _VampireArrivalState(CommonInteractionCompletedSituationState):
 class _BreakInState(VampireInterruptableStateMixin):
 
     def on_activate(self, reader=None):
+        self.owner.lock_save()
         super().on_activate(reader)
         for sim in services.active_household().instanced_sims_gen():
             for si in sim.si_state:
@@ -131,7 +132,7 @@ class VampireNighttimeSituation(WalkbyLimitingTagsMixin, SituationComplexCommon)
 
     @classmethod
     def _states(cls):
-        return (SituationStateData(1, _VampireArrivalState), SituationStateData(2, _BreakInState), SituationStateData(3, _BiteState), SituationStateData(4, _LeaveState), SituationStateData(5, _LeaveStartledState))
+        return (SituationStateData(1, _VampireArrivalState, factory=cls.vampire_job.arrival_state), SituationStateData(2, _BreakInState, factory=cls.vampire_job.break_in_state), SituationStateData(3, _BiteState, factory=cls.vampire_job.bite_state), SituationStateData(4, _LeaveState), SituationStateData(5, _LeaveStartledState, factory=cls.vampire_job.leave_startled_state))
 
     @classmethod
     def _get_tuned_job_and_default_role_state_tuples(cls):
@@ -161,9 +162,11 @@ class VampireNighttimeSituation(WalkbyLimitingTagsMixin, SituationComplexCommon)
         self.selected_sim = selected_sim
 
     def start_situation(self):
-        services.get_persistence_service().lock_save(self)
         super().start_situation()
         self._change_state(self.vampire_job.arrival_state())
+
+    def lock_save(self):
+        services.get_persistence_service().lock_save(self)
 
     def get_lock_save_reason(self):
         return self.save_lock_tooltip

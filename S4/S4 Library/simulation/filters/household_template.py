@@ -66,8 +66,9 @@ class HouseholdTemplate(HasTunableReference, metaclass=sims4.tuning.instances.Tu
                         for member in (x_member, y_member):
                             member_index = tag_to_household_member_index[member]
                             sim_template = cls._household_members[member_index].sim_template
-                            if sim_template.can_validate_age() and not sim_template.matches_creation_data(age_min=Age.YOUNGADULT):
-                                logger.error('Trying set spouse with sims of the inappropriate age. Check sim_template at index {} if set correctly.', member_index)
+                            if sim_template.can_validate_age():
+                                if not sim_template.matches_creation_data(age_min=Age.YOUNGADULT):
+                                    logger.error('Trying set spouse with sims of the inappropriate age. Check sim_template at index {} if set correctly.', member_index)
                         spouse_pairs.append((x_member, y_member, index))
                         spouse_pairs.append((y_member, x_member, index))
                     if member_relationship_data.is_parentless_sibling:
@@ -82,12 +83,11 @@ class HouseholdTemplate(HasTunableReference, metaclass=sims4.tuning.instances.Tu
         if parentless_members:
             for (index, member_relationship_data) in enumerate(cls._household_relationship):
                 if member_relationship_data.family_relationship is None:
-                    pass
-                else:
-                    if not member_relationship_data.y in parentless_members:
-                        if member_relationship_data.x in parentless_members:
-                            logger.error('{} is a parentless sibling but has a family relationship at index: {}', member_relationship_data.y, index)
-                    logger.error('{} is a parentless sibling but has a family relationship at index: {}', member_relationship_data.y, index)
+                    continue
+                if not member_relationship_data.y in parentless_members:
+                    if member_relationship_data.x in parentless_members:
+                        logger.error('{} is a parentless sibling but has a family relationship at index: {}', member_relationship_data.y, index)
+                logger.error('{} is a parentless sibling but has a family relationship at index: {}', member_relationship_data.y, index)
         for (x_member, y_member, household_relationship_index) in spouse_pairs:
             family_set_at_index = family_relationship_mapping.get((x_member, y_member))
             if family_set_at_index is not None:
@@ -98,9 +98,8 @@ class HouseholdTemplate(HasTunableReference, metaclass=sims4.tuning.instances.Tu
         self._household_members_instance = []
         for household_member in self._household_members:
             if random.random() > household_member.chance:
-                pass
-            else:
-                self._household_members_instance.append(household_member)
+                continue
+            self._household_members_instance.append(household_member)
 
     @classproperty
     def template_type(cls):
@@ -167,36 +166,34 @@ class HouseholdTemplate(HasTunableReference, metaclass=sims4.tuning.instances.Tu
             target_sim_info = tag_to_sim_info.get(member_relationship_data.y)
             if not source_sim_info is None:
                 if target_sim_info is None:
-                    pass
-                else:
-                    if member_relationship_data.is_spouse:
-                        source_sim_info.update_spouse_sim_id(target_sim_info.id)
-                        target_sim_info.update_spouse_sim_id(source_sim_info.id)
-                    if member_relationship_data.is_parentless_sibling:
-                        parent_id = source_sim_info.genealogy.get_family_relation(FamilyRelationshipIndex.MOTHER) or (target_sim_info.genealogy.get_family_relation(FamilyRelationshipIndex.MOTHER) or id_generator.generate_object_id())
-                        source_sim_info.genealogy.set_family_relation(FamilyRelationshipIndex.MOTHER, parent_id)
-                        target_sim_info.genealogy.set_family_relation(FamilyRelationshipIndex.MOTHER, parent_id)
-                    if member_relationship_data.family_relationship is not None:
-                        target_sim_info.set_and_propagate_family_relation(member_relationship_data.family_relationship, source_sim_info)
+                    continue
+                if member_relationship_data.is_spouse:
+                    source_sim_info.update_spouse_sim_id(target_sim_info.id)
+                    target_sim_info.update_spouse_sim_id(source_sim_info.id)
+                if member_relationship_data.is_parentless_sibling:
+                    parent_id = source_sim_info.genealogy.get_family_relation(FamilyRelationshipIndex.MOTHER) or (target_sim_info.genealogy.get_family_relation(FamilyRelationshipIndex.MOTHER) or id_generator.generate_object_id())
+                    source_sim_info.genealogy.set_family_relation(FamilyRelationshipIndex.MOTHER, parent_id)
+                    target_sim_info.genealogy.set_family_relation(FamilyRelationshipIndex.MOTHER, parent_id)
+                if member_relationship_data.family_relationship is not None:
+                    target_sim_info.set_and_propagate_family_relation(member_relationship_data.family_relationship, source_sim_info)
         household.set_default_relationships()
         for member_relationship_data in cls._household_relationship:
             source_sim_info = tag_to_sim_info.get(member_relationship_data.x)
             target_sim_info = tag_to_sim_info.get(member_relationship_data.y)
             if not source_sim_info is None:
                 if target_sim_info is None:
-                    pass
-                else:
-                    for bit_to_add in member_relationship_data.relationship_bits:
-                        bit_triggered_track = bit_to_add.triggered_track
-                        if bit_triggered_track is not None:
-                            bit_track_node = bit_to_add.triggered_track.get_bit_track_node_for_bit(bit_to_add)
+                    continue
+                for bit_to_add in member_relationship_data.relationship_bits:
+                    bit_triggered_track = bit_to_add.triggered_track
+                    if bit_triggered_track is not None:
+                        bit_track_node = bit_to_add.triggered_track.get_bit_track_node_for_bit(bit_to_add)
+                    else:
+                        bit_track_node = None
+                    if bit_track_node is not None:
+                        if bit_track_node.remove_value > bit_track_node.add_value:
+                            rand_score = random.randint(bit_track_node.add_value, bit_track_node.remove_value)
                         else:
-                            bit_track_node = None
-                        if bit_track_node is not None:
-                            if bit_track_node.remove_value > bit_track_node.add_value:
-                                rand_score = random.randint(bit_track_node.add_value, bit_track_node.remove_value)
-                            else:
-                                rand_score = random.randint(bit_track_node.remove_value, bit_track_node.add_value)
-                            source_sim_info.relationship_tracker.add_relationship_score(target_sim_info.id, rand_score, bit_triggered_track)
-                        else:
-                            source_sim_info.relationship_tracker.add_relationship_bit(target_sim_info.id, bit_to_add, force_add=True)
+                            rand_score = random.randint(bit_track_node.remove_value, bit_track_node.add_value)
+                        source_sim_info.relationship_tracker.add_relationship_score(target_sim_info.id, rand_score, bit_triggered_track)
+                    else:
+                        source_sim_info.relationship_tracker.add_relationship_bit(target_sim_info.id, bit_to_add, force_add=True)

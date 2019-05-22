@@ -157,6 +157,31 @@ class AspirationAssignment(AspirationBasic):
 
 lock_instance_tunables(AspirationAssignment, complete_only_in_sequence=True)
 
+class AspirationGig(AspirationBasic):
+
+    def reward(self, *args, **kwargs):
+        pass
+
+    @classmethod
+    def satisfy_assignment(cls, sim_info):
+        for career in sim_info.career_tracker:
+            career.gig_aspiration_completed(cls)
+
+    @classmethod
+    def send_assignment_update(cls, sim_info):
+        pass
+
+    @constproperty
+    def aspiration_type():
+        return AspriationType.GIG
+
+    @classmethod
+    def _verify_tuning_callback(cls):
+        for objective in cls.objectives:
+            pass
+
+lock_instance_tunables(AspirationGig, complete_only_in_sequence=True)
+
 class AspirationFamilialTrigger(AspirationBasic):
     INSTANCE_TUNABLES = {'objectives': sims4.tuning.tunable.TunableList(description='\n            A Set of objectives for completing an aspiration.', tunable=sims4.tuning.tunable.TunableReference(description='\n                One objective for an aspiration', manager=services.get_instance_manager(sims4.resources.Types.OBJECTIVE))), 'target_family_relationships': TunableSet(description='\n            These relations will get an event message upon Aspiration completion that they can test for.', tunable=TunableEnumEntry(genealogy_tracker.FamilyRelationshipIndex, genealogy_tracker.FamilyRelationshipIndex.FATHER))}
 

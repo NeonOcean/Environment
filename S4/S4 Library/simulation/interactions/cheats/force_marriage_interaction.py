@@ -42,10 +42,9 @@ class ForceMarriageInteraction(ImmediateSuperInteraction):
             spouses = cls._get_all_spouse_for_sim(sim.id)
             for spouse_sim_info in spouses:
                 if spouse_sim_info is None:
-                    pass
-                else:
-                    clear_spouse_bit(sim, spouse_sim_info)
-                    clear_spouse_bit(spouse_sim_info, sim)
+                    continue
+                clear_spouse_bit(sim, spouse_sim_info)
+                clear_spouse_bit(spouse_sim_info, sim)
 
         def add_spouse_bit(a, b):
             if not a.relationship_tracker.has_bit(b.id, RelationshipGlobalTuning.MARRIAGE_RELATIONSHIP_BIT):

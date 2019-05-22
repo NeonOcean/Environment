@@ -79,11 +79,11 @@ class Door(GameObject):
     def get_gsi_portal_items(self, key_name, value_name):
         door_items_list = super().get_gsi_portal_items(key_name, value_name)
         if self.has_state(DoorTuning.FRONT_DOOR_STATE.enabled.state):
-            door_items_list.append({value_name: str(self.get_state(DoorTuning.FRONT_DOOR_STATE.enabled.state)), key_name: 'Front Door State'})
+            door_items_list.append({key_name: 'Front Door State', value_name: str(self.get_state(DoorTuning.FRONT_DOOR_STATE.enabled.state))})
         if self.has_state(DoorTuning.FRONT_DOOR_AVAILABILITY_STATE.enabled.state):
-            door_items_list.append({value_name: str(self.get_state(DoorTuning.FRONT_DOOR_AVAILABILITY_STATE.enabled.state)), key_name: 'Front Door Availability State'})
+            door_items_list.append({key_name: 'Front Door Availability State', value_name: str(self.get_state(DoorTuning.FRONT_DOOR_AVAILABILITY_STATE.enabled.state))})
         if self.has_state(DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled.state):
-            door_items_list.append({value_name: str(self.get_state(DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled.state)), key_name: 'Inactive Apartment Door State'})
+            door_items_list.append({key_name: 'Inactive Apartment Door State', value_name: str(self.get_state(DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled.state))})
         return door_items_list
 
 class SetFrontDoorImmediateInteraction(ImmediateSuperInteraction):

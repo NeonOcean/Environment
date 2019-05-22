@@ -112,19 +112,23 @@ class SimInfoManager(DistributableObjectManager):
                 elif sim_info.zone_id in plexes_in_group:
                     self._sim_infos_saved_in_plex_group.append(sim_info)
                     if sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.UNDECLARED:
-                        if sim_info.zone_id == zone.id and sim_info.is_baby and sim_info.lives_here:
+                        if sim_info.zone_id == zone.id and (not sim_info.is_baby or sim_info.lives_here):
                             self._sim_infos_injected_into_zone.append(sim_info)
-                            if sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS and sim_info.world_id == zone.open_street_id:
-                                self._sim_infos_saved_in_open_street.append(sim_info)
-                    elif sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS and sim_info.world_id == zone.open_street_id:
-                        self._sim_infos_saved_in_open_street.append(sim_info)
+                            if sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS:
+                                if sim_info.world_id == zone.open_street_id:
+                                    self._sim_infos_saved_in_open_street.append(sim_info)
+                    elif sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS:
+                        if sim_info.world_id == zone.open_street_id:
+                            self._sim_infos_saved_in_open_street.append(sim_info)
             elif sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.UNDECLARED:
-                if sim_info.zone_id == zone.id and sim_info.is_baby and sim_info.lives_here:
+                if sim_info.zone_id == zone.id and (not sim_info.is_baby or sim_info.lives_here):
                     self._sim_infos_injected_into_zone.append(sim_info)
-                    if sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS and sim_info.world_id == zone.open_street_id:
-                        self._sim_infos_saved_in_open_street.append(sim_info)
-            elif sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS and sim_info.world_id == zone.open_street_id:
-                self._sim_infos_saved_in_open_street.append(sim_info)
+                    if sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS:
+                        if sim_info.world_id == zone.open_street_id:
+                            self._sim_infos_saved_in_open_street.append(sim_info)
+            elif sim_info.serialization_option == sims.sim_info_types.SimSerializationOption.OPEN_STREETS:
+                if sim_info.world_id == zone.open_street_id:
+                    self._sim_infos_saved_in_open_street.append(sim_info)
 
     def on_all_households_and_sim_infos_loaded(self, client):
         for sim_info in tuple(self.values()):
@@ -152,14 +156,16 @@ class SimInfoManager(DistributableObjectManager):
                     logger.error('sim id {} for traveling did not spawn because sim info does not exist.', sim_id, owner='msantander')
                 else:
                     traveled_sim_infos.append(sim_info)
-        lot_tuning = world.lot_tuning.LotTuningMaps.get_lot_tuning()
-        if lot_tuning is not None and lot_tuning.audio_sting is not None:
-            sting = lot_tuning.audio_sting(None)
-            sting.start()
-        elif traveled_sim_infos:
-            play_tunable_audio(TravelTuning.TRAVEL_SUCCESS_AUDIO_STING)
-        else:
-            play_tunable_audio(TravelTuning.NEW_GAME_AUDIO_STING)
+        narrative_service = services.narrative_service()
+        if not narrative_service.should_suppress_travel_sting():
+            lot_tuning = world.lot_tuning.LotTuningMaps.get_lot_tuning()
+            if lot_tuning is not None and lot_tuning.audio_sting is not None:
+                sting = lot_tuning.audio_sting(None)
+                sting.start()
+            elif traveled_sim_infos:
+                play_tunable_audio(TravelTuning.TRAVEL_SUCCESS_AUDIO_STING)
+            else:
+                play_tunable_audio(TravelTuning.NEW_GAME_AUDIO_STING)
         services.current_zone().venue_service.process_traveled_and_persisted_and_resident_sims_during_zone_spin_up(traveled_sim_infos, self._sim_infos_saved_in_zone, self._sim_infos_saved_in_plex_group, self._sim_infos_saved_in_open_street, self._sim_infos_injected_into_zone)
 
     def _update_greeting_relationships_on_zone_spinup(self):
@@ -171,8 +177,8 @@ class SimInfoManager(DistributableObjectManager):
                 for other_sim in instanced_sims:
                     other_sim_info = other_sim.sim_info
                     if sim_info is other_sim_info:
-                        pass
-                    elif other_sim_info in traveled_sim_infos:
+                        continue
+                    if other_sim_info in traveled_sim_infos:
                         greetings.add_greeted_rel_bit(sim_info, other_sim_info)
                     else:
                         greetings.remove_greeted_rel_bit(sim_info, other_sim_info)
@@ -180,9 +186,8 @@ class SimInfoManager(DistributableObjectManager):
                 for other_sim in instanced_sims:
                     other_sim_info = other_sim.sim_info
                     if sim_info is other_sim_info:
-                        pass
-                    else:
-                        greetings.remove_greeted_rel_bit(sim_info, other_sim_info)
+                        continue
+                    greetings.remove_greeted_rel_bit(sim_info, other_sim_info)
 
     def on_spawn_sim_for_zone_spin_up_completed(self, client):
         relgraph_initializable = RelgraphService.RELGRAPH_ENABLED and not RelgraphService.is_relgraph_initialized()
@@ -211,11 +216,12 @@ class SimInfoManager(DistributableObjectManager):
         for sim_info in client.selectable_sims:
             relationship_service.send_relationship_info(sim_info.sim_id)
         for sim_info in itertools.chain(self._sim_infos_saved_in_zone, self._sim_infos_saved_in_open_street, self._sim_infos_injected_into_zone):
-            if sim_info.is_baby or sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS) is None:
-                if not sim_info.lives_here:
-                    sim_info.inject_into_inactive_zone(sim_info.vacation_or_home_zone_id)
-                else:
-                    sim_info.inject_into_inactive_zone(0)
+            if not sim_info.is_baby:
+                if sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS) is None:
+                    if not sim_info.lives_here:
+                        sim_info.inject_into_inactive_zone(sim_info.vacation_or_home_zone_id)
+                    else:
+                        sim_info.inject_into_inactive_zone(0)
         RelgraphService.relgraph_cull(self.values())
         self._update_greeting_relationships_on_zone_spinup()
 
@@ -223,17 +229,18 @@ class SimInfoManager(DistributableObjectManager):
         for other_sim in self.instanced_sims_gen():
             other_sim_info = other_sim.sim_info
             if other_sim_info is sim_info:
-                pass
-            else:
-                greetings.remove_greeted_rel_bit(sim_info, other_sim_info)
+                continue
+            greetings.remove_greeted_rel_bit(sim_info, other_sim_info)
 
     def try_set_sim_fame_option_to_global_option(self, sim_info):
-        if not sim_info.get_gameplay_option(SimInfoGameplayOptions.FREEZE_FAME):
-            tracker = sim_info.get_tracker(FameTunables.FAME_RANKED_STATISTIC)
-            if tracker is not None:
-                ranked_stat_inst = tracker.get_statistic(FameTunables.FAME_RANKED_STATISTIC, add=True)
-                if ranked_stat_inst.get_value() <= ranked_stat_inst.min_value + 1:
-                    sim_info.allow_fame = not self._start_all_sims_opted_out_of_fame
+        if not sim_info.get_gameplay_option(SimInfoGameplayOptions.FORCE_CURRENT_ALLOW_FAME_SETTING):
+            if not sim_info.get_gameplay_option(SimInfoGameplayOptions.FREEZE_FAME):
+                tracker = sim_info.get_tracker(FameTunables.FAME_RANKED_STATISTIC)
+                if tracker is not None:
+                    ranked_stat_inst = tracker.get_statistic(FameTunables.FAME_RANKED_STATISTIC, add=True)
+                    if ranked_stat_inst is not None:
+                        if ranked_stat_inst.get_value() <= ranked_stat_inst.min_value + 1:
+                            sim_info.allow_fame = not self._start_all_sims_opted_out_of_fame
 
     def set_start_all_sims_opted_out_of_fame(self, start_opted_out):
         self._start_all_sims_opted_out_of_fame = start_opted_out
@@ -267,11 +274,13 @@ class SimInfoManager(DistributableObjectManager):
                     new_candidates = set()
                     for _id in itertools.chain.from_iterable(x.genealogy.get_immediate_family_sim_ids_gen() for x in candidates):
                         family_member = self.get(_id)
-                        if family_member is not None and family_member not in extended_family:
-                            new_candidates.add(family_member)
-                            spouse = get_spouse(family_member)
-                            if spouse is not None and family_member not in extended_family:
-                                new_candidates.add(spouse)
+                        if family_member is not None:
+                            if family_member not in extended_family:
+                                new_candidates.add(family_member)
+                                spouse = get_spouse(family_member)
+                                if spouse is not None:
+                                    if family_member not in extended_family:
+                                        new_candidates.add(spouse)
                     candidates = new_candidates
                     extended_family.update(candidates)
                 extended_family -= set([sim_info])
@@ -302,6 +311,11 @@ class SimInfoManager(DistributableObjectManager):
 
     def get_sim_infos_saved_in_open_streets(self):
         return list(self._sim_infos_saved_in_open_street)
+
+    def instantiatable_sims_info_gen(self):
+        for info in self.get_all():
+            if info.can_instantiate_sim:
+                yield info
 
     def instanced_sims_gen(self, allow_hidden_flags=0):
         for info in self.get_all():
@@ -341,17 +355,17 @@ class SimInfoManager(DistributableObjectManager):
         first_name = first_name.lower()
         last_name = last_name.lower()
         for info in self.get_all():
-            if info.first_name.lower() == first_name and info.last_name.lower() == last_name:
-                return info
+            if info.first_name.lower() == first_name:
+                if info.last_name.lower() == last_name:
+                    return info
 
     def auto_satisfy_sim_motives(self):
         for sim in self.instanced_sims_gen():
             statistics = list(sim.commodities_gen())
             for statistic in statistics:
                 if not statistic.has_auto_satisfy_value():
-                    pass
-                else:
-                    statistic.set_to_auto_satisfy_value()
+                    continue
+                statistic.set_to_auto_satisfy_value()
 
     def handle_event(self, sim_info, event, resolver):
         self._sim_started_startup_interaction(sim_info, event, resolver)
@@ -361,18 +375,17 @@ class SimInfoManager(DistributableObjectManager):
         for sim_info in self.get_sims_for_spin_up_action(SimZoneSpinUpAction.PREROLL):
             sim = sim_info.get_sim_instance()
             if sim is None:
-                pass
-            else:
-                caches.clear_all_caches()
-                sim.set_allow_route_instantly_when_hitting_marks(True)
-                (interaction_started, interaction_target) = sim.run_preroll_autonomy(used_target_list)
-                if interaction_started:
-                    logger.debug('sim: {} started interaction:{} as part of preroll autonomy.', sim, interaction_started)
-                    if interaction_target is not None and not interaction_target.allow_preroll_multiple_targets:
-                        used_target_list.append(interaction_target)
-                        logger.debug('sim: {} failed to choose interaction as part of preroll autonomy.', sim)
-                else:
+                continue
+            caches.clear_all_caches()
+            sim.set_allow_route_instantly_when_hitting_marks(True)
+            (interaction_started, interaction_target) = sim.run_preroll_autonomy(used_target_list)
+            if interaction_started:
+                logger.debug('sim: {} started interaction:{} as part of preroll autonomy.', sim, interaction_started)
+                if interaction_target is not None and not interaction_target.allow_preroll_multiple_targets:
+                    used_target_list.append(interaction_target)
                     logger.debug('sim: {} failed to choose interaction as part of preroll autonomy.', sim)
+            else:
+                logger.debug('sim: {} failed to choose interaction as part of preroll autonomy.', sim)
 
     def _run_startup_interactions(self, create_startup_interactions_function):
         try:
@@ -403,8 +416,9 @@ class SimInfoManager(DistributableObjectManager):
     def verify_travel_sims_outfits(self):
         for traveled_sim_id in self._sims_traveled_to_zone:
             sim_info = self.get(traveled_sim_id)
-            if sim_info is not None and sim_info.get_current_outfit()[0] == OutfitCategory.BATHING:
-                sim_info.set_current_outfit((OutfitCategory.EVERYDAY, 0))
+            if sim_info is not None:
+                if sim_info.get_current_outfit()[0] == OutfitCategory.BATHING:
+                    sim_info.set_current_outfit((OutfitCategory.EVERYDAY, 0))
 
     def run_preroll_autonomy(self):
         self._run_startup_interactions(self._run_preroll_autonomy)

@@ -91,9 +91,8 @@ class SocialGroupGeometry(collections.MutableMapping):
             with remainder.lock():
                 for (other, other_geometry) in self.members.items():
                     if other is sim:
-                        pass
-                    else:
-                        remainder[other] = other_geometry
+                        continue
+                    remainder[other] = other_geometry
             (valid, _) = score_transforms([sim.transform], sim, group, remainder)
             if valid:
                 scores.append((sim, valid[0][1]))
@@ -186,9 +185,10 @@ def _get_social_geometry_for_sim(sim):
     if base_field is None:
         return (None, None)
     (social_space_override, focal_point_override) = sim.si_state.get_social_geometry_override()
-    if focal_point_override is not None:
-        base_focus = focal_point_override
-        base_field = social_space_override
+    if social_space_override is not None:
+        if focal_point_override is not None:
+            base_focus = focal_point_override
+            base_field = social_space_override
     return (base_focus, base_field)
 
 def create(sim, group, transform_override=None):
@@ -201,7 +201,7 @@ def create(sim, group, transform_override=None):
 
 def score_transforms(transforms, sim, group, group_geometry, cutoff=None, modifier=None):
     (base_focus, base_field) = _get_social_geometry_for_sim(sim)
-    if base_focus is None or base_field is None or not group_geometry:
+    if base_focus is None or not (base_field is None or not group_geometry):
         return ([], [])
     r = group.group_radius
     scored = []
@@ -210,9 +210,10 @@ def score_transforms(transforms, sim, group, group_geometry, cutoff=None, modifi
     max_score = None
     for transform in transforms:
         score = score_transform(transform, sim, group_geometry, r, base_focus, base_field)
-        if modifier is not None:
-            score = modifier(score, transform, sim)
-        if score > 0 and score > 0:
+        if score > 0:
+            if modifier is not None:
+                score = modifier(score, transform, sim)
+        if score > 0:
             scored.append((transform, score))
             max_score = max(score, max_score) if max_score is not None else score
         else:
@@ -242,17 +243,16 @@ def score_transform(transform, sim, group_geometry, r, base_focus, base_field):
     candidate_facing = sims4.math.yaw_quaternion_to_angle(transform.orientation)
     for (other_sim, geometry) in group_geometry.members.items():
         if other_sim is sim:
-            pass
-        else:
-            other_facing = sims4.math.yaw_quaternion_to_angle(geometry.transform.orientation)
-            delta = geometry.transform.translation - transform.translation
-            score_facing(accum, candidate_facing, other_facing, delta)
-            intersection = geometry.field.intersect(candidate_geometry.field)
-            fraction = intersection.area()/candidate_area
-            fraction = SocialGeometry.OVERLAP_SCORE_MULTIPLIER*max(fraction, SocialGeometry.NON_OVERLAPPING_SCORE_MULTIPLIER)
-            accum.add(fraction)
-            if accum.fault():
-                return 0
+            continue
+        other_facing = sims4.math.yaw_quaternion_to_angle(geometry.transform.orientation)
+        delta = geometry.transform.translation - transform.translation
+        score_facing(accum, candidate_facing, other_facing, delta)
+        intersection = geometry.field.intersect(candidate_geometry.field)
+        fraction = intersection.area()/candidate_area
+        fraction = SocialGeometry.OVERLAP_SCORE_MULTIPLIER*max(fraction, SocialGeometry.NON_OVERLAPPING_SCORE_MULTIPLIER)
+        accum.add(fraction)
+        if accum.fault():
+            return 0
     nearby_non_members = list(placement.get_nearby_sims_gen(transform.translation, sim.routing_surface, exclude=group_geometry, check_all_surfaces_on_level=True))
     if sim in nearby_non_members:
         nearby_non_members.remove(sim)

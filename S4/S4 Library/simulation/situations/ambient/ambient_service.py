@@ -75,13 +75,11 @@ class _AmbientSource:
         for situation_id in self._running_situation_ids:
             situation = situation_manager.get(situation_id)
             if situation is None:
-                pass
-            else:
-                sims_in_situation = situation.get_sims_expected_to_be_in_situation()
-                if sims_in_situation is None:
-                    pass
-                else:
-                    num_of_sims += sims_in_situation
+                continue
+            sims_in_situation = situation.get_sims_expected_to_be_in_situation()
+            if sims_in_situation is None:
+                continue
+            num_of_sims += sims_in_situation
         return num_of_sims
 
     def start_appropriate_situation(self, time_of_day=None):

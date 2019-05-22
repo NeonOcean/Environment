@@ -36,8 +36,9 @@ class MultiMotiveBuffTracker:
                     self._watcher_handle = tracker.add_watcher(self._statistic_added_to_tracker_callback)
         tracker.remove_on_remove_callback(self._statistic_removed_from_tracker)
         tracker.add_on_remove_callback(self._statistic_removed_from_tracker)
-        if self._motive_count >= len(self._multi_motive_buff_motives):
-            self._buff_handle = self._owner.add_buff(self._buff, buff_reason=self.MULTI_MOTIVE_BUFF_REASON)
+        if self._motive_count > 0:
+            if self._motive_count >= len(self._multi_motive_buff_motives):
+                self._buff_handle = self._owner.add_buff(self._buff, buff_reason=self.MULTI_MOTIVE_BUFF_REASON)
 
     def cleanup_callbacks(self):
         tracker = self._owner.commodity_tracker
@@ -75,9 +76,10 @@ class MultiMotiveBuffTracker:
             self._decrement_multi_motive_buff_count(stat_instance)
         else:
             self._commodity_callback[stat_type] = stat_instance.create_and_add_callback_listener(threshold, self._increment_multi_motive_buff_count)
-        if self._watcher_handle is not None:
-            tracker.remove_watcher(self._watcher_handle)
-            self._watcher_handle = None
+        if not any(callback is None for callback in self._commodity_callback.values()):
+            if self._watcher_handle is not None:
+                tracker.remove_watcher(self._watcher_handle)
+                self._watcher_handle = None
 
     def _statistic_removed_from_tracker(self, stat_instance):
         stat_type = stat_instance.stat_type
@@ -100,8 +102,9 @@ class MultiMotiveBuffTracker:
             self._remove_commodity_callback(stat_instance)
             self._commodity_callback[commodity_type] = stat_instance.create_and_add_callback_listener(self._multi_motive_buff_motives[commodity_type].inverse(), self._decrement_multi_motive_buff_count)
         self._motive_count += 1
-        if self._motive_count >= len(self._multi_motive_buff_motives):
-            self._buff_handle = self._owner.add_buff(self._buff, buff_reason=self.MULTI_MOTIVE_BUFF_REASON)
+        if add:
+            if self._motive_count >= len(self._multi_motive_buff_motives):
+                self._buff_handle = self._owner.add_buff(self._buff, buff_reason=self.MULTI_MOTIVE_BUFF_REASON)
 
     def _decrement_multi_motive_buff_count(self, stat_instance, add_callback=True):
         commodity_type = stat_instance.stat_type

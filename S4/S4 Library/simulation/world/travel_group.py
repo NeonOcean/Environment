@@ -124,7 +124,7 @@ class TravelGroup:
         sim_info.career_tracker.resend_at_work_infos()
         if all(travel_sim_info.household.home_zone_id == 0 for travel_sim_info in self._sim_infos):
             self.played = False
-        if self._sim_infos or destroy_on_empty:
+        if not self._sim_infos and destroy_on_empty:
             services.travel_group_manager().destroy_travel_group_and_release_zone(self, last_sim_info=sim_info, return_objects=True)
 
     def rent_zone(self, zone_id):

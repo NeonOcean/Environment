@@ -156,6 +156,7 @@ class DeathSuperInteraction(SuperInteraction):
                 outcome_sequence = self.death_element(self, sequence=outcome_sequence)
             result = yield from element_utils.run_child(timeline, outcome_sequence)
             return result
+            yield
 
         return (_do,)
 
@@ -262,21 +263,12 @@ class DeathSuperInteraction(SuperInteraction):
         sim_info_to_travel_to = None
         for sim_info in self._client.selectable_sims:
             if sim_info.is_baby:
-                pass
-            else:
-                if travel_group is None:
+                continue
+            if travel_group is None:
+                end_vacation = False
+            elif sim_info in travel_group:
+                if sim_info.can_live_alone:
                     end_vacation = False
-                elif sim_info in travel_group:
-                    if sim_info.can_live_alone:
-                        end_vacation = False
-                        if sim_info.is_instanced():
-                            sim_info_to_travel_to = None
-                            break
-                        if not sim_info_to_travel_to is None:
-                            if sim_info.zone_id == home_zone_id:
-                                sim_info_to_travel_to = sim_info
-                        sim_info_to_travel_to = sim_info
-                else:
                     if sim_info.is_instanced():
                         sim_info_to_travel_to = None
                         break
@@ -284,6 +276,7 @@ class DeathSuperInteraction(SuperInteraction):
                         if sim_info.zone_id == home_zone_id:
                             sim_info_to_travel_to = sim_info
                     sim_info_to_travel_to = sim_info
+            else:
                 if sim_info.is_instanced():
                     sim_info_to_travel_to = None
                     break
@@ -291,6 +284,13 @@ class DeathSuperInteraction(SuperInteraction):
                     if sim_info.zone_id == home_zone_id:
                         sim_info_to_travel_to = sim_info
                 sim_info_to_travel_to = sim_info
+            if sim_info.is_instanced():
+                sim_info_to_travel_to = None
+                break
+            if not sim_info_to_travel_to is None:
+                if sim_info.zone_id == home_zone_id:
+                    sim_info_to_travel_to = sim_info
+            sim_info_to_travel_to = sim_info
         if travel_group is not None and not end_vacation:
             travel_group.remove_sim_info(dead_sim_info)
         if sim_info_to_travel_to is not None:

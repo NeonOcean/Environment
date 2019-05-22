@@ -72,14 +72,13 @@ class StoryProgressionTracker(SimInfoTracker):
         for action_data in data.actions:
             story_progression_action_type = story_progression_manager.get(action_data.guid)
             if story_progression_action_type is None:
-                pass
-            else:
-                try:
-                    story_progression_action = story_progression_action_type(self._sim_info)
-                    story_progression_action.load(action_data)
-                except TypeError:
-                    continue
-                self._actions.append(story_progression_action)
+                continue
+            try:
+                story_progression_action = story_progression_action_type(self._sim_info)
+                story_progression_action.load(action_data)
+            except TypeError:
+                continue
+            self._actions.append(story_progression_action)
 
     def save(self):
         data = protocols.PersistableStoryProgressionTracker()

@@ -15,10 +15,9 @@ class PremadeSimRelationships:
         sim_to_household = {}
         for household in services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE).types.values():
             if household.template_type != SimTemplateType.PREMADE_HOUSEHOLD:
-                pass
-            else:
-                for sim in household.get_household_members():
-                    sim_to_household[sim.sim_template] = household
+                continue
+            for sim in household.get_household_members():
+                sim_to_household[sim.sim_template] = household
         pairs = set()
         for entry in value:
             a = entry.sim_a
@@ -89,17 +88,14 @@ class PremadeSimRelationships:
         for entry in PremadeSimRelationships.RELATIONSHIP_MAP:
             if not entry.sim_a is None:
                 if entry.sim_b is None:
-                    pass
-                else:
-                    loot_matrix[entry.sim_a][entry.sim_b] = entry.relationship_loot
+                    continue
+                loot_matrix[entry.sim_a][entry.sim_b] = entry.relationship_loot
         for (premade_sim_template, sim_info) in premade_sim_infos.items():
             if premade_sim_template not in loot_matrix:
-                pass
-            else:
-                for (other_template, rel_loot) in loot_matrix[premade_sim_template].items():
-                    if other_template not in premade_sim_infos:
-                        pass
-                    else:
-                        other_sim_info = premade_sim_infos[other_template]
-                        resolver = DoubleSimResolver(sim_info, other_sim_info)
-                        rel_loot.apply_to_resolver(resolver)
+                continue
+            for (other_template, rel_loot) in loot_matrix[premade_sim_template].items():
+                if other_template not in premade_sim_infos:
+                    continue
+                other_sim_info = premade_sim_infos[other_template]
+                resolver = DoubleSimResolver(sim_info, other_sim_info)
+                rel_loot.apply_to_resolver(resolver)

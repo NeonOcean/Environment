@@ -29,9 +29,10 @@ class ReservationResult:
 
     @property
     def reason(self):
-        if self._reason:
-            self._reason = self._reason.format(*self._format_args)
-            self._format_args = ()
+        if self._format_args:
+            if self._reason:
+                self._reason = self._reason.format(*self._format_args)
+                self._format_args = ()
         return self._reason
 
 ReservationResult.TRUE = ReservationResult(True)

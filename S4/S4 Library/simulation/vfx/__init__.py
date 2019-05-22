@@ -25,10 +25,11 @@ class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, 
         if target is not None:
             if target.inventoryitem_component is not None:
                 forward_to_owner_list = target.inventoryitem_component.forward_client_state_change_to_inventory_owner
-                if StateChange.VFX in forward_to_owner_list:
-                    inventory_owner = target.inventoryitem_component.inventory_owner
-                    if inventory_owner is not None:
-                        self.target = inventory_owner
+                if forward_to_owner_list:
+                    if StateChange.VFX in forward_to_owner_list:
+                        inventory_owner = target.inventoryitem_component.inventory_owner
+                        if inventory_owner is not None:
+                            self.target = inventory_owner
             if target.crafting_component is not None:
                 effect_name = target.crafting_component.get_recipe_effect_overrides(effect_name)
         self.target_transform = target.transform if target is not None else transform_override

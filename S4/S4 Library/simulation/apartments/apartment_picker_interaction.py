@@ -59,6 +59,7 @@ class ApartmentPickerInteraction(TravelMixin, TerrainInteractionMixin, PickerSup
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=None, target=self.target)
         return True
+        yield
 
     @flexmethod
     def create_row(cls, inst, tag):

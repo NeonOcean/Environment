@@ -62,8 +62,9 @@ class MixerInteraction(Interaction):
     @property
     def carry_target(self):
         carry_target = super().carry_target
-        if self.super_interaction is not None:
-            carry_target = self.super_interaction.carry_target
+        if carry_target is None:
+            if self.super_interaction is not None:
+                carry_target = self.super_interaction.carry_target
         return carry_target
 
     @flexmethod
@@ -107,9 +108,9 @@ class MixerInteraction(Interaction):
         if cls.target_type & TargetType.ACTOR:
             targets = (None,)
         elif cls.target_type & TargetType.TARGET or cls.target_type & TargetType.OBJECT:
-            targets = [x for x in potential_targets if x is not actor and (actor.is_sub_action_locked_out(affordance, target=x) or x.supports_affordance(cls))]
+            targets = [x for x in potential_targets if x is not actor if not actor.is_sub_action_locked_out(affordance, target=x) if x.supports_affordance(cls)]
         elif cls.target_type & TargetType.GROUP:
-            targets = [x for x in potential_targets if x and not x.is_sim]
+            targets = [x for x in potential_targets if x if not x.is_sim]
             if not targets:
                 targets = (None,)
         else:
@@ -151,20 +152,19 @@ class MixerInteraction(Interaction):
         return False
 
     def _must_push_super_interaction(self):
-        if self._push_super_on_prepare and self.super_interaction is not None:
+        if not self._push_super_on_prepare or self.super_interaction is not None:
             return False
         for interaction in self.sim.running_interactions_gen(self.super_affordance):
             if interaction.is_finishing:
-                pass
-            else:
-                if not self.target is interaction.target:
-                    if self.target in interaction.get_potential_mixer_targets():
-                        self.super_interaction = interaction
-                        self.sim.ui_manager.set_interaction_super_interaction(self, self.super_interaction.id)
-                        return False
-                self.super_interaction = interaction
-                self.sim.ui_manager.set_interaction_super_interaction(self, self.super_interaction.id)
-                return False
+                continue
+            if not self.target is interaction.target:
+                if self.target in interaction.get_potential_mixer_targets():
+                    self.super_interaction = interaction
+                    self.sim.ui_manager.set_interaction_super_interaction(self, self.super_interaction.id)
+                    return False
+            self.super_interaction = interaction
+            self.sim.ui_manager.set_interaction_super_interaction(self, self.super_interaction.id)
+            return False
         return True
 
     def notify_queue_head(self):
@@ -192,9 +192,11 @@ class MixerInteraction(Interaction):
                 self.cancel(FinishingType.KILLED, 'Failed to push the SI associated with this mixer!')
 
     def prepare_gen(self, timeline):
-        if self.allow_with_unholsterable_carries or not self.cancel_incompatible_carry_interactions(can_defer_putdown=False):
+        if not self.allow_with_unholsterable_carries and not self.cancel_incompatible_carry_interactions(can_defer_putdown=False):
             return InteractionQueuePreparationStatus.NEEDS_DERAIL
+            yield
         return InteractionQueuePreparationStatus.SUCCESS
+        yield
 
     def _get_required_sims(self, *args, **kwargs):
         sims = set()
@@ -260,7 +262,7 @@ class MixerInteraction(Interaction):
         for (sim_info, handle_list) in modifiers_dict.items():
             for (si, handle) in handle_list:
                 (result, reason) = sim_info.suspend_statistic_modifier(handle)
-                if result or reason is not None:
+                if not result and reason is not None:
                     logger.error('Failed to suspend modifier of exclusive si: {}\n   On Sim: {}\n   Running: {}\n   Reason: {}', si, sim_info, self, reason, owner='msantander')
 
     def _resume_modifiers(self, modifiers_dict):
@@ -306,7 +308,7 @@ class MixerInteraction(Interaction):
             no_geometry_mixer_state = mixer_constraint.generate_alternate_geometry_constraint(None)
             test_intersection = no_geometry_posture_state.intersect(no_geometry_mixer_state)
             ret = test_intersection.valid
-        if ret or error_on_fail:
+        if not ret and error_on_fail:
             si_constraint_list = ''.join('\n        ' + str(c) for c in no_geometry_posture_state)
             mi_constraint_list = ''.join('\n        ' + str(c) for c in mixer_constraint_tentative)
             mx_constraint_list = ''.join('\n        ' + str(c) for c in no_geometry_mixer_state)
@@ -318,25 +320,21 @@ class MixerInteraction(Interaction):
         for sim in self.required_sims():
             participant_type = self.get_participant_type(sim)
             if participant_type is None:
-                pass
-            else:
-                constraint_tentative = self.constraint_intersection(sim=sim, participant_type=participant_type)
-                resolver = self.get_constraint_resolver(sim.posture_state, participant_type=participant_type)
-                constraint = constraint_tentative.apply_posture_state(sim.posture_state, resolver)
-                sim_transform_constraint = interactions.constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
-                geometry_intersection = constraint.intersect(sim_transform_constraint)
-                if not geometry_intersection.valid:
-                    containment_transform = None
-                    if isinstance(constraint, RequiredSlotSingle):
-                        containment_transform = constraint.containment_transform.translation
-                        if sims4.math.vector3_almost_equal_2d(sim.transform.translation, containment_transform, epsilon=ANIMATION_SLOT_EPSILON):
-                            pass
-                        else:
-                            logger.error("Interaction Constraint Error: Interaction's constraint is incompatible with the Sim's current position \n                    Interaction: {}\n                    Sim: {}, \n                    Constraint: {}\n                    Sim Position: {}\n                    Interaction Target Position: {},\n                    Target Containment Transform: {}", self, sim, constraint, sim.position, self.target.position if self.target is not None else None, containment_transform, owner='MaxR', trigger_breakpoint=True)
-                            return False
-                    else:
-                        logger.error("Interaction Constraint Error: Interaction's constraint is incompatible with the Sim's current position \n                    Interaction: {}\n                    Sim: {}, \n                    Constraint: {}\n                    Sim Position: {}\n                    Interaction Target Position: {},\n                    Target Containment Transform: {}", self, sim, constraint, sim.position, self.target.position if self.target is not None else None, containment_transform, owner='MaxR', trigger_breakpoint=True)
-                        return False
+                continue
+            constraint_tentative = self.constraint_intersection(sim=sim, participant_type=participant_type)
+            resolver = self.get_constraint_resolver(sim.posture_state, participant_type=participant_type)
+            constraint = constraint_tentative.apply_posture_state(sim.posture_state, resolver)
+            sim_transform_constraint = interactions.constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
+            geometry_intersection = constraint.intersect(sim_transform_constraint)
+            if not geometry_intersection.valid:
+                containment_transform = None
+                if isinstance(constraint, RequiredSlotSingle):
+                    containment_transform = constraint.containment_transform.translation
+                    if sims4.math.vector3_almost_equal_2d(sim.transform.translation, containment_transform, epsilon=ANIMATION_SLOT_EPSILON):
+                        continue
+                else:
+                    logger.error("Interaction Constraint Error: Interaction's constraint is incompatible with the Sim's current position \n                    Interaction: {}\n                    Sim: {}, \n                    Constraint: {}\n                    Sim Position: {}\n                    Interaction Target Position: {},\n                    Target Containment Transform: {}", self, sim, constraint, sim.position, self.target.position if self.target is not None else None, containment_transform, owner='MaxR', trigger_breakpoint=True)
+                    return False
         return True
 
     def pre_process_interaction(self):
@@ -349,6 +347,7 @@ class MixerInteraction(Interaction):
         with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'Mixer', 'Perform', self):
             result = yield from super().perform_gen(timeline)
             return result
+            yield
 
     def _add_interaction_to_targets(self):
         if not self.visible_as_interaction:
@@ -363,19 +362,17 @@ class MixerInteraction(Interaction):
                     icon_info.obj_instance = self.sim
             for target_sim in self.required_sims():
                 if target_sim == self.sim:
-                    pass
-                else:
-                    target_si = social_group.get_si_registered_for_sim(target_sim)
-                    if target_si is None:
-                        pass
-                    else:
-                        name = self.display_name_target(target_sim, self.sim)
-                        target_sim.ui_manager.add_running_mixer_interaction(target_si.id, self, icon_info, name)
-                        if gsi_handlers.interaction_archive_handlers.is_archive_enabled(self):
-                            gsi_handlers.interaction_archive_handlers.archive_interaction(target_sim, self, 'Start')
-                        if self._target_sim_refs_to_remove_interaction is None:
-                            self._target_sim_refs_to_remove_interaction = weakref.WeakSet()
-                        self._target_sim_refs_to_remove_interaction.add(target_sim)
+                    continue
+                target_si = social_group.get_si_registered_for_sim(target_sim)
+                if target_si is None:
+                    continue
+                name = self.display_name_target(target_sim, self.sim)
+                target_sim.ui_manager.add_running_mixer_interaction(target_si.id, self, icon_info, name)
+                if gsi_handlers.interaction_archive_handlers.is_archive_enabled(self):
+                    gsi_handlers.interaction_archive_handlers.archive_interaction(target_sim, self, 'Start')
+                if self._target_sim_refs_to_remove_interaction is None:
+                    self._target_sim_refs_to_remove_interaction = weakref.WeakSet()
+                self._target_sim_refs_to_remove_interaction.add(target_sim)
 
     def _remove_interaction_from_targets(self):
         if self._target_sim_refs_to_remove_interaction:

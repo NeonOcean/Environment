@@ -69,7 +69,7 @@ class BaseLootOperation(HasTunableSingletonFactory, HasDisplayTextMixin):
         return interactions.utils.LootType.GENERIC
 
     def test_resolver(self, resolver, ignore_chance=False):
-        if ignore_chance or self._chance.multipliers or random.random() > self._chance.get_chance(resolver):
+        if not ignore_chance and not self._chance.multipliers and random.random() > self._chance.get_chance(resolver):
             return False
         test_result = True
         if self._tests:
@@ -91,13 +91,15 @@ class BaseLootOperation(HasTunableSingletonFactory, HasDisplayTextMixin):
         return resolver.get_participants(participant)
 
     def apply_to_resolver(self, resolver, skip_test=False):
-        if skip_test or not self.test_resolver(resolver):
+        if not skip_test and not self.test_resolver(resolver):
             return (False, None)
         if self.subject is not None:
             for recipient in self.resolve_participants(self.subject, resolver):
                 if self.target_participant_type is not None:
                     for target_recipient in self.resolve_participants(self.target_participant_type, resolver):
                         self._apply_to_subject_and_target(recipient, target_recipient, resolver)
+                    else:
+                        self._apply_to_subject_and_target(recipient, None, resolver)
                 else:
                     self._apply_to_subject_and_target(recipient, None, resolver)
         elif self.target_participant_type is not None:

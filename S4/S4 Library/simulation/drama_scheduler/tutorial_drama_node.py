@@ -109,6 +109,7 @@ class TutorialDramaNode(SituationDramaNode):
         weather_service = services.weather_service()
         if weather_service is not None:
             weather_service.force_start_weather_event(self.weather_to_force, None)
+            weather_service.update_weather_type(during_load=True)
         fire_service = services.fire_service
         if fire_service is not None:
             fire_service.fire_enabled = False

@@ -92,8 +92,9 @@ class BaseFestivalState(HasTunableFactory, AutoFactoryInit):
                 writer.write_float(alarm_key, alarm_data.alarm_handle.get_remaining_time().in_minutes())
 
     def schedule_alarm(self, alarm_key, alarm_time, callback, repeating=False, should_persist=True, reader=None):
-        if reader is not None:
-            alarm_time = reader.read_float(alarm_key, alarm_time)
+        if should_persist:
+            if reader is not None:
+                alarm_time = reader.read_float(alarm_key, alarm_time)
         alarm_handle = alarms.add_alarm(self, create_time_span(minutes=alarm_time), callback, repeating=repeating)
         self._alarms[alarm_key] = FestivalAlarmData(should_persist, alarm_handle)
 
@@ -333,11 +334,10 @@ class BaseFestivalOpenStreetDirector(OpenStreetDirectorBase):
         for situation_id in self._festival_situations:
             situation = situation_manager.get(situation_id)
             if situation is None:
-                pass
-            elif not situation.is_running:
-                pass
-            else:
-                running_situations.append(situation)
+                continue
+            if not situation.is_running:
+                continue
+            running_situations.append(situation)
         return running_situations
 
     def _preroll(self, preroll_time):
@@ -347,8 +347,9 @@ class BaseFestivalOpenStreetDirector(OpenStreetDirectorBase):
         while time_to_preroll >= TimeSpan.ZERO:
             current_state = self._current_state
             time_to_preroll = current_state.preroll(time_to_preroll)
-            if time_to_preroll > TimeSpan.ZERO and current_state is self._current_state:
-                logger.error('State {} did not change the current state despite saying that there is still time left for preroll.')
-                break
+            if time_to_preroll > TimeSpan.ZERO:
+                if current_state is self._current_state:
+                    logger.error('State {} did not change the current state despite saying that there is still time left for preroll.')
+                    break
         preroll_time_override = time_to_preroll if time_to_preroll < TimeSpan.ZERO else None
         self._current_state.on_state_activated(preroll_time_override=preroll_time_override)

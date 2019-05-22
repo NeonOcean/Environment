@@ -50,27 +50,33 @@ class FamilyMealSituation(SituationComplexCommon):
             self._chef_id = sim.sim_id
 
     def _has_chef_started_cooking(self, event, resolver):
-        if resolver(self.cook_group_meal_interaction):
-            participants = resolver.get_participants(ParticipantType.Actor)
-            for sim_info in participants:
-                if sim_info.id == self.chef_id:
-                    return True
+        if event == TestEvent.InteractionStart:
+            if resolver(self.cook_group_meal_interaction):
+                participants = resolver.get_participants(ParticipantType.Actor)
+                for sim_info in participants:
+                    if sim_info.id == self.chef_id:
+                        return True
         return False
 
     def _is_chef_finished_eating(self, event, resolver):
-        if resolver(self.meal_is_done_interaction):
-            participants = resolver.get_participants(ParticipantType.Actor)
-            for sim_info in participants:
-                if sim_info.id == self.chef_id:
-                    return True
+        if event == TestEvent.InteractionComplete:
+            if resolver(self.meal_is_done_interaction):
+                participants = resolver.get_participants(ParticipantType.Actor)
+                for sim_info in participants:
+                    if sim_info.id == self.chef_id:
+                        return True
         return False
 
     def _was_cooking_interaction_canceled(self, event, resolver):
-        if resolver.interaction.has_been_user_canceled:
-            participants = resolver.get_participants(ParticipantType.Actor)
-            for sim_info in participants:
-                if sim_info.id == self.chef_id:
-                    return True
+        if event == TestEvent.InteractionComplete:
+            if resolver(self.cook_group_meal_interaction):
+                if resolver.interaction is not None:
+                    if resolver.interaction.is_finishing:
+                        if resolver.interaction.has_been_user_canceled:
+                            participants = resolver.get_participants(ParticipantType.Actor)
+                            for sim_info in participants:
+                                if sim_info.id == self.chef_id:
+                                    return True
         return False
 
 lock_instance_tunables(FamilyMealSituation, exclusivity=situations.bouncer.bouncer_types.BouncerExclusivityCategory.NORMAL, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE)

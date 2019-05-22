@@ -154,6 +154,7 @@ class AskToJoinInteraction(ProxyInteraction, ImmediateSuperInteraction):
     def _do_perform_gen(self, timeline):
         self._push_join_interaction(self.join_sim)
         return True
+        yield
 
     @flexmethod
     def create_localized_string(cls, inst, localized_string_factory, *tokens, **kwargs):
@@ -229,7 +230,7 @@ class AggregateSuperInteraction(SuperInteraction):
             aggregated_constraints = []
             affordances = []
             affordances = [aop.super_affordance for (aop, _) in inst._valid_aops]
-            affordances = affordances if inst is not None and inst._valid_aops is not None and affordances else [affordance_tuple.affordance for affordance_tuple in inst_or_cls.aggregated_affordances]
+            affordances = affordances if not inst is not None or not inst._valid_aops is not None or affordances else [affordance_tuple.affordance for affordance_tuple in inst_or_cls.aggregated_affordances]
             if not affordances:
                 yield Nowhere
             for aggregated_affordance in affordances:
@@ -239,7 +240,7 @@ class AggregateSuperInteraction(SuperInteraction):
                 for constraint in constraint_gen(sim, inst_or_cls.get_constraint_target(target), participant_type=participant_type):
                     intersection = constraint.intersect(intersection)
                     if not intersection.valid:
-                        pass
+                        continue
                 aggregated_constraints.append(intersection)
             if aggregated_constraints:
                 yield create_constraint_set(aggregated_constraints, debug_name='AggregatedConstraintSet')
@@ -255,13 +256,15 @@ class AggregateSuperInteraction(SuperInteraction):
         self._valid_aops = None
         valid_aops = self._get_tested_aops(self.target, context, **self.interaction_parameters)
         for (aop, priority) in valid_aops:
-            if priority < max_priority:
-                break
+            if max_priority is not None:
+                if priority < max_priority:
+                    break
             aops_valid.append(aop)
             max_priority = priority
         if not aops_valid:
             logger.warn('Failed to find valid super affordance in AggregateSuperInteraction: {}, did we not run its test immediately before executing it?', self)
             return ExecuteResult.NONE
+            yield
         compatible_interactions = []
         for aop in aops_valid:
             interaction_result = aop.interaction_factory(context)
@@ -274,6 +277,7 @@ class AggregateSuperInteraction(SuperInteraction):
             compatible_interactions.append(interaction)
         if not compatible_interactions:
             return ExecuteResult.NONE
+            yield
         interactions_by_distance = []
         for interaction in compatible_interactions:
             if len(compatible_interactions) == 1:
@@ -286,6 +290,7 @@ class AggregateSuperInteraction(SuperInteraction):
                 interactions_by_distance.append((sims4.math.MAX_INT32, interaction))
         (_, interaction) = min(interactions_by_distance, key=operator.itemgetter(0))
         return AffordanceObjectPair.execute_interaction(interaction)
+        yield
 
 class AggregateMixerInteraction(MixerInteraction):
     INSTANCE_TUNABLES = {'aggregated_affordances': TunableList(description='\n                A list of affordances composing this aggregate. A random one\n                will be chosen from sub-action weights if multiple interactions\n                pass at the same priority.\n                ', tunable=TunableTuple(description='\n                    An affordance and priority entry.\n                    ', priority=Tunable(description='\n                        The relative priority of this affordance compared to\n                        other affordances in this aggregate.\n                        ', tunable_type=int, default=0), affordance=MixerInteraction.TunableReference(description='\n                        The aggregated affordance.\n                        ', pack_safe=True)), tuning_group=GroupNames.GENERAL)}
@@ -332,10 +337,11 @@ class AggregateMixerInteraction(MixerInteraction):
         aops_valid = []
         invalid_aops_with_result = []
         for (priority, aop) in self._aops_sorted_gen(self.target, context, super_interaction=self.super_interaction, **self.interaction_parameters):
-            if priority < max_priority:
-                break
+            if max_priority is not None:
+                if priority < max_priority:
+                    break
             test_result = aop.test(context)
-            if max_priority is not None and test_result:
+            if test_result:
                 aops_valid.append(aop)
                 max_priority = priority
             else:
@@ -343,6 +349,7 @@ class AggregateMixerInteraction(MixerInteraction):
         if not aops_valid:
             logger.error('Failed to find valid mixer affordance in AggregateMixerInteraction: {}, did we not run its test immediately before executing it?\n{}', self, invalid_aops_with_result, owner='rmccord')
             return ExecuteResult.NONE
+            yield
         interactions_by_weight = []
         for aop in aops_valid:
             interaction_result = aop.interaction_factory(context)
@@ -356,8 +363,10 @@ class AggregateMixerInteraction(MixerInteraction):
             interactions_by_weight.append((weight, interaction))
         if not interactions_by_weight:
             return ExecuteResult.NONE
+            yield
         (_, interaction) = max(interactions_by_weight, key=operator.itemgetter(0))
         return AffordanceObjectPair.execute_interaction(interaction)
+        yield
 
 class RenameImmediateInteraction(ImmediateSuperInteraction):
     TEXT_INPUT_NEW_NAME = 'new_name'
@@ -394,19 +403,22 @@ class RenameImmediateInteraction(ImmediateSuperInteraction):
 
         text_input_overrides = {}
         (template_name, template_description) = target_name_component.get_template_name_and_description()
-        text_input_overrides[self.TEXT_INPUT_NEW_NAME] = None
-        if self.target.has_custom_name():
-            text_input_overrides[self.TEXT_INPUT_NEW_NAME] = lambda *_, **__: LocalizationHelperTuning.get_object_name(self.target)
-        elif template_name is not None:
-            text_input_overrides[self.TEXT_INPUT_NEW_NAME] = template_name
-        text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = None
-        if self.target.has_custom_description():
-            text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = lambda *_, **__: LocalizationHelperTuning.get_object_description(self.target)
-        elif template_description is not None:
-            text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = template_description
+        if target_name_component.allow_name:
+            text_input_overrides[self.TEXT_INPUT_NEW_NAME] = None
+            if self.target.has_custom_name():
+                text_input_overrides[self.TEXT_INPUT_NEW_NAME] = lambda *_, **__: LocalizationHelperTuning.get_object_name(self.target)
+            elif template_name is not None:
+                text_input_overrides[self.TEXT_INPUT_NEW_NAME] = template_name
+        if target_name_component.allow_description:
+            text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = None
+            if self.target.has_custom_description():
+                text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = lambda *_, **__: LocalizationHelperTuning.get_object_description(self.target)
+            elif template_description is not None:
+                text_input_overrides[self.TEXT_INPUT_NEW_DESCRIPTION] = template_description
         dialog = self.rename_dialog(self.sim, self.get_resolver())
         dialog.show_dialog(on_response=on_response, text_input_overrides=text_input_overrides)
         return True
+        yield
 
     def build_outcome(self):
         pass

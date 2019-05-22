@@ -52,9 +52,8 @@ class AggregateSingleStateSituation(SituationComplexCommon):
         for result in filter_results:
             job_role = cls.situation_job_mapping.get(result.tag, None)
             if job_role is None:
-                pass
-            else:
-                guest_list.add_guest_info(SituationGuestInfo(result.sim_info.sim_id, job_role.situation_job, RequestSpawningOption.DONT_CARE, job_role.situation_job.sim_auto_invite_allow_priority))
+                continue
+            guest_list.add_guest_info(SituationGuestInfo(result.sim_info.sim_id, job_role.situation_job, RequestSpawningOption.DONT_CARE, job_role.situation_job.sim_auto_invite_allow_priority))
         return guest_list
 
     @classmethod

@@ -29,7 +29,7 @@ class PickerEnumerationStrategy(HasTunableSingletonFactory, AutoFactoryInit):
 class StatePickerEnumerationStrategy(PickerEnumerationStrategy):
 
     def build_choice_list(self, si, state, **kwargs):
-        self._choices = [client_state for client_state in si.target.get_client_states(state) if client_state.show_in_picker and client_state.test_channel(si.target, si.context)]
+        self._choices = [client_state for client_state in si.target.get_client_states(state) if client_state.show_in_picker if client_state.test_channel(si.target, si.context)]
 
     def find_best_choice(self, si):
         if not self._choices:
@@ -46,8 +46,9 @@ class StatePickerEnumerationStrategy(PickerEnumerationStrategy):
     @classmethod
     def has_valid_choice(cls, target, context, state=None):
         for client_state in target.get_client_states(state):
-            if client_state.show_in_picker and client_state.test_channel(target, context):
-                return True
+            if client_state.show_in_picker:
+                if client_state.test_channel(target, context):
+                    return True
         return False
 
 class RecipePickerEnumerationStrategy(PickerEnumerationStrategy):
@@ -62,11 +63,10 @@ class RecipePickerEnumerationStrategy(PickerEnumerationStrategy):
         weights = []
         for recipe in self._choices:
             if recipe.all_ingredients_required:
-                pass
-            else:
-                result = crafting.crafting_process.CraftingProcess.recipe_test(si.target, si.context, recipe, si.sim, 0, build_error_list=False, from_autonomy=True)
-                if result:
-                    weights.append((recipe.calculate_autonomy_weight(si.sim), recipe))
+                continue
+            result = crafting.crafting_process.CraftingProcess.recipe_test(si.target, si.context, recipe, si.sim, 0, build_error_list=False, from_autonomy=True)
+            if result:
+                weights.append((recipe.calculate_autonomy_weight(si.sim), recipe))
         if not weights:
             logger.error('Failed to find choice in autonomous recipe picker', owner='rez')
             return

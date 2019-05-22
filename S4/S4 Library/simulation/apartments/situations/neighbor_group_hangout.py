@@ -85,7 +85,7 @@ class NeighborGroupHangoutSituation(SituationComplexCommon):
                 active_sim = services.get_active_sim()
                 if active_sim is not None:
                     dialog = self._arrival_notification(active_sim)
-                    dialog.show_dialog(IconInfoData(obj_instance=sim), secondary_icon_override=IconInfoData(obj_instance=active_sim))
+                    dialog.show_dialog(icon_override=IconInfoData(obj_instance=sim), secondary_icon_override=IconInfoData(obj_instance=active_sim))
                     self._tns_popped = True
                     services.get_event_manager().unregister_single_event(self, TestEvent.SimActiveLotStatusChanged)
 

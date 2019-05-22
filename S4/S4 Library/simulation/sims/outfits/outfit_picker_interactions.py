@@ -35,8 +35,9 @@ class OutfitPickerSuperInteraction(PickerSuperInteraction):
             outfits = outfit_participant.get_outfits()
             current_outfit = outfit_participant.get_current_outfit()
             for outfit in sorted(picked_items, key=operator.itemgetter(1), reverse=True):
-                if current_outfit[1] >= outfit[1]:
-                    current_outfit = (current_outfit[0], current_outfit[1] - 1)
+                if current_outfit[0] == outfit[0]:
+                    if current_outfit[1] >= outfit[1]:
+                        current_outfit = (current_outfit[0], current_outfit[1] - 1)
                 outfits.remove_outfit(*outfit)
             sim_info = outfits.get_sim_info()
             sim_info.resend_outfits()
@@ -131,8 +132,9 @@ class OutfitPickerSuperInteraction(PickerSuperInteraction):
         outfit_categories = set(cls.picker_dialog.outfit_categories)
         if outfit_participant is not None:
             outfits = outfit_participant.get_outfits()
-            if outfits.is_toddler:
-                outfit_categories -= TODDLER_PROHIBITED_OUTFIT_CATEGORIES
+            if outfits is not None:
+                if outfits.is_toddler:
+                    outfit_categories -= TODDLER_PROHIBITED_OUTFIT_CATEGORIES
         return outfit_categories
 
     @flexmethod
@@ -150,6 +152,7 @@ class OutfitPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
+        yield
 
     def _setup_dialog(self, dialog, **kwargs):
         super()._setup_dialog(dialog, **kwargs)
@@ -168,17 +171,16 @@ class OutfitPickerSuperInteraction(PickerSuperInteraction):
             outfit_categories = inst_or_cls._get_valid_outfit_categories(outfit_participant)
             for (outfit_category, outfit_list) in outfits.get_all_outfits():
                 if outfit_category not in outfit_categories:
-                    pass
-                else:
-                    for (outfit_index, _) in enumerate(outfit_list):
-                        outfit_key = (outfit_category, outfit_index)
-                        if not inst_or_cls.allow_current_outfit is not None or current_outfit == outfit_key:
-                            is_enable = False
-                            row_tooltip = lambda *_, **__: inst_or_cls.create_localized_string(inst_or_cls.allow_current_outfit)
-                        else:
-                            is_enable = True
-                            row_tooltip = None
-                        yield OutfitPickerRow(outfit_sim_id=outfit_sim_info.sim_id, outfit_category=outfit_category, outfit_index=outfit_index, is_enable=is_enable, row_tooltip=row_tooltip, tag=outfit_key)
+                    continue
+                for (outfit_index, _) in enumerate(outfit_list):
+                    outfit_key = (outfit_category, outfit_index)
+                    if not not inst_or_cls.allow_current_outfit is not None and current_outfit == outfit_key:
+                        is_enable = False
+                        row_tooltip = lambda *_, **__: inst_or_cls.create_localized_string(inst_or_cls.allow_current_outfit)
+                    else:
+                        is_enable = True
+                        row_tooltip = None
+                    yield OutfitPickerRow(outfit_sim_id=outfit_sim_info.sim_id, outfit_category=outfit_category, outfit_index=outfit_index, is_enable=is_enable, row_tooltip=row_tooltip, tag=outfit_key)
 
     def _on_picker_selected(self, dialog):
         if dialog.accepted:

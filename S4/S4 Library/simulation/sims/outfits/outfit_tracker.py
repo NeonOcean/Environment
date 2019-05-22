@@ -53,7 +53,7 @@ class OutfitTrackerMixin:
         current_time = services.time_service().sim_now
         existing_default = outfit_category in self._daily_defaults
         last_randomize_time = self._last_randomize[outfit_category]
-        if existing_default and (current_time.absolute_days() - last_randomize_time.absolute_days() >= 1 or current_time.day() != last_randomize_time.day()):
+        if not existing_default or current_time.absolute_days() - last_randomize_time.absolute_days() >= 1 or current_time.day() != last_randomize_time.day():
             index = 0
             number_of_outfits = self.get_number_of_outfits_in_category(outfit_category)
             if number_of_outfits > 1:
@@ -76,17 +76,15 @@ class OutfitTrackerMixin:
     def get_all_outfit_entries(self):
         for outfit_category in OutfitCategory:
             if outfit_category == OutfitCategory.CURRENT_OUTFIT:
-                pass
-            else:
-                for outfit_index in range(self.get_number_of_outfits_in_category(outfit_category)):
-                    yield (outfit_category, outfit_index)
+                continue
+            for outfit_index in range(self.get_number_of_outfits_in_category(outfit_category)):
+                yield (outfit_category, outfit_index)
 
     def get_all_outfits(self):
         for outfit_category in OutfitCategory:
             if outfit_category == OutfitCategory.CURRENT_OUTFIT:
-                pass
-            else:
-                yield (outfit_category, self.get_outfits_in_category(outfit_category))
+                continue
+            yield (outfit_category, self.get_outfits_in_category(outfit_category))
 
     def get_change_outfit_element(self, outfit_category_and_index, do_spin=True, interaction=None):
 
@@ -152,24 +150,23 @@ class OutfitTrackerMixin:
                 if outfit_category == OutfitCategory.BATHING and not self.has_outfit_category(OutfitCategory.BATHING):
                     self.generate_outfit(OutfitCategory.BATHING, filter_flag=OutfitFilterFlag.NONE)
                 if outfit_category != OutfitCategory.CURRENT_OUTFIT and not self.has_outfit_category(outfit_category):
-                    pass
+                    continue
+                if test_group_and_outfit.tests:
+                    if test_group_and_outfit.tests.run_tests(resolver_to_use):
+                        if test_group_and_outfit.outfit_category == OutfitCategory.CURRENT_OUTFIT or test_group_and_outfit.outfit_category == self._current_outfit[0]:
+                            outfit_change = self._current_outfit
+                        elif self._randomize_daily[outfit_category]:
+                            outfit_change = self._get_random_daily_outfit(outfit_category)
+                        else:
+                            outfit_change = (outfit_category, 0)
+                        break
+                if test_group_and_outfit.outfit_category == OutfitCategory.CURRENT_OUTFIT or test_group_and_outfit.outfit_category == self._current_outfit[0]:
+                    outfit_change = self._current_outfit
+                elif self._randomize_daily[outfit_category]:
+                    outfit_change = self._get_random_daily_outfit(outfit_category)
                 else:
-                    if test_group_and_outfit.tests:
-                        if test_group_and_outfit.tests.run_tests(resolver_to_use):
-                            if test_group_and_outfit.outfit_category == OutfitCategory.CURRENT_OUTFIT or test_group_and_outfit.outfit_category == self._current_outfit[0]:
-                                outfit_change = self._current_outfit
-                            elif self._randomize_daily[outfit_category]:
-                                outfit_change = self._get_random_daily_outfit(outfit_category)
-                            else:
-                                outfit_change = (outfit_category, 0)
-                            break
-                    if test_group_and_outfit.outfit_category == OutfitCategory.CURRENT_OUTFIT or test_group_and_outfit.outfit_category == self._current_outfit[0]:
-                        outfit_change = self._current_outfit
-                    elif self._randomize_daily[outfit_category]:
-                        outfit_change = self._get_random_daily_outfit(outfit_category)
-                    else:
-                        outfit_change = (outfit_category, 0)
-                    break
+                    outfit_change = (outfit_category, 0)
+                break
         if outfit_change is None:
             outfit_change = (OutfitCategory.EVERYDAY, 0)
         outfit_change = self._run_weather_fixup(reason, outfit_change, resolver_to_use)
@@ -198,13 +195,12 @@ class OutfitTrackerMixin:
         valid_outfits = []
         for (outfit_category, outfit_index) in self.get_all_outfit_entries():
             if outfit_categories and outfit_category not in outfit_categories:
-                pass
-            elif outfit_category == OutfitCategory.CURRENT_OUTFIT:
-                pass
-            elif outfit_category in NON_RANDOMIZABLE_OUTFIT_CATEGORIES:
-                pass
-            else:
-                valid_outfits.append((outfit_category, outfit_index))
+                continue
+            if outfit_category == OutfitCategory.CURRENT_OUTFIT:
+                continue
+            if outfit_category in NON_RANDOMIZABLE_OUTFIT_CATEGORIES:
+                continue
+            valid_outfits.append((outfit_category, outfit_index))
         if valid_outfits:
             return random.choice(valid_outfits)
         return (OutfitCategory.EVERYDAY, 0)

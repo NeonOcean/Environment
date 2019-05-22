@@ -22,17 +22,19 @@ def archive_buff_message(buff_msg, shows_timeout, change_rate):
     if manager:
         buff_cls = manager.get(buff_msg.buff_id)
         entry['buff_name'] = buff_cls.__name__
-    if buff_msg.timeout:
-        entry['timeout'] = buff_msg.timeout
-        entry['rate'] = buff_msg.rate_multiplier
-    if change_rate is not None:
-        if buff_msg.buff_progress == Sims_pb2.BUFF_PROGRESS_NONE:
-            entry['progress_arrow'] = 'No Arrow'
-        elif buff_msg.buff_progress == Sims_pb2.BUFF_PROGRESS_UP:
-            entry['progress_arrow'] = 'Arrow Up'
-        else:
-            entry['progress_arrow'] = 'Arrow Down'
-    if buff_msg.equipped and shows_timeout and buff_msg.HasField('mood_type_override'):
+    if buff_msg.equipped:
+        if shows_timeout:
+            if buff_msg.timeout:
+                entry['timeout'] = buff_msg.timeout
+                entry['rate'] = buff_msg.rate_multiplier
+            if change_rate is not None:
+                if buff_msg.buff_progress == Sims_pb2.BUFF_PROGRESS_NONE:
+                    entry['progress_arrow'] = 'No Arrow'
+                elif buff_msg.buff_progress == Sims_pb2.BUFF_PROGRESS_UP:
+                    entry['progress_arrow'] = 'Arrow Up'
+                else:
+                    entry['progress_arrow'] = 'Arrow Down'
+    if buff_msg.HasField('mood_type_override'):
         entry['mood_type_override'] = buff_msg.mood_type_override
     sim_buff_log_archiver.archive(data=entry, object_id=buff_msg.sim_id)
 

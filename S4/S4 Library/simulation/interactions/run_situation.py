@@ -22,8 +22,10 @@ class RunSituationSuperInteraction(interactions.base.super_interaction.SuperInte
         if self.job_mapping:
             for (participant_type, job) in self.job_mapping.items():
                 sim = self.get_participant(participant_type)
-                if sim is not None and sim.is_sim:
-                    guest_info = SituationGuestInfo.construct_from_purpose(sim.sim_id, job, SituationInvitationPurpose.INVITED)
-                    guest_list.add_guest_info(guest_info)
+                if sim is not None:
+                    if sim.is_sim:
+                        guest_info = SituationGuestInfo.construct_from_purpose(sim.sim_id, job, SituationInvitationPurpose.INVITED)
+                        guest_list.add_guest_info(guest_info)
         situation_manager.create_situation(self.situation, guest_list=guest_list, user_facing=False, interaction=self)
         return event_testing.results.ExecuteResult.NONE
+        yield

@@ -66,6 +66,8 @@ class SituationCurve(HasTunableSingletonFactory, AutoFactoryInit):
                         if hour > 24:
                             logger.error('Situation Curve in {} has in invalid hour of the day {}. Range: [0, 24].', source, hour, owner='manus')
                     logger.error('Situation Curve in {} has in invalid hour of the day {}. Range: [0, 24].', source, hour, owner='manus')
+                else:
+                    logger.error("Situation Curve in {}'s days {} has no walkby desire population curve.", source, days, owner='manus')
             else:
                 logger.error("Situation Curve in {}'s days {} has no walkby desire population curve.", source, days, owner='manus')
 
@@ -139,7 +141,8 @@ class SituationCurve(HasTunableSingletonFactory, AutoFactoryInit):
             if shift_hour > now_hour:
                 next_shift_hour = shift_hour
                 break
-        scheduled_day += 1
+        else:
+            scheduled_day += 1
         future = date_and_time.create_date_and_time(days=scheduled_day, hours=next_shift_hour)
         time_span_until = future - now
         return time_span_until

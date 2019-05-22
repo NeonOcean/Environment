@@ -79,11 +79,10 @@ class DetectiveCareer(Career):
         for clue_group in clue_groups:
             clue_group = list(set(clue_group) - incompatible_clues)
             if not clue_group:
-                pass
-            else:
-                clue = random.choice(clue_group)
-                self._unused_clues.append(clue)
-                incompatible_clues.update(self.clue_incompatibility.get(clue, ()))
+                continue
+            clue = random.choice(clue_group)
+            self._unused_clues.append(clue)
+            incompatible_clues.update(self.clue_incompatibility.get(clue, ()))
         self._case_start_time_in_minutes = int(services.time_service().sim_now.absolute_minutes())
         self.crime_scene_event_id = None
         self.active_criminal_sim_id = self._create_criminal(tuple(clue.filter_term for clue in self._unused_clues))

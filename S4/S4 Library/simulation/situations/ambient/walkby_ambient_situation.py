@@ -1,4 +1,5 @@
 import random
+from interactions.interaction_finisher import FinishingType
 from role.role_state import RoleState
 from sims4.tuning.tunable import TunableSimMinute, TunableSet, TunableEnumWithFilter
 from sims4.tuning.tunable_base import GroupNames
@@ -161,7 +162,7 @@ class _FlavorInteractionState(SituationState):
         affordance = affordances[random.randint(0, len(affordances) - 1)]
         context = interactions.context.InteractionContext(sim, interactions.context.InteractionContext.SOURCE_SCRIPT, interactions.priority.Priority.High)
         enqueue_result = sim.push_super_affordance(affordance, None, context)
-        if enqueue_result and enqueue_result.interaction.is_finishing:
+        if not enqueue_result or enqueue_result.interaction.is_finishing:
             return False
         self._interaction = enqueue_result.interaction
         self._interaction.register_on_finishing_callback(self._on_finishing_callback)
@@ -182,6 +183,7 @@ class _SocialState(SituationState):
         self._other_situation = None
         self._interaction = None
         self._timeout_handle = None
+        self._sim_id = None
 
     def on_activate(self, reader=None):
         super().on_activate(reader)
@@ -193,6 +195,7 @@ class _SocialState(SituationState):
     def _on_set_sim_role_state(self, sim, *args, **kwargs):
         super()._on_set_sim_role_state(sim, *args, **kwargs)
         self.owner._cancel_leave_interaction(sim)
+        self._sim_id = sim.sim_id
         if self._interaction is not None:
             self._interaction.register_on_finishing_callback(self._on_finishing_callback)
             return
@@ -214,6 +217,10 @@ class _SocialState(SituationState):
         if self._timeout_handle is not None:
             alarms.cancel_alarm(self._timeout_handle)
             self._timeout_handle = None
+        if self._sim_id is not None:
+            sim = services.object_manager().get(self._sim_id)
+            if sim is not None and self._on_social_group_changed in sim.on_social_group_changed:
+                sim.on_social_group_changed.remove(self._on_social_group_changed)
         super().on_deactivate()
 
     def _push_social(self, sim, target_sim):
@@ -223,17 +230,31 @@ class _SocialState(SituationState):
         affordance = affordances[random.randint(0, len(affordances) - 1)]
         context = interactions.context.InteractionContext(sim, interactions.context.InteractionContext.SOURCE_SCRIPT, interactions.priority.Priority.High)
         enqueue_result = sim.push_super_affordance(affordance, target_sim, context)
-        if enqueue_result and enqueue_result.interaction.is_finishing:
+        if not enqueue_result or enqueue_result.interaction.is_finishing:
             return
         return enqueue_result.interaction
 
     def _on_finishing_callback(self, interaction):
         if self._interaction is not interaction:
             return
+        if self._sim_id is not None:
+            sim = services.object_manager().get(self._sim_id)
+            if sim is not None and tuple(sim.get_groups_for_sim_gen()):
+                self._interaction = None
+                if self._on_social_group_changed not in sim.on_social_group_changed:
+                    sim.on_social_group_changed.append(self._on_social_group_changed)
+                return
         self.owner._on_social_finished()
 
+    def _on_social_group_changed(self, sim, group):
+        if self._sim_id is not None:
+            sim = services.object_manager().get(self._sim_id)
+            if sim is not None and not tuple(sim.get_groups_for_sim_gen()):
+                self.owner._on_social_finished()
+
     def timer_expired(self, _):
-        self.owner._on_social_finished()
+        if self._interaction is not None:
+            self._interaction.cancel(FinishingType.SITUATIONS, 'Social walkby state timeout')
 
     def _is_available_for_interruption(self):
         return False

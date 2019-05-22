@@ -1,12 +1,16 @@
+import multiprocessing
 import os
 import sys
 import threading
 import typing
-import multiprocessing
 from multiprocessing import connection
 
 from uncompyle6 import main
 from unpyc37 import unpyc3
+
+_decompileProcess = None  # type: typing.Optional[multiprocessing.Process]
+_decompileProcessInputPipe = None  # type: typing.Optional[connection.Connection]
+_decompileProcessOutputPipe = None  # type: typing.Optional[connection.Connection]
 
 def DecompileFileToDirectory (targetFilePath: str, destinationDirectoryPath: str, printFileName: str = None) -> bool:
 	if threading.current_thread() != threading.main_thread():
@@ -32,7 +36,18 @@ def DecompileFileToDirectory (targetFilePath: str, destinationDirectoryPath: str
 		if printFileName is None:
 			printFileName = targetFilePath
 
-		print("Failed to decompile '" +  printFileName + "'. " + str(e), file = sys.stderr)
+		print("Failed to decompile '" + printFileName + "'. " + str(e), file = sys.stderr)
+
+		global _decompileProcess, _decompileProcessInputPipe, _decompileProcessOutputPipe
+
+		if _decompileProcess is not None:
+			_decompileProcess = None
+
+		if _decompileProcessInputPipe is not None:
+			_decompileProcessInputPipe = None
+
+		if _decompileProcessOutputPipe is not None:
+			_decompileProcessOutputPipe = None
 
 		return False
 
@@ -53,7 +68,18 @@ def DecompileFile (targetFilePath: str, destinationFilePath: str, printFileName:
 		if printFileName is None:
 			printFileName = targetFilePath
 
-			print("Failed to decompile '" + printFileName + "'. " + str(e), file = sys.stderr)
+		print("Failed to decompile '" + printFileName + "'. " + str(e), file = sys.stderr)
+
+		global _decompileProcess, _decompileProcessInputPipe, _decompileProcessOutputPipe
+
+		if _decompileProcess is not None:
+			_decompileProcess = None
+
+		if _decompileProcessInputPipe is not None:
+			_decompileProcessInputPipe = None
+
+		if _decompileProcessOutputPipe is not None:
+			_decompileProcessOutputPipe = None
 
 		return False
 
@@ -62,7 +88,7 @@ def _DecompileFileInternal (targetFilePath: str, destinationFilePath: str, print
 
 	if threading.current_thread() != threading.main_thread():
 		raise Exception("This function is not thread safe.")
-	
+
 	timeoutTime = 30  # type: int
 
 	resetProcess = False  # type: bool
@@ -98,9 +124,10 @@ def _DecompileFileInternal (targetFilePath: str, destinationFilePath: str, print
 	_decompileProcessInputPipe.send({
 		"targetFilePath": targetFilePath,
 		"destinationFilePath": destinationFilePath,
-		"printFileName": printFileName })
+		"printFileName": printFileName
+	})
 
-	if _decompileProcessOutputPipe.poll(None):
+	if _decompileProcessOutputPipe.poll(timeoutTime):
 		report = _decompileProcessOutputPipe.recv()  # type: bool
 		return report
 	else:
@@ -147,7 +174,3 @@ def _DecompileFileProcess (inputPipe: connection.Connection, outputPipe: connect
 
 		outputPipe.send(True)
 		continue
-
-_decompileProcess = None  # type: typing.Optional[multiprocessing.Process]
-_decompileProcessInputPipe = None  # type: typing.Optional[connection.Connection]
-_decompileProcessOutputPipe = None  # type: typing.Optional[connection.Connection]

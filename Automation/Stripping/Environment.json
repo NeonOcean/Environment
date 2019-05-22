@@ -1,0 +1,19 @@
+{
+	"Exclude Account Name": true,
+	"Patterns": [
+		"(^|.*/)\\.git(/|$)",
+	
+		"(^|.*/)__pycache__",
+		"(^|.*/)\\.idea/misc.xml",
+		"(^|.*/)\\.idea/workspace.xml",
+		"(^|.*/)\\.idea/dictionaries",
+		
+		"(^|.*/)\\.vs",
+		
+		"^Applications/.*/Source/bin",
+		"^Applications/.*/Source/obj",
+
+		"^Mods",
+		"^Websites"
+	]
+}

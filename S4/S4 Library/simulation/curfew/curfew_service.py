@@ -153,12 +153,12 @@ class CurfewService(Service):
                     if ensemble is not None and any(sim.sim_info.is_young_adult_or_older and sim.sim_info in active_household for sim in ensemble):
                         return False
                     return True
-                if target is not None and not (target.is_in_inventory() or services.active_lot().is_position_on_lot(target.position)):
+                if target is not None and not target.is_in_inventory() and not services.active_lot().is_position_on_lot(target.position):
                     return True
                 elif target is None and not services.active_lot().is_position_on_lot(sim.position):
                     return True
             return True
-            if target is not None and not (target.is_in_inventory() or services.active_lot().is_position_on_lot(target.position)):
+            if target is not None and not target.is_in_inventory() and not services.active_lot().is_position_on_lot(target.position):
                 return True
             elif target is None and not services.active_lot().is_position_on_lot(sim.position):
                 return True
@@ -198,21 +198,20 @@ class CurfewService(Service):
         if active_lot.lot_id != services.active_household_lot_id():
             from_sim = None
             for sim_info in services.active_household():
-                if sim_info.is_young_adult_or_older and not sim_info.is_instanced():
-                    from_sim = sim_info
-                    break
+                if sim_info.is_young_adult_or_older:
+                    if not sim_info.is_instanced():
+                        from_sim = sim_info
+                        break
             if from_sim is None:
                 return
             for sim_info in services.active_household():
                 if sim_info.get_sim_instance() is None:
-                    pass
-                else:
-                    resolver = DoubleSimResolver(sim_info, from_sim)
-                    if not CurfewService.CURFEW_WARNING_SIM_TESTS.run_tests(resolver):
-                        pass
-                    else:
-                        dialog = self.CURFEW_WARNING_TEXT_MESSAGE_DIALOG(sim_info, target_sim_id=from_sim.id, resolver=resolver)
-                        dialog.show_dialog()
+                    continue
+                resolver = DoubleSimResolver(sim_info, from_sim)
+                if not CurfewService.CURFEW_WARNING_SIM_TESTS.run_tests(resolver):
+                    continue
+                dialog = self.CURFEW_WARNING_TEXT_MESSAGE_DIALOG(sim_info, target_sim_id=from_sim.id, resolver=resolver)
+                dialog.show_dialog()
 
     def add_broke_curfew_buff(self, sim):
         if not sim.has_buff(CurfewService.BREAK_CURFEW_BUFF):

@@ -22,3 +22,4 @@ class AttractorPointInteraction(SuperInteraction):
         context = self.context.clone_for_continuation(self)
         self.sim.push_super_affordance(self._attractor_point_interaction, chosen_point, context)
         return True
+        yield

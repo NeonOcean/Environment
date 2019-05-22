@@ -7,7 +7,7 @@ import sims4.commands
 logger = sims4.log.Logger('Photography')
 
 @sims4.commands.Command('photography.get_photo_list', command_type=sims4.commands.CommandType.Live)
-def get_photo_list(*photo_list, _connection=None):
+def get_photo_list(*photo_list:str, _connection=None):
     if photo_list:
         photo_service = services.get_photography_service()
         photo_iter = iter(photo_list)
@@ -45,16 +45,14 @@ def get_photo_list(*photo_list, _connection=None):
         elif camera_mode is CameraMode.PAINT_BY_REFERENCE:
             for si in photographer_sim.get_running_and_queued_interactions_by_tag({Photography.PAINTING_INTERACTION_TAG}):
                 if si.target is None:
-                    pass
-                else:
-                    painting = si.target
-                    if painting.id != target_obj_id:
-                        pass
-                    else:
-                        si.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Did not take reference photo.')
-                        if painting is not None:
-                            si.set_target(None)
-                            break
+                    continue
+                painting = si.target
+                if painting.id != target_obj_id:
+                    continue
+                si.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Did not take reference photo.')
+                if painting is not None:
+                    si.set_target(None)
+                    break
             current_zone = services.current_zone()
             painting = current_zone.object_manager.get(target_obj_id)
             if not painting:

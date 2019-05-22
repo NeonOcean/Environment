@@ -31,7 +31,7 @@ class SimInfoTelemetryManager:
         self._daily_sim_info_creation_count_telemetry_alarm = alarms.add_alarm(self, time_span_until, self._trigger_daily_sim_info_creation_count_telemetry, repeating=False)
 
     def _trigger_daily_sim_info_creation_count_telemetry(self, handle):
-        ghost_player_sims = sum(1 for si in services.sim_info_manager().values() if si.is_player_sim and si.is_ghost)
+        ghost_player_sims = sum(1 for si in services.sim_info_manager().values() if si.is_player_sim if si.is_ghost)
         with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_SIMINFO_DAILY_COUNT) as hook:
             hook.write_int('cont', self._daily_sim_info_creation_count)
             hook.write_int('pgho', ghost_player_sims)

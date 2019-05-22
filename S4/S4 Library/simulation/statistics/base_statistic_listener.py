@@ -22,7 +22,7 @@ class BaseStatisticCallbackListener:
         pass
 
     def check_for_threshold(self, old_value, new_value):
-        if self._threshold.compare(old_value) or self._threshold.compare(new_value):
+        if not self._threshold.compare(old_value) and self._threshold.compare(new_value):
             return True
         return False
 

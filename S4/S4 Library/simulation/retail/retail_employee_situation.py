@@ -142,7 +142,7 @@ class _GoToStoreState(SituationState):
         employee_sim_info = self.owner._employee_sim_info
         if employee_sim_info is not None and not services.current_zone().is_zone_shutting_down:
             sim_instance = employee_sim_info.get_sim_instance()
-            if sim_instance is not None and not (sim_instance.is_being_destroyed or self.owner._is_clocked_in):
+            if sim_instance is not None and not sim_instance.is_being_destroyed and not self.owner._is_clocked_in:
                 self.owner._start_work_duration()
         return super().on_deactivate()
 

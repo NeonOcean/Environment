@@ -17,7 +17,7 @@ class LocationTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            Who or what to apply this \n            test to.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor)}
 
     @TunableFactory.factory_option
-    def location_tests(is_outside=True, is_natural_ground=True, is_in_slot=True, is_venue_type=True, is_on_active_lot=True, in_common_area=True):
+    def location_tests(is_outside=True, is_natural_ground=True, is_in_slot=True, is_venue_type=True, is_on_active_lot=True, in_common_area=True, is_on_level=True):
         locked_args = {}
         if not is_outside:
             locked_args['is_outside'] = None
@@ -31,7 +31,9 @@ class LocationTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
             locked_args['is_on_active_lot'] = None
         if not in_common_area:
             locked_args['in_common_area'] = None
-        return TunableTuple(is_outside=OptionalTunable(description='\n                If checked, will verify if the subject of the test is outside \n                (no roof over its head) \n                If unchecked, will verify the subject of the test is not \n                outside.\n                ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_natural_ground=OptionalTunable(description='\n                If checked, will verify the subject of the test is on natural \n                ground (no floor tiles are under him).\n                Otherwise, will verify the subject of the test is not on \n                natural ground.\n                ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_in_slot=OptionalTunable(description='\n                If enabled will test if the object is attacked/deattached to\n                any of possible tuned slots.\n                If you tune a slot type set the test will test if the object \n                is slotted or not slotted into into any of those types. \n                ', disabled_name="Don't_Test", tunable=TunableTuple(description='\n                    Test if an object is current slotted in any of a possible\n                    list of slot types.\n                    Empty slot type set is allowed for testing for slotted or\n                    not slotted only.\n                    ', slot_test_type=TunableVariant(description='\n                        Strategy to test the slots:\n                        Any Slot - is the object in any slot\n                        Surface Slot - is object is in a surface slot\n                        Specific Slot - is the object in specific list of slots\n                        ', any_slot=SlotTestType.TunableFactory(), surface_slot=SurfaceSlotTest.TunableFactory(), specific_slot=SpecificSlotTest.TunableFactory(), default='any_slot'))), is_venue_type=OptionalTunable(description='\n                If checked, will verify if the subject is at a venue of the\n                specified type.\n                ', disabled_name="Don't_Test", tunable=TunableTuple(description='\n                    Venue type required for this test to pass.\n                    ', venue_type=TunablePackSafeReference(description='\n                        Venue type to test against.\n                        ', manager=services.get_instance_manager(sims4.resources.Types.VENUE)), negate=Tunable(description='\n                        If enabled, the test will return true if the subject\n                        IS NOT at a venue of the specified type.\n                        ', tunable_type=bool, default=False))), is_on_active_lot=OptionalTunable(description='\n                If disabled the test will not be used.\n                If enabled and checked, the test will pass if the subject is\n                on the active lot. (their center is within the lot bounds)\n                If enabled and not checked, the test will pass if the subject is \n                outside of the active lot.\n                \n                For example, Ask To Leave is tuned with this enabled and checked\n                for the TargetSim. You can only ask someone to leave if they\n                are actually on the active lot, but not if they are wandering\n                around in the open streets.\n                ', disabled_name="Don't_Test", enabled_name='Is_or_is_not_on_active_lot', tunable=TunableTuple(is_or_is_not_on_active_lot=Tunable(description='\n                        If checked then the test will pass if the subject is on\n                        the active lot.\n                        ', tunable_type=bool, default=True), tolerance=TunableVariant(explicit=Tunable(description='\n                            The tolerance from the edge of the lot that the\n                            location test will use in order to determine if the\n                            test target is considered on lot or not.\n                            ', tunable_type=int, default=0), use_default_tolerance=UseDefaultOfflotToleranceFactory(description='\n                            Use the default tuned global offlot tolerance tuned\n                            in objects.components.statistic_component.Default Off Lot.\n                            '), default='explicit'))), in_common_area=OptionalTunable(description='\n                If checked, will verify the subject is in the common area\n                of an apartment.  If unchecked will verify the subject is not.\n                ', disabled_name="Don't_Test", tunable=Tunable(tunable_type=bool, default=True)), locked_args=locked_args)
+        if not is_on_level:
+            locked_args['is_on_level'] = None
+        return TunableTuple(is_outside=OptionalTunable(description='\n                If checked, will verify if the subject of the test is outside \n                (no roof over its head) \n                If unchecked, will verify the subject of the test is not \n                outside.\n                ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_natural_ground=OptionalTunable(description='\n                If checked, will verify the subject of the test is on natural \n                ground (no floor tiles are under him).\n                Otherwise, will verify the subject of the test is not on \n                natural ground.\n                ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_in_slot=OptionalTunable(description='\n                If enabled will test if the object is attacked/deattached to\n                any of possible tuned slots.\n                If you tune a slot type set the test will test if the object \n                is slotted or not slotted into into any of those types. \n                ', disabled_name="Don't_Test", tunable=TunableTuple(description='\n                    Test if an object is current slotted in any of a possible\n                    list of slot types.\n                    Empty slot type set is allowed for testing for slotted or\n                    not slotted only.\n                    ', slot_test_type=TunableVariant(description='\n                        Strategy to test the slots:\n                        Any Slot - is the object in any slot\n                        Surface Slot - is object is in a surface slot\n                        Specific Slot - is the object in specific list of slots\n                        ', any_slot=SlotTestType.TunableFactory(), surface_slot=SurfaceSlotTest.TunableFactory(), specific_slot=SpecificSlotTest.TunableFactory(), default='any_slot'))), is_venue_type=OptionalTunable(description='\n                If checked, will verify if the subject is at a venue of the\n                specified type.\n                ', disabled_name="Don't_Test", tunable=TunableTuple(description='\n                    Venue type required for this test to pass.\n                    ', venue_type=TunablePackSafeReference(description='\n                        Venue type to test against.\n                        ', manager=services.get_instance_manager(sims4.resources.Types.VENUE)), negate=Tunable(description='\n                        If enabled, the test will return true if the subject\n                        IS NOT at a venue of the specified type.\n                        ', tunable_type=bool, default=False))), is_on_active_lot=OptionalTunable(description='\n                If disabled the test will not be used.\n                If enabled and checked, the test will pass if the subject is\n                on the active lot. (their center is within the lot bounds)\n                If enabled and not checked, the test will pass if the subject is \n                outside of the active lot.\n                \n                For example, Ask To Leave is tuned with this enabled and checked\n                for the TargetSim. You can only ask someone to leave if they\n                are actually on the active lot, but not if they are wandering\n                around in the open streets.\n                ', disabled_name="Don't_Test", enabled_name='Is_or_is_not_on_active_lot', tunable=TunableTuple(is_or_is_not_on_active_lot=Tunable(description='\n                        If checked then the test will pass if the subject is on\n                        the active lot.\n                        ', tunable_type=bool, default=True), tolerance=TunableVariant(explicit=Tunable(description='\n                            The tolerance from the edge of the lot that the\n                            location test will use in order to determine if the\n                            test target is considered on lot or not.\n                            ', tunable_type=int, default=0), use_default_tolerance=UseDefaultOfflotToleranceFactory(description='\n                            Use the default tuned global offlot tolerance tuned\n                            in objects.components.statistic_component.Default Off Lot.\n                            '), default='explicit'))), in_common_area=OptionalTunable(description='\n                If checked, will verify the subject is in the common area\n                of an apartment.  If unchecked will verify the subject is not.\n                ', disabled_name="Don't_Test", tunable=Tunable(tunable_type=bool, default=True)), is_on_level=OptionalTunable(description="\n                If enabled, we check the participant's current level against\n                the tuned threshold.  In the case of sims in pools, the effective\n                level will be that of the surface of the pool, not the bottom.\n                ", disabled_name="Don't_Test", tunable=TunableThreshold(value=Tunable(int, 0))), locked_args=locked_args)
 
     def get_expected_args(self):
         return {'test_target': self.subject}
@@ -68,8 +70,15 @@ class LocationTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                 return TestResult(False, 'Object failed on active lot test', tooltip=self.tooltip)
             if self.location_tests.in_common_area is not None:
                 plex_service = services.get_plex_service()
-                if self.location_tests.in_common_area != plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(target.position, target.level) is None:
+                if self.location_tests.in_common_area != (plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(target.position, target.level) is None):
                     return TestResult(False, 'Object failed in common area test.', tooltip=self.tooltip)
+            if self.location_tests.is_on_level is not None:
+                level = target.level
+                if target.is_sim:
+                    if target.in_pool:
+                        level += 1
+                if not self.location_tests.is_on_level.compare(level):
+                    return TestResult(False, 'Object not on required level.', tooltip=self.tooltip)
         return TestResult.TRUE
 
 class SlotTestType(HasTunableSingletonFactory, AutoFactoryInit):
@@ -153,41 +162,35 @@ class VenueAvailabilityTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTes
         for zone_id in venue_service.get_zones_for_venue_type_gen(*self.venues):
             zone_data = persistence_service.get_zone_proto_buff(zone_id)
             if zone_data is None:
-                pass
-            else:
-                neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
-                if neighborhood_data is None:
-                    pass
-                else:
-                    region_description_id = neighborhood_data.region_id
-                    region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(region_description_id)
-                    if self.test_region_compatibility and not current_region.is_region_compatible(region_instance):
-                        pass
-                    elif self.ownership_test:
-                        travel_group = travel_group_manager.get_travel_group_by_zone_id(zone_id)
-                        if not (travel_group is not None and travel_group.played and self.ownership_test.test_type is self.TEST_ANY_OWNERSHIP):
-                            if set(subjects).intersection(set(travel_group.sim_info_gen())):
-                                pass
+                continue
+            neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
+            if neighborhood_data is None:
+                continue
+            region_description_id = neighborhood_data.region_id
+            region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(region_description_id)
+            if self.test_region_compatibility and not current_region.is_region_compatible(region_instance):
+                continue
+            if self.ownership_test:
+                travel_group = travel_group_manager.get_travel_group_by_zone_id(zone_id)
+                if not (travel_group is not None and travel_group.played and self.ownership_test.test_type is self.TEST_ANY_OWNERSHIP):
+                    if set(subjects).intersection(set(travel_group.sim_info_gen())):
+                        continue
+                    lot_data = None
+                    for lot_owner_data in neighborhood_data.lots:
+                        if zone_id == lot_owner_data.zone_instance_id:
+                            if self.ownership_test.test_type is self.TEST_SUBJECT_OWNERSHIP:
+                                owner_household_ids = set(x.household_id for x in lot_owner_data.lot_owner)
+                                if owner_household_ids.intersection(subject_household_ids):
+                                    continue
                             else:
-                                lot_data = None
-                                for lot_owner_data in neighborhood_data.lots:
-                                    if zone_id == lot_owner_data.zone_instance_id:
-                                        if self.ownership_test.test_type is self.TEST_SUBJECT_OWNERSHIP:
-                                            owner_household_ids = set(x.household_id for x in lot_owner_data.lot_owner)
-                                            if owner_household_ids.intersection(subject_household_ids):
-                                                pass
-                                            else:
-                                                lot_data = lot_owner_data
-                                                break
-                                        else:
-                                            lot_data = lot_owner_data
-                                            break
-                                if lot_data is not None and lot_data.lot_owner:
-                                    pass
-                                else:
-                                    return TestResult.TRUE
+                                lot_data = lot_owner_data
+                                break
+                    if lot_data is not None and lot_data.lot_owner:
+                        pass
                     else:
                         return TestResult.TRUE
+            else:
+                return TestResult.TRUE
         return TestResult(False, 'VenueAvailabilityTest: Venues are not available.', tooltip=self.tooltip)
 
 class InHomeNeighborhoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):

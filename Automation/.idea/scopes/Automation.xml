@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Automation" pattern="file:*.py&amp;&amp;!file[Automation]:markdown//*" />
+</component>

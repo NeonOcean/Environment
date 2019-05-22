@@ -29,16 +29,15 @@ class FundsTransferDialog:
             cls._add_household(balance_transfer_msg, active_household)
         for (zone_id, business_manager) in business_managers.items():
             if zone_id == current_zone_id:
-                pass
+                continue
+            zone_data = services.get_persistence_service().get_zone_proto_buff(zone_id)
+            if zone_data is None:
+                logger.error("Business tracker thinks a zone exists that doesn't. Zone id:{}", zone_id)
             else:
-                zone_data = services.get_persistence_service().get_zone_proto_buff(zone_id)
-                if zone_data is None:
-                    logger.error("Business tracker thinks a zone exists that doesn't. Zone id:{}", zone_id)
-                else:
-                    with ProtocolBufferRollback(balance_transfer_msg.lot_data) as lot_data:
-                        lot_data.lot_name = LocalizationHelperTuning.get_raw_text(zone_data.name)
-                        lot_data.zone_id = zone_id
-                        lot_data.balance = business_manager.funds.money
+                with ProtocolBufferRollback(balance_transfer_msg.lot_data) as lot_data:
+                    lot_data.lot_name = LocalizationHelperTuning.get_raw_text(zone_data.name)
+                    lot_data.zone_id = zone_id
+                    lot_data.balance = business_manager.funds.money
         transfer_op = GenericProtocolBufferOp(DistributorOps_pb2.Operation.RETAIL_BALANCE_TRANSFER_DIALOG, balance_transfer_msg)
         Distributor.instance().add_op_with_no_owner(transfer_op)
 

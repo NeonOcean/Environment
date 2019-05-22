@@ -48,7 +48,8 @@ class NeighborHangoutSituation(SituationComplexCommon):
                 resolver = DoubleSimResolver(services.active_sim_info(), neighbor_result.sim_info)
                 if cls.scheduling_tests.run_tests(resolver):
                     break
-            return False
+            else:
+                return False
         return True
 
     @classmethod

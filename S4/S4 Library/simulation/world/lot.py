@@ -149,7 +149,7 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
 
     def get_object_inventories(self, inv_type):
         inventory_owners = self.inventory_owners[inv_type]
-        if inventory_owners or InventoryTypeTuning.is_shared_between_objects(inv_type):
+        if not inventory_owners and InventoryTypeTuning.is_shared_between_objects(inv_type):
             owner = SharedInventoryContainer(inv_type)
             self._shared_inventory_containers[inv_type] = owner
             inventory_owners.add(owner)
@@ -157,19 +157,17 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
 
     def get_all_object_inventories_gen(self, shared_only=False):
         for (inventory_type, inventory_owners) in self.inventory_owners.items():
-            if not shared_only or not InventoryTypeTuning.is_shared_between_objects(inventory_type):
-                pass
-            else:
-                for inventory_owner in inventory_owners:
-                    yield (inventory_type, inventory_owner.inventory_component)
+            if not not shared_only and not not InventoryTypeTuning.is_shared_between_objects(inventory_type):
+                continue
+            for inventory_owner in inventory_owners:
+                yield (inventory_type, inventory_owner.inventory_component)
 
     def on_hit_their_marks(self):
         for (inventory_type, inventory_owners) in self.inventory_owners.items():
             if inventory_type == InventoryType.HIDDEN:
-                pass
-            else:
-                for inventory_owner in inventory_owners:
-                    inventory_owner.inventory_component.publish_inventory_items(items_own_ops=True)
+                continue
+            for inventory_owner in inventory_owners:
+                inventory_owner.inventory_component.publish_inventory_items(items_own_ops=True)
 
     def populate_localization_token(self, token):
         token.type = LocalizedStringToken.RAW_TEXT
@@ -232,9 +230,10 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
                     return
                 lot_data.is_premade = is_premade
                 return
-        lot_data = premade_lot_status.add()
-        lot_data.lot_id = self.lot_id
-        lot_data.is_premade = is_premade
+        else:
+            lot_data = premade_lot_status.add()
+            lot_data.lot_id = self.lot_id
+            lot_data.is_premade = is_premade
 
     def on_teardown(self):
         statistic_component = self.get_component(objects.components.types.STATISTIC_COMPONENT)

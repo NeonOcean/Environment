@@ -57,9 +57,10 @@ def create_social_circle_constraint_around_sim(sim):
     return constraint
 
 def get_fallback_social_constraint_position(sim, target, si, priority=None):
-    if si is not None:
-        priority = si.priority
-    if priority is None and sim is None or target is None:
+    if priority is None:
+        if si is not None:
+            priority = si.priority
+    if sim is None or target is None:
         return (None, None)
     sim_constraint = sim.si_state.get_total_constraint(priority=priority, to_exclude=si, existing_si=si)
     for constraint in sim_constraint:
@@ -224,11 +225,11 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
     _resend_members = social_group_members.get_resend()
 
     @forward_to_components
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         pass
 
     def on_social_context_changed(self):
-        if self.is_visible and not (self.has_been_shutdown or self.suppress_social_group_update_message):
+        if self.is_visible and not self.has_been_shutdown and not self.suppress_social_group_update_message:
             self._resend_members()
 
     def on_social_super_interaction_run(self):
@@ -382,8 +383,10 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
             return
         if sim not in self._induction_map or not self._induction_map[sim]:
             basic_content = registered_si.basic_content
-            if registered_si.is_guaranteed():
-                registered_si.satisfied = True
+            if basic_content is not None:
+                if basic_content.start_autonomous_inertial:
+                    if registered_si.is_guaranteed():
+                        registered_si.satisfied = True
             return
         if registered_si.is_guaranteed():
             return
@@ -439,9 +442,10 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
 
     def remove(self, sim, finishing_type=None):
         finishing_type = FinishingType.SOCIALS if finishing_type is None else finishing_type
-        if sim in self._si_registry:
-            for interaction in list(self._si_registry[sim]):
-                interaction.cancel(finishing_type, cancel_reason_msg='Remove Sim from the social group.')
+        if finishing_type != FinishingType.RESET:
+            if sim in self._si_registry:
+                for interaction in list(self._si_registry[sim]):
+                    interaction.cancel(finishing_type, cancel_reason_msg='Remove Sim from the social group.')
 
     def get_all_interactions_gen(self):
         for sim in self:
@@ -478,7 +482,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
                         self._adjustment_interactions.remove(adjustment_interaction)
             for contained_sim in tuple(self._contained_sims):
                 for si in contained_sim.queue:
-                    if si.running or si.target is sim and si.social_group is self:
+                    if not si.running and si.target is sim and si.social_group is self:
                         si.cancel(FinishingType.SOCIALS, cancel_reason_msg='Target Sim was removed from the social group.')
         else:
             self._adjustment_interactions.clear()
@@ -557,13 +561,21 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
                 target_routing_surface = constraint.routing_surface
             else:
                 found = False
-                if focus_object.parent is not None:
-                    focus_object = focus_object.parent
-                if (joining_sim.intended_position - focus_object.intended_position).magnitude() < 4.0*self.radius_scale:
-                    target_position = self._get_ideal_midpoint(joining_sim, focus_object)
-                    if self._check_focus_position(target_position, focus_object.intended_routing_surface):
-                        found = True
-                if not (focus_object is not None and focus_object.is_sim and joining_sim is not None and (joining_sim.posture.mobile and (focus_object is not None and (focus_object.is_sim and (focus_object.posture.mobile and constraint is None)))) and found):
+                if focus_object is not None:
+                    if focus_object.is_sim:
+                        if focus_object.parent is not None:
+                            focus_object = focus_object.parent
+                if joining_sim is not None:
+                    if joining_sim.posture.mobile:
+                        if focus_object is not None:
+                            if focus_object.is_sim:
+                                if focus_object.posture.mobile:
+                                    if constraint is None:
+                                        if (joining_sim.intended_position - focus_object.intended_position).magnitude() < 4.0*self.radius_scale:
+                                            target_position = self._get_ideal_midpoint(joining_sim, focus_object)
+                                            if self._check_focus_position(target_position, focus_object.intended_routing_surface):
+                                                found = True
+                if not found:
                     target_position = focus_object.intended_position + focus_object.intended_forward*self.radius_scale
                     if self._check_focus_position(target_position, focus_object.intended_routing_surface):
                         found = True
@@ -573,7 +585,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
                     used_object = focus_object
                 target_forward = focus_object.intended_forward
                 target_routing_surface = focus_object.intended_routing_surface
-        initial_sims = [obj for obj in (joining_sim, focus_object) if obj is not None and obj.is_sim]
+        initial_sims = [obj for obj in (joining_sim, focus_object) if obj is not None if obj.is_sim]
         self._set_focus(target_position, target_forward, target_routing_surface)
         self._initialize_constraint(notify=notify, priority=priority, initial_sims=initial_sims)
         return used_object
@@ -620,21 +632,23 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         for sim in self:
             sis = self._si_registry.get(sim)
             if not sis:
-                pass
-            else:
-                for interaction in sim.queue:
-                    if interaction.is_super:
-                        pass
-                    elif interaction.super_interaction in sis:
-                        yield interaction
+                continue
+            for interaction in sim.queue:
+                if interaction.is_super:
+                    continue
+                if interaction.super_interaction in sis:
+                    yield interaction
 
     @classmethod
     def make_constraint_default(cls, sim, target, position, routing_surface, participant_type=ParticipantType.Actor, picked_object=None, **kwargs):
-        if picked_object is not None:
-            position = picked_object.position
-            routing_surface = picked_object.routing_surface
+        if sim is not None:
+            if target is not None:
+                if sim.parent is target or target.parent is sim:
+                    if picked_object is not None:
+                        position = picked_object.position
+                        routing_surface = picked_object.routing_surface
         circle = Circle(position, cls.max_radius, routing_surface, ideal_radius=cls.radius_scale, debug_name='SocialConstraint')
-        if sim is not None and (target is not None and (sim.parent is target or target.parent is sim)) and cls.include_default_facing_constraint:
+        if cls.include_default_facing_constraint:
             return circle.intersect(Facing(target_position=position, facing_range=sims4.math.TWO_PI))
         return circle
 
@@ -652,12 +666,11 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         sims = (self._initiating_sim, self._target_sim)
         for sim in sims:
             if sim is None:
-                pass
-            else:
-                registered_si = self.get_si_registered_for_sim(sim)
-                if not sim.si_state.is_compatible_constraint(constraint, priority=priority, to_exclude=registered_si):
-                    either_incompatible = True
-                    break
+                continue
+            registered_si = self.get_si_registered_for_sim(sim)
+            if not sim.si_state.is_compatible_constraint(constraint, priority=priority, to_exclude=registered_si):
+                either_incompatible = True
+                break
         if either_incompatible:
             (fallback_position, fallback_routing_surface) = get_fallback_social_constraint_position(self._initiating_sim, self._target_sim, registered_si, priority=priority)
             if fallback_position is None:
@@ -838,8 +851,9 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
             else:
                 interactions_to_test = [sim.posture.source_interaction]
             for interaction in interactions_to_test:
-                if interaction is not None and not interaction.satisfied:
-                    return False
+                if interaction is not None:
+                    if not interaction.satisfied:
+                        return False
         constraint_intersection = sim.si_state.get_total_constraint(priority=interactions.priority.Priority.Low, include_inertial_sis=True, force_inertial_sis=True, allow_posture_providers=not allow_posture_changes)
         test_posture_intersection = constraint_intersection.intersect(STAND_OR_SIT_CONSTRAINT)
         if not test_posture_intersection.valid:
@@ -847,9 +861,10 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         geometry_intersection = None
         for constraint in constraint_intersection:
             geometry = constraint.geometry
-            geometry_intersection = geometry if geometry_intersection is None else geometry_intersection.intersect(geometry)
-            if geometry is not None and geometry_intersection.polygon.area() == 0:
-                return False
+            if geometry is not None:
+                geometry_intersection = geometry if geometry_intersection is None else geometry_intersection.intersect(geometry)
+                if geometry_intersection.polygon.area() == 0:
+                    return False
         if geometry_intersection is None or geometry_intersection.polygon.area() > 0:
             return True
         return False
@@ -866,7 +881,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         head = sim.queue.get_head()
         if head is not None and head.is_super:
             return False
-        if initial or sim.queue.transition_in_progress or sim.is_moving:
+        if not initial and (sim.queue.transition_in_progress or sim.is_moving):
             return False
         if sim.is_in_side_group():
             return False
@@ -922,7 +937,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         if sim is not None and sim.queue.has_adjustment_interaction():
             return False
         self._try_adjusting_constraint()
-        if self.geometry and len(self.geometry) < 2:
+        if not self.geometry or len(self.geometry) < 2:
             return False
         if sim is None and not self.adjust_sim_positions_dynamically:
             return False
@@ -933,18 +948,20 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
             if not self._can_sim_be_adjusted(sim, initial=initial):
                 return False
         sim_to_adjust = sim or self._pick_worst_placed_sim()
-        if self.geometry:
-            logger.debug('[Adjustment] Worst placed Sim is {} at {}', sim_to_adjust, sim_to_adjust.position)
-            si = self.get_si_registered_for_sim(sim_to_adjust)
-            if not si.is_finishing:
-                self.adjust_attempt_time = services.time_service().sim_now
-                self._has_adjusted.add(sim_to_adjust)
-                result = self.execute_adjustment_interaction(sim_to_adjust)
-                if result:
-                    adjustment_interaction = result.execute_result.interaction
-                    self._adjustment_interactions.add(adjustment_interaction)
-                    return True
-                self.adjust_attempt_time = None
+        if sim_to_adjust is not None:
+            if self.geometry:
+                logger.debug('[Adjustment] Worst placed Sim is {} at {}', sim_to_adjust, sim_to_adjust.position)
+                si = self.get_si_registered_for_sim(sim_to_adjust)
+                if si is not None:
+                    if not si.is_finishing:
+                        self.adjust_attempt_time = services.time_service().sim_now
+                        self._has_adjusted.add(sim_to_adjust)
+                        result = self.execute_adjustment_interaction(sim_to_adjust)
+                        if result:
+                            adjustment_interaction = result.execute_result.interaction
+                            self._adjustment_interactions.add(adjustment_interaction)
+                            return True
+                        self.adjust_attempt_time = None
         return False
 
     def _try_adjusting_constraint(self):
@@ -1050,8 +1067,9 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
             multiplier = len(self) - 1
             active_list.append((speaker, self.FOCUS_SPEAKER_SCORE*multiplier))
         for sim in self:
-            if sim is not speaker and sim in required_sims:
-                active_list.append((sim, self.FOCUS_LISTENER_SCORE))
+            if sim is not speaker:
+                if sim in required_sims:
+                    active_list.append((sim, self.FOCUS_LISTENER_SCORE))
         focus_group = self._focus_group
         return build_critical_section_with_finally(lambda _: focus_group.active_focus_begin(owner_sim, active_list), args, lambda _: focus_group.active_focus_end(owner_sim, active_list))
 
@@ -1074,7 +1092,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         return build_critical_section_with_finally(lambda _: focus_group.active_focus_begin(owner_sim, active_list, immediate=False), args, lambda _: focus_group.active_focus_end(owner_sim, active_list))
 
     def _add_boredom(self, interaction):
-        if interaction.is_super or interaction.visible and interaction.source != InteractionSource.PIE_MENU:
+        if interaction.is_super or not interaction.visible or interaction.source != InteractionSource.PIE_MENU:
             return
         sim = interaction.sim
         setdefault_callable(self._boredom_registry, sim, WeakKeyDictionary)
@@ -1084,7 +1102,8 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
                 if interaction.affordance is affordance:
                     self._boredom_registry[sim][target_sim][index] = (affordance, count + 1)
                     break
-            self._boredom_registry[sim][target_sim].append((interaction.affordance, 1))
+            else:
+                self._boredom_registry[sim][target_sim].append((interaction.affordance, 1))
 
     def get_boredom(self, sim, target_sim, affordance):
         target_mapping = self._boredom_registry.get(sim)
@@ -1101,8 +1120,9 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
         if self.group_leader_sim is None or sim is self.group_leader_sim:
             for sim_in_group in self:
                 si = self.get_si_registered_for_sim(sim_in_group)
-                if si is not None and not si.is_finishing:
-                    potential_targets.add(sim_in_group)
+                if si is not None:
+                    if not si.is_finishing:
+                        potential_targets.add(sim_in_group)
         else:
             potential_targets.add(self.group_leader_sim)
         return potential_targets

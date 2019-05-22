@@ -174,16 +174,14 @@ class DistanceEstimator:
                 routing_location = routing.Location(routing_position, orientation=owner.orientation, routing_surface=owner.routing_surface)
                 distance = estimate_distance((sim_location, routing_location))
                 if distance >= min_dist:
-                    pass
-                else:
-                    distance += get_preferred_object_cost(owner)
-                    if distance >= min_dist:
-                        pass
-                    else:
-                        if include_node_location:
-                            distance += estimate_distance((routing_location, node_location))
-                        if distance < min_dist:
-                            min_dist = distance
+                    continue
+                distance += get_preferred_object_cost(owner)
+                if distance >= min_dist:
+                    continue
+                if include_node_location:
+                    distance += estimate_distance((routing_location, node_location))
+                if distance < min_dist:
+                    min_dist = distance
             return min_dist
 
         self.get_inventory_distance = get_inventory_distance
@@ -301,9 +299,10 @@ class SegmentedPath:
                 allow_carried = True
             else:
                 for constraint in self.constraint:
-                    if not constraint.posture_state_spec is not None or not carry is not self.sim or constraint.posture_state_spec.references_object(carry):
+                    if not not constraint.posture_state_spec is not None and not not carry is not self.sim and constraint.posture_state_spec.references_object(carry):
                         break
-                carry = None
+                else:
+                    carry = None
                 if carry is not None and path_left[-1].carry_target is None and carry is None or isinstance(carry, Definition):
                     left_destinations = MOBILE_NODES_AT_NONE
                 elif carry.get_inventory() is None and carry.parent not in (None, self.sim):
@@ -411,13 +410,14 @@ def _cache_global_sim_default_values():
     MOBILE_NODES_AT_NONE_CARRY = {STAND_AT_NONE_CARRY}
     ALL_MOBILE_NODES = {STAND_AT_NONE, STAND_AT_NONE_CARRY}
     for affordance in PostureGraphService.POSTURE_PROVIDING_AFFORDANCES:
-        if affordance.provided_posture_type is not None and affordance.provided_posture_type.mobile:
-            MOBILE_POSTURE_TYPES.add(affordance.provided_posture_type)
-            mobile_node_at_none = get_origin_spec(affordance.provided_posture_type)
-            MOBILE_NODES_AT_NONE.add(mobile_node_at_none)
-            mobile_node_at_none_carry = get_origin_spec_carry(affordance.provided_posture_type)
-            MOBILE_NODES_AT_NONE_CARRY.add(mobile_node_at_none_carry)
-            ALL_MOBILE_NODES.update({mobile_node_at_none, mobile_node_at_none_carry})
+        if affordance.provided_posture_type is not None:
+            if affordance.provided_posture_type.mobile:
+                MOBILE_POSTURE_TYPES.add(affordance.provided_posture_type)
+                mobile_node_at_none = get_origin_spec(affordance.provided_posture_type)
+                MOBILE_NODES_AT_NONE.add(mobile_node_at_none)
+                mobile_node_at_none_carry = get_origin_spec_carry(affordance.provided_posture_type)
+                MOBILE_NODES_AT_NONE_CARRY.add(mobile_node_at_none_carry)
+                ALL_MOBILE_NODES.update({mobile_node_at_none, mobile_node_at_none_carry})
 
 def get_mobile_posture_constraint(posture=None, target=None):
     posture_manifests = []
@@ -431,29 +431,31 @@ def get_mobile_posture_constraint(posture=None, target=None):
             return Nowhere('Mobile posture override {} is not actually mobile.', posture)
         else:
             posture_manifests = [posture.get_provided_postures()]
-            if target is not None:
-                mobile_postures = get_mobile_posture_types_for_object(target)
-                for mobile_posture in mobile_postures:
-                    posture_manifests.append(mobile_posture.get_provided_postures())
-                    break
+            if not posture_manifests:
+                if target is not None:
+                    mobile_postures = get_mobile_posture_types_for_object(target)
+                    for mobile_posture in mobile_postures:
+                        posture_manifests.append(mobile_posture.get_provided_postures())
+                        break
             constraints = []
             for manifest in posture_manifests:
                 posture_state_spec = create_body_posture_state_spec(manifest, body_target=None)
                 constraint = Constraint(debug_name='MobilePosture@None', posture_state_spec=posture_state_spec)
                 constraints.append(constraint)
-            if posture_manifests or constraints:
+            if constraints:
                 return create_constraint_set(constraints, debug_name='MobilePostureConstraints')
-    if target is not None:
-        mobile_postures = get_mobile_posture_types_for_object(target)
-        for mobile_posture in mobile_postures:
-            posture_manifests.append(mobile_posture.get_provided_postures())
-            break
+    if not posture_manifests:
+        if target is not None:
+            mobile_postures = get_mobile_posture_types_for_object(target)
+            for mobile_posture in mobile_postures:
+                posture_manifests.append(mobile_posture.get_provided_postures())
+                break
     constraints = []
     for manifest in posture_manifests:
         posture_state_spec = create_body_posture_state_spec(manifest, body_target=None)
         constraint = Constraint(debug_name='MobilePosture@None', posture_state_spec=posture_state_spec)
         constraints.append(constraint)
-    if posture_manifests or constraints:
+    if constraints:
         return create_constraint_set(constraints, debug_name='MobilePostureConstraints')
     return STAND_AT_NONE_CONSTRAINT
 
@@ -479,23 +481,22 @@ def can_remove_blocking_sims(sim, interaction, required_targets):
     blocking_sims = set()
     for obj in required_targets:
         obj_users = obj.get_users()
-        if obj.is_part:
-            obj = obj.part_owner
-            obj_users = obj.get_users()
+        if not obj_users:
+            if obj.is_part:
+                obj = obj.part_owner
+                obj_users = obj.get_users()
         for blocking_sim in obj_users:
             if blocking_sim is sim:
-                pass
-            else:
-                if not blocking_sim.is_sim:
+                continue
+            if not blocking_sim.is_sim:
+                return (False, need_to_cancel, blocking_sims)
+            for blocking_si in blocking_sim.si_state:
+                if not obj.is_same_object_or_part(blocking_si.target):
+                    continue
+                if not blocking_si.can_shoo or blocking_si.priority >= interaction.priority:
                     return (False, need_to_cancel, blocking_sims)
-                for blocking_si in blocking_sim.si_state:
-                    if not obj.is_same_object_or_part(blocking_si.target):
-                        pass
-                    else:
-                        if blocking_si.can_shoo and blocking_si.priority >= interaction.priority:
-                            return (False, need_to_cancel, blocking_sims)
-                        need_to_cancel.append(blocking_si)
-                        blocking_sims.add(blocking_sim)
+                need_to_cancel.append(blocking_si)
+                blocking_sims.add(blocking_sim)
     return (True, need_to_cancel, blocking_sims)
 
 class TransitionSpec:
@@ -557,9 +558,10 @@ class TransitionSpec:
         if sim in self._transition_interactions:
             for (si, _) in self._transition_interactions[sim]:
                 if si is interaction:
-                    pass
-                elif si is not None and not si.aop.test(si.context):
-                    return False
+                    continue
+                if si is not None:
+                    if not si.aop.test(si.context):
+                        return False
         return True
 
     def get_multi_target_interaction(self, sim):
@@ -635,76 +637,56 @@ class TransitionSpec:
             reserve_object_handlers = set()
             reservations_sis = []
             reservation_spec = self
-            if reservation_spec is not None:
+            while reservation_spec is not None:
                 if sim in reservation_spec._transition_interactions:
                     reservations_sis.extend(reservation_spec._transition_interactions[sim])
                 reservation_spec = self._path_spec.get_next_transition_spec(reservation_spec)
-                if reservation_spec is not None and reservation_spec.path is not None:
-                    return#break
+                if reservation_spec is not None:
+                    if reservation_spec.path is not None:
+                        break
             if is_failure_path and not reservations_sis:
                 return False
             for (si, _) in reservations_sis:
                 if si is None:
-                    pass
-                else:
-                    if si.is_putdown:
-                        (target_si, _) = si.get_target_si()
-                        if target_si is not None:
-                            si = target_si
-                            sim = si.sim
-                    if si.get_liability(RESERVATION_LIABILITY) is not None:
-                        pass
+                    continue
+                if si.is_putdown:
+                    (target_si, _) = si.get_target_si()
+                    if target_si is not None:
+                        si = target_si
+                        sim = si.sim
+                if si.get_liability(RESERVATION_LIABILITY) is not None:
+                    continue
+                handler = si.get_interaction_reservation_handler(sim=sim)
+                if is_failure_path and handler is None:
+                    continue
+                if handler is not None:
+                    handlers = []
+                    if is_failure_path:
+                        reserve_result = add_reservation(handler, test_only=True)
                     else:
-                        handler = si.get_interaction_reservation_handler(sim=sim)
-                        if is_failure_path and handler is None:
-                            pass
+                        reserve_result = add_reservation(handler)
+                    if not reserve_result:
+                        if si.source == InteractionSource.BODY_CANCEL_AOP or si.source == InteractionSource.CARRY_CANCEL_AOP:
+                            logger.warn('{} failed to pass reservation tests as a cancel AOP. Result: {}', si, reserve_result, owner='cgast')
                         else:
-                            if handler is not None:
-                                handlers = []
-                                if is_failure_path:
-                                    reserve_result = add_reservation(handler, test_only=True)
-                                else:
-                                    reserve_result = add_reservation(handler)
-                                if not reserve_result:
-                                    if si.source == InteractionSource.BODY_CANCEL_AOP or si.source == InteractionSource.CARRY_CANCEL_AOP:
-                                        logger.warn('{} failed to pass reservation tests as a cancel AOP. Result: {}', si, reserve_result, owner='cgast')
-                                    else:
-                                        if si.priority == Priority.Low:
-                                            return False
-                                        (able_to_cancel_blockers, need_to_cancel, blocking_sims) = can_remove_blocking_sims(sim, si, handler.get_targets())
-                                        if not able_to_cancel_blockers:
-                                            return False
-                                        if need_to_cancel:
-                                            for blocking_si in need_to_cancel:
-                                                blocking_si.cancel_user('Sim was kicked out by another Sim with a higher priority interaction.')
-                                            for blocking_sim in blocking_sims:
-                                                push_route_away(blocking_sim)
-                                            sim.queue.transition_controller.add_blocked_si(si)
-                                            sim.queue.transition_controller.derail(DerailReason.WAIT_FOR_BLOCKING_SIMS, sim)
-                                        return False
-                                        if is_failure_path:
-                                            return False
-                                        handlers.append(handler)
-                                        liability = ReservationLiability(handlers)
-                                        si.add_liability(RESERVATION_LIABILITY, liability)
-                                        next_spec = self._path_spec.get_next_transition_spec(self)
-                                        if next_spec is not None:
-                                            target_set = set()
-                                            target_set.add(next_spec.posture_spec.body_target)
-                                            target_set.add(next_spec.posture_spec.surface_target)
-                                            for target in target_set:
-                                                if not target is None:
-                                                    if handler is not None and target in handler.get_targets():
-                                                        pass
-                                                    else:
-                                                        target_handler = ReservationHandlerMulti(sim, target, reservation_interaction=si, reservation_limit=None)
-                                                        if add_reservation(target_handler):
-                                                            self._additional_reservation_handlers.append(target_handler)
-                                if is_failure_path:
-                                    return False
-                                handlers.append(handler)
-                                liability = ReservationLiability(handlers)
-                                si.add_liability(RESERVATION_LIABILITY, liability)
+                            if si.priority == Priority.Low:
+                                return False
+                            (able_to_cancel_blockers, need_to_cancel, blocking_sims) = can_remove_blocking_sims(sim, si, handler.get_targets())
+                            if not able_to_cancel_blockers:
+                                return False
+                            if need_to_cancel:
+                                for blocking_si in need_to_cancel:
+                                    blocking_si.cancel_user('Sim was kicked out by another Sim with a higher priority interaction.')
+                                for blocking_sim in blocking_sims:
+                                    push_route_away(blocking_sim)
+                                sim.queue.transition_controller.add_blocked_si(si)
+                                sim.queue.transition_controller.derail(DerailReason.WAIT_FOR_BLOCKING_SIMS, sim)
+                            return False
+                            if is_failure_path:
+                                return False
+                            handlers.append(handler)
+                            liability = ReservationLiability(handlers)
+                            si.add_liability(RESERVATION_LIABILITY, liability)
                             next_spec = self._path_spec.get_next_transition_spec(self)
                             if next_spec is not None:
                                 target_set = set()
@@ -713,26 +695,45 @@ class TransitionSpec:
                                 for target in target_set:
                                     if not target is None:
                                         if handler is not None and target in handler.get_targets():
-                                            pass
-                                        else:
-                                            target_handler = ReservationHandlerMulti(sim, target, reservation_interaction=si, reservation_limit=None)
-                                            if add_reservation(target_handler):
-                                                self._additional_reservation_handlers.append(target_handler)
+                                            continue
+                                        target_handler = ReservationHandlerMulti(sim, target, reservation_interaction=si, reservation_limit=None)
+                                        if add_reservation(target_handler):
+                                            self._additional_reservation_handlers.append(target_handler)
+                    if is_failure_path:
+                        return False
+                    handlers.append(handler)
+                    liability = ReservationLiability(handlers)
+                    si.add_liability(RESERVATION_LIABILITY, liability)
+                next_spec = self._path_spec.get_next_transition_spec(self)
+                if next_spec is not None:
+                    target_set = set()
+                    target_set.add(next_spec.posture_spec.body_target)
+                    target_set.add(next_spec.posture_spec.surface_target)
+                    for target in target_set:
+                        if not target is None:
+                            if handler is not None and target in handler.get_targets():
+                                continue
+                            target_handler = ReservationHandlerMulti(sim, target, reservation_interaction=si, reservation_limit=None)
+                            if add_reservation(target_handler):
+                                self._additional_reservation_handlers.append(target_handler)
             if is_failure_path:
                 return False
             if self.handle_slot_reservations:
                 object_to_ignore = []
                 for (transition_si, _) in self._transition_interactions[sim]:
-                    if transition_si.process.previous_ico is not None:
-                        object_to_ignore.append(transition_si.process.previous_ico)
-                    if hasattr(transition_si, 'process') and transition_si.process is not None and transition_si.process.current_ico is not None:
-                        object_to_ignore.append(transition_si.process.current_ico)
+                    if hasattr(transition_si, 'process'):
+                        if transition_si.process is not None:
+                            if transition_si.process.previous_ico is not None:
+                                object_to_ignore.append(transition_si.process.previous_ico)
+                            if transition_si.process.current_ico is not None:
+                                object_to_ignore.append(transition_si.process.current_ico)
                 cur_spec = self
                 slot_manifest_entries = []
                 while cur_spec is not None:
-                    if cur_spec.path is not None:
-                        break
-                    if cur_spec is not self and cur_spec.handle_slot_reservations:
+                    if cur_spec is not self:
+                        if cur_spec.path is not None:
+                            break
+                    if cur_spec.handle_slot_reservations:
                         if PostureSpecVariable.SLOT in cur_spec.var_map:
                             slot_entry = cur_spec.var_map[PostureSpecVariable.SLOT]
                             if slot_entry is not None:
@@ -770,7 +771,7 @@ class TransitionSpec:
 
         def route_callback(distance_left):
             nonlocal reserve, fade_sim_out
-            if self.is_failure_path or distance_left < FollowPath.DISTANCE_TO_RECHECK_STAND_RESERVATION and sim.routing_component.on_slot is not None:
+            if not self.is_failure_path and distance_left < FollowPath.DISTANCE_TO_RECHECK_STAND_RESERVATION and sim.routing_component.on_slot is not None:
                 transition_controller = sim.queue.transition_controller
                 excluded_sims = transition_controller.get_transitioning_sims() if transition_controller is not None else ()
                 violators = tuple(violator for violator in sim.routing_component.get_stand_slot_reservation_violators(excluded_sims=excluded_sims) if violator.parent not in excluded_sims)
@@ -791,14 +792,15 @@ class TransitionSpec:
                     portal_obj.set_portal_cost_override(portal_id, routing.PORTAL_USE_LOCK, sim=sim)
                 if not self.do_reservation(sim, is_failure_path=self.is_failure_path):
                     return FollowPath.Action.CANCEL
-            if distance_left < TransitionSpec.DISTANCE_TO_FADE_SIM_OUT:
-                if fade_sim_out:
-                    fade_sim_out = False
-                    dest_posture.sim.fade_out()
-                if lock_out_socials:
-                    sim.socials_locked = True
+            if not self.is_failure_path:
+                if distance_left < TransitionSpec.DISTANCE_TO_FADE_SIM_OUT:
+                    if fade_sim_out:
+                        fade_sim_out = False
+                        dest_posture.sim.fade_out()
+                    if lock_out_socials:
+                        sim.socials_locked = True
             time_now = services.time_service().sim_now
-            if self.is_failure_path or time_now > sim.next_passive_balloon_unlock_time:
+            if time_now > sim.next_passive_balloon_unlock_time:
                 PassiveBalloons.request_passive_balloon(sim, time_now)
             if fire_service.check_for_catching_on_fire(sim):
                 if sim.queue.running is not None:
@@ -831,7 +833,7 @@ class PathSpec:
         self._path_progress = 0
         self._is_failure_path = is_failure_path
         self._failed_path_type = failed_path_type
-        if allow_tentative or final_constraint is not None and final_constraint.tentative:
+        if not allow_tentative and final_constraint is not None and final_constraint.tentative:
             logger.warn("PathSpec's final constraint is tentative, this will not work correctly so the constraint will be ignored. This may interfere with slot reservation.", owner='jpollak')
             self._final_constraint = None
         else:
@@ -900,10 +902,11 @@ class PathSpec:
 
     def remaining_original_transition_specs(self):
         original_transition_specs = []
-        if not self.completed_path:
-            for spec in self._path[self._path_progress:]:
-                if spec.sequence_id == SequenceId.DEFAULT:
-                    original_transition_specs.append(spec)
+        if self._path is not None:
+            if not self.completed_path:
+                for spec in self._path[self._path_progress:]:
+                    if spec.sequence_id == SequenceId.DEFAULT:
+                        original_transition_specs.append(spec)
         return original_transition_specs
 
     @property
@@ -990,10 +993,8 @@ class PathSpec:
         spec_constraint = self.spec_constraint
         is_failure_path = False
         for path_spec in path_specs:
-            if not path_spec._path:
-                raise AssertionError('Trying to combine two paths when one of them is None!')
-            if full_path[-1].posture_spec != path_spec._path[0].posture_spec:
-                raise AssertionError("Trying to combine two paths that don't have a common node on the ends {} != {}.\nThis may be caused by handles being generated for complete paths.".format(self.path[-1], path_spec.path[0]))
+            assert path_spec._path
+            assert not full_path[-1].posture_spec != path_spec._path[0].posture_spec
             if full_path[-1].mobile and path_spec._path[0].path is not None:
                 full_path = list(itertools.chain(full_path, path_spec._path))
             else:
@@ -1019,14 +1020,13 @@ class PathSpec:
             for (index, node) in enumerate(self.path):
                 node_target = node[BODY_INDEX][BODY_TARGET_INDEX]
                 if node_target is None:
-                    pass
-                else:
-                    for (_other_index, other_node) in enumerate(self.path[index + 1:]):
-                        if node == other_node:
-                            other_index = _other_index + index + 1
-                            break
-                    if other_index:
+                    continue
+                for (_other_index, other_node) in enumerate(self.path[index + 1:]):
+                    if node == other_node:
+                        other_index = _other_index + index + 1
                         break
+                if other_index:
+                    break
             if other_index:
                 full_path = self._path[:index] + self._path[other_index:]
                 return PathSpec(full_path, self.cost, self.var_map, self.destination_spec, self.final_constraint, self.spec_constraint, path_as_posture_specs=False, is_failure_path=self._is_failure_path, failed_path_type=self._failed_path_type)
@@ -1055,15 +1055,17 @@ class PathSpec:
         for (cur_spec, next_spec) in zip(self.path, self.path[1:]):
             cur_spec_type = cur_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
             next_spec_type = next_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
-            if cur_spec_type == spec_a_type and next_spec_type == spec_b_type:
-                return True
+            if cur_spec_type == spec_a_type:
+                if next_spec_type == spec_b_type:
+                    return True
         return False
 
     def get_failure_reason_and_object_id(self):
         if self._path is not None:
             for trans_spec in self._path:
-                if trans_spec.path is not None and trans_spec.path.is_route_fail():
-                    return (trans_spec.path.nodes.plan_failure_path_type, trans_spec.path.nodes.plan_failure_object_id)
+                if trans_spec.path is not None:
+                    if trans_spec.path.is_route_fail():
+                        return (trans_spec.path.nodes.plan_failure_path_type, trans_spec.path.nodes.plan_failure_object_id)
         return (None, None)
 
     def create_route_nodes(self, path, portal_obj=None, portal_id=None):
@@ -1106,13 +1108,15 @@ class PathSpec:
                 else:
                     locked_param_spec = transition_spec
                 break
-            if transition_spec.is_carry:
-                carry_spec = transition_spec
-            if carry_spec is None and route_spec is None:
-                if reverse or transition_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX] is not None:
+            if carry_spec is None:
+                if transition_spec.is_carry:
+                    carry_spec = transition_spec
+            if route_spec is None:
+                if not reverse and transition_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX] is not None:
                     route_spec = previous_spec if previous_spec is not None else transition_spec
-                elif previous_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None != transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
-                    route_spec = previous_spec
+                elif previous_spec is not None:
+                    if (previous_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None) != (transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None):
+                        route_spec = previous_spec
             previous_spec = transition_spec
         if locked_param_spec is None:
             locked_param_spec = transition_spec
@@ -1153,14 +1157,12 @@ class PathSpec:
             if interaction_target is not None:
                 for path_node in self._path:
                     if PostureSpecVariable.INTERACTION_TARGET not in path_node.var_map:
-                        pass
-                    else:
-                        for obj in final_destination.get_core_objects():
-                            if obj.id != interaction_target.id:
-                                pass
-                            else:
-                                new_interaction_target = interaction_target.resolve_retarget(obj)
-                                path_node.var_map += {PostureSpecVariable.INTERACTION_TARGET: new_interaction_target}
+                        continue
+                    for obj in final_destination.get_core_objects():
+                        if obj.id != interaction_target.id:
+                            continue
+                        new_interaction_target = interaction_target.resolve_retarget(obj)
+                        path_node.var_map += {PostureSpecVariable.INTERACTION_TARGET: new_interaction_target}
             carry_target = final_var_map[PostureSpecVariable.CARRY_TARGET]
             if carry_target is not None and carry_target.is_in_sim_inventory(sim=sim):
                 self.adjust_route_for_sim_inventory()
@@ -1246,7 +1248,7 @@ class PathSpec:
             return (transition_spec,)
         if prev_transition[CARRY_INDEX][CARRY_TARGET_INDEX] != transition[CARRY_INDEX][CARRY_TARGET_INDEX] or transition[CARRY_INDEX][CARRY_TARGET_INDEX] != next_transition[CARRY_INDEX][CARRY_TARGET_INDEX]:
             return (transition_spec,)
-        if prev_transition[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile or next_transition_spec.path is not None:
+        if not prev_transition[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and next_transition_spec.path is not None:
             return (transition_spec,)
         if prev_transition[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and (transition[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and next_transition[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile) and services.current_zone().posture_graph_service._can_transition_between_nodes(prev_transition, next_transition):
             return ()
@@ -1255,13 +1257,14 @@ class PathSpec:
     def flag_slot_reservations(self):
         for (prev_transition_spec, cur_transition_spec) in zip(self._path, self._path[1:]):
             if prev_transition_spec.sequence_id != cur_transition_spec.sequence_id:
-                pass
-            elif not cur_transition_spec.posture_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX]:
-                pass
-            elif prev_transition_spec.is_carry and not cur_transition_spec.is_carry:
+                continue
+            if not cur_transition_spec.posture_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX]:
+                continue
+            if prev_transition_spec.is_carry and not cur_transition_spec.is_carry:
                 prev_transition_spec.handle_slot_reservations = True
-            elif prev_transition_spec.targets_empty_slot or cur_transition_spec.targets_empty_slot:
-                prev_transition_spec.handle_slot_reservations = True
+            elif not prev_transition_spec.targets_empty_slot:
+                if cur_transition_spec.targets_empty_slot:
+                    prev_transition_spec.handle_slot_reservations = True
 
     def generate_transition_interactions(self, sim, final_si, transition_success):
         if self._path is None:
@@ -1293,7 +1296,8 @@ class PathSpec:
                 if prev_transition_spec.sequence_id == cur_transition_spec.sequence_id:
                     prev_posture_spec = prev_transition_spec.posture_spec
                     break
-            prev_posture_spec = None
+            else:
+                prev_posture_spec = None
             aop_list = []
             var_map = cur_transition_spec.var_map
             edge_info = services.current_zone().posture_graph_service.get_edge(prev_posture_spec, cur_posture_spec, return_none_on_failure=True)
@@ -1312,26 +1316,28 @@ class PathSpec:
                 final_valid_combinables = final_si.get_combinable_interactions_with_safe_carryables()
                 existing_si_set = {final_si} if not final_valid_combinables else set(itertools.chain((final_si,), final_valid_combinables))
                 for existing_si in existing_si_set:
-                    if added_final_si or aop.is_equivalent_to_interaction(existing_si):
-                        si = existing_si
-                        added_final_si = True
-                        break
-                execute_result = aop.interaction_factory(context)
-                if not execute_result:
-                    return False
-                si = execute_result.interaction
+                    if not added_final_si:
+                        if aop.is_equivalent_to_interaction(existing_si):
+                            si = existing_si
+                            added_final_si = True
+                            break
+                else:
+                    execute_result = aop.interaction_factory(context)
+                    if not execute_result:
+                        return False
+                    si = execute_result.interaction
                 self._path[i].add_transition_interaction(sim, si, var_map)
                 si.add_preload_outfit_changes(preload_outfit_set)
             if not aops:
                 self._path[i].add_transition_interaction(sim, None, self._path[i].var_map)
-        if added_final_si or transition_success:
+        if not added_final_si and transition_success:
             self._path[-1].add_transition_interaction(sim, final_si, self._path[-1].var_map)
             final_si.add_preload_outfit_changes(preload_outfit_set)
         if not preload_outfit_set:
             current_position_on_active_lot = services.active_lot().is_position_on_lot(sim.position)
             if current_position_on_active_lot and not sim.is_outside:
                 level = sim.routing_surface.secondary_id
-                if sim.intended_position_on_active_lot and build_buy.is_location_outside(sim.zone_id, sim.intended_position, level):
+                if not sim.intended_position_on_active_lot or build_buy.is_location_outside(sim.zone_id, sim.intended_position, level):
                     sim.preload_outdoor_streetwear_change(final_si, preload_outfit_set)
         sim.set_preload_outfits(preload_outfit_set)
         return True
@@ -1389,9 +1395,10 @@ class PostureGraph(collections.MutableMapping):
         body = key[BODY_INDEX]
         if body is not None:
             body_target = body[BODY_TARGET_INDEX]
-            if body_target.is_sim:
-                posture_type = body[BODY_POSTURE_TYPE_INDEX]
-                key = key.clone(body=PostureAspectBody((posture_type, self.proxy_sim)))
+            if body_target is not None:
+                if body_target.is_sim:
+                    posture_type = body[BODY_POSTURE_TYPE_INDEX]
+                    key = key.clone(body=PostureAspectBody((posture_type, self.proxy_sim)))
         return key
 
     @property
@@ -1496,7 +1503,7 @@ class PostureGraph(collections.MutableMapping):
             if surface_target == PostureSpecVariable.CONTAINER_TARGET:
                 surface_target = node_or_spec.body_target
             if surface_target is None:
-                if body_target is not None and (isinstance(body_target, PostureSpecVariable) or body_target.is_surface()):
+                if body_target is not None and not isinstance(body_target, PostureSpecVariable) and body_target.is_surface():
                     keys.add(('surface_target', body_target))
                     keys.add(('has_a_surface', True))
                 else:
@@ -1506,9 +1513,10 @@ class PostureGraph(collections.MutableMapping):
                 keys.add(('has_a_surface', True))
             elif surface_target == PostureSpecVariable.SURFACE_TARGET:
                 keys.add(('has_a_surface', True))
-            if not isinstance(original_surface_target, PostureSpecVariable):
-                for slot_type in original_surface_target.get_provided_slot_types():
-                    keys.add(('slot_type', slot_type))
+            if slot_type == PostureSpecVariable.SLOT:
+                if not isinstance(original_surface_target, PostureSpecVariable):
+                    for slot_type in original_surface_target.get_provided_slot_types():
+                        keys.add(('slot_type', slot_type))
         else:
             surface_target = None
         if node_or_spec.body is not None:
@@ -1552,7 +1560,7 @@ class PostureGraph(collections.MutableMapping):
 
     def _get_nodes_internal_gen(self, nodes):
         for node in nodes:
-            if not node.body_target is not None or node.body_target.is_sim:
+            if not not node.body_target is not None and node.body_target.is_sim:
                 yield from self.sim_carry_nodes_gen(node)
             else:
                 yield node
@@ -1566,8 +1574,7 @@ class PostureGraph(collections.MutableMapping):
                     surface = PostureAspectSurface((spec.surface.target, slot_type, spec.surface.slot_target))
                     slot_type_spec = spec.clone(surface=surface)
                     keys = self._get_subset_keys(slot_type_spec)
-                    if not keys:
-                        raise AssertionError('No keys returned for a specific slot type!')
+                    assert keys
                     subsets = {key: self._subsets[key] for key in keys}
                     intersection = functools.reduce(operator.and_, sorted(subsets.values(), key=len))
                     spec_nodes.update(intersection)
@@ -1578,10 +1585,11 @@ class PostureGraph(collections.MutableMapping):
                 subsets = {key: self._subsets[key] for key in keys}
                 spec_nodes = set(functools.reduce(operator.and_, sorted(subsets.values(), key=len)))
             target = spec.body_target or spec.surface_target
-            if constraint:
-                quadtree_subset = self.nodes_matching_constraint_geometry(constraint)
-                if quadtree_subset is not None:
-                    spec_nodes &= quadtree_subset
+            if target in (None, PostureSpecVariable.ANYTHING):
+                if constraint:
+                    quadtree_subset = self.nodes_matching_constraint_geometry(constraint)
+                    if quadtree_subset is not None:
+                        spec_nodes &= quadtree_subset
             nodes.update(spec_nodes)
         yield from self._get_nodes_internal_gen(nodes)
 
@@ -1609,7 +1617,7 @@ class EdgeInfo(namedtuple('_EdgeInfo', ['operations', 'validate', 'species_to_co
         return self.species_to_cost_dict[PostureOperation.DEFAULT_COST_KEY]
 
 def _get_species_to_aop_tunable_mapping(*, description):
-    return TunableMapping(description=description, key_type=TunableEnumEntry(description='\n            The species that this affordance is intended for.\n            ', tunable_type=Species, default=Species.HUMAN), value_type=TunableReference(description='\n            The default interaction to push for Sims of this species.\n            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True))
+    return TunableMapping(description=description, key_type=TunableEnumEntry(description='\n            The species that this affordance is intended for.\n            ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunableReference(description='\n            The default interaction to push for Sims of this species.\n            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True))
 
 class PostureGraphService(Service):
     SIM_DEFAULT_AFFORDANCES = _get_species_to_aop_tunable_mapping(description="\n        The interactions for Sims' default postures. These interactions are used\n        to kickstart Sims; are pushed on them after resets, and are used as the\n        default cancel replacement interaction.\n        ")
@@ -1761,8 +1769,8 @@ class PostureGraphService(Service):
             if from_init and sim.is_selectable:
                 self._graph.proxy_sim = SimPostureNode(sim)
                 return True
-            return False
-        self._graph.proxy_sim.sim_proxied = sim
+            else:
+                return False
         return True
 
     def _obj_triggers_posture_graph_update(self, obj):
@@ -1811,8 +1819,9 @@ class PostureGraphService(Service):
                     body_posture = closed_node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
                     body_target = closed_node[BODY_INDEX][BODY_TARGET_INDEX]
                     can_transition_to_carry = not body_posture.mobile or body_posture.mobile and body_target is None
-                    if can_transition_to_carry and body_posture.is_available_transition(PostureTuning.SIM_CARRIED_POSTURE):
-                        closed_set.discard(closed_node)
+                    if can_transition_to_carry:
+                        if body_posture.is_available_transition(PostureTuning.SIM_CARRIED_POSTURE):
+                            closed_set.discard(closed_node)
         else:
             for closed_node in tuple(closed_set):
                 if closed_node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX] is PostureTuning.SIM_CARRIED_POSTURE:
@@ -1865,20 +1874,20 @@ class PostureGraphService(Service):
         if not self._zone_loaded:
             yield None
             return
-        if obj.is_sim or obj.is_valid_posture_graph_object:
+        if not obj.is_sim and obj.is_valid_posture_graph_object:
             self._on_object_deleted(obj)
         try:
             yield None
         finally:
-            if obj.is_sim or obj.is_valid_posture_graph_object:
+            if not obj.is_sim and obj.is_valid_posture_graph_object:
                 self._on_object_added(obj)
 
     def _expand_node(self, node):
         ops = []
         for obj in node.get_relevant_objects():
             if not obj.is_valid_posture_graph_object:
-                pass
-            elif obj.is_sim:
+                continue
+            if obj.is_sim:
                 self._expand_and_append_node_sim(node, obj, ops)
             else:
                 self._expand_and_append_node_object(node, obj, ops)
@@ -1899,14 +1908,15 @@ class PostureGraphService(Service):
         for aop in posture_aops:
             body_operation = aop.get_provided_posture_change()
             if body_operation is None:
-                pass
-            else:
-                body_op_posture_type = body_operation.posture_type
-                if body_op_posture_type in body_operations_dict:
-                    for (species, aop) in body_operation.all_associated_aops_gen():
-                        body_operations_dict[body_op_posture_type].add_associated_aop(species, aop)
+                continue
+            body_op_posture_type = body_operation.posture_type
+            if body_op_posture_type in body_operations_dict:
+                for (species, aop) in body_operation.all_associated_aops_gen():
+                    body_operations_dict[body_op_posture_type].add_associated_aop(species, aop)
                 else:
                     body_operations_dict[body_operation.posture_type] = body_operation
+            else:
+                body_operations_dict[body_operation.posture_type] = body_operation
         return body_operations_dict
 
     @caches.cached(maxsize=None)
@@ -1941,8 +1951,9 @@ class PostureGraphService(Service):
             surface = obj
         else:
             parent = obj.parent
-            if obj.add_to_posture_graph_if_parented or parent.is_surface():
-                surface = parent
+            if parent is not None:
+                if obj.add_to_posture_graph_if_parented or parent.is_surface():
+                    surface = parent
         out_ops.extend(self._expand_object_surface(obj, surface))
         if surface is not obj:
             return
@@ -1952,10 +1963,9 @@ class PostureGraphService(Service):
         species_to_disallowed_ages = defaultdict(set)
         for (species, affordance) in self.SIM_DEFAULT_AFFORDANCES.items():
             if obj.is_part and not obj.supports_posture_type(affordance.provided_posture_type):
-                pass
-            else:
-                species_to_affordances[species] = AffordanceObjectPair(affordance, obj, affordance, None)
-                species_to_disallowed_ages[species] = event_testing.test_utils.get_disallowed_ages(affordance)
+                continue
+            species_to_affordances[species] = AffordanceObjectPair(affordance, obj, affordance, None)
+            species_to_disallowed_ages[species] = event_testing.test_utils.get_disallowed_ages(affordance)
         if not species_to_affordances:
             return
         body_operation = PostureOperation.BodyTransition(SIM_DEFAULT_POSTURE_TYPE, species_to_affordances, target=obj, disallowed_ages=species_to_disallowed_ages)
@@ -1967,10 +1977,9 @@ class PostureGraphService(Service):
         species_to_disallowed_ages = defaultdict(set)
         for (species, affordance) in self.CARRIED_DEFAULT_AFFORDANCES.items():
             if not obj.supports_posture_type(affordance.provided_posture_type):
-                pass
-            else:
-                species_to_affordances[species] = AffordanceObjectPair(affordance, obj, affordance, None)
-                species_to_disallowed_ages[species] = event_testing.test_utils.get_disallowed_ages(affordance)
+                continue
+            species_to_affordances[species] = AffordanceObjectPair(affordance, obj, affordance, None)
+            species_to_disallowed_ages[species] = event_testing.test_utils.get_disallowed_ages(affordance)
         if not species_to_affordances:
             return
         if obj.age not in species_to_disallowed_ages[obj.species]:
@@ -2026,17 +2035,16 @@ class PostureGraphService(Service):
         for (source_posture_type, destination_posture_type) in Posture._posture_transitions:
             body_operation = body_operations_dict.get(destination_posture_type)
             if body_operation is None:
-                pass
-            elif source_posture_type is not SIM_DEFAULT_POSTURE_TYPE and source_posture_type not in body_operations_dict:
-                pass
-            else:
-                new_node = self.add_node(get_origin_spec(source_posture_type), (body_operation,))
+                continue
+            if source_posture_type is not SIM_DEFAULT_POSTURE_TYPE and source_posture_type not in body_operations_dict:
+                continue
+            new_node = self.add_node(get_origin_spec(source_posture_type), (body_operation,))
+            if new_node is not None:
+                open_set.add(new_node)
+            if source_posture_type._supports_carry:
+                new_node = self.add_node(get_origin_spec_carry(source_posture_type), (body_operation,))
                 if new_node is not None:
                     open_set.add(new_node)
-                if source_posture_type._supports_carry:
-                    new_node = self.add_node(get_origin_spec_carry(source_posture_type), (body_operation,))
-                    if new_node is not None:
-                        open_set.add(new_node)
         self._build(open_set, closed_set)
 
     def nodes_matching_constraint_geometry(self, constraint):
@@ -2092,14 +2100,16 @@ class PostureGraphService(Service):
     def _get_edge_info(self, node, successor):
         original_node_body_target = None
         original_successor_body_target = None
-        if node.body_target.is_sim:
-            original_node_body_target = node.body_target
-            node = node.clone(body=PostureAspectBody((PostureTuning.SIM_CARRIED_POSTURE, self._graph.proxy_sim)))
-        if successor.body_target.is_sim:
-            original_successor_body_target = successor.body_target
-            successor = successor.clone(body=PostureAspectBody((PostureTuning.SIM_CARRIED_POSTURE, self._graph.proxy_sim)))
+        if node.body_target is not None:
+            if node.body_target.is_sim:
+                original_node_body_target = node.body_target
+                node = node.clone(body=PostureAspectBody((PostureTuning.SIM_CARRIED_POSTURE, self._graph.proxy_sim)))
+        if successor.body_target is not None:
+            if successor.body_target.is_sim:
+                original_successor_body_target = successor.body_target
+                successor = successor.clone(body=PostureAspectBody((PostureTuning.SIM_CARRIED_POSTURE, self._graph.proxy_sim)))
         edge_info = self._edge_info[(node, successor)]
-        if node.body_target is not None and successor.body_target is not None and original_successor_body_target is not None:
+        if original_successor_body_target is not None:
             for operation in edge_info.operations:
                 operation.set_target(original_successor_body_target)
         return (edge_info, original_node_body_target)
@@ -2107,7 +2117,7 @@ class PostureGraphService(Service):
     def _adjacent_nodes_gen(self, sim, get_successors_fn, valid_edge_test, var_map, node, *, allow_pickups, allow_putdowns, allow_carried, reverse_path):
         node = node.graph_node
         is_mobile_at_none = isinstance(node, _MobileNode) and node.body_posture.mobile and (node.body_target is None and node.surface_target is None)
-        if allow_carried or is_mobile_at_none:
+        if not allow_carried and is_mobile_at_none:
             return
 
         def _edge_validation(forward_nodes, successor_node):
@@ -2126,33 +2136,34 @@ class PostureGraphService(Service):
             body_target = successor.body_target
             if not is_mobile_at_none or not body_target is None:
                 if not body_target.is_sim:
-                    pass
-                else:
-                    forward_nodes = (successor, node) if reverse_path else (node, successor)
-                    (first, second) = forward_nodes
-                    if allow_pickups or not first.carry_target is None or second.carry_target is not None:
-                        pass
-                    elif allow_putdowns or not first.carry_target is not None or second.carry_target is None:
-                        pass
-                    elif not body_target is not None or body_target.is_sim:
-                        for carry_succesor in self._graph.sim_carry_nodes_gen(successor):
-                            if node.body_target is carry_succesor.body_target:
-                                pass
-                            else:
-                                carry_forward_nodes = (carry_succesor, node) if reverse_path else (node, carry_succesor)
-                                (first_carry, second_carry) = carry_forward_nodes
-                                if allow_pickups or not first_carry.carry_target is None or second_carry.carry_target is not None:
-                                    pass
-                                elif allow_putdowns or not first_carry.carry_target is not None or second_carry.carry_target is None:
-                                    pass
-                                else:
-                                    return_node = _edge_validation(carry_forward_nodes, carry_succesor)
-                                    if return_node is not None:
-                                        yield return_node
+                    continue
+                forward_nodes = (successor, node) if reverse_path else (node, successor)
+                (first, second) = forward_nodes
+                if not allow_pickups and not not first.carry_target is None and second.carry_target is not None:
+                    continue
+                if not allow_putdowns and not not first.carry_target is not None and second.carry_target is None:
+                    continue
+                if not not body_target is not None and body_target.is_sim:
+                    for carry_succesor in self._graph.sim_carry_nodes_gen(successor):
+                        if node.body_target is carry_succesor.body_target:
+                            continue
+                        carry_forward_nodes = (carry_succesor, node) if reverse_path else (node, carry_succesor)
+                        (first_carry, second_carry) = carry_forward_nodes
+                        if not allow_pickups and not not first_carry.carry_target is None and second_carry.carry_target is not None:
+                            continue
+                        if not allow_putdowns and not not first_carry.carry_target is not None and second_carry.carry_target is None:
+                            continue
+                        return_node = _edge_validation(carry_forward_nodes, carry_succesor)
+                        if return_node is not None:
+                            yield return_node
                     else:
                         return_node = _edge_validation(forward_nodes, successor)
                         if return_node is not None:
                             yield return_node
+                else:
+                    return_node = _edge_validation(forward_nodes, successor)
+                    if return_node is not None:
+                        yield return_node
 
     @staticmethod
     def _get_destination_locations_for_estimate(route_target, mobile_node):
@@ -2235,12 +2246,12 @@ class PostureGraphService(Service):
                         destination_locations += self._get_destination_locations_for_estimate(dest.surface_target, graph_node)
                     else:
                         needs_constraint_dests = True
-                if any(sub_constraint.geometry for sub_constraint in constraint):
-                    for sub_constraint in constraint:
-                        if not sub_constraint.geometry is None:
-                            if sub_constraint.routing_surface is None:
-                                pass
-                            else:
+                if needs_constraint_dests:
+                    if any(sub_constraint.geometry for sub_constraint in constraint):
+                        for sub_constraint in constraint:
+                            if not sub_constraint.geometry is None:
+                                if sub_constraint.routing_surface is None:
+                                    continue
                                 for polygon in sub_constraint.geometry.polygon:
                                     for polygon_corner in polygon:
                                         destination_locations.append((polygon_corner, sub_constraint.routing_surface))
@@ -2295,9 +2306,12 @@ class PostureGraphService(Service):
         weighted_sources = {dest: self._get_goal_cost(sim, interaction, constraint, var_map, dest) for dest in destinations}
         for node in reversed(path_left):
             if node.body_target:
-                sim_location = node.body_target.get_locations_for_posture(path_left[-1])[0]
-                break
-        sim_location = sim.routing_location
+                locations = node.body_target.get_locations_for_posture(path_left[-1])
+                if locations:
+                    sim_location = locations[0]
+                    break
+        else:
+            sim_location = sim.routing_location
         sim_routing_context = sim.get_routing_context()
 
         @BarebonesCache
@@ -2336,17 +2350,15 @@ class PostureGraphService(Service):
                 for sub_constraint in constraint:
                     routing_positions = sub_constraint.routing_positions
                     if not routing_positions:
-                        pass
-                    elif sub_constraint.routing_surface is None:
-                        pass
-                    else:
-                        routing_surfaces = sub_constraint.get_all_valid_routing_surfaces(empty_set_for_invalid=True)
-                        if not routing_surfaces:
-                            pass
-                        else:
-                            routing_positions = [(position, routing_surface) for position in routing_positions for routing_surface in routing_surfaces]
-                            distance = primitives.routing_utils.estimate_distance_between_multiple_points((sim_routing_location,), routing_positions)
-                            distances.add(distance)
+                        continue
+                    if sub_constraint.routing_surface is None:
+                        continue
+                    routing_surfaces = sub_constraint.get_all_valid_routing_surfaces(empty_set_for_invalid=True)
+                    if not routing_surfaces:
+                        continue
+                    routing_positions = [(position, routing_surface) for position in routing_positions for routing_surface in routing_surfaces]
+                    distance = primitives.routing_utils.estimate_distance_between_multiple_points((sim_routing_location,), routing_positions)
+                    distances.add(distance)
             if not distances:
                 distances.add(distance_estimator.estimate_location_distance((sim_location, sim_location, node_body_posture_is_mobile)))
             heuristic = min(distances) if distances else postures.posture_specs.PostureOperation.COST_STANDARD
@@ -2385,6 +2397,7 @@ class PostureGraphService(Service):
             if parent_slot is not None and parent_slot.owner is not sim:
                 if parent_slot.owner.is_sim:
                     return []
+                    yield
                 surface_target = parent_slot.owner
                 if not surface_target.is_surface():
                     raise ValueError('Cannot pick up an object: {} from an invalid surface: {}'.format(carry_target, surface_target))
@@ -2417,7 +2430,8 @@ class PostureGraphService(Service):
             if node.body_target or node.surface_target:
                 right_target = node.body_target or node.surface_target
                 break
-        right_target = None
+        else:
+            right_target = None
 
         def inv_owner_dist(owner):
             (routing_position, _) = Constraint.get_validated_routing_position(owner)
@@ -2433,11 +2447,10 @@ class PostureGraphService(Service):
         inv_objects.sort(key=inv_owner_dist)
         for inv_object in inv_objects:
             if not inv_object.can_access_for_pickup(sim):
-                pass
-            else:
-                pickup_path = self.get_pickup_path(inv_object, interaction)
-                pickup_path.cost += pickup_cost
-                yield pickup_path
+                continue
+            pickup_path = self.get_pickup_path(inv_object, interaction)
+            pickup_path.cost += pickup_cost
+            yield pickup_path
 
     def _get_all_paths(self, sim, source, destinations, var_map, constraint, valid_edge_test, interaction=None, allow_complete=True):
         distance_estimator = DistanceEstimator(self, sim, interaction, constraint)
@@ -2509,58 +2522,39 @@ class PostureGraphService(Service):
             if source_spec is None:
                 pass
             else:
-                if not source_spec.body_target.is_part:
-                    new_body = PostureAspectBody((source_spec.body_posture, None))
-                    new_surface = PostureAspectSurface((None, None, None))
-                    source_spec = source_spec.clone(body=new_body, surface=new_surface)
-                if source_spec.body_posture.mobile and source_spec.body_target is not None and source_spec not in self._graph:
-                    raise AssertionError('Source spec not in the posture graph: {} for interaction: {}'.format(source_spec, interaction))
+                if source_spec.body_posture.mobile:
+                    if source_spec.body_target is not None:
+                        if not source_spec.body_target.is_part:
+                            new_body = PostureAspectBody((source_spec.body_posture, None))
+                            new_surface = PostureAspectSurface((None, None, None))
+                            source_spec = source_spec.clone(body=new_body, surface=new_surface)
+                assert not source_spec not in self._graph
                 source_node = source_spec
                 if gsi_handlers.posture_graph_handlers.archiver.enabled:
                     gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, (source_spec,), var_map_all, 'source', source_node)
                 distance_estimator = DistanceEstimator(self, sim, interaction, constraint)
                 for node in self._graph.get_matching_nodes_gen(destination_specs, slot_types, constraint=final_constraint):
                     if node.get_core_objects() & excluded_objects:
-                        pass
-                    elif not destination_test(sim, node, destination_specs, var_map_all, valid_destination_test, interaction):
-                        pass
-                    elif included_sis and node.body.target is not None and any(not node.body.target.supports_affordance(si.affordance) for si in included_sis):
-                        pass
-                    elif interaction.is_putdown:
+                        continue
+                    if not destination_test(sim, node, destination_specs, var_map_all, valid_destination_test, interaction):
+                        continue
+                    if included_sis and node.body.target is not None and any(not node.body.target.supports_affordance(si.affordance) for si in included_sis):
+                        continue
+                    if interaction.is_putdown:
                         obj = node.body_target
                         if obj is not None:
                             if obj.is_part:
                                 obj = obj.part_owner
                             if not interaction.is_object_valid(obj, distance_estimator):
-                                pass
-                            elif additional_template_list and not interaction.is_putdown:
-                                compatible = True
-                                for (carry_si, additional_templates) in additional_template_list.items():
-                                    if carry_si not in guaranteed_sis:
-                                        pass
-                                    else:
-                                        compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
-                                        if compatible:
-                                            break
-                                if not compatible:
-                                    pass
-                                else:
-                                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                        gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                                    destination_nodes[node] = destination_specs
-                            else:
-                                if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                    gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                                destination_nodes[node] = destination_specs
+                                continue
                         elif additional_template_list and not interaction.is_putdown:
                             compatible = True
                             for (carry_si, additional_templates) in additional_template_list.items():
                                 if carry_si not in guaranteed_sis:
-                                    pass
-                                else:
-                                    compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
-                                    if compatible:
-                                        break
+                                    continue
+                                compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
+                                if compatible:
+                                    break
                             if not compatible:
                                 pass
                             else:
@@ -2575,11 +2569,10 @@ class PostureGraphService(Service):
                         compatible = True
                         for (carry_si, additional_templates) in additional_template_list.items():
                             if carry_si not in guaranteed_sis:
-                                pass
-                            else:
-                                compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
-                                if compatible:
-                                    break
+                                continue
+                            compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
+                            if compatible:
+                                break
                         if not compatible:
                             pass
                         else:
@@ -2596,13 +2589,14 @@ class PostureGraphService(Service):
                     logger.debug('No destination_nodes found for destination_specs: {}', destination_specs)
                 PostureScoring.build_destination_costs(self._goal_costs, destination_nodes, sim, interaction, var_map_all, preferences, included_sis, additional_template_list, relationship_bonuses, constraint, group_constraint)
                 allow_complete = not source_node.body_posture.mobile
-                if source_node.body_target is None:
-                    current_constraint = constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
-                    intersection = current_constraint.intersect(constraint)
-                    if not intersection.valid:
-                        allow_complete = False
+                if allow_complete:
+                    if source_node.body_target is None:
+                        current_constraint = constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
+                        intersection = current_constraint.intersect(constraint)
+                        if not intersection.valid:
+                            allow_complete = False
                 interaction_outfit_changes = interaction.get_tuned_outfit_changes(include_exit_changes=False)
-                if allow_complete and interaction_outfit_changes:
+                if interaction_outfit_changes:
                     for outfit_change in interaction_outfit_changes:
                         if not sim.sim_info.is_wearing_outfit(outfit_change):
                             allow_complete = False
@@ -2623,14 +2617,12 @@ class PostureGraphService(Service):
                             if outfit_change:
                                 entry_change_outfit = outfit_change.get_on_entry_outfit(interaction, sim_info=sim.sim_info)
                                 if entry_change_outfit is not None and not sim.sim_info.is_wearing_outfit(entry_change_outfit):
-                                    pass
-                                else:
-                                    allow_complete = True
-                                    break
+                                    continue
                             else:
                                 allow_complete = True
                                 break
-                        allow_complete = False
+                        else:
+                            allow_complete = False
                 segmented_paths = self._get_all_paths(sim, source_node, destination_nodes, var_map_all, constraint, valid_edge_test, interaction=interaction, allow_complete=allow_complete)
                 all_segmented_paths.extend(segmented_paths)
         if self._goal_costs:
@@ -2659,9 +2651,11 @@ class PostureGraphService(Service):
         additional_template_added = False
         for (carry_si, additional_templates) in additional_template_list.items():
             carry_si_carryable = carry_si.carry_target
-            if carry_si.target.carryable_component is not None:
-                carry_si_carryable = carry_si.target
-            if carry_si_carryable is None and carry_si.target is not None and carry_si_carryable is final_carry_target:
+            if carry_si_carryable is None:
+                if carry_si.target is not None:
+                    if carry_si.target.carryable_component is not None:
+                        carry_si_carryable = carry_si.target
+            if carry_si_carryable is final_carry_target:
                 included_sis.add(carry_si)
                 additional_template_added = True
             else:
@@ -2669,137 +2663,56 @@ class PostureGraphService(Service):
                 for (destination_spec_additional, var_map_additional, constraint_additional) in [(ds, vm, c) for (c, value) in additional_templates.items() for (ds, vm) in value]:
                     additional_hand = var_map_additional[PostureSpecVariable.HAND]
                     if final_hand == additional_hand:
-                        pass
-                    elif additional_template_added:
-                        pass
+                        continue
+                    if additional_template_added:
+                        continue
+                    valid_destination = destination_test(sim, final_node, (destination_spec_additional,), var_map_additional, None, carry_si)
+                    valid_intersection = constraint_additional.intersect(final_spec_constraint).valid
+                    if not valid_intersection:
+                        continue
+                    valid_additional_intersection = True
+                    if not valid_destination:
+                        continue
+                    carry_target = var_map_additional[PostureSpecVariable.CARRY_TARGET]
+                    container = carry_target.parent
+                    if final_node[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
+                        included_sis.add(carry_si)
                     else:
-                        valid_destination = destination_test(sim, final_node, (destination_spec_additional,), var_map_additional, None, carry_si)
-                        valid_intersection = constraint_additional.intersect(final_spec_constraint).valid
-                        if not valid_intersection:
-                            pass
-                        else:
-                            valid_additional_intersection = True
-                            if not valid_destination:
-                                pass
+                        additional_slot_manifest_entry = var_map_additional.get(PostureSpecVariable.SLOT)
+                        if additional_slot_manifest_entry is not None and slot_manifest_entry is not None and slot_manifest_entry.slot_types.intersection(additional_slot_manifest_entry.slot_types):
+                            continue
+                        if container is not sim:
+                            insertion_index = 0
+                            fallback_insertion_index_and_spec = None
+                            original_spec = best_transition_specs[0].posture_spec
+                            if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
+                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
+                            for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
+                                insertion_index += 1
+                                if transition_spec.sequence_id != prev_transition_spec.sequence_id:
+                                    continue
+                                spec = transition_spec.posture_spec
+                                if fallback_insertion_index_and_spec is None:
+                                    if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
+                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
+                                if prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
+                                    if spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
+                                        if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is not container:
+                                            continue
+                                        break
                             else:
-                                carry_target = var_map_additional[PostureSpecVariable.CARRY_TARGET]
-                                container = carry_target.parent
-                                if final_node[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
-                                    included_sis.add(carry_si)
-                                else:
-                                    additional_slot_manifest_entry = var_map_additional.get(PostureSpecVariable.SLOT)
-                                    if additional_slot_manifest_entry is not None and slot_manifest_entry is not None and slot_manifest_entry.slot_types.intersection(additional_slot_manifest_entry.slot_types):
-                                        pass
-                                    else:
-                                        if container is not sim:
-                                            insertion_index = 0
-                                            fallback_insertion_index_and_spec = None
-                                            original_spec = best_transition_specs[0].posture_spec
-                                            if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
-                                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
-                                            for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
-                                                insertion_index += 1
-                                                if transition_spec.sequence_id != prev_transition_spec.sequence_id:
-                                                    pass
-                                                else:
-                                                    spec = transition_spec.posture_spec
-                                                    if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is container:
-                                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
-                                                    if fallback_insertion_index_and_spec is None and prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None and spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
-                                                        if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is not container:
-                                                            pass
-                                                        else:
-                                                            break
-                                            if fallback_insertion_index_and_spec is not None:
-                                                insertion_index = fallback_insertion_index_and_spec.index
-                                                spec = fallback_insertion_index_and_spec.spec
-                                                pick_up_sequence = get_pick_up_spec_sequence(spec, container, body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
-                                                slot_var_map = {PostureSpecVariable.SLOT: SlotManifestEntry(carry_target, container, carry_target.parent_slot)}
-                                                var_map_additional_updated = frozendict(var_map_additional, slot_var_map)
-                                                new_specs = []
-                                                for pick_up_spec in pick_up_sequence:
-                                                    new_specs.append(TransitionSpec(best_path_spec, pick_up_spec, var_map_additional_updated, sequence_id=SequenceId.PICKUP))
-                                                best_path_spec.insert_transition_specs_at_index(insertion_index, new_specs)
-                                                final_surface_target = final_node.surface.target if final_node.surface is not None else None
-                                                if PostureSpecVariable.SLOT in var_map_additional:
-                                                    _slot_manifest_entry = var_map_additional[PostureSpecVariable.SLOT]
-                                                    overrides = {}
-                                                    if isinstance(_slot_manifest_entry.target, PostureSpecVariable):
-                                                        overrides['target'] = final_surface_target
-                                                    interaction_target = final_var_map[PostureSpecVariable.INTERACTION_TARGET]
-                                                    if interaction_target is not None:
-                                                        relative_position = interaction_target.position
-                                                    else:
-                                                        relative_position = final_surface_target.position
-                                                    chosen_slot = self._get_best_slot(final_surface_target, _slot_manifest_entry.slot_types, carry_target, relative_position)
-                                                    if chosen_slot is None:
-                                                        pass
-                                                    else:
-                                                        overrides['slot'] = chosen_slot
-                                                        _slot_manifest_entry = _slot_manifest_entry.with_overrides(**overrides)
-                                                        slot_var_map = {PostureSpecVariable.SLOT: _slot_manifest_entry}
-                                                        var_map_additional = frozendict(var_map_additional, slot_var_map)
-                                                        if additional_slot_manifest_entry is not None:
-                                                            insertion_index = 0
-                                                            fallback_insertion_index_and_spec = None
-                                                            original_spec = best_transition_specs[0].posture_spec
-                                                            if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
-                                                            for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
-                                                                insertion_index += 1
-                                                                if transition_spec.sequence_id != prev_transition_spec.sequence_id:
-                                                                    pass
-                                                                else:
-                                                                    spec = transition_spec.posture_spec
-                                                                    if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
-                                                                    if fallback_insertion_index_and_spec is None and prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None and spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
-                                                                        break
-                                                            if fallback_insertion_index_and_spec is not None:
-                                                                insertion_index = fallback_insertion_index_and_spec.index
-                                                                spec = fallback_insertion_index_and_spec.spec
-                                                                put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
-                                                                new_specs = []
-                                                                for put_down_spec in put_down_sequence:
-                                                                    new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
-                                                                best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
-                                                                included_sis.add(carry_si)
-                                                                additional_template_added = True
-                                                                break
-                                                        included_sis.add(carry_si)
-                                                        additional_template_added = True
-                                                        break
-                                                if final_surface_target is not None and additional_slot_manifest_entry is not None:
-                                                    insertion_index = 0
-                                                    fallback_insertion_index_and_spec = None
-                                                    original_spec = best_transition_specs[0].posture_spec
-                                                    if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
-                                                    for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
-                                                        insertion_index += 1
-                                                        if transition_spec.sequence_id != prev_transition_spec.sequence_id:
-                                                            pass
-                                                        else:
-                                                            spec = transition_spec.posture_spec
-                                                            if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
-                                                            if fallback_insertion_index_and_spec is None and prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None and spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
-                                                                break
-                                                    if fallback_insertion_index_and_spec is not None:
-                                                        insertion_index = fallback_insertion_index_and_spec.index
-                                                        spec = fallback_insertion_index_and_spec.spec
-                                                        put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
-                                                        new_specs = []
-                                                        for put_down_spec in put_down_sequence:
-                                                            new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
-                                                        best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
-                                                        included_sis.add(carry_si)
-                                                        additional_template_added = True
-                                                        break
-                                                included_sis.add(carry_si)
-                                                additional_template_added = True
-                                                break
-                                        final_surface_target = final_node.surface.target if final_node.surface is not None else None
+                                if fallback_insertion_index_and_spec is not None:
+                                    insertion_index = fallback_insertion_index_and_spec.index
+                                    spec = fallback_insertion_index_and_spec.spec
+                                    pick_up_sequence = get_pick_up_spec_sequence(spec, container, body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                    slot_var_map = {PostureSpecVariable.SLOT: SlotManifestEntry(carry_target, container, carry_target.parent_slot)}
+                                    var_map_additional_updated = frozendict(var_map_additional, slot_var_map)
+                                    new_specs = []
+                                    for pick_up_spec in pick_up_sequence:
+                                        new_specs.append(TransitionSpec(best_path_spec, pick_up_spec, var_map_additional_updated, sequence_id=SequenceId.PICKUP))
+                                    best_path_spec.insert_transition_specs_at_index(insertion_index, new_specs)
+                                    final_surface_target = final_node.surface.target if final_node.surface is not None else None
+                                    if final_surface_target is not None:
                                         if PostureSpecVariable.SLOT in var_map_additional:
                                             _slot_manifest_entry = var_map_additional[PostureSpecVariable.SLOT]
                                             overrides = {}
@@ -2827,43 +2740,52 @@ class PostureGraphService(Service):
                                                     for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
                                                         insertion_index += 1
                                                         if transition_spec.sequence_id != prev_transition_spec.sequence_id:
-                                                            pass
-                                                        else:
-                                                            spec = transition_spec.posture_spec
+                                                            continue
+                                                        spec = transition_spec.posture_spec
+                                                        if fallback_insertion_index_and_spec is None:
                                                             if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
                                                                 fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
-                                                            if fallback_insertion_index_and_spec is None and prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None and spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
+                                                        if prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
+                                                            if spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
                                                                 break
-                                                    if fallback_insertion_index_and_spec is not None:
-                                                        insertion_index = fallback_insertion_index_and_spec.index
-                                                        spec = fallback_insertion_index_and_spec.spec
-                                                        put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
-                                                        new_specs = []
-                                                        for put_down_spec in put_down_sequence:
-                                                            new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
-                                                        best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
-                                                        included_sis.add(carry_si)
-                                                        additional_template_added = True
-                                                        break
+                                                    else:
+                                                        if fallback_insertion_index_and_spec is not None:
+                                                            insertion_index = fallback_insertion_index_and_spec.index
+                                                            spec = fallback_insertion_index_and_spec.spec
+                                                            put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                                            new_specs = []
+                                                            for put_down_spec in put_down_sequence:
+                                                                new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                                            best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                                                            included_sis.add(carry_si)
+                                                            additional_template_added = True
+                                                            break
+                                                    put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                                    new_specs = []
+                                                    for put_down_spec in put_down_sequence:
+                                                        new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                                    best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
                                                 included_sis.add(carry_si)
                                                 additional_template_added = True
                                                 break
-                                        if final_surface_target is not None and additional_slot_manifest_entry is not None:
-                                            insertion_index = 0
-                                            fallback_insertion_index_and_spec = None
-                                            original_spec = best_transition_specs[0].posture_spec
-                                            if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
-                                            for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
-                                                insertion_index += 1
-                                                if transition_spec.sequence_id != prev_transition_spec.sequence_id:
-                                                    pass
-                                                else:
-                                                    spec = transition_spec.posture_spec
-                                                    if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
-                                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
-                                                    if fallback_insertion_index_and_spec is None and prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None and spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
-                                                        break
+                                    if additional_slot_manifest_entry is not None:
+                                        insertion_index = 0
+                                        fallback_insertion_index_and_spec = None
+                                        original_spec = best_transition_specs[0].posture_spec
+                                        if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                            fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
+                                        for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
+                                            insertion_index += 1
+                                            if transition_spec.sequence_id != prev_transition_spec.sequence_id:
+                                                continue
+                                            spec = transition_spec.posture_spec
+                                            if fallback_insertion_index_and_spec is None:
+                                                if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                                    fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
+                                            if prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
+                                                if spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
+                                                    break
+                                        else:
                                             if fallback_insertion_index_and_spec is not None:
                                                 insertion_index = fallback_insertion_index_and_spec.index
                                                 spec = fallback_insertion_index_and_spec.spec
@@ -2875,52 +2797,155 @@ class PostureGraphService(Service):
                                                 included_sis.add(carry_si)
                                                 additional_template_added = True
                                                 break
-                                        included_sis.add(carry_si)
-                                        additional_template_added = True
+                                        put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                        new_specs = []
+                                        for put_down_spec in put_down_sequence:
+                                            new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                        best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                                    included_sis.add(carry_si)
+                                    additional_template_added = True
+                                    break
+                            pick_up_sequence = get_pick_up_spec_sequence(spec, container, body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                            slot_var_map = {PostureSpecVariable.SLOT: SlotManifestEntry(carry_target, container, carry_target.parent_slot)}
+                            var_map_additional_updated = frozendict(var_map_additional, slot_var_map)
+                            new_specs = []
+                            for pick_up_spec in pick_up_sequence:
+                                new_specs.append(TransitionSpec(best_path_spec, pick_up_spec, var_map_additional_updated, sequence_id=SequenceId.PICKUP))
+                            best_path_spec.insert_transition_specs_at_index(insertion_index, new_specs)
+                        final_surface_target = final_node.surface.target if final_node.surface is not None else None
+                        if final_surface_target is not None:
+                            if PostureSpecVariable.SLOT in var_map_additional:
+                                _slot_manifest_entry = var_map_additional[PostureSpecVariable.SLOT]
+                                overrides = {}
+                                if isinstance(_slot_manifest_entry.target, PostureSpecVariable):
+                                    overrides['target'] = final_surface_target
+                                interaction_target = final_var_map[PostureSpecVariable.INTERACTION_TARGET]
+                                if interaction_target is not None:
+                                    relative_position = interaction_target.position
+                                else:
+                                    relative_position = final_surface_target.position
+                                chosen_slot = self._get_best_slot(final_surface_target, _slot_manifest_entry.slot_types, carry_target, relative_position)
+                                if chosen_slot is None:
+                                    pass
+                                else:
+                                    overrides['slot'] = chosen_slot
+                                    _slot_manifest_entry = _slot_manifest_entry.with_overrides(**overrides)
+                                    slot_var_map = {PostureSpecVariable.SLOT: _slot_manifest_entry}
+                                    var_map_additional = frozendict(var_map_additional, slot_var_map)
+                                    if additional_slot_manifest_entry is not None:
+                                        insertion_index = 0
+                                        fallback_insertion_index_and_spec = None
+                                        original_spec = best_transition_specs[0].posture_spec
+                                        if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                            fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
+                                        for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
+                                            insertion_index += 1
+                                            if transition_spec.sequence_id != prev_transition_spec.sequence_id:
+                                                continue
+                                            spec = transition_spec.posture_spec
+                                            if fallback_insertion_index_and_spec is None:
+                                                if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                                    fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
+                                            if prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
+                                                if spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
+                                                    break
+                                        else:
+                                            if fallback_insertion_index_and_spec is not None:
+                                                insertion_index = fallback_insertion_index_and_spec.index
+                                                spec = fallback_insertion_index_and_spec.spec
+                                                put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                                new_specs = []
+                                                for put_down_spec in put_down_sequence:
+                                                    new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                                best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                                                included_sis.add(carry_si)
+                                                additional_template_added = True
+                                                break
+                                        put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                        new_specs = []
+                                        for put_down_spec in put_down_sequence:
+                                            new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                        best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                                    included_sis.add(carry_si)
+                                    additional_template_added = True
+                                    break
+                        if additional_slot_manifest_entry is not None:
+                            insertion_index = 0
+                            fallback_insertion_index_and_spec = None
+                            original_spec = best_transition_specs[0].posture_spec
+                            if original_spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, original_spec)
+                            for (prev_transition_spec, transition_spec) in zip(best_transition_specs, best_transition_specs[1:]):
+                                insertion_index += 1
+                                if transition_spec.sequence_id != prev_transition_spec.sequence_id:
+                                    continue
+                                spec = transition_spec.posture_spec
+                                if fallback_insertion_index_and_spec is None:
+                                    if spec[SURFACE_INDEX][SURFACE_TARGET_INDEX] is slot_manifest_entry.actor.parent:
+                                        fallback_insertion_index_and_spec = InsertionIndexAndSpec(insertion_index, spec)
+                                if prev_transition_spec.posture_spec[CARRY_INDEX][CARRY_TARGET_INDEX] is not None:
+                                    if spec[CARRY_INDEX][CARRY_TARGET_INDEX] is None:
                                         break
-                if not valid_additional_intersection:
-                    if can_defer_putdown and carry_si_carryable.carryable_component.defer_putdown:
-                        sim.transition_controller.has_deferred_putdown = True
-                    else:
-                        carry_si.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Posture Graph. No valid intersections for additional constraint.')
+                            else:
+                                if fallback_insertion_index_and_spec is not None:
+                                    insertion_index = fallback_insertion_index_and_spec.index
+                                    spec = fallback_insertion_index_and_spec.spec
+                                    put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                                    new_specs = []
+                                    for put_down_spec in put_down_sequence:
+                                        new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                                    best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                                    included_sis.add(carry_si)
+                                    additional_template_added = True
+                                    break
+                            put_down_sequence = get_put_down_spec_sequence(spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX], spec[SURFACE_INDEX][SURFACE_TARGET_INDEX], body_target=spec[BODY_INDEX][BODY_TARGET_INDEX])
+                            new_specs = []
+                            for put_down_spec in put_down_sequence:
+                                new_specs.append(TransitionSpec(best_path_spec, put_down_spec, var_map_additional, sequence_id=SequenceId.PUTDOWN))
+                            best_path_spec.insert_transition_specs_at_index(insertion_index + 1, new_specs)
+                        included_sis.add(carry_si)
+                        additional_template_added = True
+                        break
+                else:
+                    if not valid_additional_intersection:
+                        if can_defer_putdown and carry_si_carryable.carryable_component.defer_putdown:
+                            sim.transition_controller.has_deferred_putdown = True
+                        else:
+                            carry_si.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Posture Graph. No valid intersections for additional constraint.')
         return included_sis
 
     @staticmethod
     def is_valid_complete_path(sim, path, interaction):
         for posture_spec in path:
             target = posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
-            if target is interaction.target:
-                reservation_handler = interaction.get_interaction_reservation_handler(sim=sim)
-                if not reservation_handler is None:
-                    if reservation_handler.may_reserve():
-                        pass
-                    else:
+            if target is not None:
+                if target is interaction.target:
+                    reservation_handler = interaction.get_interaction_reservation_handler(sim=sim)
+                    if not reservation_handler is None:
+                        if reservation_handler.may_reserve():
+                            continue
                         (can_remove, _, _) = can_remove_blocking_sims(sim, interaction, (target,))
                         if can_remove:
-                            pass
-                        elif target.usable_by_transition_controller(sim.queue.transition_controller):
-                            pass
-                        else:
-                            return False
-            else:
-                reservation_handler = interaction.get_interaction_reservation_handler(sim=sim, target=target)
-                if not reservation_handler is None:
-                    if reservation_handler.may_reserve():
-                        pass
-                    else:
+                            continue
+                        if target.usable_by_transition_controller(sim.queue.transition_controller):
+                            continue
+                        return False
+                else:
+                    reservation_handler = interaction.get_interaction_reservation_handler(sim=sim, target=target)
+                    if not reservation_handler is None:
+                        if reservation_handler.may_reserve():
+                            continue
                         (can_remove, _, _) = can_remove_blocking_sims(sim, interaction, (target,))
                         if can_remove:
-                            pass
-                        elif target.usable_by_transition_controller(sim.queue.transition_controller):
-                            pass
-                        else:
-                            return False
-            (can_remove, _, _) = can_remove_blocking_sims(sim, interaction, (target,))
-            if can_remove:
-                pass
-            elif target.usable_by_transition_controller(sim.queue.transition_controller):
-                pass
-            else:
+                            continue
+                        if target.usable_by_transition_controller(sim.queue.transition_controller):
+                            continue
+                        return False
+                (can_remove, _, _) = can_remove_blocking_sims(sim, interaction, (target,))
+                if can_remove:
+                    continue
+                if target.usable_by_transition_controller(sim.queue.transition_controller):
+                    continue
                 return False
         return True
 
@@ -2938,111 +2963,112 @@ class PostureGraphService(Service):
         carry_target = var_map.get(PostureSpecVariable.CARRY_TARGET)
         for_carryable = carry_target is not None
         (reference_pt, top_level_parent) = Constraint.get_los_reference_point(target, is_carry_target=target is carry_target)
-        if target is carry_target:
-            goal_height_limit = None
-            if top_level_parent is not sim:
-                (reference_pt, top_level_parent) = (None, None)
+        if path_type == PathType.RIGHT:
+            if target is carry_target:
+                goal_height_limit = None
+                if top_level_parent is not sim:
+                    (reference_pt, top_level_parent) = (None, None)
         blocking_obj_id = None
-        if path_type == PathType.RIGHT and sim.routing_master is not None:
+        if sim.routing_master is not None:
             target_reference_override = sim.routing_master
             goal_height_limit = FormationTuning.GOAL_HEIGHT_LIMIT
         else:
             target_reference_override = None
         for sub_constraint in routing_constraint:
             if not sub_constraint.valid:
-                pass
+                continue
+            if sub_constraint.routing_surface is not None:
+                routing_surface = sub_constraint.routing_surface
+            elif target is not None:
+                routing_surface = target.routing_surface
             else:
-                if sub_constraint.routing_surface is not None:
-                    routing_surface = sub_constraint.routing_surface
-                elif target is not None:
-                    routing_surface = target.routing_surface
+                routing_surface = None
+            connectivity_handles = sub_constraint.get_connectivity_handles(sim=sim, routing_surface_override=routing_surface, locked_params=locked_params, los_reference_point=reference_pt, entry=entry, target=target)
+            for connectivity_handle in connectivity_handles:
+                connectivity_handle.path = target_path
+                connectivity_handle.var_map = var_map
+                existing_data = handle_dict.get(connectivity_handle)
+                if existing_data is not None and target_path.cost >= existing_data[1]:
+                    continue
+                if connectivity_handle.los_reference_point is None or test_point_in_compound_polygon(connectivity_handle.los_reference_point, connectivity_handle.geometry.polygon):
+                    single_goal_only = True
                 else:
-                    routing_surface = None
-                connectivity_handles = sub_constraint.get_connectivity_handles(sim=sim, routing_surface_override=routing_surface, locked_params=locked_params, los_reference_point=reference_pt, entry=entry, target=target)
-                for connectivity_handle in connectivity_handles:
-                    connectivity_handle.path = target_path
-                    connectivity_handle.var_map = var_map
-                    existing_data = handle_dict.get(connectivity_handle)
-                    if existing_data is not None and target_path.cost >= existing_data[1]:
-                        pass
-                    else:
-                        if connectivity_handle.los_reference_point is None or test_point_in_compound_polygon(connectivity_handle.los_reference_point, connectivity_handle.geometry.polygon):
-                            single_goal_only = True
-                        else:
-                            single_goal_only = False
-                        routing_goals = connectivity_handle.get_goals(relative_object=target, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override)
-                        if not routing_goals:
-                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'no goals generated', path_type)
-                                yield_to_irq()
-                                valid_goals = []
-                                invalid_goals = []
-                                invalid_los_goals = []
-                                for goal in routing_goals:
-                                    if single_goal_only or not (goal.requires_los_check and target is not None and target.is_sim):
-                                        if top_level_parent is not target and not top_level_parent.is_sim:
-                                            ignored_objects = (top_level_parent,)
-                                        else:
-                                            ignored_objects = ()
-                                        (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                                        if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
-                                            invalid_goals.append(goal)
-                                        elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
-                                            invalid_los_goals.append(goal)
-                                        else:
-                                            goal.path_id = cur_path_id
-                                            valid_goals.append(goal)
-                                    else:
-                                        goal.path_id = cur_path_id
-                                        valid_goals.append(goal)
-                                if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
-                                    gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
-                                if invalid_goals:
-                                    invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
-                                if invalid_los_goals:
-                                    invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
-                                if not valid_goals:
-                                    pass
+                    single_goal_only = False
+                routing_goals = connectivity_handle.get_goals(relative_object=target, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override)
+                if not routing_goals:
+                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'no goals generated', path_type)
+                        yield_to_irq()
+                        valid_goals = []
+                        invalid_goals = []
+                        invalid_los_goals = []
+                        for goal in routing_goals:
+                            if not single_goal_only and not not (goal.requires_los_check and target is not None and target.is_sim):
+                                if top_level_parent is not target and not top_level_parent.is_sim:
+                                    ignored_objects = (top_level_parent,)
                                 else:
-                                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
-                                    handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
-                        else:
-                            yield_to_irq()
-                            valid_goals = []
-                            invalid_goals = []
-                            invalid_los_goals = []
-                            for goal in routing_goals:
-                                if single_goal_only or not (goal.requires_los_check and target is not None and target.is_sim):
-                                    if top_level_parent is not target and not top_level_parent.is_sim:
-                                        ignored_objects = (top_level_parent,)
-                                    else:
-                                        ignored_objects = ()
-                                    (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                                    if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
-                                        invalid_goals.append(goal)
-                                    elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
-                                        invalid_los_goals.append(goal)
-                                    else:
-                                        goal.path_id = cur_path_id
-                                        valid_goals.append(goal)
+                                    ignored_objects = ()
+                                (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
+                                if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
+                                    invalid_goals.append(goal)
+                                elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
+                                    invalid_los_goals.append(goal)
                                 else:
                                     goal.path_id = cur_path_id
                                     valid_goals.append(goal)
-                            if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
-                                gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
-                            if invalid_goals:
-                                invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
-                            if invalid_los_goals:
-                                invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
-                            if not valid_goals:
-                                pass
                             else:
-                                if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                    gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
-                                handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
-                if gsi_handlers.posture_graph_handlers.archiver.enabled and (connectivity_handles or sub_constraint.geometry is not None):
-                    gsi_handlers.posture_graph_handlers.log_transition_handle(sim, None, sub_constraint.geometry, target_path, True, path_type)
+                                goal.path_id = cur_path_id
+                                valid_goals.append(goal)
+                        if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
+                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
+                        if invalid_goals:
+                            invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
+                        if invalid_los_goals:
+                            invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
+                        if not valid_goals:
+                            pass
+                        else:
+                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
+                            handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
+                else:
+                    yield_to_irq()
+                    valid_goals = []
+                    invalid_goals = []
+                    invalid_los_goals = []
+                    for goal in routing_goals:
+                        if not single_goal_only and not not (goal.requires_los_check and target is not None and target.is_sim):
+                            if top_level_parent is not target and not top_level_parent.is_sim:
+                                ignored_objects = (top_level_parent,)
+                            else:
+                                ignored_objects = ()
+                            (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
+                            if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
+                                invalid_goals.append(goal)
+                            elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
+                                invalid_los_goals.append(goal)
+                            else:
+                                goal.path_id = cur_path_id
+                                valid_goals.append(goal)
+                        else:
+                            goal.path_id = cur_path_id
+                            valid_goals.append(goal)
+                    if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
+                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
+                    if invalid_goals:
+                        invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
+                    if invalid_los_goals:
+                        invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
+                    if not valid_goals:
+                        pass
+                    else:
+                        if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
+                        handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
+            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                if not connectivity_handles:
+                    if sub_constraint.geometry is not None:
+                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, None, sub_constraint.geometry, target_path, True, path_type)
         return blocking_obj_id or None
 
     @staticmethod
@@ -3064,16 +3090,20 @@ class PostureGraphService(Service):
             original_target = var_map.get(PostureSpecVariable.INTERACTION_TARGET)
             if original_target == PostureSpecVariable.BODY_TARGET_FILTERED:
                 original_target = target
-            if original_target.id == target.id:
-                updates[PostureSpecVariable.INTERACTION_TARGET] = target
+            if original_target is not None:
+                if original_target.id == target.id:
+                    updates[PostureSpecVariable.INTERACTION_TARGET] = target
             original_carry_target = var_map.get(PostureSpecVariable.CARRY_TARGET)
-            if original_carry_target.id == target.id:
-                updates[PostureSpecVariable.CARRY_TARGET] = target
+            if original_carry_target is not None:
+                if original_carry_target.id == target.id:
+                    updates[PostureSpecVariable.CARRY_TARGET] = target
         if surface_target is not None:
             slot_manifest_entry = var_map.get(PostureSpecVariable.SLOT)
-            if isinstance(slot_manifest_entry.target, PostureSpecVariable) or slot_manifest_entry.target.id == surface_target.id:
-                slot_manifest_entry = SlotManifestEntry(slot_manifest_entry.actor, surface_target, slot_manifest_entry.slot)
-                updates[PostureSpecVariable.SLOT] = slot_manifest_entry
+            if slot_manifest_entry is not None:
+                if slot_manifest_entry.target is not None:
+                    if isinstance(slot_manifest_entry.target, PostureSpecVariable) or slot_manifest_entry.target.id == surface_target.id:
+                        slot_manifest_entry = SlotManifestEntry(slot_manifest_entry.actor, surface_target, slot_manifest_entry.slot)
+                        updates[PostureSpecVariable.SLOT] = slot_manifest_entry
         return frozendict(var_map, updates)
 
     def _generate_left_handles(self, sim, interaction, participant_type, left_path, var_map, destination_spec, final_constraint, unique_id, sim_position_routing_data):
@@ -3140,28 +3170,30 @@ class PostureGraphService(Service):
                 raise PostureGraphMiddlePathError('\n                   Have a middle path to pick up an object that is not in the\n                   inventory and we cannot generate a constrained_edge:\n                    \n                   carry target: {}\n                   interaction: {}\n                   final constraint: {}\n                   dest spec: {}\n                   entry spec: {}\n                   sim location: {}\n                   carry target location: {}\n                   '.format(carry_target, interaction, final_constraint, destination_spec, entry_spec, sim.location, carry_target.location if carry_target else 'NO CARRY TARGET'))
         else:
             carry_transition_constraint = constrained_edge.get_constraint(sim, carry_spec, var_map)
-            if carry_target.is_sim:
-                _animation_resolver_fn = animation_resolver_fn
+            if carry_target is not None:
+                if carry_target.is_sim:
+                    _animation_resolver_fn = animation_resolver_fn
 
-                def animation_resolver_fn(animation_participant, *args, **kwargs):
-                    if animation_participant == AnimationParticipant.ACTOR:
-                        return sim
-                    if animation_participant == AnimationParticipant.CARRY_TARGET:
-                        return carry_target
-                    if animation_participant in (AnimationParticipant.SURFACE, AnimationParticipant.TARGET, PostureSpecVariable.INTERACTION_TARGET):
-                        return carry_target.posture_state.body.target
-                    return _animation_resolver_fn(animation_participant, *args, **kwargs)
+                    def animation_resolver_fn(animation_participant, *args, **kwargs):
+                        if animation_participant == AnimationParticipant.ACTOR:
+                            return sim
+                        if animation_participant == AnimationParticipant.CARRY_TARGET:
+                            return carry_target
+                        if animation_participant in (AnimationParticipant.SURFACE, AnimationParticipant.TARGET, PostureSpecVariable.INTERACTION_TARGET):
+                            return carry_target.posture_state.body.target
+                        return _animation_resolver_fn(animation_participant, *args, **kwargs)
 
-            if carry_target is not None and carry_transition_constraint is not None:
+            if carry_transition_constraint is not None:
                 carry_transition_constraints = []
                 for carry_transition_sub_constraint in carry_transition_constraint:
-                    if carry_target.is_sim:
-                        interaction.transition.add_on_target_location_changed_callback(carry_target)
-                        if carry_transition_sub_constraint.posture_state_spec is not None:
-                            carry_body_target = carry_transition_sub_constraint.posture_state_spec.body_target
-                            if carry_body_target is not None:
-                                body_aspect = PostureAspectBody((carry_spec.body.posture_type, carry_body_target))
-                                carry_spec = carry_spec.clone(body=body_aspect)
+                    if carry_target is not None:
+                        if carry_target.is_sim:
+                            interaction.transition.add_on_target_location_changed_callback(carry_target)
+                            if carry_transition_sub_constraint.posture_state_spec is not None:
+                                carry_body_target = carry_transition_sub_constraint.posture_state_spec.body_target
+                                if carry_body_target is not None:
+                                    body_aspect = PostureAspectBody((carry_spec.body.posture_type, carry_body_target))
+                                    carry_spec = carry_spec.clone(body=body_aspect)
                     target_posture_state = postures.posture_state.PostureState(sim, None, carry_spec, var_map, invalid_expected=True)
                     interaction.transition.add_relevant_object(target_posture_state.body_target)
                     carry_transition_sub_constraint = carry_transition_sub_constraint.apply_posture_state(target_posture_state, animation_resolver_fn)
@@ -3182,7 +3214,8 @@ class PostureGraphService(Service):
                                 if body_aspect.posture_type in compatible_postures:
                                     posture_object = target
                                     break
-                            (posture_object, _) = next(iter(compatible_postures_and_targets.items()))
+                            else:
+                                (posture_object, _) = next(iter(compatible_postures_and_targets.items()))
                     if posture_object is not None:
                         edge_constraint = posture_object.get_edge_constraint()
                         carry_transition_constraint = carry_transition_constraint.intersect(edge_constraint)
@@ -3209,7 +3242,7 @@ class PostureGraphService(Service):
 
     def _get_segmented_path_connectivity_handles(self, sim, segmented_path, interaction, participant_type, animation_resolver_fn, sim_position_routing_data):
         blocking_obj_ids = []
-        searched = {PathType.RIGHT: set(), PathType.LEFT: set()}
+        searched = {PathType.LEFT: set(), PathType.RIGHT: set()}
         middle_handles = {}
         invalid_middles = {}
         invalid_los_middles = {}
@@ -3221,69 +3254,53 @@ class PostureGraphService(Service):
         invalid_los_sources = {}
         for path_left in segmented_path.generate_left_paths():
             if path_left[-1] in searched[PathType.LEFT]:
-                pass
-            else:
-                (source_handles, invalid_sources, invalid_los_sources, blockers) = self._generate_left_handles(sim, interaction, participant_type, path_left, segmented_path.var_map, None, segmented_path.constraint, id(segmented_path), sim_position_routing_data)
+                continue
+            (source_handles, invalid_sources, invalid_los_sources, blockers) = self._generate_left_handles(sim, interaction, participant_type, path_left, segmented_path.var_map, None, segmented_path.constraint, id(segmented_path), sim_position_routing_data)
+            blocking_obj_ids += blockers
+            if not source_handles:
+                continue
+            searched[PathType.LEFT].add(path_left[-1])
+            for path_right in segmented_path.generate_right_paths(sim, path_left):
+                (entry_node, _, _) = self.find_entry_posture_spec(sim, path_right, segmented_path.var_map)
+                if entry_node is not None and entry_node.body_target in searched[PathType.RIGHT]:
+                    continue
+                destination_spec = segmented_path.destination_specs[path_right[-1]]
+                (destination_handles, invalid_destinations, invalid_los_destinations, blockers) = self._generate_right_handles(sim, interaction, participant_type, path_right, segmented_path.var_map, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
                 blocking_obj_ids += blockers
-                if not source_handles:
-                    pass
-                else:
-                    searched[PathType.LEFT].add(path_left[-1])
-                    for path_right in segmented_path.generate_right_paths(sim, path_left):
-                        (entry_node, _, _) = self.find_entry_posture_spec(sim, path_right, segmented_path.var_map)
-                        if entry_node is not None and entry_node.body_target in searched[PathType.RIGHT]:
-                            pass
-                        else:
-                            destination_spec = segmented_path.destination_specs[path_right[-1]]
-                            (destination_handles, invalid_destinations, invalid_los_destinations, blockers) = self._generate_right_handles(sim, interaction, participant_type, path_right, segmented_path.var_map, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
+                if not destination_handles:
+                    continue
+                final_body_target = path_right[-1].body_target
+                if final_body_target is not None:
+                    posture = postures.create_posture(path_right[-1].body_posture, sim, final_body_target, is_throwaway=True)
+                    slot_constraint = posture.slot_constraint_simple
+                    if slot_constraint is not None:
+                        geometry_constraint = segmented_path.constraint.generate_geometry_only_constraint()
+                        if not slot_constraint.intersect(geometry_constraint).valid:
+                            continue
+                    else:
+                        if entry_node is not None:
+                            searched[PathType.RIGHT].add(entry_node.body_target)
+                        for path_middle in segmented_path.generate_middle_paths(path_left, path_right):
+                            if path_middle is None:
+                                return (source_handles, {}, destination_handles, invalid_sources, {}, invalid_destinations, invalid_los_sources, {}, invalid_los_destinations, blocking_obj_ids)
+                            (middle_handles, invalid_middles, invalid_los_middles, blockers) = self._generate_middle_handles(sim, interaction, participant_type, path_middle, segmented_path.var_map_resolved, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
                             blocking_obj_ids += blockers
-                            if not destination_handles:
-                                pass
-                            else:
-                                final_body_target = path_right[-1].body_target
-                                if final_body_target is not None:
-                                    posture = postures.create_posture(path_right[-1].body_posture, sim, final_body_target, is_throwaway=True)
-                                    slot_constraint = posture.slot_constraint_simple
-                                    if slot_constraint is not None:
-                                        geometry_constraint = segmented_path.constraint.generate_geometry_only_constraint()
-                                        if not slot_constraint.intersect(geometry_constraint).valid:
-                                            pass
-                                        else:
-                                            if entry_node is not None:
-                                                searched[PathType.RIGHT].add(entry_node.body_target)
-                                            for path_middle in segmented_path.generate_middle_paths(path_left, path_right):
-                                                if path_middle is None:
-                                                    return (source_handles, {}, destination_handles, invalid_sources, {}, invalid_destinations, invalid_los_sources, {}, invalid_los_destinations, blocking_obj_ids)
-                                                (middle_handles, invalid_middles, invalid_los_middles, blockers) = self._generate_middle_handles(sim, interaction, participant_type, path_middle, segmented_path.var_map_resolved, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
-                                                blocking_obj_ids += blockers
-                                                if middle_handles:
-                                                    return (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
-                                            if all(dest in searched[PathType.RIGHT] for dest in segmented_path.left_destinations) or len(searched[PathType.RIGHT]) >= MAX_RIGHT_PATHS:
-                                                break
-                                    else:
-                                        if entry_node is not None:
-                                            searched[PathType.RIGHT].add(entry_node.body_target)
-                                        for path_middle in segmented_path.generate_middle_paths(path_left, path_right):
-                                            if path_middle is None:
-                                                return (source_handles, {}, destination_handles, invalid_sources, {}, invalid_destinations, invalid_los_sources, {}, invalid_los_destinations, blocking_obj_ids)
-                                            (middle_handles, invalid_middles, invalid_los_middles, blockers) = self._generate_middle_handles(sim, interaction, participant_type, path_middle, segmented_path.var_map_resolved, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
-                                            blocking_obj_ids += blockers
-                                            if middle_handles:
-                                                return (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
-                                        if all(dest in searched[PathType.RIGHT] for dest in segmented_path.left_destinations) or len(searched[PathType.RIGHT]) >= MAX_RIGHT_PATHS:
-                                            break
-                                else:
-                                    if entry_node is not None:
-                                        searched[PathType.RIGHT].add(entry_node.body_target)
-                                    for path_middle in segmented_path.generate_middle_paths(path_left, path_right):
-                                        if path_middle is None:
-                                            return (source_handles, {}, destination_handles, invalid_sources, {}, invalid_destinations, invalid_los_sources, {}, invalid_los_destinations, blocking_obj_ids)
-                                        (middle_handles, invalid_middles, invalid_los_middles, blockers) = self._generate_middle_handles(sim, interaction, participant_type, path_middle, segmented_path.var_map_resolved, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
-                                        blocking_obj_ids += blockers
-                                        if middle_handles:
-                                            return (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
-                                    if all(dest in searched[PathType.RIGHT] for dest in segmented_path.left_destinations) or len(searched[PathType.RIGHT]) >= MAX_RIGHT_PATHS:
-                                        break
+                            if middle_handles:
+                                return (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
+                        if all(dest in searched[PathType.RIGHT] for dest in segmented_path.left_destinations) or len(searched[PathType.RIGHT]) >= MAX_RIGHT_PATHS:
+                            break
+                else:
+                    if entry_node is not None:
+                        searched[PathType.RIGHT].add(entry_node.body_target)
+                    for path_middle in segmented_path.generate_middle_paths(path_left, path_right):
+                        if path_middle is None:
+                            return (source_handles, {}, destination_handles, invalid_sources, {}, invalid_destinations, invalid_los_sources, {}, invalid_los_destinations, blocking_obj_ids)
+                        (middle_handles, invalid_middles, invalid_los_middles, blockers) = self._generate_middle_handles(sim, interaction, participant_type, path_middle, segmented_path.var_map_resolved, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
+                        blocking_obj_ids += blockers
+                        if middle_handles:
+                            return (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
+                    if all(dest in searched[PathType.RIGHT] for dest in segmented_path.left_destinations) or len(searched[PathType.RIGHT]) >= MAX_RIGHT_PATHS:
+                        break
         return (source_handles, {}, {}, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blocking_obj_ids)
 
     def generate_connectivity_handles(self, sim, segmented_paths, interaction, participant_type, animation_resolver_fn):
@@ -3296,68 +3313,65 @@ class PostureGraphService(Service):
         best_complete_path = EMPTY_PATH_SPEC
         for segmented_path in segmented_paths:
             if not segmented_path.is_complete:
-                pass
-            else:
-                for left_path in segmented_path.generate_left_paths():
-                    for right_path in segmented_path.generate_right_paths(sim, left_path):
-                        complete_path = left_path + right_path
-                        if not self.is_valid_complete_path(sim, complete_path, interaction):
-                            pass
-                        else:
-                            if best_complete_path.cost <= complete_path.cost:
-                                break
-                            final_node = complete_path[-1]
-                            if best_complete_path is not EMPTY_PATH_SPEC and interaction.privacy is not None and len(complete_path) == 1:
-                                complete_path.append(final_node)
-                            destination_spec = segmented_path.destination_specs[final_node]
-                            var_map = self._get_resolved_var_map(complete_path, segmented_path.var_map)
-                            constraint = segmented_path.constraint
-                            if len(complete_path) == 1:
-                                transform_constraint = None
-                                if not sim.posture.mobile:
-                                    transform_constraint = sim.posture.slot_constraint
-                                if transform_constraint is None:
-                                    transform_constraint = interactions.constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
-                                final_constraint = constraint.intersect(transform_constraint)
-                            else:
-                                (_, routing_data) = self._get_locations_from_posture(sim, complete_path[-1], var_map, interaction=interaction, participant_type=participant_type, animation_resolver_fn=animation_resolver_fn, final_constraint=constraint)
-                                final_constraint = routing_data[0]
-                            if final_constraint is not None and not final_constraint.valid:
-                                pass
-                            else:
-                                if final_constraint is None:
-                                    final_constraint = constraint
-                                best_complete_path = PathSpec(complete_path, complete_path.cost, var_map, destination_spec, final_constraint, constraint, allow_tentative=True)
-                                self._generate_surface_and_slot_targets(best_complete_path, None, sim.routing_location, objects_to_ignore=DEFAULT)
-                                break
+                continue
+            for left_path in segmented_path.generate_left_paths():
+                for right_path in segmented_path.generate_right_paths(sim, left_path):
+                    complete_path = left_path + right_path
+                    if not self.is_valid_complete_path(sim, complete_path, interaction):
+                        continue
                     if best_complete_path is not EMPTY_PATH_SPEC:
-                        break
+                        if best_complete_path.cost <= complete_path.cost:
+                            break
+                    final_node = complete_path[-1]
+                    if interaction.privacy is not None and len(complete_path) == 1:
+                        complete_path.append(final_node)
+                    destination_spec = segmented_path.destination_specs[final_node]
+                    var_map = self._get_resolved_var_map(complete_path, segmented_path.var_map)
+                    constraint = segmented_path.constraint
+                    if len(complete_path) == 1:
+                        transform_constraint = None
+                        if not sim.posture.mobile:
+                            transform_constraint = sim.posture.slot_constraint
+                        if transform_constraint is None:
+                            transform_constraint = interactions.constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
+                        final_constraint = constraint.intersect(transform_constraint)
+                    else:
+                        (_, routing_data) = self._get_locations_from_posture(sim, complete_path[-1], var_map, interaction=interaction, participant_type=participant_type, animation_resolver_fn=animation_resolver_fn, final_constraint=constraint)
+                        final_constraint = routing_data[0]
+                    if final_constraint is not None and not final_constraint.valid:
+                        continue
+                    if final_constraint is None:
+                        final_constraint = constraint
+                    best_complete_path = PathSpec(complete_path, complete_path.cost, var_map, destination_spec, final_constraint, constraint, allow_tentative=True)
+                    self._generate_surface_and_slot_targets(best_complete_path, None, sim.routing_location, objects_to_ignore=DEFAULT)
+                    break
+                if best_complete_path is not EMPTY_PATH_SPEC:
+                    break
         blocking_obj_ids = []
         for segmented_path in segmented_paths:
             if segmented_path.is_complete:
-                pass
+                continue
+            try:
+                handles = self._get_segmented_path_connectivity_handles(sim, segmented_path, interaction, participant_type, animation_resolver_fn, sim_position_routing_data)
+            except PostureGraphError:
+                return NO_CONNECTIVITY
+            (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blockers) = handles
+            blocking_obj_ids += blockers
+            if middle_handles:
+                value = (source_handles, middle_handles, {}, {}, invalid_middles, invalid_los_middles)
+                source_middle_sets[segmented_path] = value
+                value = [None, destination_handles, invalid_middles, invalid_los_middles, invalid_destinations, invalid_los_destinations]
+                middle_destination_sets[segmented_path] = value
             else:
-                try:
-                    handles = self._get_segmented_path_connectivity_handles(sim, segmented_path, interaction, participant_type, animation_resolver_fn, sim_position_routing_data)
-                except PostureGraphError:
-                    return NO_CONNECTIVITY
-                (source_handles, middle_handles, destination_handles, invalid_sources, invalid_middles, invalid_destinations, invalid_los_sources, invalid_los_middles, invalid_los_destinations, blockers) = handles
-                blocking_obj_ids += blockers
-                if middle_handles:
-                    value = (source_handles, middle_handles, {}, {}, invalid_middles, invalid_los_middles)
-                    source_middle_sets[segmented_path] = value
-                    value = [None, destination_handles, invalid_middles, invalid_los_middles, invalid_destinations, invalid_los_destinations]
-                    middle_destination_sets[segmented_path] = value
-                else:
-                    if DEFAULT in destination_handles:
-                        default_values = {source_handle.clone(): destination_handles[DEFAULT] for source_handle in source_handles}
-                        for (dest_handle, (dest_path, _, _, _, _, _, _)) in default_values.items():
-                            dest_handle.path = dest_path
-                        del destination_handles[DEFAULT]
-                        destination_handles.update(default_values)
-                    value = (source_handles, destination_handles, {}, {}, invalid_destinations, invalid_los_destinations)
-                    source_destination_sets[segmented_path] = value
-        if not (best_complete_path is EMPTY_PATH_SPEC and (source_destination_sets or source_middle_sets and middle_destination_sets)):
+                if DEFAULT in destination_handles:
+                    default_values = {source_handle.clone(): destination_handles[DEFAULT] for source_handle in source_handles}
+                    for (dest_handle, (dest_path, _, _, _, _, _, _)) in default_values.items():
+                        dest_handle.path = dest_path
+                    del destination_handles[DEFAULT]
+                    destination_handles.update(default_values)
+                value = (source_handles, destination_handles, {}, {}, invalid_destinations, invalid_los_destinations)
+                source_destination_sets[segmented_path] = value
+        if not (best_complete_path is EMPTY_PATH_SPEC and not source_destination_sets and not (source_middle_sets and middle_destination_sets)):
             if blocking_obj_ids:
                 set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_ids[0], transition_controller=interaction.transition)
             else:
@@ -3369,28 +3383,34 @@ class PostureGraphService(Service):
         (success, best_non_complete_path) = yield from self._find_best_path_pair(interaction, sim, source_destination_sets, source_middle_sets, middle_destination_sets, timeline)
         if best_complete_path is EMPTY_PATH_SPEC and success == False:
             return (success, best_non_complete_path)
+            yield
         best_non_complete_path = best_non_complete_path.get_carry_sim_merged_path_spec()
         best_non_complete_path = best_non_complete_path.get_stand_to_carry_sim_direct_path_spec()
         if best_complete_path is EMPTY_PATH_SPEC:
             return (success, best_non_complete_path)
+            yield
         if best_non_complete_path is EMPTY_PATH_SPEC:
             return (True, best_complete_path)
+            yield
         force_complete = False
         if interaction.is_putdown and sim in (interaction.target, interaction.carry_target):
             force_complete = True
         else:
             for node in best_complete_path.path:
-                if node.body_target.is_sim:
-                    for other_node in best_non_complete_path.path[1:]:
-                        if node == other_node:
-                            force_complete = True
-                            break
-                if node.body_target is not None and force_complete:
+                if node.body_target is not None:
+                    if node.body_target.is_sim:
+                        for other_node in best_non_complete_path.path[1:]:
+                            if node == other_node:
+                                force_complete = True
+                                break
+                if force_complete:
                     break
-        if success and (force_complete or best_complete_path.cost <= best_non_complete_path.total_cost):
+        if not success or force_complete or best_complete_path.cost <= best_non_complete_path.total_cost:
             best_non_complete_path.cleanup_path_spec(sim)
             return (True, best_complete_path)
+            yield
         return (success, best_non_complete_path)
+        yield
 
     def _find_best_path_pair(self, interaction, sim, source_destination_sets, source_middle_sets, middle_destination_sets, timeline):
         source_dest_success = False
@@ -3407,7 +3427,9 @@ class PostureGraphService(Service):
             if middle_path_spec.is_failure_path:
                 if source_dest_success:
                     return (source_dest_success, source_dest_path_spec)
+                    yield
                 return (middle_success, middle_path_spec)
+                yield
             if middle_success:
                 geometry = create_transform_geometry(selected_goal.location.transform)
                 middle_handle = selected_goal.connectivity_handle.clone(routing_surface_override=selected_goal.routing_surface_id, geometry=geometry)
@@ -3436,6 +3458,7 @@ class PostureGraphService(Service):
             result_success = middle_success
             result_path_spec = middle_path_spec
         return (result_success, result_path_spec)
+        yield
 
     def _get_best_slot(self, slot_target, slot_types, obj, location, objects_to_ignore=DEFAULT):
         runtime_slots = tuple(slot_target.get_runtime_slots_gen(slot_types=slot_types))
@@ -3497,9 +3520,11 @@ class PostureGraphService(Service):
         suppressed_goals = []
         for_carryable = interaction.carry_target is not None
         carry_object_at_pool = False
-        if interaction.carry_target.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
-            carry_object_at_pool = True
-        sim_surface_type = sim.location.routing_surface.type if for_carryable and interaction.carry_target.routing_surface is not None and sim.location.routing_surface is not None else None
+        if for_carryable:
+            if interaction.carry_target.routing_surface is not None:
+                if interaction.carry_target.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
+                    carry_object_at_pool = True
+        sim_surface_type = sim.location.routing_surface.type if sim.location.routing_surface is not None else None
         target_reference_override = None
         interaction_goal_height_limit = interaction.goal_height_limit
         if sim.routing_master is not None:
@@ -3507,30 +3532,32 @@ class PostureGraphService(Service):
             interaction_goal_height_limit = FormationTuning.GOAL_HEIGHT_LIMIT
         for (source_handles, _, _, _, _, _) in source_destination_sets.values():
             for source_handle in source_handles:
-                if source_handle is DEFAULT:
-                    raise AssertionError
+                assert not source_handle is DEFAULT
                 path_cost = source_handles[source_handle][1]
                 source_goals = source_handle.get_goals(relative_object=source_handle.target, for_carryable=for_carryable, for_source=True)
                 same_interaction_source_target = True
-                if interaction.target.id != source_handle.target.id:
-                    same_interaction_source_target = False
+                if interaction.target is not None:
+                    if source_handle.target is not None:
+                        if interaction.target.id != source_handle.target.id:
+                            same_interaction_source_target = False
                 for source_goal in source_goals:
                     source_is_valid = True
                     if path_type != PathType.MIDDLE_RIGHT and (same_interaction_source_target and (sim_surface_type is not None and (sim_surface_type != routing.SurfaceType.SURFACETYPE_POOL and source_goal.routing_surface_id.type != routing.SurfaceType.SURFACETYPE_POOL))) and sim_surface_type != source_goal.routing_surface_id.type:
-                        pass
-                    else:
-                        if not source_handle.target.is_sim:
-                            if routing.test_point_placement_in_navmesh(source_goal.location.routing_surface, source_goal.location.transform.translation):
-                                (result, _) = source_handle.target.check_line_of_sight(source_goal.location.transform, verbose=True, for_carryable=for_carryable)
-                                if result != routing.RAYCAST_HIT_TYPE_NONE:
+                        continue
+                    if source_goal.requires_los_check:
+                        if source_handle.target is not None:
+                            if not source_handle.target.is_sim:
+                                if routing.test_point_placement_in_navmesh(source_goal.location.routing_surface, source_goal.location.transform.translation):
+                                    (result, _) = source_handle.target.check_line_of_sight(source_goal.location.transform, verbose=True, for_carryable=for_carryable)
+                                    if result != routing.RAYCAST_HIT_TYPE_NONE:
+                                        source_is_valid = False
+                                else:
                                     source_is_valid = False
-                            else:
-                                source_is_valid = False
-                        source_goal.path_cost = path_cost
-                        if source_goal.requires_los_check and source_handle.target is not None and source_is_valid:
-                            non_suppressed_source_goals.append(source_goal)
-                        else:
-                            suppressed_source_goals.append(source_goal)
+                    source_goal.path_cost = path_cost
+                    if source_is_valid:
+                        non_suppressed_source_goals.append(source_goal)
+                    else:
+                        suppressed_source_goals.append(source_goal)
         default_goals = set()
         middle_path_pickup = path_type is not None and path_type == PathType.MIDDLE_LEFT
         for (_, destination_handles, _, _, _, _) in source_destination_sets.values():
@@ -3550,61 +3577,67 @@ class PostureGraphService(Service):
                     additional_dest_handles = [dest_handle]
                 for dest_handle in additional_dest_handles:
                     height_limit = interaction_goal_height_limit
-                    if interaction.carry_target is dest_handle.target:
-                        height_limit = None
+                    if target_reference_override is None:
+                        if interaction.carry_target is dest_handle.target:
+                            height_limit = None
                     dest_goals = dest_handle.get_goals(relative_object=dest_handle.target, for_carryable=for_carryable, goal_height_limit=height_limit, target_reference_override=target_reference_override)
-                    slope_restricted = target_reference_override is None and dest_handle.target is not None and dest_handle.constraint.restricted_on_slope
+                    slope_restricted = dest_handle.target is not None and dest_handle.constraint.restricted_on_slope
                     for dest_goal in dest_goals:
                         if middle_path_pickup and carry_object_at_pool and dest_goal.routing_surface_id.type != routing.SurfaceType.SURFACETYPE_POOL:
-                            pass
-                        else:
-                            dest_is_valid = True
-                            dest_goal.path_cost = path_cost
-                            if is_default:
-                                default_goals.add(dest_goal)
-                            if slope_restricted and dest_goal.routing_surface_id.type == routing.SurfaceType.SURFACETYPE_WORLD and dest_goal.position.y != routing_constants.INVALID_TERRAIN_HEIGHT:
-                                positional_target = dest_handle.target.get_parenting_root()
-                                target_position = positional_target.part_owner.position if positional_target.is_part else positional_target.position
-                                height_difference = abs(target_position.y - dest_goal.position.y)
-                                if height_difference > PostureTuning.CONSTRAINT_HEIGHT_TOLERANCE:
-                                    set_transition_failure_reason(sim, TransitionFailureReasons.GOAL_ON_SLOPE)
-                                    dest_is_valid = False
+                            continue
+                        dest_is_valid = True
+                        dest_goal.path_cost = path_cost
+                        if is_default:
+                            default_goals.add(dest_goal)
+                        if slope_restricted and dest_goal.routing_surface_id.type == routing.SurfaceType.SURFACETYPE_WORLD and dest_goal.position.y != routing_constants.INVALID_TERRAIN_HEIGHT:
+                            positional_target = dest_handle.target.get_parenting_root()
+                            target_position = positional_target.part_owner.position if positional_target.is_part else positional_target.position
+                            height_difference = abs(target_position.y - dest_goal.position.y)
+                            if height_difference > PostureTuning.CONSTRAINT_HEIGHT_TOLERANCE:
+                                set_transition_failure_reason(sim, TransitionFailureReasons.GOAL_ON_SLOPE)
+                                dest_is_valid = False
+                            else:
+                                if dest_goal.requires_los_check:
+                                    if dest_handle.target is not None:
+                                        if not dest_handle.target.is_sim:
+                                            if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
+                                                ignored_objects = (dest_handle.target.parent,)
+                                            else:
+                                                ignored_objects = ()
+                                            if dest_handle.target is not None:
+                                                if dest_handle.target.children:
+                                                    ignored_objects += tuple(dest_handle.target.children)
+                                            (result, blocking_obj_id) = dest_handle.target.check_line_of_sight(dest_goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
+                                            if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
+                                                pass
+                                            elif result != routing.RAYCAST_HIT_TYPE_NONE:
+                                                set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
+                                                dest_is_valid = False
+                                if dest_is_valid:
+                                    non_suppressed_goals.append(dest_goal)
                                 else:
+                                    suppressed_goals.append(dest_goal)
+                        else:
+                            if dest_goal.requires_los_check:
+                                if dest_handle.target is not None:
                                     if not dest_handle.target.is_sim:
                                         if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
                                             ignored_objects = (dest_handle.target.parent,)
                                         else:
                                             ignored_objects = ()
-                                        if dest_handle.target.children:
-                                            ignored_objects += tuple(dest_handle.target.children)
+                                        if dest_handle.target is not None:
+                                            if dest_handle.target.children:
+                                                ignored_objects += tuple(dest_handle.target.children)
                                         (result, blocking_obj_id) = dest_handle.target.check_line_of_sight(dest_goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                                        if dest_handle.target is not None and result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
+                                        if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
                                             pass
                                         elif result != routing.RAYCAST_HIT_TYPE_NONE:
                                             set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
                                             dest_is_valid = False
-                                    if dest_goal.requires_los_check and dest_handle.target is not None and dest_is_valid:
-                                        non_suppressed_goals.append(dest_goal)
-                                    else:
-                                        suppressed_goals.append(dest_goal)
+                            if dest_is_valid:
+                                non_suppressed_goals.append(dest_goal)
                             else:
-                                if not dest_handle.target.is_sim:
-                                    if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
-                                        ignored_objects = (dest_handle.target.parent,)
-                                    else:
-                                        ignored_objects = ()
-                                    if dest_handle.target.children:
-                                        ignored_objects += tuple(dest_handle.target.children)
-                                    (result, blocking_obj_id) = dest_handle.target.check_line_of_sight(dest_goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                                    if dest_handle.target is not None and result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
-                                        pass
-                                    elif result != routing.RAYCAST_HIT_TYPE_NONE:
-                                        set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
-                                        dest_is_valid = False
-                                if dest_goal.requires_los_check and dest_handle.target is not None and dest_is_valid:
-                                    non_suppressed_goals.append(dest_goal)
-                                else:
-                                    suppressed_goals.append(dest_goal)
+                                suppressed_goals.append(dest_goal)
         if not non_suppressed_source_goals:
             non_suppressed_source_goals = suppressed_source_goals
         all_source_goals = non_suppressed_source_goals
@@ -3612,6 +3645,7 @@ class PostureGraphService(Service):
         if not (all_source_goals and all_dest_goals):
             failure_path = yield from self._get_failure_path_spec_gen(timeline, sim, source_destination_sets, failed_path_type=path_type)
             return (False, failure_path, None)
+            yield
         for goal in itertools.chain(all_source_goals, all_dest_goals):
             goal.cost += goal.path_cost
         if gsi_handlers.posture_graph_handlers.archiver.enabled:
@@ -3633,6 +3667,7 @@ class PostureGraphService(Service):
         if not ((is_failure_path or plan_primitive.path.nodes.plan_success) and plan_primitive.path.nodes):
             failure_path = yield from self._get_failure_path_spec_gen(timeline, sim, source_destination_sets, failed_path_type=path_type)
             return (False, failure_path, None)
+            yield
         origin = plan_primitive.path.selected_start
         origin_path = origin.connectivity_handle.path
         dest = plan_primitive.path.selected_goal
@@ -3663,6 +3698,7 @@ class PostureGraphService(Service):
                 objects_to_ignore = DEFAULT
             if not self._generate_surface_and_slot_targets(right_path_spec, left_path_spec, dest.location, objects_to_ignore):
                 return (False, EMPTY_PATH_SPEC, None)
+                yield
         d_locked_params = dest.slot_params if dest.has_slot_params else frozendict()
         cur_path = plan_primitive.path
         while cur_path.next_path is not None:
@@ -3686,6 +3722,7 @@ class PostureGraphService(Service):
             right_path_spec.attach_route_and_params(cur_path, d_locked_params, d_route_constraint)
         path_spec = left_path_spec.combine(right_path_spec)
         return (True, path_spec, dest)
+        yield
 
     def normalize_goal_costs(self, all_goals):
         min_cost = sims4.math.MAX_UINT16
@@ -3715,6 +3752,7 @@ class PostureGraphService(Service):
         failure_sources = all_sources or (all_invalid_sources or all_invalid_los_sources)
         if not failure_sources:
             return EMPTY_PATH_SPEC
+            yield
         best_left_data = None
         best_left_cost = sims4.math.MAX_UINT32
         for (source_handle, (_, path_cost, _, _, _, _, _)) in failure_sources.items():
@@ -3728,6 +3766,7 @@ class PostureGraphService(Service):
         failure_destinations = all_destinations or (all_invalid_destinations or all_invalid_los_destinations)
         if not failure_destinations:
             return EMPTY_PATH_SPEC
+            yield
         else:
             all_destination_goals = []
             for (_, _, _, _, dest_goals, _, _) in failure_destinations.values():
@@ -3745,7 +3784,9 @@ class PostureGraphService(Service):
                         logger.warn('Too many destinations: {}', destinations, trigger_breakpoint=True)
                     fail_left_path_spec.destination_spec = next(iter(destinations))
                     return fail_left_path_spec
+                    yield
         return EMPTY_PATH_SPEC
+        yield
 
     def handle_teleporting_path(self, segmented_paths):
         best_left_path = None
@@ -3782,14 +3823,16 @@ class PostureGraphService(Service):
         from_init = self._graph.proxy_sim is None
         if from_init or self._graph.proxy_sim.sim_proxied is sim:
             for instanced_sim in active_household.instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                if instanced_sim.sim_info.is_young_adult_or_older and instanced_sim is not sim:
-                    self.update_generic_sim_carry_node(instanced_sim, from_init=from_init)
-                    return
+                if instanced_sim.sim_info.is_young_adult_or_older:
+                    if instanced_sim is not sim:
+                        self.update_generic_sim_carry_node(instanced_sim, from_init=from_init)
+                        return
             sim_info_manager = services.sim_info_manager()
             for instanced_sim in sim_info_manager.instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                if instanced_sim.sim_info.is_young_adult_or_older and instanced_sim is not sim:
-                    self.update_generic_sim_carry_node(instanced_sim, from_init=from_init)
-                    return
+                if instanced_sim.sim_info.is_young_adult_or_older:
+                    if instanced_sim is not sim:
+                        self.update_generic_sim_carry_node(instanced_sim, from_init=from_init)
+                        return
             self._graph.proxy_sim = None
 
     def _find_first_constrained_edge(self, sim, path, var_map, reverse=False):
@@ -3833,9 +3876,11 @@ class PostureGraphService(Service):
             constraint_intersection = body_posture.slot_constraint
             if constraint_intersection is None:
                 return (True, (None, None, body_target))
-            if not isinstance(final_constraint, RequiredSlotSingle):
-                constraint_geometry_only = final_constraint.generate_geometry_only_constraint()
-                constraint_intersection = constraint_intersection.intersect(constraint_geometry_only)
+            if final_constraint is not None:
+                if constraint_intersection.valid:
+                    if not isinstance(final_constraint, RequiredSlotSingle):
+                        constraint_geometry_only = final_constraint.generate_geometry_only_constraint()
+                        constraint_intersection = constraint_intersection.intersect(constraint_geometry_only)
         else:
             if interaction is None:
                 return (True, (None, None, body_target))
@@ -3849,17 +3894,21 @@ class PostureGraphService(Service):
                 interaction_constraint = interaction.apply_posture_state_and_interaction_to_constraint(target_posture_state, final_constraint, sim=sim, target=base_object or target, participant_type=participant_type, base_object=base_object)
                 target_posture_state.add_constraint(self, interaction_constraint)
             constraint_intersection = target_posture_state.constraint_intersection
-        if constraint_intersection.valid:
-            edge_constraint = constrained_edge.get_constraint(sim, posture_spec, var_map)
-            edge_constraint_resolved = edge_constraint.apply_posture_state(target_posture_state, animation_resolver_fn)
-            edge_constraint_resolved_geometry_only = edge_constraint_resolved.generate_geometry_only_constraint()
-            constraint_intersection = constraint_intersection.intersect(edge_constraint_resolved_geometry_only)
-        if not (body_unconstrained and (animation_resolver_fn is not None and constrained_edge is not None) and constraint_intersection.valid):
+        if body_unconstrained:
+            if animation_resolver_fn is not None:
+                if constrained_edge is not None:
+                    if constraint_intersection.valid:
+                        edge_constraint = constrained_edge.get_constraint(sim, posture_spec, var_map)
+                        edge_constraint_resolved = edge_constraint.apply_posture_state(target_posture_state, animation_resolver_fn)
+                        edge_constraint_resolved_geometry_only = edge_constraint_resolved.generate_geometry_only_constraint()
+                        constraint_intersection = constraint_intersection.intersect(edge_constraint_resolved_geometry_only)
+        if not constraint_intersection.valid:
             return (False, (constraint_intersection.generate_single_surface_constraints(), None, body_target))
         for constraint in constraint_intersection:
             if constraint.geometry is not None:
                 break
-        return (True, (None, None, body_target))
+        else:
+            return (True, (None, None, body_target))
         constraint_intersection = constraint_intersection.generate_single_surface_constraints()
         locked_params = frozendict()
         if body_target is not None:
@@ -3872,7 +3921,7 @@ class PostureGraphService(Service):
         if body_target is not None:
             routing_target = body_target
         elif interaction.target is not None:
-            if posture_spec.requires_carry_target_in_hand or not posture_spec.requires_carry_target_in_slot:
+            if not posture_spec.requires_carry_target_in_hand and not posture_spec.requires_carry_target_in_slot:
                 routing_target = interaction.target
             elif interaction.target.parent is not sim:
                 routing_target = interaction.target
@@ -3888,13 +3937,15 @@ class PostureGraphService(Service):
         found_objects = self._query_quadtree_for_mobile_posture_objects(sim, test_footprint=True)
         for found_obj in found_objects:
             mobile_posture_types = get_mobile_posture_types_for_object(found_obj)
-            if found_obj.has_posture_portals():
-                (posture_entry, _) = found_obj.get_nearest_posture_change(sim)
-                if posture_entry is not None and posture_entry.body.posture_type in mobile_posture_types:
-                    mobile_postures[found_obj] = (posture_entry.body.posture_type,)
+            if mobile_posture_types:
+                if found_obj.has_posture_portals():
+                    (posture_entry, _) = found_obj.get_nearest_posture_change(sim)
+                    if posture_entry is not None:
+                        if posture_entry.body.posture_type in mobile_posture_types:
+                            mobile_postures[found_obj] = (posture_entry.body.posture_type,)
+                            mobile_postures[found_obj] = mobile_posture_types
+                else:
                     mobile_postures[found_obj] = mobile_posture_types
-            else:
-                mobile_postures[found_obj] = mobile_posture_types
         return mobile_postures
 
     def _query_quadtree_for_mobile_posture_objects(self, sim, test_footprint=False):
@@ -3916,9 +3967,8 @@ class PostureGraphService(Service):
             polygon = mobile_obj.get_polygon_from_footprint_name_hashes(PLACEMENT_FOOTPRINT_HASH_SET)
             if not polygon is None:
                 if not test_point_in_compound_polygon(sim_pos, polygon):
-                    pass
-                else:
-                    mobile_posture_objects.append(mobile_obj)
+                    continue
+                mobile_posture_objects.append(mobile_obj)
         return mobile_posture_objects
 
     def add_object_to_mobile_posture_quadtree(self, obj):
@@ -3943,13 +3993,12 @@ class PostureGraphService(Service):
         sims = set()
         for sim in services.sim_info_manager().instanced_sims_gen():
             if not sim.is_on_active_lot():
-                pass
-            else:
-                found_objs = tuple(self._query_quadtree_for_mobile_posture_objects(sim, test_footprint=test_footprint))
-                if posture_obj is not None and posture_obj not in found_objs:
-                    pass
-                elif found_objs:
-                    sims.add(sim)
+                continue
+            found_objs = tuple(self._query_quadtree_for_mobile_posture_objects(sim, test_footprint=test_footprint))
+            if posture_obj is not None and posture_obj not in found_objs:
+                continue
+            if found_objs:
+                sims.add(sim)
         return sims
 
     def mobile_posture_object_location_changed(self, obj, *_, **__):
@@ -3992,6 +4041,9 @@ class PostureGraphService(Service):
                 for obj in objects:
                     object_totals[obj.definition]['nodes'] += 1
                     object_totals[obj.definition]['edges'] += len(node_data.successors)
+                else:
+                    object_totals['Untargeted']['nodes'] += 1
+                    object_totals['Untargeted']['edges'] += len(node_data.successors)
             else:
                 object_totals['Untargeted']['nodes'] += 1
                 object_totals['Untargeted']['edges'] += len(node_data.successors)
@@ -4028,7 +4080,7 @@ class PostureGraphService(Service):
         w.end('description')
         w.end('meta')
         w.start('graph', {'defaultedgetype': 'directed', 'mode': 'static'})
-        TYPE_MAPPING = {float: 'float', int: 'float', str: 'string'}
+        TYPE_MAPPING = {str: 'string', int: 'float', float: 'float'}
         w.start('attributes', {'class': 'node'})
         attribute_index = 0
         for (attribute_name, attribute_type) in PostureSpec._attribute_definitions:
@@ -4076,8 +4128,9 @@ class PostureGraphService(Service):
                     indent(elem, level + 1)
                 if not (elem.tail and elem.tail.strip()):
                     elem.tail = i
-            elif not (elem.tail and elem.tail.strip()):
-                elem.tail = i
+            elif level:
+                if not (elem.tail and elem.tail.strip()):
+                    elem.tail = i
 
         indent(tree)
         from os.path import expanduser

@@ -17,7 +17,7 @@ class DemographicsService(Service):
         if target_population is None:
             return True
         else:
-            townie_population = sum(len(household) for household in services.household_manager().values() if household.home_zone_id == 0 and household.get_home_world_id() == world_id)
+            townie_population = sum(len(household) for household in services.household_manager().values() if household.home_zone_id == 0 if household.get_home_world_id() == world_id)
             if townie_population >= target_population:
                 return True
         return False
@@ -34,9 +34,9 @@ class DemographicsService(Service):
                 blacklists.append(blacklist)
         world_ids = set()
         if allow_all_worlds:
-            world_ids |= services.get_persistence_service().get_world_ids()
+            world_ids.update(services.get_persistence_service().get_world_ids())
         elif whitelists:
-            world_ids |= whitelists.pop()
+            world_ids.update(whitelists.pop())
         world_ids.intersection_update(*whitelists)
         world_ids.difference_update(*blacklists)
         world_id = self._choose_world_from_candidates(world_ids)
@@ -45,7 +45,7 @@ class DemographicsService(Service):
         feature = self._get_filter_feature_for_world_id(world_id)
         if feature is not None:
             if feature.sim_creator_tags is not None:
-                sim_creator.tag_set.extend(feature.sim_creator_tags.tags)
+                sim_creator.tag_set.update(feature.sim_creator_tags.tags)
             filter_terms.extend(feature.filter_terms)
             return (world_id, feature.sim_name_type)
         return (world_id, SimNameType.DEFAULT)
@@ -57,9 +57,8 @@ class DemographicsService(Service):
         townie_counts = defaultdict(int)
         for household in services.household_manager().values():
             if household.home_zone_id != 0:
-                pass
-            else:
-                townie_counts[household.get_home_world_id()] += len(household)
+                continue
+            townie_counts[household.get_home_world_id()] += len(household)
         desired_counts = {}
         for world_id in tuple(world_ids):
             street = world.street.get_street_instance_from_world_id(world_id)

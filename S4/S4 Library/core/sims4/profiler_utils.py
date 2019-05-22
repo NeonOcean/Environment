@@ -15,6 +15,7 @@ def create_custom_named_profiler_function(name, use_generator=False):
         def y(fn):
             result = yield from fn()
             return result
+            yield
 
     else:
 

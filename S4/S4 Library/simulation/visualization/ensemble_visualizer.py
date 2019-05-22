@@ -21,8 +21,7 @@ class EnsembleVisualizer:
             for ensemble in services.ensemble_service().get_all_ensembles():
                 color = pseudo_random_color(ensemble.guid)
                 if ensemble.last_center_of_mass is None:
-                    pass
-                else:
-                    layer.add_circle(ensemble.last_center_of_mass, radius=math.sqrt(ensemble.max_ensemble_radius), color=color)
-                    for sim in ensemble:
-                        layer.add_circle(sim.position, radius=0.3, color=color)
+                    continue
+                layer.add_circle(ensemble.last_center_of_mass, radius=math.sqrt(ensemble.max_ensemble_radius), color=color)
+                for sim in ensemble:
+                    layer.add_circle(sim.position, radius=0.3, color=color)

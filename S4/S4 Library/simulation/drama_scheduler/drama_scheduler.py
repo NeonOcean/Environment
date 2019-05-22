@@ -128,12 +128,11 @@ class DramaScheduleService(Service):
         node_guids_to_cancel = set(drama_node_type.guid64 for drama_node_type in drama_nodes)
         for drama_node in list(self._scheduled_nodes.values()):
             if drama_node.guid64 not in node_guids_to_cancel:
-                pass
-            else:
-                if is_drama_node_log_enabled():
-                    log_drama_node_scoring(drama_node, DramaNodeLogActions.CANCELED, '{} canceled manually.', drama_node)
-                drama_node.cleanup()
-                del self._scheduled_nodes[drama_node.uid]
+                continue
+            if is_drama_node_log_enabled():
+                log_drama_node_scoring(drama_node, DramaNodeLogActions.CANCELED, '{} canceled manually.', drama_node)
+            drama_node.cleanup()
+            del self._scheduled_nodes[drama_node.uid]
 
     def cancel_scheduled_node(self, drama_node_uid):
         if drama_node_uid not in self._scheduled_nodes:
@@ -216,31 +215,28 @@ class DramaScheduleService(Service):
         for drama_proto in save_slot_data.gameplay_data.drama_schedule_service.drama_nodes:
             node_type = drama_node_manager.get(drama_proto.node_type)
             if node_type is None:
-                pass
+                continue
+            drama_node_inst = node_type()
+            if drama_node_inst.load(drama_proto):
+                self._scheduled_nodes[drama_node_inst.uid] = drama_node_inst
             else:
-                drama_node_inst = node_type()
-                if drama_node_inst.load(drama_proto):
-                    self._scheduled_nodes[drama_node_inst.uid] = drama_node_inst
-                else:
-                    drama_node_inst.cleanup()
+                drama_node_inst.cleanup()
         for drama_proto in save_slot_data.gameplay_data.drama_schedule_service.running_nodes:
             node_type = drama_node_manager.get(drama_proto.node_type)
             if node_type is None:
-                pass
+                continue
+            drama_node_inst = node_type()
+            if drama_node_inst.load(drama_proto, schedule_alarm=False):
+                self._active_nodes[drama_node_inst.uid] = drama_node_inst
+                drama_node_inst.resume()
             else:
-                drama_node_inst = node_type()
-                if drama_node_inst.load(drama_proto, schedule_alarm=False):
-                    self._active_nodes[drama_node_inst.uid] = drama_node_inst
-                    drama_node_inst.resume()
-                else:
-                    drama_node_inst.cleanup()
+                drama_node_inst.cleanup()
         for cooldown_proto in save_slot_data.gameplay_data.drama_schedule_service.cooldown_nodes:
             node_type = drama_node_manager.get(cooldown_proto.node_type)
             if node_type is None:
-                pass
-            else:
-                time = DateAndTime(cooldown_proto.completed_time)
-                self._cooldown_nodes[node_type] = time
+                continue
+            time = DateAndTime(cooldown_proto.completed_time)
+            self._cooldown_nodes[node_type] = time
         self._drama_nodes_on_permanent_cooldown.update(save_slot_data.gameplay_data.drama_schedule_service.drama_nodes_on_permanent_cooldown)
         self._startup_buckets_used = {DramaNodeScoringBucket(bucket) for bucket in save_slot_data.gameplay_data.drama_schedule_service.startup_drama_node_buckets_used}
 
@@ -257,7 +253,7 @@ class DramaScheduleService(Service):
     def _is_node_on_cooldown(self, drama_node):
         return drama_node in self._cooldown_nodes or drama_node.guid64 in self._drama_nodes_on_permanent_cooldown
 
-    def score_and_schedule_nodes_gen(self, nodes_to_score, nodes_to_schedule, time_modifier=TimeSpan.ZERO, timeline=None, gsi_data=None, **additional_drama_node_kwargs):
+    def score_and_schedule_nodes_gen(self, nodes_to_score, nodes_to_schedule, specific_time=None, time_modifier=TimeSpan.ZERO, timeline=None, gsi_data=None, **additional_drama_node_kwargs):
         active_household = services.active_household()
         if active_household is None:
             return
@@ -288,30 +284,31 @@ class DramaScheduleService(Service):
                             possible_nodes.append((score, drama_node_inst))
         if not possible_nodes:
             return
-        while nodes_to_schedule > 0 and possible_nodes:
-            chosen_node = random.pop_weighted(possible_nodes)
-            if type(chosen_node) in chosen_node_types:
-                if gsi_data is not None:
-                    gsi_data.rejected_nodes.append(GSIRejectedDramaNodeScoringData(type(drama_node_inst), 'Could not schedule drama node because a drama node of this type was already scheduled.', score=chosen_node.score(), score_details=chosen_node.get_score_details(), receiver=chosen_node.get_receiver_sim_info(), sender=chosen_node.get_sender_sim_info()))
-                chosen_node.cleanup()
-            else:
-                result = chosen_node.schedule(None, time_modifier=time_modifier)
-                if timeline is not None:
-                    yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
-                if not result:
+        while nodes_to_schedule > 0:
+            while possible_nodes:
+                chosen_node = random.pop_weighted(possible_nodes)
+                if type(chosen_node) in chosen_node_types:
                     if gsi_data is not None:
-                        gsi_data.rejected_nodes.append(GSIRejectedDramaNodeScoringData(type(chosen_node), 'Could not schedule drama node because there are no valid times.', score=chosen_node.score(), score_details=chosen_node.get_score_details(), receiver=chosen_node.get_receiver_sim_info(), sender=chosen_node.get_sender_sim_info()))
+                        gsi_data.rejected_nodes.append(GSIRejectedDramaNodeScoringData(type(drama_node_inst), 'Could not schedule drama node because a drama node of this type was already scheduled.', score=chosen_node.score(), score_details=chosen_node.get_score_details(), receiver=chosen_node.get_receiver_sim_info(), sender=chosen_node.get_sender_sim_info()))
                     chosen_node.cleanup()
                 else:
-                    if gsi_data is not None:
-                        gsi_data.chosen_nodes.append(GSIDramaNodeScoringData(type(chosen_node), chosen_node.score(), chosen_node.get_score_details(), chosen_node.get_receiver_sim_info(), chosen_node.get_sender_sim_info()))
-                    self._scheduled_nodes[chosen_node.uid] = chosen_node
-                    if chosen_node.cooldown_option == CooldownOption.ON_SCHEDULE:
-                        self.start_cooldown(type(chosen_node))
-                    if is_drama_node_log_enabled():
-                        log_drama_node_scoring(chosen_node, DramaNodeLogActions.SCHEDULED)
-                    nodes_to_schedule -= 1
-                    chosen_node_types.add(type(chosen_node))
+                    result = chosen_node.schedule(None, specific_time=specific_time, time_modifier=time_modifier)
+                    if timeline is not None:
+                        yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
+                    if not result:
+                        if gsi_data is not None:
+                            gsi_data.rejected_nodes.append(GSIRejectedDramaNodeScoringData(type(chosen_node), 'Could not schedule drama node because there are no valid times.', score=chosen_node.score(), score_details=chosen_node.get_score_details(), receiver=chosen_node.get_receiver_sim_info(), sender=chosen_node.get_sender_sim_info()))
+                        chosen_node.cleanup()
+                    else:
+                        if gsi_data is not None:
+                            gsi_data.chosen_nodes.append(GSIDramaNodeScoringData(type(chosen_node), chosen_node.score(), chosen_node.get_score_details(), chosen_node.get_receiver_sim_info(), chosen_node.get_sender_sim_info()))
+                        self._scheduled_nodes[chosen_node.uid] = chosen_node
+                        if chosen_node.cooldown_option == CooldownOption.ON_SCHEDULE:
+                            self.start_cooldown(type(chosen_node))
+                        if is_drama_node_log_enabled():
+                            log_drama_node_scoring(chosen_node, DramaNodeLogActions.SCHEDULED)
+                        nodes_to_schedule -= 1
+                        chosen_node_types.add(type(chosen_node))
         for (score, drama_node_inst) in possible_nodes:
             drama_node_inst.cleanup()
 
@@ -333,33 +330,30 @@ class DramaScheduleService(Service):
             for lot_owner_info in neighborhood_proto.lots:
                 zone_id = lot_owner_info.zone_instance_id
                 if not zone_id:
-                    pass
+                    continue
+                venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
+                if venue_type is None:
+                    continue
+                if not venue_type.drama_node_events:
+                    continue
+                if is_scoring_archive_enabled():
+                    gsi_data = GSIDramaScoringData()
+                    gsi_data.bucket = 'Venue'
                 else:
-                    venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
-                    if venue_type is None:
-                        pass
-                    elif not venue_type.drama_node_events:
-                        pass
-                    else:
-                        if is_scoring_archive_enabled():
-                            gsi_data = GSIDramaScoringData()
-                            gsi_data.bucket = 'Venue'
-                        else:
-                            gsi_data = None
-                        yield from self.score_and_schedule_nodes_gen(venue_type.drama_node_events, venue_type.drama_node_events_to_schedule, timeline=timeline, gsi_data=gsi_data, zone_id=zone_id)
-                        if gsi_data is not None:
-                            archive_drama_scheduler_scoring(gsi_data)
-                        if timeline is not None:
-                            yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
+                    gsi_data = None
+                yield from self.score_and_schedule_nodes_gen(venue_type.drama_node_events, venue_type.drama_node_events_to_schedule, timeline=timeline, gsi_data=gsi_data, zone_id=zone_id)
+                if gsi_data is not None:
+                    archive_drama_scheduler_scoring(gsi_data)
+                if timeline is not None:
+                    yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
         bucketted_nodes = defaultdict(list)
         drama_node_manager = services.get_instance_manager(sims4.resources.Types.DRAMA_NODE)
         for drama_node in drama_node_manager.types.values():
             if drama_node.scoring is None:
-                pass
-            else:
-                bucketted_nodes[drama_node.scoring.bucket].append(drama_node)
+                continue
+            bucketted_nodes[drama_node.scoring.bucket].append(drama_node)
         buckets_to_score = []
-        if from_zone_spin_up or self._check_day(current_day, self.VENUE_BUCKET_DAYS) and from_zone_spin_up:
+        if from_zone_spin_up or not self._check_day(current_day, self.VENUE_BUCKET_DAYS) or from_zone_spin_up:
             buckets = self.STARTUP_BUCKETS - self._startup_buckets_used
             if current_time < create_date_and_time(days=int(current_time.absolute_days()), hours=self.SCORING_TIME):
                 day_modifier = -1
@@ -367,34 +361,33 @@ class DramaScheduleService(Service):
                 day_modifier = 0
             for bucket in buckets:
                 if not bucketted_nodes[bucket]:
-                    pass
+                    continue
+                self._startup_buckets_used.add(bucket)
+                rules = self.BUCKET_SCORING_RULES[bucket]
+                smallest_day_modification = None
+                for (day, day_enabled) in rules.days.items():
+                    if not day_enabled:
+                        continue
+                    potential_modification = current_day + day_modifier - day
+                    potential_modification += DAYS_PER_WEEK
+                    if not potential_modification < 0 or smallest_day_modification is None or potential_modification < smallest_day_modification:
+                        smallest_day_modification = potential_modification
+                if smallest_day_modification is None:
+                    time_modification = TimeSpan.ZERO
                 else:
-                    self._startup_buckets_used.add(bucket)
-                    rules = self.BUCKET_SCORING_RULES[bucket]
-                    smallest_day_modification = None
-                    for (day, day_enabled) in rules.days.items():
-                        if not day_enabled:
-                            pass
-                        else:
-                            potential_modification = current_day + day_modifier - day
-                            potential_modification += DAYS_PER_WEEK
-                            if potential_modification < 0 and (smallest_day_modification is None or potential_modification < smallest_day_modification):
-                                smallest_day_modification = potential_modification
-                    if smallest_day_modification is None:
-                        time_modification = TimeSpan.ZERO
-                    else:
-                        time_modification = TimeSpan(current_time.absolute_ticks()) - create_time_span(days=int(current_time.absolute_days()) - smallest_day_modification + day_modifier, hours=self.SCORING_TIME)
-                    buckets_to_score.append((bucket, rules, time_modification))
+                    time_modification = TimeSpan(current_time.absolute_ticks()) - create_time_span(days=int(current_time.absolute_days()) - smallest_day_modification + day_modifier, hours=self.SCORING_TIME)
+                buckets_to_score.append((bucket, rules, time_modification))
         else:
             for (bucket_type, rules) in self.BUCKET_SCORING_RULES.items():
                 valid_day = self._check_day(current_day, rules.days)
                 for drama_node in self._scheduled_nodes.values():
                     if drama_node.scoring is None:
-                        pass
-                    elif drama_node.scoring.bucket == bucket_type:
+                        continue
+                    if drama_node.scoring.bucket == bucket_type:
                         break
-                valid_day = True
-                if valid_day or rules.score_if_no_nodes_are_scheduled and valid_day:
+                else:
+                    valid_day = True
+                if valid_day or not rules.score_if_no_nodes_are_scheduled or valid_day:
                     buckets_to_score.append((bucket_type, rules, TimeSpan.ZERO))
         for (bucket_type, rules, time_modifier) in buckets_to_score:
             if is_scoring_archive_enabled():
@@ -457,9 +450,8 @@ class DramaScheduleService(Service):
     def make_zone_director_requests(self):
         for drama_node in self._active_nodes.values():
             if drama_node.zone_director_override is None:
-                pass
-            else:
-                services.venue_service().request_zone_director(drama_node.zone_director_override(), ZoneDirectorRequestType.DRAMA_SCHEDULER)
+                continue
+            services.venue_service().request_zone_director(drama_node.zone_director_override(), ZoneDirectorRequestType.DRAMA_SCHEDULER)
 
     def schedule_nodes_on_startup(self):
         for _ in self._score_and_schedule_drama_nodes_gen(None, from_zone_spin_up=True):

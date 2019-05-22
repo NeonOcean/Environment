@@ -39,9 +39,10 @@ class WaitInLineSuperInteraction(SitOrStandSuperInteraction):
             self._push_adjustment_interaction()
         result = yield from super().prepare_gen(timeline, **kwargs)
         return result
+        yield
 
     def maybe_enter_stored_interaction(self, *args, **kwargs):
-        if self._waiting_line.is_first_in_line(self) and (self._instanced_stored_interaction or self.may_reserve_on_stored_target()):
+        if self._waiting_line.is_first_in_line(self) and not self._instanced_stored_interaction and self.may_reserve_on_stored_target():
             self._begin_stored_interaction()
             return True
         return False
@@ -140,9 +141,10 @@ class WaitInLineSuperInteraction(SitOrStandSuperInteraction):
             desired_position = sim_in_front_of_me.intended_position
             sim_2_in_front_to_sim_in_front_vector = tuned_forward_vector
             interaction_2_in_front_of_me = inst._waiting_line.get_neighboring_interaction(interaction_in_front_of_me, offset=-1)
-            if not interaction_2_in_front_of_me._instanced_stored_interaction:
-                sim_2_in_front_of_me = interaction_2_in_front_of_me.sim
-                sim_2_in_front_to_sim_in_front_vector = sim_in_front_of_me.intended_position - sim_2_in_front_of_me.intended_position
+            if interaction_2_in_front_of_me is not None:
+                if not interaction_2_in_front_of_me._instanced_stored_interaction:
+                    sim_2_in_front_of_me = interaction_2_in_front_of_me.sim
+                    sim_2_in_front_to_sim_in_front_vector = sim_in_front_of_me.intended_position - sim_2_in_front_of_me.intended_position
             combined_vector = sims4.math.vector_normalize(sim_2_in_front_to_sim_in_front_vector + tuned_forward_vector)
             line_cone_constraint = inst._waiting_line._line_cone.create_constraint(sim, None, target_position=desired_position, target_forward=combined_vector, target_routing_surface=inst._stored_aop.target.routing_surface)
             constraint_list.append(line_cone_constraint)

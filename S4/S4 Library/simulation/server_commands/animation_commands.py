@@ -40,10 +40,11 @@ def asm_describe(name, _connection=None):
 def set_parent(parent_id:int, child_id:int, joint_name=None, use_offset:int=0, _connection=None):
     manager = services.object_manager()
     parent = None
-    if parent_id in manager:
-        parent = manager.get(parent_id)
+    if parent_id != 0:
+        if parent_id in manager:
+            parent = manager.get(parent_id)
     child = None
-    if parent_id != 0 and child_id != 0:
+    if child_id != 0:
         if child_id in manager:
             child = manager.get(child_id)
         else:
@@ -101,7 +102,7 @@ def on_arb_started(arb_network_id:int, _connection=None):
     animation_drift_monitor_on_arb_client_started(arb_network_id)
 
 @sims4.commands.Command('animation.arb_complete')
-def on_arb_complete(arb_network_id:int, arb_client_duration:int, arb_client_playback_delay:int, *timeline_contents, _connection=None):
+def on_arb_complete(arb_network_id:int, arb_client_duration:int, arb_client_playback_delay:int, *timeline_contents:str, _connection=None):
     timeline_contents = ''.join(timeline_contents)
     timeline_contents = timeline_contents.replace('\r', '\n')
     timeline_contents = timeline_contents.replace('"', '')

@@ -14,8 +14,9 @@ def logged_gsi_object_deleted(obj):
     if len(deleted_objs) > MAX_DELETED_SIM_RECORDS:
         obj_to_cleanup = deleted_objs.pop(0)
         for archive_entries in sims4.gsi.archive.archive_data.values():
-            if isinstance(archive_entries, dict) and obj_to_cleanup in archive_entries:
-                del archive_entries[obj_to_cleanup]
+            if isinstance(archive_entries, dict):
+                if obj_to_cleanup in archive_entries:
+                    del archive_entries[obj_to_cleanup]
 
 def print_num_archive_records():
     logger.warn('---------- Start GSI Archive Dump ----------')
@@ -26,6 +27,8 @@ def print_num_archive_records():
             logger.warn('Type: {}', archive_type)
             for (sim_id, sim_data_entries) in archive_entries.items():
                 logger.warn('    Sim Id: {}, Num Entries: {}', sim_id, len(sim_data_entries))
+            else:
+                logger.error('I have no idea what this entry is....')
         else:
             logger.error('I have no idea what this entry is....')
     logger.warn('---------- End GSI Archive Dump ----------')

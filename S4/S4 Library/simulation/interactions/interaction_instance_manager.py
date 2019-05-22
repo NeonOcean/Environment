@@ -60,14 +60,15 @@ class InteractionInstanceManager(InstanceManager):
             return
         cache_enabled = caches.USE_ACC_AND_BCC & caches.AccBccUsage.ACC
         for cls in self.types.values():
-            if not (cls._animation_constraint_dirty or cache_enabled):
+            if not (cls._animation_constraint_dirty or not cache_enabled):
                 self._ac_cache[cls.__name__] = cls._auto_constraints
             cached_constraints = self._ac_cache.get(cls.__name__)
-            if cls._auto_constraints is None and cached_constraints is not None:
-                valid_constraints = {}
-                for (key, constraint) in cached_constraints.items():
-                    valid_constraints[key] = constraint.remove_constraints_with_unset_postures()
-                cls._auto_constraints = valid_constraints
+            if cls._auto_constraints is None:
+                if cached_constraints is not None:
+                    valid_constraints = {}
+                    for (key, constraint) in cached_constraints.items():
+                        valid_constraints[key] = constraint.remove_constraints_with_unset_postures()
+                    cls._auto_constraints = valid_constraints
 
 def get_animation_constraint_cache_debug_information():
     interaction_manager = services.get_instance_manager(sims4.resources.Types.INTERACTION)

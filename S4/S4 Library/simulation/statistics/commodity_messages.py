@@ -39,7 +39,7 @@ def send_sim_life_skill_delete_message(sim, msg):
         distributor.add_op(sim, op)
 
 def send_sim_alert_update_message(sim, msg):
-    if sim.is_npc or sim.valid_for_distribution:
+    if not sim.is_npc and sim.valid_for_distribution:
         distributor = Distributor.instance()
         op = GenericProtocolBufferOp(Operation.SIM_ALERT_UPDATE, msg)
         distributor.add_op(sim, op)

@@ -27,7 +27,7 @@ def pregnancy_seed(seed:int, sim_id:OptionalTargetParam=None, _connection=None):
     return False
 
 @sims4.commands.Command('pregnancy.roll')
-def pregnancy_roll(sim_id:OptionalTargetParam=None, *seeds, _connection=None):
+def pregnancy_roll(sim_id:OptionalTargetParam=None, *seeds:int, _connection=None):
     sim = get_optional_target(sim_id, _connection)
     if sim is not None:
         pregnancy_tracker = sim.sim_info.pregnancy_tracker
@@ -89,16 +89,14 @@ def pregnancy_impregnate_many_npcs(opt_sim:OptionalSimInfoParam=None, _connectio
     sim_info_manager = services.sim_info_manager()
     for target_sim_info in sim_info_manager.get_all():
         if sim_info.gender == target_sim_info.gender:
-            pass
-        elif sim_info.species != target_sim_info.species:
-            pass
-        elif target_sim_info.is_teen_or_younger:
-            pass
-        else:
-            pregnancy_tracker = target_sim_info.pregnancy_tracker
-            if pregnancy_tracker is None:
-                pass
-            else:
-                pregnancy_tracker.start_pregnancy(target_sim_info, sim_info)
-                output('\tImpregnated {}'.format(target_sim_info))
+            continue
+        if sim_info.species != target_sim_info.species:
+            continue
+        if target_sim_info.is_teen_or_younger:
+            continue
+        pregnancy_tracker = target_sim_info.pregnancy_tracker
+        if pregnancy_tracker is None:
+            continue
+        pregnancy_tracker.start_pregnancy(target_sim_info, sim_info)
+        output('\tImpregnated {}'.format(target_sim_info))
     return True

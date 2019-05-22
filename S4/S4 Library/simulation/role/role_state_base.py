@@ -93,11 +93,12 @@ class RoleStateBase:
                 logger.warn('{} has empty buff in buff list. Please fix tuning.', self)
             else:
                 self._buff_handles.append(self.sim.add_buff(buff_ref.buff_type, buff_reason=buff_ref.buff_reason))
-        if self.off_lot_autonomy_buff.buff_type is not None:
-            self._off_lot_autonomy_buff_handle = self.sim.add_buff(self.off_lot_autonomy_buff.buff_type, buff_reason=self.off_lot_autonomy_buff.buff_reason)
+        if self.off_lot_autonomy_buff is not None:
+            if self.off_lot_autonomy_buff.buff_type is not None:
+                self._off_lot_autonomy_buff_handle = self.sim.add_buff(self.off_lot_autonomy_buff.buff_type, buff_reason=self.off_lot_autonomy_buff.buff_reason)
         self._apply_commodity_flag(self.role_specific_affordances, self.sim.add_dynamic_commodity_flags)
         self._apply_commodity_flag(self.preroll_affordances, self.sim.add_dynamic_preroll_commodity_flags)
-        if self.off_lot_autonomy_buff is not None and self.on_activate is not None:
+        if self.on_activate is not None:
             self.on_activate(self, role_affordance_target, situation=situation, **affordance_override_kwargs)
         if not self.allow_npc_routing_on_active_lot:
             self.sim.inc_lot_routing_restriction_ref_count()

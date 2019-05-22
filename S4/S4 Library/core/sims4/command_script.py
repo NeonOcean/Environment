@@ -18,8 +18,8 @@ def run_script(filename, _connection=None):
             else:
                 to_server = False
             if not command:
-                pass
-            elif to_server:
+                continue
+            if to_server:
                 sims4.commands.execute(command, _connection)
             elif _connection:
                 sims4.commands.client_cheat(command, _connection)

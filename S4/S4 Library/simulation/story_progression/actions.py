@@ -42,11 +42,14 @@ class StoryProgressionPopulateAction(_StoryProgressionAction):
                 if lot_owner.household_id > 0:
                     num_zones_filled += 1
                     break
-            venue_type = venue_manager.get(lot_owner_info.venue_key)
-            if not venue_type is None:
-                pass
-            if lot_owner_info.lot_template_id > 0:
-                available_zone_ids.add(lot_owner_info.zone_instance_id)
+            else:
+                venue_type = venue_manager.get(lot_owner_info.venue_key)
+                if not venue_type is None:
+                    if venue_type.residential:
+                        if lot_owner_info.lot_template_id > 0:
+                            available_zone_ids.add(lot_owner_info.zone_instance_id)
+                if lot_owner_info.lot_template_id > 0:
+                    available_zone_ids.add(lot_owner_info.zone_instance_id)
         available_zone_ids.discard(services.current_zone_id())
         return (num_zones_filled, available_zone_ids)
 
@@ -182,15 +185,14 @@ class StoryProgressionDestinationPopulateAction(_StoryProgressionAction):
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
         for lot_owner_info in neighborhood_proto_buff.lots:
             if lot_owner_info.venue_key == 0:
-                pass
-            elif venue_manager.get(lot_owner_info.venue_key) not in rentable_zone_density_data._venues_to_populate:
-                pass
+                continue
+            if venue_manager.get(lot_owner_info.venue_key) not in rentable_zone_density_data._venues_to_populate:
+                continue
+            zone_id = lot_owner_info.zone_instance_id
+            if not travel_group_manager.is_zone_rentable(zone_id):
+                num_zones_rented += 1
             else:
-                zone_id = lot_owner_info.zone_instance_id
-                if not travel_group_manager.is_zone_rentable(zone_id):
-                    num_zones_rented += 1
-                else:
-                    available_zone_ids.append(zone_id)
+                available_zone_ids.append(zone_id)
         return (num_zones_rented, available_zone_ids)
 
     def process_action(self, story_progression_flags):

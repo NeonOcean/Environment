@@ -91,7 +91,7 @@ class LiveDragComponent(NativeComponent, HasTunableFactory, component_name=LIVE_
             self.update_permission(LiveDragPermission.NOT_IN_USE, False)
             if self._live_drag_state == LiveDragState.LIVE_DRAGGING:
                 self._live_drag_user.send_live_drag_cancel(self.owner.id, live_drag_end_system=LiveDragLocation.GAMEPLAY_SCRIPT)
-        elif added or not any(user is not self._live_drag_user for user in self.owner.get_users()):
+        elif not added and not any(user is not self._live_drag_user for user in self.owner.get_users()):
             self.update_permission(LiveDragPermission.NOT_IN_USE, True)
 
     def is_valid_drop_target(self, test_obj):
@@ -105,8 +105,9 @@ class LiveDragComponent(NativeComponent, HasTunableFactory, component_name=LIVE_
     def get_valid_drop_object_ids(self):
         drop_target_ids = []
         for test_obj in services.object_manager().values():
-            if test_obj.is_hidden() or self.is_valid_drop_target(test_obj):
-                drop_target_ids.append(test_obj.id)
+            if not test_obj.is_hidden():
+                if self.is_valid_drop_target(test_obj):
+                    drop_target_ids.append(test_obj.id)
         if self.owner.inventoryitem_component is not None:
             return (drop_target_ids, self.owner.inventoryitem_component.get_stack_id())
         else:
@@ -144,8 +145,9 @@ class LiveDragComponent(NativeComponent, HasTunableFactory, component_name=LIVE_
     def resolve_live_drag_state_ops(self):
         permission = True
         for op in self._live_drag_state_ops.values():
-            if op == LiveDragStateOp.LIVE_DRAG_OP_DISABLE and permission:
-                permission = False
+            if op == LiveDragStateOp.LIVE_DRAG_OP_DISABLE:
+                if permission:
+                    permission = False
         self.update_permission(LiveDragPermission.STATE, permission)
 
     def add_live_drag_state_op(self, op_owner, op):

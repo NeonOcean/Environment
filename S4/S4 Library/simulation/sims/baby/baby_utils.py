@@ -35,9 +35,10 @@ def remove_stale_babies(household):
     if household is services.active_household():
         for obj_id in find_objects_in_household_inventory(tuple(definition.id for definition in BabyTuning.BABY_BASSINET_DEFINITION_MAP), household.id):
             sim_info = services.sim_info_manager().get(obj_id)
-            if not sim_info.household is not household:
-                if not sim_info.is_baby:
-                    remove_object_from_household_inventory(obj_id, household)
+            if not sim_info is None:
+                if not sim_info.household is not household:
+                    if not sim_info.is_baby:
+                        remove_object_from_household_inventory(obj_id, household)
             remove_object_from_household_inventory(obj_id, household)
 
 def replace_bassinet(sim_info, bassinet=None, safe_destroy=False):

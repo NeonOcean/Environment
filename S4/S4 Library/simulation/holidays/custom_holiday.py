@@ -99,9 +99,8 @@ class CustomHoliday:
         for tradition_guid in msg.traditions:
             tradition = tradition_manager.get(tradition_guid)
             if tradition is None:
-                pass
-            else:
-                self.traditions.append(tradition)
+                continue
+            self.traditions.append(tradition)
         if msg.HasField('name'):
             self._name = msg.name
         else:

@@ -474,15 +474,16 @@ class SimSpawnerService(sims4.service_manager.Service):
         for request in matching_requests:
             self._customer_success_notification(sim, request)
         self._sim_spawned_callbacks(sim)
-        if not self._spawning_requests:
-            self._mode = _SpawningMode.WAITING_HITTING_MARKS
-            while self._submitted_requests:
-                request = self._submitted_requests.pop(0)
-                self._customer_denied_notification(request, 'Request denied because batch spawning is complete.')
-            while self._listening_requests:
-                request = self._listening_requests.pop(0)
-                self._customer_denied_notification(request, 'Request denied because batch spawning is complete.')
-        if self._mode == _SpawningMode.BATCH_SPAWNING and self._gui_smoke_notification_enabled and not (self._spawning_requests or self._submitted_requests):
+        if self._mode == _SpawningMode.BATCH_SPAWNING:
+            if not self._spawning_requests:
+                self._mode = _SpawningMode.WAITING_HITTING_MARKS
+                while self._submitted_requests:
+                    request = self._submitted_requests.pop(0)
+                    self._customer_denied_notification(request, 'Request denied because batch spawning is complete.')
+                while self._listening_requests:
+                    request = self._listening_requests.pop(0)
+                    self._customer_denied_notification(request, 'Request denied because batch spawning is complete.')
+        if self._gui_smoke_notification_enabled and not self._spawning_requests and not self._submitted_requests:
             self._gui_smoke_notification_enabled = False
             client = services.client_manager().get_first_client()
             if client:

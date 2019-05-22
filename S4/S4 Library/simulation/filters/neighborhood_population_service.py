@@ -58,13 +58,14 @@ class _FillZonePopulationRequest(_BasePopulationRequest):
             if nums_sims_to_weight_bonus is not None:
                 weight *= nums_sims_to_weight_bonus.get(num_sims_in_template)
             if weight <= 0:
-                pass
-            else:
+                continue
+            if lot_has_kid_beds:
                 if household_template.has_teen_or_below:
                     weight *= NeighborhoodPopulationService.KID_TO_KID_BED_MULTIPLIER
+            if lot_has_double_beds:
                 if household_template.has_spouse:
                     weight *= NeighborhoodPopulationService.SIGNIFICANT_OTHER_MULTIPLIER
-                households.append((weight, household_template))
+            households.append((weight, household_template))
         if households:
             household_template = sims4.random.weighted_random_item(households)
             self._create_household_from_template_and_add_to_zone(household_template, neighborhood_proto, zone_id, creation_source='neigh_pop_service: residents')
@@ -76,46 +77,46 @@ class _FillZonePopulationRequest(_BasePopulationRequest):
         weighted_households = []
         for household in tuple(household_manager.values()):
             if not household.available_to_populate_zone():
-                pass
+                continue
+            num_sims = len(household)
+            if not num_sims:
+                continue
+            nums_sims_to_weight_bonus = NeighborhoodPopulationService.NUM_BEDS_TO_IDEAL_HOUSEHOLD_CURVE.get(total_beds)
+            if nums_sims_to_weight_bonus is not None:
+                weight = nums_sims_to_weight_bonus.get(num_sims)
             else:
-                num_sims = len(household)
-                if not num_sims:
-                    pass
-                else:
-                    nums_sims_to_weight_bonus = NeighborhoodPopulationService.NUM_BEDS_TO_IDEAL_HOUSEHOLD_CURVE.get(total_beds)
-                    if nums_sims_to_weight_bonus is not None:
-                        weight = nums_sims_to_weight_bonus.get(num_sims)
-                    else:
-                        weight = 1
-                    if weight <= 0:
-                        pass
-                    else:
-                        household_has_married_sims = False
-                        household_has_kids = False
-                        total_household_relationship_weight = 0
-                        sim_info_manager = services.sim_info_manager()
-                        for sim_info in household:
-                            if lot_has_double_beds:
-                                spouse_sim_id = sim_info.spouse_sim_id
-                                if household.get_sim_info_by_id(spouse_sim_id):
-                                    household_has_married_sims = True
-                            if sim_info.age <= Age.TEEN:
-                                household_has_kids = True
-                            total_sim_info_weight = 0
-                            for relationship in sim_info.relationship_tracker:
-                                target_sim_info = sim_info_manager.get(relationship.get_other_sim_id(sim_info.sim_id))
-                                if target_sim_info is not None and target_sim_info.is_player_sim:
-                                    total_sim_info_weight = relationship.get_relationship_depth(sim_info.sim_id)*self.RELATIONSHIP_DEPTH_WEIGHT
-                                    total_sim_info_weight += len(relationship.relationship_track_tracker)*self.RELATIONSHIP_TRACK_MULTIPLIER
-                            total_household_relationship_weight += total_sim_info_weight
-                        total_household_relationship_weight /= num_sims
-                        if self.RELATIONSHIP_UTILITY_CURVE is not None:
-                            weight *= self.RELATIONSHIP_UTILITY_CURVE.get(total_household_relationship_weight)
-                        if household_has_kids:
-                            weight *= NeighborhoodPopulationService.KID_TO_KID_BED_MULTIPLIER
-                        if household_has_married_sims:
-                            weight *= NeighborhoodPopulationService.SIGNIFICANT_OTHER_MULTIPLIER
-                        weighted_households.append((weight, household.id))
+                weight = 1
+            if weight <= 0:
+                continue
+            household_has_married_sims = False
+            household_has_kids = False
+            total_household_relationship_weight = 0
+            sim_info_manager = services.sim_info_manager()
+            for sim_info in household:
+                if lot_has_double_beds:
+                    spouse_sim_id = sim_info.spouse_sim_id
+                    if not spouse_sim_id:
+                        if household.get_sim_info_by_id(spouse_sim_id):
+                            household_has_married_sims = True
+                if lot_has_kid_beds:
+                    if sim_info.age <= Age.TEEN:
+                        household_has_kids = True
+                total_sim_info_weight = 0
+                for relationship in sim_info.relationship_tracker:
+                    target_sim_info = sim_info_manager.get(relationship.get_other_sim_id(sim_info.sim_id))
+                    if target_sim_info is not None:
+                        if target_sim_info.is_player_sim:
+                            total_sim_info_weight = relationship.get_relationship_depth(sim_info.sim_id)*self.RELATIONSHIP_DEPTH_WEIGHT
+                            total_sim_info_weight += len(relationship.relationship_track_tracker)*self.RELATIONSHIP_TRACK_MULTIPLIER
+                total_household_relationship_weight += total_sim_info_weight
+            total_household_relationship_weight /= num_sims
+            if self.RELATIONSHIP_UTILITY_CURVE is not None:
+                weight *= self.RELATIONSHIP_UTILITY_CURVE.get(total_household_relationship_weight)
+            if household_has_kids:
+                weight *= NeighborhoodPopulationService.KID_TO_KID_BED_MULTIPLIER
+            if household_has_married_sims:
+                weight *= NeighborhoodPopulationService.SIGNIFICANT_OTHER_MULTIPLIER
+            weighted_households.append((weight, household.id))
         return weighted_households
 
     def _get_household_templates_and_bed_data(self, zone_id, household_population_data):
@@ -142,16 +143,16 @@ class _FillZonePopulationRequest(_BasePopulationRequest):
 
     def process_request_gen(self, timeline):
         (household_population_data, neighborhood_proto) = self._get_region_household_population_data_and_neighborhood_proto()
-        if household_population_data or not self._try_existing_households:
+        if not household_population_data and not self._try_existing_households:
             logger.debug('There is no HouseholdPopulationRegionData for region: {}', neighborhood_proto.region_id)
             return
-        while self._num_to_fill > 0 and self._available_zone_ids:
-            zone_id = self._available_zone_ids.pop(random.randint(0, len(self._available_zone_ids) - 1))
-            templates_and_bed_data = self._get_household_templates_and_bed_data(zone_id, household_population_data)
-            (household_templates, total_beds, lot_has_double_bed, lot_has_kid_bed) = templates_and_bed_data
-            if total_beds <= 0:
-                pass
-            else:
+        while self._num_to_fill > 0:
+            while self._available_zone_ids:
+                zone_id = self._available_zone_ids.pop(random.randint(0, len(self._available_zone_ids) - 1))
+                templates_and_bed_data = self._get_household_templates_and_bed_data(zone_id, household_population_data)
+                (household_templates, total_beds, lot_has_double_bed, lot_has_kid_bed) = templates_and_bed_data
+                if total_beds <= 0:
+                    continue
                 moved_household_into_zone = False
                 if self._try_existing_households:
                     weighted_households = self._get_available_households(total_beds, lot_has_double_bed, lot_has_kid_bed)
@@ -167,9 +168,10 @@ class _FillZonePopulationRequest(_BasePopulationRequest):
                             if household is not None:
                                 self._move_household_into_zone(household, neighborhood_proto, zone_id)
                                 moved_household_into_zone = True
-                if household_templates:
-                    moved_household_into_zone = self._add_household_template_to_zone(household_templates, total_beds, lot_has_double_bed, lot_has_kid_bed, neighborhood_proto, zone_id)
-                if moved_household_into_zone or moved_household_into_zone:
+                if not moved_household_into_zone:
+                    if household_templates:
+                        moved_household_into_zone = self._add_household_template_to_zone(household_templates, total_beds, lot_has_double_bed, lot_has_kid_bed, neighborhood_proto, zone_id)
+                if moved_household_into_zone:
                     self._num_to_fill -= 1
                 yield from element_utils.run_child(timeline, element_utils.sleep_until_next_tick_element())
 
@@ -214,22 +216,20 @@ class _FillRentableLotRequest(_BasePopulationRequest):
         household_manager = services.household_manager()
         for household in household_manager.values():
             if household.hidden:
-                pass
-            elif household.any_member_in_travel_group():
-                pass
-            else:
-                sim_infos_that_can_lead_travel_group = []
-                sim_infos_available_for_vacation = []
-                for sim_info in household:
-                    if sim_info.is_instanced():
-                        pass
-                    else:
-                        if sim_info.is_young_adult_or_older and sim_info.is_human:
-                            sim_infos_that_can_lead_travel_group.append(sim_info)
-                        if not sim_info.is_baby:
-                            sim_infos_available_for_vacation.append(sim_info)
-                if sim_infos_that_can_lead_travel_group:
-                    possible_travel_groups.append((sim_infos_that_can_lead_travel_group, sim_infos_available_for_vacation))
+                continue
+            if household.any_member_in_travel_group():
+                continue
+            sim_infos_that_can_lead_travel_group = []
+            sim_infos_available_for_vacation = []
+            for sim_info in household:
+                if sim_info.is_instanced():
+                    continue
+                if sim_info.is_young_adult_or_older and sim_info.is_human:
+                    sim_infos_that_can_lead_travel_group.append(sim_info)
+                if not sim_info.is_baby:
+                    sim_infos_available_for_vacation.append(sim_info)
+            if sim_infos_that_can_lead_travel_group:
+                possible_travel_groups.append((sim_infos_that_can_lead_travel_group, sim_infos_available_for_vacation))
         return possible_travel_groups
 
     def _send_sims_on_vacation(self, zone_id, sim_infos_to_send_to_vacation, duration):
@@ -246,14 +246,14 @@ class _FillRentableLotRequest(_BasePopulationRequest):
     def process_request_gen(self, timeline):
         if self._region_renting_data is None:
             return
-        while self._num_to_fill > 0 and self._available_zone_ids:
-            zone_id = random.choice(self._available_zone_ids)
-            self._available_zone_ids.remove(zone_id)
-            (max_group_size, total_sleeping_spots) = self._get_max_travel_group_size(zone_id)
-            if not max_group_size == 0:
-                if total_sleeping_spots == 0:
-                    pass
-                else:
+        while self._num_to_fill > 0:
+            while self._available_zone_ids:
+                zone_id = random.choice(self._available_zone_ids)
+                self._available_zone_ids.remove(zone_id)
+                (max_group_size, total_sleeping_spots) = self._get_max_travel_group_size(zone_id)
+                if not max_group_size == 0:
+                    if total_sleeping_spots == 0:
+                        continue
                     possible_travel_groups = self._find_households_to_rent_lot()
                     if possible_travel_groups:
                         (sim_infos_that_can_lead_travel_group, sim_infos_available_for_vacation) = random.choice(possible_travel_groups)
@@ -270,13 +270,9 @@ class _FillRentableLotRequest(_BasePopulationRequest):
                     else:
                         household_template = self._region_renting_data.travel_group_size_to_household_template(max_group_size)
                         if household_template is None:
-                            pass
-                        else:
-                            household = household_template.create_household(zone_id, self._account, creation_source='neigh_pop_service:rentable_lot')
-                            sim_infos_to_send_to_vacation = [sim_info for sim_info in household]
-                            if self._send_sims_on_vacation(zone_id, sim_infos_to_send_to_vacation, self._region_renting_data.duration.random_int()):
-                                self._num_to_fill -= 1
-                            yield from element_utils.run_child(timeline, element_utils.sleep_until_next_tick_element())
+                            continue
+                        household = household_template.create_household(zone_id, self._account, creation_source='neigh_pop_service:rentable_lot')
+                        sim_infos_to_send_to_vacation = [sim_info for sim_info in household]
                     if self._send_sims_on_vacation(zone_id, sim_infos_to_send_to_vacation, self._region_renting_data.duration.random_int()):
                         self._num_to_fill -= 1
                     yield from element_utils.run_child(timeline, element_utils.sleep_until_next_tick_element())

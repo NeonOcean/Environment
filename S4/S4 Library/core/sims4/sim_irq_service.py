@@ -39,12 +39,14 @@ class SimIrqService(Service):
         self._is_active = False
 
     def _yield_to_irq(self):
-        if not self._is_inprogress:
-            try:
-                self._is_inprogress = True
-                _sim_irq.handle_sim_irq(self._zone_id)
-            finally:
-                self._is_inprogress = False
+        if self._is_enabled:
+            if self._is_active:
+                if not self._is_inprogress:
+                    try:
+                        self._is_inprogress = True
+                        _sim_irq.handle_sim_irq(self._zone_id)
+                    finally:
+                        self._is_inprogress = False
 
 def yield_zone_id(zone_id):
     SimIrqService._instance._zone_id = zone_id

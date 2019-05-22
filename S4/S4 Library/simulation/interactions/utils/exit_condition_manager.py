@@ -102,27 +102,19 @@ class ConditionalActionManager:
             if interaction is not None:
                 tests = conditional_action.tests
                 if tests is not None and not tests.run_tests(resolver):
-                    pass
+                    continue
+                restrictions = conditional_action.restrictions
+                if restrictions:
+                    restrict_to_user_directed = restrictions == ConditionalActionRestriction.USER_DIRECTED_ONLY
+                    if is_user_directed != restrict_to_user_directed:
+                        continue
                 else:
-                    restrictions = conditional_action.restrictions
-                    if restrictions:
-                        restrict_to_user_directed = restrictions == ConditionalActionRestriction.USER_DIRECTED_ONLY
-                        if is_user_directed != restrict_to_user_directed:
-                            pass
-                        else:
-                            for condition_factory in conditional_action.conditions:
-                                condition = condition_factory(interaction=interaction, situation=situation)
-                                conditions.append(condition)
-                            condition_group = ConditionGroup(conditions, conditional_action)
-                            self._condition_groups.append(condition_group)
-                            condition_group.attach(owner, self._condition_group_satisfied_callback)
-                    else:
-                        for condition_factory in conditional_action.conditions:
-                            condition = condition_factory(interaction=interaction, situation=situation)
-                            conditions.append(condition)
-                        condition_group = ConditionGroup(conditions, conditional_action)
-                        self._condition_groups.append(condition_group)
-                        condition_group.attach(owner, self._condition_group_satisfied_callback)
+                    for condition_factory in conditional_action.conditions:
+                        condition = condition_factory(interaction=interaction, situation=situation)
+                        conditions.append(condition)
+                    condition_group = ConditionGroup(conditions, conditional_action)
+                    self._condition_groups.append(condition_group)
+                    condition_group.attach(owner, self._condition_group_satisfied_callback)
             else:
                 for condition_factory in conditional_action.conditions:
                     condition = condition_factory(interaction=interaction, situation=situation)
@@ -147,44 +139,41 @@ class ConditionalActionManager:
         for condition_group in self:
             progress_bar_action = condition_group.conditional_action.progress_bar_action
             if progress_bar_action == ProgressBarAction.IGNORE_CONDITION:
+                continue
+            action = condition_group.conditional_action.interaction_action
+            if action != ConditionalInteractionAction.GO_INERTIAL and action != ConditionalInteractionAction.EXIT_NATURALLY and progress_bar_action == ProgressBarAction.NO_ACTION:
+                continue
+            individual_time = None
+            for condition in condition_group:
+                (current_time, percent, rate_change) = condition.get_time_until_satisfy(interaction)
+                if current_time is None:
+                    individual_time = None
+                    break
+                if current_time <= 0:
+                    continue
+                if not individual_time is None:
+                    if individual_time < current_time:
+                        individual_time = current_time
+                        individual_percent = percent
+                        individual_rate_change = rate_change
+                        if progress_bar_action == ProgressBarAction.FORCE_USE_CONDITION:
+                            return (individual_percent, individual_rate_change)
+                individual_time = current_time
+                individual_percent = percent
+                individual_rate_change = rate_change
+                if progress_bar_action == ProgressBarAction.FORCE_USE_CONDITION:
+                    return (individual_percent, individual_rate_change)
+            if individual_time is None:
                 pass
             else:
-                action = condition_group.conditional_action.interaction_action
-                if action != ConditionalInteractionAction.GO_INERTIAL and action != ConditionalInteractionAction.EXIT_NATURALLY and progress_bar_action == ProgressBarAction.NO_ACTION:
-                    pass
-                else:
-                    individual_time = None
-                    for condition in condition_group:
-                        (current_time, percent, rate_change) = condition.get_time_until_satisfy(interaction)
-                        if current_time is None:
-                            individual_time = None
-                            break
-                        if current_time <= 0:
-                            pass
-                        else:
-                            if not individual_time is None:
-                                if individual_time < current_time:
-                                    individual_time = current_time
-                                    individual_percent = percent
-                                    individual_rate_change = rate_change
-                                    if progress_bar_action == ProgressBarAction.FORCE_USE_CONDITION:
-                                        return (individual_percent, individual_rate_change)
-                            individual_time = current_time
-                            individual_percent = percent
-                            individual_rate_change = rate_change
-                            if progress_bar_action == ProgressBarAction.FORCE_USE_CONDITION:
-                                return (individual_percent, individual_rate_change)
-                    if individual_time is None:
-                        pass
-                    else:
-                        if not group_time is None:
-                            if group_time > individual_time:
-                                group_time = individual_time
-                                group_percent = individual_percent
-                                group_rate_change = individual_rate_change
+                if not group_time is None:
+                    if group_time > individual_time:
                         group_time = individual_time
                         group_percent = individual_percent
                         group_rate_change = individual_rate_change
+                group_time = individual_time
+                group_percent = individual_percent
+                group_rate_change = individual_rate_change
         if group_time is not None:
             return (group_percent, group_rate_change)
         return (None, None)

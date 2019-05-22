@@ -18,7 +18,7 @@ class Payment(HasTunableSingletonFactory, AutoFactoryInit):
 
     def try_deduct_payment(self, resolver, sim, fail_callback=None):
         success = self.payment_cost.try_deduct_payment(resolver, sim, fail_callback, self.payment_source, self.cost_modifiers)
-        if success or fail_callback:
+        if not success and fail_callback:
             fail_callback()
         return success
 

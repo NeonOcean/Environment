@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2018 by Rocky Bernstein
+#  Copyright (c) 2015-2019 by Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #
@@ -886,9 +886,10 @@ class Scanner2(Scanner):
             # or a conditional assignment like:
             #   x = 1 if x else 2
             #
-            # There are other contexts we may need to consider
-            # like whether the target is "END_FINALLY"
-            # or if the condition jump is to a forward location
+            # There are other situations we may need to consider, like
+            # if the condition jump is to a forward location.
+            # Also the existence of a jump to the instruction after "END_FINALLY"
+            # will distinguish "try/else" from "try".
             code_pre_rtarget = code[pre_rtarget]
 
             if code_pre_rtarget in self.jump_forward:
@@ -1178,7 +1179,7 @@ class Scanner2(Scanner):
         Return a list with indexes to them or [] if none found.
         """
 
-        assert(start>=0 and end<=len(self.code) and start <= end)
+        assert(start >= 0 and end <= len(self.code) and start <= end)
 
         try:    None in instr
         except: instr = [instr]

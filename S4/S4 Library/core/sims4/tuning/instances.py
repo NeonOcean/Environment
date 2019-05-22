@@ -16,7 +16,8 @@ class TunedInstanceMetaclass(type):
                 if isinstance(base, TunedInstanceMetaclass):
                     manager = base.tuning_manager
                     break
-            manager = None
+            else:
+                manager = None
         if 'custom_module_name' in kwargs:
             cls.__module__ = kwargs.pop('custom_module_name')
         if BASE_GAME_ONLY_ATTR in kwargs:

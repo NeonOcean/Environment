@@ -19,10 +19,12 @@ class GardeningSpliceInteraction(SuperInteraction):
                     shoot.update_ownership(self.sim.sim_info)
                     shoot = None
                     return True
+                    yield
             finally:
                 if shoot is not None:
                     shoot.destroy(source=self, cause='Failed to add shoot to player inventory.')
         return False
+        yield
 
 class GardeningGraftPickerInteraction(ObjectPickerInteraction):
 
@@ -55,3 +57,4 @@ class GardeningGraftInteraction(SuperInteraction):
             self.target.set_state(GardeningTuning.SPLICED_STATE_VALUE.state, GardeningTuning.SPLICED_STATE_VALUE)
             shoot.transient = True
         return False
+        yield

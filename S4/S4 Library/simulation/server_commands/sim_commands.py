@@ -244,14 +244,13 @@ def destroy_all_household_sims_but_active_sim(*args, _connection=None):
         household = services.active_household()
         for sim_info in tuple(household):
             if sim_info is client.active_sim_info:
-                pass
-            else:
-                sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-                if sim:
-                    sim.reset(ResetReason.RESET_EXPECTED, None, 'Command')
-                    sim.destroy(source=sim, cause='Destroyed sim via command.')
-                client.remove_selectable_sim_info(sim_info)
-                sim_info.remove_permanently(household=household)
+                continue
+            sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if sim:
+                sim.reset(ResetReason.RESET_EXPECTED, None, 'Command')
+                sim.destroy(source=sim, cause='Destroyed sim via command.')
+            client.remove_selectable_sim_info(sim_info)
+            sim_info.remove_permanently(household=household)
 
 @sims4.commands.Command('sims.make_all_selectable')
 def make_all_selectable(_connection=None):
@@ -400,9 +399,10 @@ def remove_buff_from_all(buff_type:TunableInstanceParam(sims4.resources.Types.BU
     output = sims4.commands.Output(_connection)
     for sim_info in services.sim_info_manager().values():
         sim = sim_info.get_sim_instance()
-        if sim is not None and sim.has_buff(buff_type):
-            sim.remove_buff_by_type(buff_type)
-            output('{} has been removed from {}.'.format(buff_type, sim.full_name))
+        if sim is not None:
+            if sim.has_buff(buff_type):
+                sim.remove_buff_by_type(buff_type)
+                output('{} has been removed from {}.'.format(buff_type, sim.full_name))
 
 @sims4.commands.Command('sims.remove_all_buffs', command_type=sims4.commands.CommandType.Automation)
 def remove_all_buffs(opt_target:OptionalSimInfoParam=None, _connection=None):
@@ -413,15 +413,11 @@ def remove_all_buffs(opt_target:OptionalSimInfoParam=None, _connection=None):
         if target.has_buff(buff_type):
             if buff_type.commodity is not None:
                 if not target.is_valid_statistic_to_remove(buff_type.commodity):
-                    pass
-                else:
-                    tracker = target.get_tracker(buff_type.commodity)
-                    commodity_inst = tracker.get_statistic(buff_type.commodity)
-                    if commodity_inst.core:
-                        pass
-                    else:
-                        target.remove_buff_by_type(buff_type)
-                        sims4.commands.output('({0}) has been removed.'.format(buff_type.__name__), _connection)
+                    continue
+                tracker = target.get_tracker(buff_type.commodity)
+                commodity_inst = tracker.get_statistic(buff_type.commodity)
+                if commodity_inst.core:
+                    continue
             target.remove_buff_by_type(buff_type)
             sims4.commands.output('({0}) has been removed.'.format(buff_type.__name__), _connection)
 
@@ -634,7 +630,7 @@ def get_sim_id_by_name(first_name='', last_name='', _connection=None):
     return False
 
 @sims4.commands.Command('sims.reset_multiple')
-def reset_sims(*obj_ids, _connection=None):
+def reset_sims(*obj_ids:int, _connection=None):
     for obj_id in obj_ids:
         sim = services.object_manager().get(obj_id)
         if sim is not None:
@@ -758,7 +754,7 @@ def skewer_icon_activated(target_param:RequiredTargetParam=None, priority:Priori
     for aop in affordance.potential_interactions(target, context, sim_info=sim_info):
         result = aop.test_and_execute(context)
         if not result:
-            pass
+            continue
     return True
 
 @sims4.commands.Command('sims.set_thumbnail')
@@ -936,8 +932,9 @@ def reset_periodically(enable:bool=True, interval:int=10, reset_type='reset', _c
         reset_reason = ResetReason.RESET_ON_ERROR
         if reset_type.lower() == 'interrupt':
             reset_reason = ResetReason.RESET_EXPECTED
-        elif random.randint(0, 1) == 1:
-            reset_reason = ResetReason.RESET_EXPECTED
+        elif reset_type.lower() == 'random':
+            if random.randint(0, 1) == 1:
+                reset_reason = ResetReason.RESET_EXPECTED
         household_manager = services.household_manager()
         for household in household_manager.get_all():
             for sim in household.instanced_sims_gen():
@@ -962,8 +959,9 @@ def reset_random_sim_periodically(enable:bool=True, min_interval:int=2, max_inte
         reset_reason = ResetReason.RESET_ON_ERROR
         if reset_type.lower() == 'expected':
             reset_reason = ResetReason.RESET_EXPECTED
-        elif random.randint(0, 1) == 1:
-            reset_reason = ResetReason.RESET_EXPECTED
+        elif reset_type.lower() == 'random':
+            if random.randint(0, 1) == 1:
+                reset_reason = ResetReason.RESET_EXPECTED
         sim_info_manager = services.sim_info_manager()
         all_sims = list(sim_info_manager.instanced_sims_gen())
         sim = all_sims[random.randint(0, len(all_sims) - 1)]
@@ -1007,6 +1005,8 @@ def get_buffs_ids_for_outfit(opt_sim:OptionalTargetParam=None, outfit_category_s
             for buff_guid in buff_guids:
                 buff_type = services.buff_manager().get(buff_guid)
                 sims4.commands.output('buff: {}'.format(buff_type), _connection)
+            else:
+                sims4.commands.output('category: {}, index: {}, has no buffs associated'.format(outfit_category_string, outfit_index), _connection)
         else:
             sims4.commands.output('category: {}, index: {}, has no buffs associated'.format(outfit_category_string, outfit_index), _connection)
     else:

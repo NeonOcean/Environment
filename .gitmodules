@@ -1,18 +1,27 @@
-[submodule "Websites/NeonOcean.NOC.Main"]
-	path = Websites/NeonOcean.NOC.Main
-	url = https://github.com/NeonOcean/NOC.Main.git
-[submodule "Websites/NeonOcean.NOC.Mods.Distribution"]
-	path = Websites/NeonOcean.NOC.Mods.Distribution
-	url = https://github.com/NeonOcean/NOC.Mods.Distribution.git
-[submodule "Websites/NeonOcean.NOC.Mods.Documentation"]
-	path = Websites/NeonOcean.NOC.Mods.Documentation
-	url = https://github.com/NeonOcean/NOC.Mods.Documentation.git
-[submodule "Mods/NeonOcean.Main"]
-	path = Mods/NeonOcean.Main
-	url = https://github.com/NeonOcean/Main.git
-[submodule "Mods/NeonOcean.Order"]
-	path = Mods/NeonOcean.Order
-	url = https://github.com/NeonOcean/Order.git
+[submodule "Mods/NeonOcean.Cycle"]
+	path = Mods/NeonOcean.Cycle
+	url = https://github.com/NeonOcean/Cycle_Development.git
+[submodule "Mods/NeonOcean.Choreography"]
+	path = Mods/NeonOcean.Choreography
+	url = https://github.com/NeonOcean/Choreography_Development.git
 [submodule "Mods/NeonOcean.Debug"]
 	path = Mods/NeonOcean.Debug
-	url = https://github.com/NeonOcean/Debug.git
+	url = https://github.com/NeonOcean/Debug_Development.git
+[submodule "Mods/NeonOcean.Main"]
+	path = Mods/NeonOcean.Main
+	url = https://github.com/NeonOcean/Main_Development.git
+[submodule "Mods/NeonOcean.Order"]
+	path = Mods/NeonOcean.Order
+	url = https://github.com/NeonOcean/Order_Development.git
+[submodule "Mods/NeonOcean.Time"]
+	path = Mods/NeonOcean.Time
+	url = https://github.com/NeonOcean/Time_Development.git
+[submodule "Websites/NeonOcean.NOC.Main"]
+	path = Websites/NeonOcean.NOC.Main
+	url = https://github.com/NeonOcean/NOC.Main_Development.git
+[submodule "Websites/NeonOcean.NOC.Mods.Distribution"]
+	path = Websites/NeonOcean.NOC.Mods.Distribution
+	url = https://github.com/NeonOcean/NOC.Mods.Distribution_Development.git
+[submodule "Websites/NeonOcean.NOC.Mods.Documentation"]
+	path = Websites/NeonOcean.NOC.Mods.Documentation
+	url = https://github.com/NeonOcean/NOC.Mods.Documentation_Development.git

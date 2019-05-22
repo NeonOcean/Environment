@@ -48,9 +48,8 @@ class BucketBase:
         for interaction in self:
             interaction.notify_queue_head()
             if interaction.is_finishing:
-                pass
-            else:
-                return interaction
+                continue
+            return interaction
 
     def get_next_unblocked_interaction_cancel_incompatible(self, blocked_sims_callback=None):
         result = None
@@ -58,23 +57,21 @@ class BucketBase:
         for interaction in self:
             interaction.notify_queue_head()
             if interaction.is_finishing:
-                pass
-            else:
-                if interaction.is_super:
-                    if interaction.is_affordance_locked:
-                        pass
-                    else:
-                        sims_with_invalid_paths = interaction.get_sims_with_invalid_paths()
-                        if sims_with_invalid_paths:
-                            if blocked_sims_callback is not None:
-                                blocked_sims_callback(sims_with_invalid_paths)
-                            to_cancel.append(interaction)
-                            logger.debug('Canceling incompatible interaction {} in bucket {}', interaction, self, owner='PI')
-                        else:
-                            result = interaction
-                            break
-                result = interaction
-                break
+                continue
+            if interaction.is_super:
+                if interaction.is_affordance_locked:
+                    continue
+                sims_with_invalid_paths = interaction.get_sims_with_invalid_paths()
+                if sims_with_invalid_paths:
+                    if blocked_sims_callback is not None:
+                        blocked_sims_callback(sims_with_invalid_paths)
+                    to_cancel.append(interaction)
+                    logger.debug('Canceling incompatible interaction {} in bucket {}', interaction, self, owner='PI')
+                else:
+                    result = interaction
+                    break
+            result = interaction
+            break
         for interaction in to_cancel:
             interaction.cancel(FinishingType.INTERACTION_INCOMPATIBILITY, 'Canceled an incompatible interaction in a base bucket')
         return result
@@ -134,7 +131,7 @@ class BucketSingle(BucketBase):
         return 0
 
     def _enqueue(self, interaction):
-        if self._interaction is not None and not (self._interaction.is_finishing or self._interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Bucket Single Enqueue: {}'.format(interaction))):
+        if self._interaction is not None and not self._interaction.is_finishing and not self._interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Bucket Single Enqueue: {}'.format(interaction)):
             return TestResult(False, 'Unable to cancel existing interaction ({}) in BucketSingle.'.format(self._interaction))
         self._interaction = interaction
         return TestResult.TRUE
@@ -182,7 +179,7 @@ class BucketList(BucketBase):
         return TestResult.TRUE
 
     def _clear_interaction(self, interaction):
-        if self._interactions and interaction not in self._interactions:
+        if not self._interactions or interaction not in self._interactions:
             return False
         self._interactions.remove(interaction)
         interaction.on_removed_from_queue()
@@ -192,17 +189,18 @@ class InteractionBucket(BucketList):
     __slots__ = ()
 
     def _append(self, interaction):
-        if interaction.is_super or len(self._interactions) == 0 or not interaction.should_insert_in_queue_on_append():
+        if interaction.is_super or not (len(self._interactions) == 0 or not interaction.should_insert_in_queue_on_append()):
             self._interactions.append(interaction)
         else:
             for (i, queued_interaction) in enumerate(self._interactions):
-                if queued_interaction.is_super and queued_interaction.context.insert_strategy == QueueInsertStrategy.LAST:
-                    if queued_interaction.transition is not None and queued_interaction.transition.running:
-                        pass
-                    else:
+                if queued_interaction.is_super:
+                    if queued_interaction.context.insert_strategy == QueueInsertStrategy.LAST:
+                        if queued_interaction.transition is not None and queued_interaction.transition.running:
+                            continue
                         self._interactions.insert(i, interaction)
                         break
-            self._interactions.append(interaction)
+            else:
+                self._interactions.append(interaction)
         return TestResult.TRUE
 
     def get_next_unblocked_interaction(self, blocked_sims_callback=None):
@@ -210,25 +208,25 @@ class InteractionBucket(BucketList):
         for interaction in interactions_iter:
             interaction.notify_queue_head()
             if interaction.is_finishing:
-                pass
-            else:
-                if interaction.is_super:
-                    if interaction.is_affordance_locked:
-                        pass
-                    else:
-                        sims_with_invalid_paths = interaction.get_sims_with_invalid_paths()
-                        if sims_with_invalid_paths:
-                            if blocked_sims_callback is not None:
-                                blocked_sims_callback(sims_with_invalid_paths)
-                            interaction.on_incompatible_in_queue()
-                            break
-                        return interaction
-                return interaction
+                continue
+            if interaction.is_super:
+                if interaction.is_affordance_locked:
+                    continue
+                sims_with_invalid_paths = interaction.get_sims_with_invalid_paths()
+                if sims_with_invalid_paths:
+                    if blocked_sims_callback is not None:
+                        blocked_sims_callback(sims_with_invalid_paths)
+                    interaction.on_incompatible_in_queue()
+                    break
+            return interaction
         for interaction in interactions_iter:
             if not interaction.is_super:
                 interaction.notify_queue_head()
-                if interaction.is_finishing or not (interaction.super_interaction is not None and interaction.super_interaction in self._sim.si_state and interaction.super_interaction.is_finishing):
-                    return interaction
+                if not interaction.is_finishing:
+                    if interaction.super_interaction is not None:
+                        if interaction.super_interaction in self._sim.si_state:
+                            if not interaction.super_interaction.is_finishing:
+                                return interaction
 
 class AutonomyBucket(BucketList):
     __slots__ = ()
@@ -279,9 +277,8 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         for bucket in self._buckets:
             for interaction in bucket:
                 if interaction is self.running:
-                    pass
-                else:
-                    yield interaction
+                    continue
+                yield interaction
 
     def __len__(self):
         return len(set(self))
@@ -320,10 +317,12 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                 for sim in required_sims:
                     sim.queue.running = None
         return result
+        yield
 
     def run_interaction_gen(self, timeline, interaction, source_interaction=None, apply_posture_state=True):
         if interaction.is_finishing:
             return False
+            yield
         interaction_parameters = {}
         interaction_parameters['interaction_starting'] = True
         result = interaction.test(skip_safe_tests=True, **interaction_parameters)
@@ -332,19 +331,25 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             interaction.cancel(FinishingType.FAILED_TESTS, cancel_reason_msg=msg)
             log_interaction('Failed', interaction, msg=msg)
             return False
+            yield
         log_interaction('Running', interaction)
         if interaction.target and interaction.target.objectage_component:
             interaction.target.update_last_used()
         if not interaction.disable_transitions:
             interaction.apply_posture_state(self.sim.posture_state)
-        if source_interaction is None or self._must_run_next_interaction is not source_interaction:
-            self._must_run_next_interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='InteractionQueue: run_interaction: must_run_next: {} canceled by {}'.format(self._must_run_next_interaction, interaction))
-            self._must_run_next_interaction = None
+        if interaction.is_super:
+            if self._must_run_next_interaction is not None:
+                if interaction.transition is not None:
+                    if interaction.transition.interaction is interaction:
+                        if interaction is not self._must_run_next_interaction:
+                            if source_interaction is None or self._must_run_next_interaction is not source_interaction:
+                                self._must_run_next_interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='InteractionQueue: run_interaction: must_run_next: {} canceled by {}'.format(self._must_run_next_interaction, interaction))
+                                self._must_run_next_interaction = None
         try:
             (result, failure_reason) = yield from interaction.perform_gen(timeline)
         finally:
             interaction.on_removed_from_queue()
-        if interaction.is_super and (self._must_run_next_interaction is not None and (interaction.transition is not None and (interaction.transition.interaction is interaction and interaction is not self._must_run_next_interaction))) and result:
+        if result:
             if interaction.is_super and interaction.suspended:
                 log_interaction('Staged', interaction)
             else:
@@ -352,6 +357,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         else:
             log_interaction('Failed', interaction, msg=failure_reason)
         return result
+        yield
 
     def process_one_interaction_gen(self, timeline):
         head_first = self.get_head()
@@ -366,28 +372,198 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                 reason = result.reason if result.reason is not None else 'Interaction Queue head interaction failed tests'
                 head.cancel(FinishingType.FAILED_TESTS, cancel_reason_msg=reason)
                 self.remove_for_perform(head)
-                if not (head.is_user_directed and (head.visible and (head.is_super and head.target_in_inventory_when_queued)) and head.target is None):
-                    if not head.target.is_in_inventory():
-                        pass
-                    else:
-                        self.insert_route_failure_interaction(head, old_name, old_icon_info)
-                        yield from self.sim.si_state.process_gen(timeline)
-                        if not head.is_super:
-                            if head.pipeline_progress == PipelineProgress.QUEUED:
-                                log_interaction('Preparing', head)
-                                try:
-                                    result = yield from head.prepare_gen(timeline)
-                                except:
-                                    logger.exception('Error in prepare_gen for mixer interaction')
-                                    result = False
-                                if result != InteractionQueuePreparationStatus.FAILURE:
-                                    head.pipeline_progress = PipelineProgress.PREPARED
-                                    if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
-                                        return
-                                        head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
-                                else:
-                                    head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
-                                    if head.prepared:
+                if head.is_user_directed:
+                    if head.visible:
+                        if head.is_super:
+                            if not (head.target_in_inventory_when_queued and head.target is None):
+                                if not head.target.is_in_inventory():
+                                    continue
+                                self.insert_route_failure_interaction(head, old_name, old_icon_info)
+                                yield from self.sim.si_state.process_gen(timeline)
+                                if not head.is_super:
+                                    if head.pipeline_progress == PipelineProgress.QUEUED:
+                                        log_interaction('Preparing', head)
+                                        try:
+                                            result = yield from head.prepare_gen(timeline)
+                                        except:
+                                            logger.exception('Error in prepare_gen for mixer interaction')
+                                            result = False
+                                        if result != InteractionQueuePreparationStatus.FAILURE:
+                                            head.pipeline_progress = PipelineProgress.PREPARED
+                                            if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
+                                                return
+                                                head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
+                                        else:
+                                            head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
+                                            if head.prepared:
+                                                head.pre_process_interaction()
+                                                try:
+                                                    yield from self._process_one_interaction_gen(timeline, head)
+                                                finally:
+                                                    self.remove_for_perform(head)
+                                                head.post_process_interaction()
+                                                if head.pipeline_progress == PipelineProgress.QUEUED:
+                                                    head.pipeline_progress = PipelineProgress.PRE_TRANSITIONING
+                                                    if not head.run_pre_transition_behavior():
+                                                        log_interaction('PreTransition', head, msg='Failed')
+                                                        head.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Pre Transition Behavior Failed.')
+                                                    else:
+                                                        log_interaction('PreTransition', head, msg='Succeeded')
+                                                        if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
+                                                            log_interaction('Preparing', head)
+                                                            try:
+                                                                result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
+                                                            except scheduling.HardStopError:
+                                                                raise
+                                                            except Exception:
+                                                                logger.exception('Exception in prepare_gen for super interaction.')
+                                                                result = InteractionQueuePreparationStatus.FAILURE
+                                                            if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
+                                                                (idle_element, _) = head.sim.get_idle_element(duration=1)
+                                                                yield from element_utils.run_child(timeline, idle_element)
+                                                                return
+                                                            if result == InteractionQueuePreparationStatus.FAILURE:
+                                                                head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
+                                                            else:
+                                                                head.pipeline_progress = PipelineProgress.PREPARED
+                                                                if head.prepared:
+                                                                    required_sims = head.required_sims(for_threading=True)
+                                                                    if head.transition is None:
+                                                                        head.transition = TransitionSequenceController(head)
+                                                                    for required_sim in required_sims:
+                                                                        required_sim.queue.transition_controller = head.transition
+                                                                    if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                                        sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                                        yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                                    if head.transition is None:
+                                                                        logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                                        result = False
+                                                                    else:
+                                                                        with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                                            head.sim.ui_manager.running_transition(head)
+                                                                            result = yield from head.transition.run_transitions(timeline)
+                                                                    for required_sim in required_sims:
+                                                                        required_sim.queue.transition_controller = None
+                                                                    if head.transition is not None:
+                                                                        if head.transition.canceled:
+                                                                            head.transition = None
+                                                                        elif head.transition.any_derailed:
+                                                                            return
+                                                                    if result or head.is_finishing:
+                                                                        head.transition = None
+                                                                        if head.is_finishing:
+                                                                            self.on_interaction_canceled(head)
+                                                                        else:
+                                                                            self.remove_for_perform(head)
+                                                                    yield from self.sim.si_state.process_gen(timeline)
+                                                        elif head.prepared:
+                                                            required_sims = head.required_sims(for_threading=True)
+                                                            if head.transition is None:
+                                                                head.transition = TransitionSequenceController(head)
+                                                            for required_sim in required_sims:
+                                                                required_sim.queue.transition_controller = head.transition
+                                                            if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                                sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                                yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                            if head.transition is None:
+                                                                logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                                result = False
+                                                            else:
+                                                                with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                                    head.sim.ui_manager.running_transition(head)
+                                                                    result = yield from head.transition.run_transitions(timeline)
+                                                            for required_sim in required_sims:
+                                                                required_sim.queue.transition_controller = None
+                                                            if head.transition is not None:
+                                                                if head.transition.canceled:
+                                                                    head.transition = None
+                                                                elif head.transition.any_derailed:
+                                                                    return
+                                                            if result or head.is_finishing:
+                                                                head.transition = None
+                                                                if head.is_finishing:
+                                                                    self.on_interaction_canceled(head)
+                                                                else:
+                                                                    self.remove_for_perform(head)
+                                                            yield from self.sim.si_state.process_gen(timeline)
+                                                if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
+                                                    log_interaction('Preparing', head)
+                                                    try:
+                                                        result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
+                                                    except scheduling.HardStopError:
+                                                        raise
+                                                    except Exception:
+                                                        logger.exception('Exception in prepare_gen for super interaction.')
+                                                        result = InteractionQueuePreparationStatus.FAILURE
+                                                    if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
+                                                        (idle_element, _) = head.sim.get_idle_element(duration=1)
+                                                        yield from element_utils.run_child(timeline, idle_element)
+                                                        return
+                                                    if result == InteractionQueuePreparationStatus.FAILURE:
+                                                        head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
+                                                    else:
+                                                        head.pipeline_progress = PipelineProgress.PREPARED
+                                                        if head.prepared:
+                                                            required_sims = head.required_sims(for_threading=True)
+                                                            if head.transition is None:
+                                                                head.transition = TransitionSequenceController(head)
+                                                            for required_sim in required_sims:
+                                                                required_sim.queue.transition_controller = head.transition
+                                                            if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                                sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                                yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                            if head.transition is None:
+                                                                logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                                result = False
+                                                            else:
+                                                                with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                                    head.sim.ui_manager.running_transition(head)
+                                                                    result = yield from head.transition.run_transitions(timeline)
+                                                            for required_sim in required_sims:
+                                                                required_sim.queue.transition_controller = None
+                                                            if head.transition is not None:
+                                                                if head.transition.canceled:
+                                                                    head.transition = None
+                                                                elif head.transition.any_derailed:
+                                                                    return
+                                                            if result or head.is_finishing:
+                                                                head.transition = None
+                                                                if head.is_finishing:
+                                                                    self.on_interaction_canceled(head)
+                                                                else:
+                                                                    self.remove_for_perform(head)
+                                                            yield from self.sim.si_state.process_gen(timeline)
+                                                elif head.prepared:
+                                                    required_sims = head.required_sims(for_threading=True)
+                                                    if head.transition is None:
+                                                        head.transition = TransitionSequenceController(head)
+                                                    for required_sim in required_sims:
+                                                        required_sim.queue.transition_controller = head.transition
+                                                    if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                        sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                        yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                    if head.transition is None:
+                                                        logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                        result = False
+                                                    else:
+                                                        with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                            head.sim.ui_manager.running_transition(head)
+                                                            result = yield from head.transition.run_transitions(timeline)
+                                                    for required_sim in required_sims:
+                                                        required_sim.queue.transition_controller = None
+                                                    if head.transition is not None:
+                                                        if head.transition.canceled:
+                                                            head.transition = None
+                                                        elif head.transition.any_derailed:
+                                                            return
+                                                    if result or head.is_finishing:
+                                                        head.transition = None
+                                                        if head.is_finishing:
+                                                            self.on_interaction_canceled(head)
+                                                        else:
+                                                            self.remove_for_perform(head)
+                                                    yield from self.sim.si_state.process_gen(timeline)
+                                    elif head.prepared:
                                         head.pre_process_interaction()
                                         try:
                                             yield from self._process_one_interaction_gen(timeline, head)
@@ -555,182 +731,91 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                                                 else:
                                                     self.remove_for_perform(head)
                                             yield from self.sim.si_state.process_gen(timeline)
-                            elif head.prepared:
-                                head.pre_process_interaction()
-                                try:
-                                    yield from self._process_one_interaction_gen(timeline, head)
-                                finally:
-                                    self.remove_for_perform(head)
-                                head.post_process_interaction()
-                                if head.pipeline_progress == PipelineProgress.QUEUED:
-                                    head.pipeline_progress = PipelineProgress.PRE_TRANSITIONING
-                                    if not head.run_pre_transition_behavior():
-                                        log_interaction('PreTransition', head, msg='Failed')
-                                        head.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Pre Transition Behavior Failed.')
-                                    else:
-                                        log_interaction('PreTransition', head, msg='Succeeded')
-                                        if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
-                                            log_interaction('Preparing', head)
-                                            try:
-                                                result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
-                                            except scheduling.HardStopError:
-                                                raise
-                                            except Exception:
-                                                logger.exception('Exception in prepare_gen for super interaction.')
-                                                result = InteractionQueuePreparationStatus.FAILURE
-                                            if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
-                                                (idle_element, _) = head.sim.get_idle_element(duration=1)
-                                                yield from element_utils.run_child(timeline, idle_element)
-                                                return
-                                            if result == InteractionQueuePreparationStatus.FAILURE:
-                                                head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
-                                            else:
-                                                head.pipeline_progress = PipelineProgress.PREPARED
-                                                if head.prepared:
-                                                    required_sims = head.required_sims(for_threading=True)
-                                                    if head.transition is None:
-                                                        head.transition = TransitionSequenceController(head)
-                                                    for required_sim in required_sims:
-                                                        required_sim.queue.transition_controller = head.transition
-                                                    if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                                        sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                                        yield from element_utils.run_child(timeline, sleep_paused_element)
-                                                    if head.transition is None:
-                                                        logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                                        result = False
-                                                    else:
-                                                        with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                                            head.sim.ui_manager.running_transition(head)
-                                                            result = yield from head.transition.run_transitions(timeline)
-                                                    for required_sim in required_sims:
-                                                        required_sim.queue.transition_controller = None
-                                                    if head.transition is not None:
-                                                        if head.transition.canceled:
-                                                            head.transition = None
-                                                        elif head.transition.any_derailed:
-                                                            return
-                                                    if result or head.is_finishing:
-                                                        head.transition = None
-                                                        if head.is_finishing:
-                                                            self.on_interaction_canceled(head)
-                                                        else:
-                                                            self.remove_for_perform(head)
-                                                    yield from self.sim.si_state.process_gen(timeline)
-                                        elif head.prepared:
-                                            required_sims = head.required_sims(for_threading=True)
-                                            if head.transition is None:
-                                                head.transition = TransitionSequenceController(head)
-                                            for required_sim in required_sims:
-                                                required_sim.queue.transition_controller = head.transition
-                                            if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                                sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                                yield from element_utils.run_child(timeline, sleep_paused_element)
-                                            if head.transition is None:
-                                                logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                                result = False
-                                            else:
-                                                with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                                    head.sim.ui_manager.running_transition(head)
-                                                    result = yield from head.transition.run_transitions(timeline)
-                                            for required_sim in required_sims:
-                                                required_sim.queue.transition_controller = None
-                                            if head.transition is not None:
-                                                if head.transition.canceled:
-                                                    head.transition = None
-                                                elif head.transition.any_derailed:
-                                                    return
-                                            if result or head.is_finishing:
-                                                head.transition = None
-                                                if head.is_finishing:
-                                                    self.on_interaction_canceled(head)
-                                                else:
-                                                    self.remove_for_perform(head)
-                                            yield from self.sim.si_state.process_gen(timeline)
-                                if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
-                                    log_interaction('Preparing', head)
-                                    try:
-                                        result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
-                                    except scheduling.HardStopError:
-                                        raise
-                                    except Exception:
-                                        logger.exception('Exception in prepare_gen for super interaction.')
-                                        result = InteractionQueuePreparationStatus.FAILURE
-                                    if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
-                                        (idle_element, _) = head.sim.get_idle_element(duration=1)
-                                        yield from element_utils.run_child(timeline, idle_element)
-                                        return
-                                    if result == InteractionQueuePreparationStatus.FAILURE:
-                                        head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
-                                    else:
-                                        head.pipeline_progress = PipelineProgress.PREPARED
-                                        if head.prepared:
-                                            required_sims = head.required_sims(for_threading=True)
-                                            if head.transition is None:
-                                                head.transition = TransitionSequenceController(head)
-                                            for required_sim in required_sims:
-                                                required_sim.queue.transition_controller = head.transition
-                                            if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                                sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                                yield from element_utils.run_child(timeline, sleep_paused_element)
-                                            if head.transition is None:
-                                                logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                                result = False
-                                            else:
-                                                with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                                    head.sim.ui_manager.running_transition(head)
-                                                    result = yield from head.transition.run_transitions(timeline)
-                                            for required_sim in required_sims:
-                                                required_sim.queue.transition_controller = None
-                                            if head.transition is not None:
-                                                if head.transition.canceled:
-                                                    head.transition = None
-                                                elif head.transition.any_derailed:
-                                                    return
-                                            if result or head.is_finishing:
-                                                head.transition = None
-                                                if head.is_finishing:
-                                                    self.on_interaction_canceled(head)
-                                                else:
-                                                    self.remove_for_perform(head)
-                                            yield from self.sim.si_state.process_gen(timeline)
-                                elif head.prepared:
-                                    required_sims = head.required_sims(for_threading=True)
-                                    if head.transition is None:
-                                        head.transition = TransitionSequenceController(head)
-                                    for required_sim in required_sims:
-                                        required_sim.queue.transition_controller = head.transition
-                                    if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                        sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                        yield from element_utils.run_child(timeline, sleep_paused_element)
-                                    if head.transition is None:
-                                        logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                        result = False
-                                    else:
-                                        with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                            head.sim.ui_manager.running_transition(head)
-                                            result = yield from head.transition.run_transitions(timeline)
-                                    for required_sim in required_sims:
-                                        required_sim.queue.transition_controller = None
-                                    if head.transition is not None:
-                                        if head.transition.canceled:
-                                            head.transition = None
-                                        elif head.transition.any_derailed:
-                                            return
-                                    if result or head.is_finishing:
-                                        head.transition = None
-                                        if head.is_finishing:
-                                            self.on_interaction_canceled(head)
-                                        else:
-                                            self.remove_for_perform(head)
-                                    yield from self.sim.si_state.process_gen(timeline)
-                        else:
-                            if head.pipeline_progress == PipelineProgress.QUEUED:
-                                head.pipeline_progress = PipelineProgress.PRE_TRANSITIONING
-                                if not head.run_pre_transition_behavior():
-                                    log_interaction('PreTransition', head, msg='Failed')
-                                    head.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Pre Transition Behavior Failed.')
                                 else:
-                                    log_interaction('PreTransition', head, msg='Succeeded')
+                                    if head.pipeline_progress == PipelineProgress.QUEUED:
+                                        head.pipeline_progress = PipelineProgress.PRE_TRANSITIONING
+                                        if not head.run_pre_transition_behavior():
+                                            log_interaction('PreTransition', head, msg='Failed')
+                                            head.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Pre Transition Behavior Failed.')
+                                        else:
+                                            log_interaction('PreTransition', head, msg='Succeeded')
+                                            if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
+                                                log_interaction('Preparing', head)
+                                                try:
+                                                    result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
+                                                except scheduling.HardStopError:
+                                                    raise
+                                                except Exception:
+                                                    logger.exception('Exception in prepare_gen for super interaction.')
+                                                    result = InteractionQueuePreparationStatus.FAILURE
+                                                if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
+                                                    (idle_element, _) = head.sim.get_idle_element(duration=1)
+                                                    yield from element_utils.run_child(timeline, idle_element)
+                                                    return
+                                                if result == InteractionQueuePreparationStatus.FAILURE:
+                                                    head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
+                                                else:
+                                                    head.pipeline_progress = PipelineProgress.PREPARED
+                                                    if head.prepared:
+                                                        required_sims = head.required_sims(for_threading=True)
+                                                        if head.transition is None:
+                                                            head.transition = TransitionSequenceController(head)
+                                                        for required_sim in required_sims:
+                                                            required_sim.queue.transition_controller = head.transition
+                                                        if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                            sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                            yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                        if head.transition is None:
+                                                            logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                            result = False
+                                                        else:
+                                                            with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                                head.sim.ui_manager.running_transition(head)
+                                                                result = yield from head.transition.run_transitions(timeline)
+                                                        for required_sim in required_sims:
+                                                            required_sim.queue.transition_controller = None
+                                                        if head.transition is not None:
+                                                            if head.transition.canceled:
+                                                                head.transition = None
+                                                            elif head.transition.any_derailed:
+                                                                return
+                                                        if result or head.is_finishing:
+                                                            head.transition = None
+                                                            if head.is_finishing:
+                                                                self.on_interaction_canceled(head)
+                                                            else:
+                                                                self.remove_for_perform(head)
+                                                        yield from self.sim.si_state.process_gen(timeline)
+                                            elif head.prepared:
+                                                required_sims = head.required_sims(for_threading=True)
+                                                if head.transition is None:
+                                                    head.transition = TransitionSequenceController(head)
+                                                for required_sim in required_sims:
+                                                    required_sim.queue.transition_controller = head.transition
+                                                if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
+                                                    sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
+                                                    yield from element_utils.run_child(timeline, sleep_paused_element)
+                                                if head.transition is None:
+                                                    logger.error('Interaction {} transition is None.', head, owner='jdimailig')
+                                                    result = False
+                                                else:
+                                                    with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
+                                                        head.sim.ui_manager.running_transition(head)
+                                                        result = yield from head.transition.run_transitions(timeline)
+                                                for required_sim in required_sims:
+                                                    required_sim.queue.transition_controller = None
+                                                if head.transition is not None:
+                                                    if head.transition.canceled:
+                                                        head.transition = None
+                                                    elif head.transition.any_derailed:
+                                                        return
+                                                if result or head.is_finishing:
+                                                    head.transition = None
+                                                    if head.is_finishing:
+                                                        self.on_interaction_canceled(head)
+                                                    else:
+                                                        self.remove_for_perform(head)
+                                                yield from self.sim.si_state.process_gen(timeline)
                                     if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
                                         log_interaction('Preparing', head)
                                         try:
@@ -808,83 +893,6 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                                             else:
                                                 self.remove_for_perform(head)
                                         yield from self.sim.si_state.process_gen(timeline)
-                            if head.pipeline_progress == PipelineProgress.PRE_TRANSITIONING:
-                                log_interaction('Preparing', head)
-                                try:
-                                    result = yield from head.prepare_gen(timeline, cancel_incompatible_carry_interactions=True)
-                                except scheduling.HardStopError:
-                                    raise
-                                except Exception:
-                                    logger.exception('Exception in prepare_gen for super interaction.')
-                                    result = InteractionQueuePreparationStatus.FAILURE
-                                if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
-                                    (idle_element, _) = head.sim.get_idle_element(duration=1)
-                                    yield from element_utils.run_child(timeline, idle_element)
-                                    return
-                                if result == InteractionQueuePreparationStatus.FAILURE:
-                                    head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
-                                else:
-                                    head.pipeline_progress = PipelineProgress.PREPARED
-                                    if head.prepared:
-                                        required_sims = head.required_sims(for_threading=True)
-                                        if head.transition is None:
-                                            head.transition = TransitionSequenceController(head)
-                                        for required_sim in required_sims:
-                                            required_sim.queue.transition_controller = head.transition
-                                        if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                            sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                            yield from element_utils.run_child(timeline, sleep_paused_element)
-                                        if head.transition is None:
-                                            logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                            result = False
-                                        else:
-                                            with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                                head.sim.ui_manager.running_transition(head)
-                                                result = yield from head.transition.run_transitions(timeline)
-                                        for required_sim in required_sims:
-                                            required_sim.queue.transition_controller = None
-                                        if head.transition is not None:
-                                            if head.transition.canceled:
-                                                head.transition = None
-                                            elif head.transition.any_derailed:
-                                                return
-                                        if result or head.is_finishing:
-                                            head.transition = None
-                                            if head.is_finishing:
-                                                self.on_interaction_canceled(head)
-                                            else:
-                                                self.remove_for_perform(head)
-                                        yield from self.sim.si_state.process_gen(timeline)
-                            elif head.prepared:
-                                required_sims = head.required_sims(for_threading=True)
-                                if head.transition is None:
-                                    head.transition = TransitionSequenceController(head)
-                                for required_sim in required_sims:
-                                    required_sim.queue.transition_controller = head.transition
-                                if services.game_clock_service().clock_speed == ClockSpeedMode.PAUSED and not services.current_zone().force_process_transitions:
-                                    sleep_paused_element = element_utils.build_element((element_utils.sleep_until_next_tick_element(), elements.SoftSleepElement(clock.interval_in_sim_seconds(1.0))))
-                                    yield from element_utils.run_child(timeline, sleep_paused_element)
-                                if head.transition is None:
-                                    logger.error('Interaction {} transition is None.', head, owner='jdimailig')
-                                    result = False
-                                else:
-                                    with gsi_handlers.sim_timeline_handlers.archive_sim_timeline_context_manager(self.sim, 'InteractionQueue', 'Run Transition', head):
-                                        head.sim.ui_manager.running_transition(head)
-                                        result = yield from head.transition.run_transitions(timeline)
-                                for required_sim in required_sims:
-                                    required_sim.queue.transition_controller = None
-                                if head.transition is not None:
-                                    if head.transition.canceled:
-                                        head.transition = None
-                                    elif head.transition.any_derailed:
-                                        return
-                                if result or head.is_finishing:
-                                    head.transition = None
-                                    if head.is_finishing:
-                                        self.on_interaction_canceled(head)
-                                    else:
-                                        self.remove_for_perform(head)
-                                yield from self.sim.si_state.process_gen(timeline)
             else:
                 yield from self.sim.si_state.process_gen(timeline)
                 if not head.is_super:
@@ -1439,7 +1447,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             self._must_run_next_interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Interaction is not the must_run_next interaction')
 
     def visible_len(self):
-        return sum(1 for interaction in self if interaction.visible_as_interaction and self.running != interaction)
+        return sum(1 for interaction in self if interaction.visible_as_interaction if self.running != interaction)
 
     def can_queue_visible_interaction(self):
         return self.visible_len() < self.max_interactions
@@ -1480,10 +1488,9 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         self._si_state_changed_callback_sims &= sims
         for sim in sims:
             if sim in self._si_state_changed_callback_sims:
-                pass
-            else:
-                sim.si_state.on_changed.append(self.on_si_phase_change)
-                self._si_state_changed_callback_sims.add(sim)
+                continue
+            sim.si_state.on_changed.append(self.on_si_phase_change)
+            self._si_state_changed_callback_sims.add(sim)
 
     def clear_head_cache(self):
         self._head_cache = UNSET
@@ -1536,16 +1543,15 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             super_priority = interaction.super_interaction.priority if interaction.super_interaction is not None else Priority.Low
             interaction_priority = interaction.priority
             max_priority = max(super_priority, interaction_priority)
-            if highest_priority_interaction is not None and (interaction.is_related_to(highest_priority_interaction) or can_priority_displace(highest_priority_interaction.priority, max_priority, allow_clobbering=allow_clobbering)):
+            if highest_priority_interaction is not None and not interaction.is_related_to(highest_priority_interaction) and can_priority_displace(highest_priority_interaction.priority, max_priority, allow_clobbering=allow_clobbering):
                 if not interaction.source is InteractionSource.CARRY_CANCEL_AOP:
                     if interaction.source is InteractionSource.BODY_CANCEL_AOP:
-                        pass
-                    else:
-                        interaction.displace(highest_priority_interaction, cancel_reason_msg='Interaction Queue displaced from resolving priority pressure.')
-                        if not highest_priority_interaction is None:
-                            if interaction.priority > highest_priority_interaction.priority:
-                                highest_priority_interaction = interaction
-                        highest_priority_interaction = interaction
+                        continue
+                    interaction.displace(highest_priority_interaction, cancel_reason_msg='Interaction Queue displaced from resolving priority pressure.')
+                    if not highest_priority_interaction is None:
+                        if interaction.priority > highest_priority_interaction.priority:
+                            highest_priority_interaction = interaction
+                    highest_priority_interaction = interaction
             else:
                 if not highest_priority_interaction is None:
                     if interaction.priority > highest_priority_interaction.priority:
@@ -1558,13 +1564,16 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         for (si_a, si_b) in zip(self._interactions, list(self._interactions)[1:]):
             if si_a.visible:
                 if not si_b.visible:
-                    pass
-                elif not si_a.is_finishing:
+                    continue
+                if not si_a.is_finishing:
                     if si_b.is_finishing:
-                        pass
-                    elif si_a.is_super and (si_a.collapsible and si_b.is_super) and si_b.collapsible:
-                        si_a.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Interaction Queue canceled because interaction is collapsible.')
-                        break
+                        continue
+                    if si_a.is_super:
+                        if si_a.collapsible:
+                            if si_b.is_super:
+                                if si_b.collapsible:
+                                    si_a.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Interaction Queue canceled because interaction is collapsible.')
+                                    break
 
     def _can_sis_pass_combinable_compatability_tests(self, first_si, second_si):
         if first_si.collapsible:
@@ -1589,7 +1598,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
 
     def _combine_compatible_interactions(self):
         head_interaction = self.get_head()
-        if head_interaction is None or head_interaction.is_putdown or not (head_interaction.visible and head_interaction.is_super and head_interaction.allowed_to_combine):
+        if head_interaction is None or not not (head_interaction.is_putdown or not (head_interaction.visible and head_interaction.is_super and head_interaction.allowed_to_combine)):
             return
         original_head_combinables = WeakSet(head_interaction.combinable_interactions)
         head_interaction.combinable_interactions.clear()
@@ -1602,15 +1611,14 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             if final_included_sis is not None:
                 for final_si in final_included_sis:
                     if final_si.is_finishing:
-                        pass
-                    else:
-                        final_si_constraint = final_si.constraint_intersection(sim=self.sim, posture_state=None)
-                        if not final_si_constraint.valid:
-                            return
-                        head_constraint = self._attempt_combination(combined_included_sis, final_si, head_constraint)
-                        if not head_constraint.valid:
-                            return
-                        combined_included_sis.add(final_si)
+                        continue
+                    final_si_constraint = final_si.constraint_intersection(sim=self.sim, posture_state=None)
+                    if not final_si_constraint.valid:
+                        return
+                    head_constraint = self._attempt_combination(combined_included_sis, final_si, head_constraint)
+                    if not head_constraint.valid:
+                        return
+                    combined_included_sis.add(final_si)
         combined_carry_targets = set()
         head_carryable = head_interaction.targeted_carryable
         if head_carryable is not None:
@@ -1620,21 +1628,20 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         for queued_interaction in self._interactions:
             if not queued_interaction is head_interaction:
                 if not queued_interaction.is_super:
-                    pass
-                else:
-                    if queued_interaction.is_putdown:
+                    continue
+                if queued_interaction.is_putdown:
+                    break
+                queued_interaction.combinable_interactions.clear()
+                test_intersection = self._attempt_combination(combined_interactions, queued_interaction, combined_constraint)
+                if not test_intersection.valid:
+                    break
+                combined_constraint = test_intersection
+                combined_interactions.add(queued_interaction)
+                queued_carryable = queued_interaction.targeted_carryable
+                if queued_carryable is not None:
+                    combined_carry_targets.add(queued_carryable)
+                    if len(combined_carry_targets) > 1:
                         break
-                    queued_interaction.combinable_interactions.clear()
-                    test_intersection = self._attempt_combination(combined_interactions, queued_interaction, combined_constraint)
-                    if not test_intersection.valid:
-                        break
-                    combined_constraint = test_intersection
-                    combined_interactions.add(queued_interaction)
-                    queued_carryable = queued_interaction.targeted_carryable
-                    if queued_carryable is not None:
-                        combined_carry_targets.add(queued_carryable)
-                        if len(combined_carry_targets) > 1:
-                            break
         if len(combined_interactions) == 1:
             return
         for interaction in combined_interactions:
@@ -1734,8 +1741,9 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
 
     def find_sub_interaction(self, super_id, aop_id):
         for interaction in self:
-            if interaction.super_interaction.id == super_id and interaction.aop.aop_id == aop_id:
-                return interaction
+            if interaction.super_interaction.id == super_id:
+                if interaction.aop.aop_id == aop_id:
+                    return interaction
 
     def find_continuation_by_id(self, source_id):
         for interaction in self:
@@ -1791,8 +1799,9 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         log_interaction('Dequeue_Clear', interaction)
         with self._head_change_watcher():
             for bucket in self._buckets:
-                if interaction in bucket and bucket.clear_interaction(interaction):
-                    break
+                if interaction in bucket:
+                    if bucket.clear_interaction(interaction):
+                        break
         if self.running is not None and self.running.should_cancel_on_si_cancel(interaction):
             self.running.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Interaction Queue cancel running interaction to expedite SI cancel.')
         if si_order_changed:
@@ -1812,9 +1821,8 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
     def on_si_phase_change(self, si):
         for interaction in self:
             if not interaction.is_super:
-                pass
-            else:
-                interaction.on_other_si_phase_change(si)
+                continue
+            interaction.on_other_si_phase_change(si)
         with self._head_change_watcher():
             self._apply_next_pressure()
 
@@ -1834,7 +1842,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
     def _should_head_dispace_running(sim, next_interaction, running_interaction):
         if running_interaction.disable_displace(next_interaction):
             return False
-        if running_interaction.is_super or not running_interaction.interruptible:
+        if not running_interaction.is_super and not running_interaction.interruptible:
             return False
         if next_interaction.super_interaction is running_interaction:
             return False
@@ -1863,14 +1871,17 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         for sim in next_interaction.required_sims():
             running_interaction = sim.queue.running
             if next_interaction is running_interaction:
-                pass
-            elif not running_interaction is None:
+                continue
+            if not running_interaction is None:
                 if running_interaction.must_run:
-                    pass
-                elif not self._should_head_dispace_running(sim, next_interaction, running_interaction):
-                    if running_interaction.transition is not None and running_interaction.sim is self.sim and not (running_interaction.is_adjustment_interaction() or next_interaction.is_related_to(running_interaction)):
-                        running_interaction.transition.derail(DerailReason.PREEMPTED, sim)
-                        running_interaction.displace(next_interaction, cancel_reason_msg='InteractionQueue: pressure to cancel running interaction from {}'.format(next_interaction))
+                    continue
+                if not self._should_head_dispace_running(sim, next_interaction, running_interaction):
+                    if running_interaction.transition is not None:
+                        if running_interaction.sim is self.sim:
+                            if not running_interaction.is_adjustment_interaction():
+                                if not next_interaction.is_related_to(running_interaction):
+                                    running_interaction.transition.derail(DerailReason.PREEMPTED, sim)
+                                    running_interaction.displace(next_interaction, cancel_reason_msg='InteractionQueue: pressure to cancel running interaction from {}'.format(next_interaction))
                 else:
                     running_interaction.displace(next_interaction, cancel_reason_msg='InteractionQueue: pressure to cancel running interaction from {}'.format(next_interaction))
 
@@ -1882,8 +1893,9 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
     def cancel_aop_exists_for_si(self, si):
         for interaction in self:
             cancel_liability = interaction.get_liability(CANCEL_AOP_LIABILITY)
-            if cancel_liability is not None and si is cancel_liability.interaction_to_cancel:
-                return True
+            if cancel_liability is not None:
+                if si is cancel_liability.interaction_to_cancel:
+                    return True
         return False
 
     def queued_super_interactions_gen(self):
@@ -1893,6 +1905,8 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
 
     def has_duplicate_super_affordance(self, super_affordance, actor, target):
         for si in self._interactions:
-            if si.affordance is super_affordance and si.target is target and si.context.sim is actor:
-                return True
+            if si.affordance is super_affordance:
+                if si.target is target:
+                    if si.context.sim is actor:
+                        return True
         return False

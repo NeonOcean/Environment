@@ -36,7 +36,7 @@ class GardeningFruitComponent(_GardeningComponent, component_name=objects.compon
     def scale_modifiers_gen(self):
         yield self.owner.get_stat_value(GardeningTuning.SCALE_COMMODITY)
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         self.update_hovertip()
 
     def on_added_to_inventory(self):

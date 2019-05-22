@@ -20,7 +20,7 @@ def ui_dialog_respond(dialog_id:int, response:int, _connection=None):
     return True
 
 @sims4.commands.Command('ui.dialog.pick_result', command_type=sims4.commands.CommandType.Live)
-def ui_dialog_pick_result(dialog_id:int, ingredient_check:bool, *choices, _connection=None):
+def ui_dialog_pick_result(dialog_id:int, ingredient_check:bool, *choices:int, _connection=None):
     zone = services.current_zone()
     if not zone.ui_dialog_service.dialog_pick_result(dialog_id, choices, ingredient_check=ingredient_check):
         sims4.commands.output('That is not a valid pick result.', _connection)
@@ -49,7 +49,7 @@ def toggle_silence_phone(sim_id:OptionalTargetParam=None, _connection=None):
     return True
 
 @sims4.commands.Command('ui.dialog.notification_test')
-def ui_dialog_notification_test(*all_text, _connection=None):
+def ui_dialog_notification_test(*all_text:str, _connection=None):
     client = services.client_manager().get(_connection)
     all_text_str = ' '.join(all_text)
     if '/' in all_text:
@@ -83,7 +83,7 @@ def ui_trigger_screenslam(screenslam_reference:TunableInstanceParam(sims4.resour
     screenslam_reference.send_screen_slam_message(sim_info)
     return True
 
-@sims4.commands.Command('ui.dialog.multi_picker_result')
+@sims4.commands.Command('ui.dialog.multi_picker_result', command_type=sims4.commands.CommandType.Live)
 def ui_dialog_multi_picker_result(dialog_id:int, multi_picker_proto:str, _connection=None):
     response_proto = Dialog_pb2.MultiPickerResponse()
     text_format.Merge(multi_picker_proto, response_proto)

@@ -24,9 +24,9 @@ class CollectionPickerInteraction(ObjectPickerInteraction):
         inst._combine_data = CollectionInteractionData.COLLECTION_COMBINING_TUNING.get(interaction_col_id)
         inst._collectible_data = set(ObjectCollectionData.get_collection_data(interaction_col_id).object_list)
         for collectible in context.sim.inventory_component:
-            if not collectible.id == target.id or collectible.stack_count() == 1:
-                pass
-            elif collectible.collectable_component:
+            if not not collectible.id == target.id and collectible.stack_count() == 1:
+                continue
+            if collectible.collectable_component:
                 (collectible_id, _, _) = ObjectCollectionData.get_collection_info_by_definition(collectible.definition.id)
                 if collectible_id == interaction_col_id:
                     yield collectible

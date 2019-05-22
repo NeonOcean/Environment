@@ -50,8 +50,8 @@ class CullingService(Service):
         sim_info_manager = services.sim_info_manager()
         for sim_info in sim_info_manager.objects:
             if not sim_info.death_type:
-                pass
-            elif sim_info.is_player_sim:
+                continue
+            if sim_info.is_player_sim:
                 self._remove_culling_ghost_commodity(sim_info)
             else:
                 self._add_culling_ghost_commodity(sim_info)
@@ -147,11 +147,10 @@ class CullingService(Service):
         sim_infos_b = filter(is_valid_fn, sorted(active_household, key=operator.attrgetter('age')))
         for (sim_info_a, sim_info_b) in itertools.product(sim_infos_a, sim_infos_b):
             if not sim_info_a.relationship_tracker.has_relationship(sim_info_b.sim_id):
-                pass
-            else:
-                _notification = notification(sim_info_b, resolver=DoubleSimResolver(sim_info_a, sim_info_b))
-                _notification.show_dialog()
-                break
+                continue
+            _notification = notification(sim_info_b, resolver=DoubleSimResolver(sim_info_a, sim_info_b))
+            _notification.show_dialog()
+            break
 
     def cull_household(self, household, *, is_important_fn, gsi_archive=None):
         if gsi_archive is not None:
@@ -176,7 +175,7 @@ class CullingService(Service):
         total_score = 0
         for relationship in sim_info.relationship_tracker:
             target_sim_info = relationship.get_other_sim_info(sim_info.sim_id)
-            if sim_info.is_player_sim or not target_sim_info.is_player_sim:
+            if not sim_info.is_player_sim and not target_sim_info.is_player_sim:
                 if output is not None:
                     output('\tSkipping {} -> {} NPC-NPC relationship'.format(sim_info, target_sim_info))
                     if output is not None:

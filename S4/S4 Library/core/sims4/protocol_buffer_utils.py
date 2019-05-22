@@ -25,6 +25,8 @@ def persist_fields_for_custom_option(message, custom_option):
                     _msg.Clear()
                 else:
                     all_clear = False
+            else:
+                message.ClearField(name)
         else:
             message.ClearField(name)
     return all_clear

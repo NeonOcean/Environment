@@ -26,10 +26,11 @@ class BusinessZoneDirectorMixin:
     def on_startup(self):
         super().on_startup()
         self._business_manager = services.business_service().get_business_manager_for_zone()
-        if self._should_create_npc_business_manager():
-            self._business_manager = self._get_new_npc_business_manager()
+        if self._business_manager is None:
+            if self._should_create_npc_business_manager():
+                self._business_manager = self._get_new_npc_business_manager()
         self.create_customer_alarm()
-        if self._business_manager is None and self._business_manager is not None:
+        if self._business_manager is not None:
             self._business_manager.update_employees()
             self._business_manager.try_open_npc_store()
 
@@ -72,7 +73,7 @@ class BusinessZoneDirectorMixin:
     def start_employee_situations(self, employees, owned_by_npc=False):
         if self._business_manager is None:
             return
-        if owned_by_npc or not employees:
+        if not owned_by_npc and not employees:
             return
         situation_manager = services.get_zone_situation_manager()
         if situation_manager is None:
@@ -115,11 +116,10 @@ class BusinessZoneDirectorMixin:
                 desired_count = self._get_desired_employee_count(employee_type)
             num_to_create = desired_count - len(self._employee_situation_ids[employee_type])
             if num_to_create < 1:
-                pass
-            else:
-                for _ in range(num_to_create):
-                    situation_id = situation_manager.create_situation(self._get_npc_employee_situation_for_employee_type(employee_type), guest_list=SituationGuestList(invite_only=True), spawn_sims_during_zone_spin_up=True, user_facing=False, creation_source=creation_source)
-                    self._employee_situation_ids[employee_type].add(situation_id)
+                continue
+            for _ in range(num_to_create):
+                situation_id = situation_manager.create_situation(self._get_npc_employee_situation_for_employee_type(employee_type), guest_list=SituationGuestList(invite_only=True), spawn_sims_during_zone_spin_up=True, user_facing=False, creation_source=creation_source)
+                self._employee_situation_ids[employee_type].add(situation_id)
 
     def _get_desired_employee_count(self, employee_type):
         raise NotImplementedError
@@ -232,7 +232,7 @@ class BusinessZoneDirectorMixin:
     def set_customers_allowed(self, customers_allowed):
         if self._customers_allowed != customers_allowed:
             self._customers_allowed = customers_allowed
-            if customers_allowed or self._customer_situation_alarm_handle:
+            if not customers_allowed and self._customer_situation_alarm_handle:
                 alarms.cancel_alarm(self._customer_situation_alarm_handle)
                 self._customer_situation_alarm_handle = None
                 self._on_customers_disallowed()
@@ -275,10 +275,9 @@ class BusinessZoneDirectorMixin:
             for employee_type in persisted_employee_types:
                 employee_situations_for_type = reader.read_uint64s('npc_employee_situations_{}'.format(employee_type), [])
                 if not employee_situations_for_type:
-                    pass
-                else:
-                    employee_situations.update(employee_situations_for_type)
-                    self._employee_situation_ids[BusinessEmployeeType(employee_type)] = set(employee_situations_for_type)
+                    continue
+                employee_situations.update(employee_situations_for_type)
+                self._employee_situation_ids[BusinessEmployeeType(employee_type)] = set(employee_situations_for_type)
 
     def create_customer_alarm(self):
         self._customer_situation_alarm_handle = alarms.add_alarm(self, create_time_span(minutes=self.customer_situation_interval), self._customer_situation_alarm_callback, repeating=True)

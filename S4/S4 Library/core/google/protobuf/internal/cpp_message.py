@@ -68,7 +68,7 @@ def CompositeProperty(cdescriptor, message_type):
 
     def Getter(self):
         sub_message = self._composite_fields.get(cdescriptor.name, None)
-        if not (sub_message is None or self._cmsg.HasFieldByDescriptor(cdescriptor)):
+        if not (sub_message is None or not self._cmsg.HasFieldByDescriptor(cdescriptor)):
             cmessage = self._cmsg.NewSubMessage(cdescriptor)
             sub_message = message_type._concrete_class(__cmessage=cmessage)
             self._composite_fields[cdescriptor.name] = sub_message
@@ -210,9 +210,10 @@ class RepeatedCompositeContainer(object):
         raise TypeError('unhashable object')
 
     def sort(self, cmp=None, key=None, reverse=False, **kwargs):
-        if 'sort_function' in kwargs:
-            cmp = kwargs.pop('sort_function')
-        if cmp is None and key is None:
+        if cmp is None:
+            if 'sort_function' in kwargs:
+                cmp = kwargs.pop('sort_function')
+        if key is None:
             index_key = self.__getitem__
         else:
             index_key = lambda i: key(self[i])
@@ -220,10 +221,9 @@ class RepeatedCompositeContainer(object):
         indexes.sort(cmp=cmp, key=index_key, reverse=reverse)
         for (dest, src) in enumerate(indexes):
             if dest == src:
-                pass
-            else:
-                self._cmsg.SwapRepeatedFieldElements(self._cfield_descriptor, dest, src)
-                indexes[src] = src
+                continue
+            self._cmsg.SwapRepeatedFieldElements(self._cfield_descriptor, dest, src)
+            indexes[src] = src
 
 def RepeatedCompositeProperty(cdescriptor, message_type):
 
@@ -401,9 +401,10 @@ def _AddMessageMethods(message_descriptor, cls):
             child_field = self._composite_fields[field_name]
             del self._composite_fields[field_name]
             child_cdescriptor = self.__descriptors[field_name]
-            if child_cdescriptor.cpp_type == _CPPTYPE_MESSAGE:
-                child_field._owner = None
-                child_cmessage = child_field._cmsg
+            if child_cdescriptor.label != _LABEL_REPEATED:
+                if child_cdescriptor.cpp_type == _CPPTYPE_MESSAGE:
+                    child_field._owner = None
+                    child_cmessage = child_field._cmsg
         if child_cmessage is not None:
             self._cmsg.ClearField(field_name_in_char, child_cmessage)
         else:
@@ -413,9 +414,10 @@ def _AddMessageMethods(message_descriptor, cls):
         cmessages_to_release = []
         for (field_name, child_field) in self._composite_fields.items():
             child_cdescriptor = self.__descriptors[field_name]
-            if child_cdescriptor.label != _LABEL_REPEATED and child_cdescriptor.cpp_type == _CPPTYPE_MESSAGE:
-                child_field._owner = None
-                cmessages_to_release.append((child_cdescriptor, child_field._cmsg))
+            if child_cdescriptor.label != _LABEL_REPEATED:
+                if child_cdescriptor.cpp_type == _CPPTYPE_MESSAGE:
+                    child_field._owner = None
+                    cmessages_to_release.append((child_cdescriptor, child_field._cmsg))
         self._composite_fields.clear()
         self._cmsg.Clear(cmessages_to_release)
 

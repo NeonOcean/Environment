@@ -1,6 +1,6 @@
 from _collections import defaultdict
 import functools
-from event_testing.resolver import SingleObjectResolver, InteractionResolver, SingleSimResolver
+from event_testing.resolver import SingleObjectResolver, InteractionResolver, SingleSimResolver, DoubleSimAndObjectResolver
 from event_testing.tests import TunableTestSet
 from filters.tunable import TunableSimFilter
 from interactions import ParticipantType, ParticipantTypeSingle
@@ -114,11 +114,10 @@ class PickerSuperInteractionMixin:
             recipe_ingredients_map = {}
             for row_data in cls.picker_rows_gen(target, context, recipe_ingredients_map=recipe_ingredients_map, **kwargs):
                 if not row_data.available_as_pie_menu:
-                    pass
-                else:
-                    affordance = _PickerPieMenuProxyInteraction.generate(cls, picker_row_data=row_data)
-                    for aop in affordance.potential_interactions(target, context, recipe_ingredients_map=recipe_ingredients_map, **kwargs):
-                        yield aop
+                    continue
+                affordance = _PickerPieMenuProxyInteraction.generate(cls, picker_row_data=row_data)
+                for aop in affordance.potential_interactions(target, context, recipe_ingredients_map=recipe_ingredients_map, **kwargs):
+                    yield aop
         else:
             yield from super().potential_interactions(target, context, **kwargs)
 
@@ -149,7 +148,7 @@ class PickerSuperInteraction(PickerSuperInteractionMixin, ImmediateSuperInteract
 
     @classmethod
     def _verify_tuning_callback(cls):
-        if cls.allow_user_directed or cls.pie_menu_option is not None:
+        if not cls.allow_user_directed and cls.pie_menu_option is not None:
             logger.error('{} is tuned to be disallowed user directed but has Pie Menu options. Suggestion: allow the interaction to be user directed.', cls.__name__)
         return super()._verify_tuning_callback()
 
@@ -171,7 +170,7 @@ class PickerSingleChoiceSuperInteraction(PickerSuperInteraction):
             return
         single_row = None
         (_, single_row) = cls.get_single_choice_and_row(context=context, target=target, **kwargs)
-        if cls.single_choice_display_name is not None and single_row is None:
+        if not cls.single_choice_display_name is not None or single_row is None:
             yield from super().potential_interactions(target, context, **kwargs)
         else:
             picked_item_ids = () if single_row is None else (single_row.tag,)
@@ -261,37 +260,34 @@ class SimPickerMixin:
         sim_infos = pre_filtered_sim_infos
         for sim_info in sim_infos:
             if not sim_info.can_instantiate_sim:
-                pass
-            elif inst_or_cls.include_actor_sim or sim_info is actor_sim_info:
-                pass
-            elif inst_or_cls.include_target_sim or (not target is not None or not target.is_sim) or sim_info is target.sim_info:
-                pass
-            elif inst_or_cls.include_uninstantiated_sims or not sim_info.is_instanced():
-                pass
-            elif inst_or_cls.include_instantiated_sims or sim_info.is_instanced():
-                pass
+                continue
+            if not inst_or_cls.include_actor_sim and sim_info is actor_sim_info:
+                continue
+            if not inst_or_cls.include_target_sim and (not not target is not None and not not target.is_sim) and sim_info is target.sim_info:
+                continue
+            if not inst_or_cls.include_uninstantiated_sims and not sim_info.is_instanced():
+                continue
+            if not inst_or_cls.include_instantiated_sims and sim_info.is_instanced():
+                continue
+            results = services.sim_filter_service().submit_filter(inst_or_cls.sim_filter, None, sim_constraints=(sim_info.sim_id,), requesting_sim_info=requesting_sim_info.sim_info, allow_yielding=False, household_id=household_id, gsi_source_fn=inst_or_cls.get_sim_filter_gsi_name)
+            if not results:
+                continue
+            if inst:
+                interaction_parameters = inst.interaction_parameters.copy()
             else:
-                results = services.sim_filter_service().submit_filter(inst_or_cls.sim_filter, None, sim_constraints=(sim_info.sim_id,), requesting_sim_info=requesting_sim_info.sim_info, allow_yielding=False, household_id=household_id, gsi_source_fn=inst_or_cls.get_sim_filter_gsi_name)
-                if not results:
-                    pass
-                else:
-                    if inst:
-                        interaction_parameters = inst.interaction_parameters.copy()
-                    else:
-                        interaction_parameters = kwargs.copy()
-                    interaction_parameters['picked_item_ids'] = {sim_info.sim_id}
-                    resolver = InteractionResolver(cls, inst, target=target, context=context, **interaction_parameters)
-                    if not inst_or_cls.sim_tests or not inst_or_cls.sim_tests.run_tests(resolver):
-                        pass
-                    elif test_function is not None:
-                        sim = sim_info.get_sim_instance()
-                        if not sim is None:
-                            if not test_function(sim):
-                                pass
-                            else:
-                                yield results[0]
-                    else:
-                        yield results[0]
+                interaction_parameters = kwargs.copy()
+            interaction_parameters['picked_item_ids'] = {sim_info.sim_id}
+            resolver = InteractionResolver(cls, inst, target=target, context=context, **interaction_parameters)
+            if not (not not inst_or_cls.sim_tests and not inst_or_cls.sim_tests.run_tests(resolver)):
+                continue
+            if test_function is not None:
+                sim = sim_info.get_sim_instance()
+                if not sim is None:
+                    if not test_function(sim):
+                        continue
+                    yield results[0]
+            else:
+                yield results[0]
 
     def _push_continuation(self, sim, tunable_continuation, sim_ids, insert_strategy, picked_zone_set):
         continuation = None
@@ -329,30 +325,29 @@ class SimPickerMixin:
             num_continuations = len(self.picked_continuation)
             for (index, target_sim_id) in enumerate(sim_ids):
                 if target_sim_id is None:
-                    pass
+                    continue
+                logger.info('SimPicker: picked Sim_id: {}', target_sim_id, owner='jjacobson')
+                target_sim = services.object_manager().get(target_sim_id)
+                if target_sim is None:
+                    logger.error("You must pick on lot sims for a tuned 'picked continuation' to function.", owner='jjacobson')
                 else:
-                    logger.info('SimPicker: picked Sim_id: {}', target_sim_id, owner='jjacobson')
-                    target_sim = services.object_manager().get(target_sim_id)
-                    if target_sim is None:
-                        logger.error("You must pick on lot sims for a tuned 'picked continuation' to function.", owner='jjacobson')
-                    else:
-                        self.interaction_parameters['picked_item_ids'] = frozenset((target_sim_id,))
-                        if self.continuations_are_sequential:
-                            if index < num_continuations:
-                                continuation = (self.picked_continuation[index],)
-                            else:
-                                logger.error('There are not enough tuned picked continuations for the interaction {}, so picked sim {} and all others afterwards will be skipped.', self, target_sim, owner='johnwilkinson')
-                                break
+                    self.interaction_parameters['picked_item_ids'] = frozenset((target_sim_id,))
+                    if self.continuations_are_sequential:
+                        if index < num_continuations:
+                            continuation = (self.picked_continuation[index],)
                         else:
-                            continuation = self.picked_continuation
-                        self.push_tunable_continuation(continuation, insert_strategy=insert_strategy, actor=target_sim, picked_zone_ids=picked_zone_set)
-                        picked_continuation = target_sim.queue.find_pushed_interaction_by_id(self.group_id)
-                        if picked_continuation is not None:
+                            logger.error('There are not enough tuned picked continuations for the interaction {}, so picked sim {} and all others afterwards will be skipped.', self, target_sim, owner='johnwilkinson')
+                            break
+                    else:
+                        continuation = self.picked_continuation
+                    self.push_tunable_continuation(continuation, insert_strategy=insert_strategy, actor=target_sim, picked_zone_ids=picked_zone_set)
+                    picked_continuation = target_sim.queue.find_pushed_interaction_by_id(self.group_id)
+                    if picked_continuation is not None:
+                        new_continuation = target_sim.queue.find_continuation_by_id(picked_continuation.id)
+                        while new_continuation is not None:
+                            picked_continuation = new_continuation
                             new_continuation = target_sim.queue.find_continuation_by_id(picked_continuation.id)
-                            while new_continuation is not None:
-                                picked_continuation = new_continuation
-                                new_continuation = target_sim.queue.find_continuation_by_id(picked_continuation.id)
-                            picked_continuations.append(picked_continuation)
+                        picked_continuations.append(picked_continuation)
         if self.link_continuation != SimPickerLinkContinuation.NEITHER:
             if actor_continuation is not None:
                 if target_continuation is not None and (self.link_continuation == SimPickerLinkContinuation.TARGET or self.link_continuation == SimPickerLinkContinuation.ALL):
@@ -386,10 +381,13 @@ class SimPickerInteraction(SimPickerMixin, PickerSingleChoiceSuperInteraction):
         if self.picker_dialog.min_selectable == 0 and not choices:
             self._on_successful_picker_selection()
             return True
-        if len(choices) == 1:
-            self._kwargs['picked_item_ids'] = (choices[0].sim_info.sim_id,)
+            yield
+        if self.single_choice_display_name is not None:
+            if len(choices) == 1:
+                self._kwargs['picked_item_ids'] = (choices[0].sim_info.sim_id,)
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target, choices=choices)
         return True
+        yield
 
     def _setup_dialog(self, dialog, **kwargs):
         super()._setup_dialog(dialog, **kwargs)
@@ -440,7 +438,7 @@ class SimPickerInteraction(SimPickerMixin, PickerSingleChoiceSuperInteraction):
             logger.info('SimPicker: add sim_id:{}', sim_id)
             interaction_parameters['picked_item_ids'] = {sim_id}
             resolver.interaction_parameters = interaction_parameters
-            if not inst_or_cls.default_selection_tests is not None or inst_or_cls.default_selection_tests.run_tests(resolver):
+            if not not inst_or_cls.default_selection_tests is not None and inst_or_cls.default_selection_tests.run_tests(resolver):
                 select_default = True
             else:
                 select_default = False
@@ -543,6 +541,7 @@ class AutonomousSimPickerSuperInteraction(SimPickerMixin, AutonomousPickerSuperI
             chosen_sim = (chosen_sim,)
             self._push_continuations(chosen_sim)
         return True
+        yield
 
     @classmethod
     def has_valid_choice(cls, target, context, **kwargs):
@@ -575,14 +574,17 @@ class LotPickerMixin:
         actor_zone_id = actor.household.home_zone_id
         results = []
         if target_list is None:
-            if target.household is not None:
-                target_zone_ids.append(target.household.home_zone_id)
+            if target is not None:
+                if target.is_sim:
+                    if target.household is not None:
+                        target_zone_ids.append(target.household.home_zone_id)
         else:
             sim_info_manager = services.sim_info_manager()
             for target_sim_id in target_list:
                 target_sim_info = sim_info_manager.get(target_sim_id)
-                if target_sim_info is not None and target_sim_info.household is not None:
-                    target_zone_ids.append(target_sim_info.household.home_zone_id)
+                if target_sim_info is not None:
+                    if target_sim_info.household is not None:
+                        target_zone_ids.append(target_sim_info.household.home_zone_id)
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
         active_zone_id = services.current_zone().id
         travel_group_manager = services.travel_group_manager()
@@ -594,361 +596,20 @@ class LotPickerMixin:
         persistence_service = services.get_persistence_service()
         for zone_data in persistence_service.zone_proto_buffs_gen():
             zone_id = zone_data.zone_id
-            if inst_or_cls.include_active_lot or zone_id == active_zone_id:
-                pass
-            elif inst_or_cls.test_region_compatibility:
+            if not inst_or_cls.include_active_lot and zone_id == active_zone_id:
+                continue
+            if inst_or_cls.test_region_compatibility:
                 dest_region = region.get_region_instance_from_zone_id(zone_id)
                 if not current_region.is_region_compatible(dest_region):
-                    pass
-                elif inst_or_cls.exclude_rented_zones:
-                    travel_group = travel_group_manager.get_travel_group_by_zone_id(zone_id)
-                    if travel_group is not None and travel_group.played:
-                        pass
-                    elif inst_or_cls.building_types_excluded and plex_service.get_plex_building_type(zone_id) in inst_or_cls.building_types_excluded:
-                        pass
-                    elif zone_id == actor_zone_id:
-                        if inst_or_cls.include_actor_home_lot:
-                            results.append(zone_data)
-                            if zone_id in target_zone_ids:
-                                if inst_or_cls.include_target_home_lot:
-                                    results.append(zone_data)
-                                    venue_type_id = build_buy.get_current_venue(zone_id)
-                                    if venue_type_id is None:
-                                        pass
-                                    else:
-                                        venue_type = venue_manager.get(venue_type_id)
-                                        if venue_type is None:
-                                            pass
-                                        else:
-                                            region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                            if region_tests is not None:
-                                                resolver = SingleSimResolver(actor.sim_info)
-                                                if region_tests.run_tests(resolver):
-                                                    results.append(zone_data)
-                                                else:
-                                                    default_inclusion = inst_or_cls.default_inclusion
-                                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                                        if venue_type in default_inclusion.exclude_venues:
-                                                            pass
-                                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                            pass
-                                                        else:
-                                                            results.append(zone_data)
-                                                    elif venue_type in default_inclusion.include_venues:
-                                                        results.append(zone_data)
-                                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                        results.append(zone_data)
-                                            else:
-                                                default_inclusion = inst_or_cls.default_inclusion
-                                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                                    if venue_type in default_inclusion.exclude_venues:
-                                                        pass
-                                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                        pass
-                                                    else:
-                                                        results.append(zone_data)
-                                                elif venue_type in default_inclusion.include_venues:
-                                                    results.append(zone_data)
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                    results.append(zone_data)
-                            else:
-                                venue_type_id = build_buy.get_current_venue(zone_id)
-                                if venue_type_id is None:
-                                    pass
-                                else:
-                                    venue_type = venue_manager.get(venue_type_id)
-                                    if venue_type is None:
-                                        pass
-                                    else:
-                                        region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                        if region_tests is not None:
-                                            resolver = SingleSimResolver(actor.sim_info)
-                                            if region_tests.run_tests(resolver):
-                                                results.append(zone_data)
-                                            else:
-                                                default_inclusion = inst_or_cls.default_inclusion
-                                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                                    if venue_type in default_inclusion.exclude_venues:
-                                                        pass
-                                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                        pass
-                                                    else:
-                                                        results.append(zone_data)
-                                                elif venue_type in default_inclusion.include_venues:
-                                                    results.append(zone_data)
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                    results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                    elif zone_id in target_zone_ids:
-                        if inst_or_cls.include_target_home_lot:
-                            results.append(zone_data)
-                            venue_type_id = build_buy.get_current_venue(zone_id)
-                            if venue_type_id is None:
-                                pass
-                            else:
-                                venue_type = venue_manager.get(venue_type_id)
-                                if venue_type is None:
-                                    pass
-                                else:
-                                    region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                    if region_tests is not None:
-                                        resolver = SingleSimResolver(actor.sim_info)
-                                        if region_tests.run_tests(resolver):
-                                            results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                    else:
-                        venue_type_id = build_buy.get_current_venue(zone_id)
-                        if venue_type_id is None:
-                            pass
-                        else:
-                            venue_type = venue_manager.get(venue_type_id)
-                            if venue_type is None:
-                                pass
-                            else:
-                                region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                if region_tests is not None:
-                                    resolver = SingleSimResolver(actor.sim_info)
-                                    if region_tests.run_tests(resolver):
-                                        results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                elif inst_or_cls.building_types_excluded and plex_service.get_plex_building_type(zone_id) in inst_or_cls.building_types_excluded:
-                    pass
-                elif zone_id == actor_zone_id:
-                    if inst_or_cls.include_actor_home_lot:
-                        results.append(zone_data)
-                        if zone_id in target_zone_ids:
-                            if inst_or_cls.include_target_home_lot:
-                                results.append(zone_data)
-                                venue_type_id = build_buy.get_current_venue(zone_id)
-                                if venue_type_id is None:
-                                    pass
-                                else:
-                                    venue_type = venue_manager.get(venue_type_id)
-                                    if venue_type is None:
-                                        pass
-                                    else:
-                                        region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                        if region_tests is not None:
-                                            resolver = SingleSimResolver(actor.sim_info)
-                                            if region_tests.run_tests(resolver):
-                                                results.append(zone_data)
-                                            else:
-                                                default_inclusion = inst_or_cls.default_inclusion
-                                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                                    if venue_type in default_inclusion.exclude_venues:
-                                                        pass
-                                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                        pass
-                                                    else:
-                                                        results.append(zone_data)
-                                                elif venue_type in default_inclusion.include_venues:
-                                                    results.append(zone_data)
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                    results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                        else:
-                            venue_type_id = build_buy.get_current_venue(zone_id)
-                            if venue_type_id is None:
-                                pass
-                            else:
-                                venue_type = venue_manager.get(venue_type_id)
-                                if venue_type is None:
-                                    pass
-                                else:
-                                    region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                    if region_tests is not None:
-                                        resolver = SingleSimResolver(actor.sim_info)
-                                        if region_tests.run_tests(resolver):
-                                            results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                elif zone_id in target_zone_ids:
-                    if inst_or_cls.include_target_home_lot:
-                        results.append(zone_data)
-                        venue_type_id = build_buy.get_current_venue(zone_id)
-                        if venue_type_id is None:
-                            pass
-                        else:
-                            venue_type = venue_manager.get(venue_type_id)
-                            if venue_type is None:
-                                pass
-                            else:
-                                region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                if region_tests is not None:
-                                    resolver = SingleSimResolver(actor.sim_info)
-                                    if region_tests.run_tests(resolver):
-                                        results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                else:
-                    venue_type_id = build_buy.get_current_venue(zone_id)
-                    if venue_type_id is None:
-                        pass
-                    else:
-                        venue_type = venue_manager.get(venue_type_id)
-                        if venue_type is None:
-                            pass
-                        else:
-                            region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                            if region_tests is not None:
-                                resolver = SingleSimResolver(actor.sim_info)
-                                if region_tests.run_tests(resolver):
-                                    results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                            else:
-                                default_inclusion = inst_or_cls.default_inclusion
-                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                    if venue_type in default_inclusion.exclude_venues:
-                                        pass
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                        pass
-                                    else:
-                                        results.append(zone_data)
-                                elif venue_type in default_inclusion.include_venues:
-                                    results.append(zone_data)
-                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                    results.append(zone_data)
+                    continue
             elif inst_or_cls.exclude_rented_zones:
                 travel_group = travel_group_manager.get_travel_group_by_zone_id(zone_id)
                 if travel_group is not None and travel_group.played:
-                    pass
-                elif inst_or_cls.building_types_excluded and plex_service.get_plex_building_type(zone_id) in inst_or_cls.building_types_excluded:
-                    pass
-                elif zone_id == actor_zone_id:
+                    continue
+            else:
+                if inst_or_cls.building_types_excluded and plex_service.get_plex_building_type(zone_id) in inst_or_cls.building_types_excluded:
+                    continue
+                if zone_id == actor_zone_id:
                     if inst_or_cls.include_actor_home_lot:
                         results.append(zone_data)
                         if zone_id in target_zone_ids:
@@ -956,303 +617,84 @@ class LotPickerMixin:
                                 results.append(zone_data)
                                 venue_type_id = build_buy.get_current_venue(zone_id)
                                 if venue_type_id is None:
-                                    pass
-                                else:
-                                    venue_type = venue_manager.get(venue_type_id)
-                                    if venue_type is None:
-                                        pass
-                                    else:
-                                        region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                        if region_tests is not None:
-                                            resolver = SingleSimResolver(actor.sim_info)
-                                            if region_tests.run_tests(resolver):
-                                                results.append(zone_data)
-                                            else:
-                                                default_inclusion = inst_or_cls.default_inclusion
-                                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                                    if venue_type in default_inclusion.exclude_venues:
-                                                        pass
-                                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                        pass
-                                                    else:
-                                                        results.append(zone_data)
-                                                elif venue_type in default_inclusion.include_venues:
-                                                    results.append(zone_data)
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                    results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                        else:
-                            venue_type_id = build_buy.get_current_venue(zone_id)
-                            if venue_type_id is None:
-                                pass
-                            else:
+                                    continue
                                 venue_type = venue_manager.get(venue_type_id)
                                 if venue_type is None:
-                                    pass
-                                else:
-                                    region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                    if region_tests is not None:
-                                        resolver = SingleSimResolver(actor.sim_info)
-                                        if region_tests.run_tests(resolver):
-                                            results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
+                                    continue
+                                region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
+                                if region_tests is not None:
+                                    resolver = SingleSimResolver(actor.sim_info)
+                                    if region_tests.run_tests(resolver):
+                                        results.append(zone_data)
                                     else:
                                         default_inclusion = inst_or_cls.default_inclusion
                                         if inst_or_cls.default_inclusion.include_all_by_default:
                                             if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
+                                                continue
+                                            if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                                continue
+                                            results.append(zone_data)
                                         elif venue_type in default_inclusion.include_venues:
                                             results.append(zone_data)
                                         elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
                                             results.append(zone_data)
+                                else:
+                                    default_inclusion = inst_or_cls.default_inclusion
+                                    if inst_or_cls.default_inclusion.include_all_by_default:
+                                        if venue_type in default_inclusion.exclude_venues:
+                                            continue
+                                        if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                            continue
+                                        results.append(zone_data)
+                                    elif venue_type in default_inclusion.include_venues:
+                                        results.append(zone_data)
+                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
+                                        results.append(zone_data)
+                        else:
+                            venue_type_id = build_buy.get_current_venue(zone_id)
+                            if venue_type_id is None:
+                                continue
+                            venue_type = venue_manager.get(venue_type_id)
+                            if venue_type is None:
+                                continue
+                            region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
+                            if region_tests is not None:
+                                resolver = SingleSimResolver(actor.sim_info)
+                                if region_tests.run_tests(resolver):
+                                    results.append(zone_data)
+                                else:
+                                    default_inclusion = inst_or_cls.default_inclusion
+                                    if inst_or_cls.default_inclusion.include_all_by_default:
+                                        if venue_type in default_inclusion.exclude_venues:
+                                            continue
+                                        if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                            continue
+                                        results.append(zone_data)
+                                    elif venue_type in default_inclusion.include_venues:
+                                        results.append(zone_data)
+                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
+                                        results.append(zone_data)
+                            else:
+                                default_inclusion = inst_or_cls.default_inclusion
+                                if inst_or_cls.default_inclusion.include_all_by_default:
+                                    if venue_type in default_inclusion.exclude_venues:
+                                        continue
+                                    if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                        continue
+                                    results.append(zone_data)
+                                elif venue_type in default_inclusion.include_venues:
+                                    results.append(zone_data)
+                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
+                                    results.append(zone_data)
                 elif zone_id in target_zone_ids:
                     if inst_or_cls.include_target_home_lot:
                         results.append(zone_data)
                         venue_type_id = build_buy.get_current_venue(zone_id)
                         if venue_type_id is None:
-                            pass
-                        else:
-                            venue_type = venue_manager.get(venue_type_id)
-                            if venue_type is None:
-                                pass
-                            else:
-                                region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                if region_tests is not None:
-                                    resolver = SingleSimResolver(actor.sim_info)
-                                    if region_tests.run_tests(resolver):
-                                        results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                else:
-                    venue_type_id = build_buy.get_current_venue(zone_id)
-                    if venue_type_id is None:
-                        pass
-                    else:
+                            continue
                         venue_type = venue_manager.get(venue_type_id)
                         if venue_type is None:
-                            pass
-                        else:
-                            region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                            if region_tests is not None:
-                                resolver = SingleSimResolver(actor.sim_info)
-                                if region_tests.run_tests(resolver):
-                                    results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                            else:
-                                default_inclusion = inst_or_cls.default_inclusion
-                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                    if venue_type in default_inclusion.exclude_venues:
-                                        pass
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                        pass
-                                    else:
-                                        results.append(zone_data)
-                                elif venue_type in default_inclusion.include_venues:
-                                    results.append(zone_data)
-                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                    results.append(zone_data)
-            elif inst_or_cls.building_types_excluded and plex_service.get_plex_building_type(zone_id) in inst_or_cls.building_types_excluded:
-                pass
-            elif zone_id == actor_zone_id:
-                if inst_or_cls.include_actor_home_lot:
-                    results.append(zone_data)
-                    if zone_id in target_zone_ids:
-                        if inst_or_cls.include_target_home_lot:
-                            results.append(zone_data)
-                            venue_type_id = build_buy.get_current_venue(zone_id)
-                            if venue_type_id is None:
-                                pass
-                            else:
-                                venue_type = venue_manager.get(venue_type_id)
-                                if venue_type is None:
-                                    pass
-                                else:
-                                    region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                    if region_tests is not None:
-                                        resolver = SingleSimResolver(actor.sim_info)
-                                        if region_tests.run_tests(resolver):
-                                            results.append(zone_data)
-                                        else:
-                                            default_inclusion = inst_or_cls.default_inclusion
-                                            if inst_or_cls.default_inclusion.include_all_by_default:
-                                                if venue_type in default_inclusion.exclude_venues:
-                                                    pass
-                                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                    pass
-                                                else:
-                                                    results.append(zone_data)
-                                            elif venue_type in default_inclusion.include_venues:
-                                                results.append(zone_data)
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                                results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                    else:
-                        venue_type_id = build_buy.get_current_venue(zone_id)
-                        if venue_type_id is None:
-                            pass
-                        else:
-                            venue_type = venue_manager.get(venue_type_id)
-                            if venue_type is None:
-                                pass
-                            else:
-                                region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                                if region_tests is not None:
-                                    resolver = SingleSimResolver(actor.sim_info)
-                                    if region_tests.run_tests(resolver):
-                                        results.append(zone_data)
-                                    else:
-                                        default_inclusion = inst_or_cls.default_inclusion
-                                        if inst_or_cls.default_inclusion.include_all_by_default:
-                                            if venue_type in default_inclusion.exclude_venues:
-                                                pass
-                                            elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                                pass
-                                            else:
-                                                results.append(zone_data)
-                                        elif venue_type in default_inclusion.include_venues:
-                                            results.append(zone_data)
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                            results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-            elif zone_id in target_zone_ids:
-                if inst_or_cls.include_target_home_lot:
-                    results.append(zone_data)
-                    venue_type_id = build_buy.get_current_venue(zone_id)
-                    if venue_type_id is None:
-                        pass
-                    else:
-                        venue_type = venue_manager.get(venue_type_id)
-                        if venue_type is None:
-                            pass
-                        else:
-                            region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
-                            if region_tests is not None:
-                                resolver = SingleSimResolver(actor.sim_info)
-                                if region_tests.run_tests(resolver):
-                                    results.append(zone_data)
-                                else:
-                                    default_inclusion = inst_or_cls.default_inclusion
-                                    if inst_or_cls.default_inclusion.include_all_by_default:
-                                        if venue_type in default_inclusion.exclude_venues:
-                                            pass
-                                        elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                            pass
-                                        else:
-                                            results.append(zone_data)
-                                    elif venue_type in default_inclusion.include_venues:
-                                        results.append(zone_data)
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                        results.append(zone_data)
-                            else:
-                                default_inclusion = inst_or_cls.default_inclusion
-                                if inst_or_cls.default_inclusion.include_all_by_default:
-                                    if venue_type in default_inclusion.exclude_venues:
-                                        pass
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                        pass
-                                    else:
-                                        results.append(zone_data)
-                                elif venue_type in default_inclusion.include_venues:
-                                    results.append(zone_data)
-                                elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
-                                    results.append(zone_data)
-            else:
-                venue_type_id = build_buy.get_current_venue(zone_id)
-                if venue_type_id is None:
-                    pass
-                else:
-                    venue_type = venue_manager.get(venue_type_id)
-                    if venue_type is None:
-                        pass
-                    else:
+                            continue
                         region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
                         if region_tests is not None:
                             resolver = SingleSimResolver(actor.sim_info)
@@ -1262,11 +704,10 @@ class LotPickerMixin:
                                 default_inclusion = inst_or_cls.default_inclusion
                                 if inst_or_cls.default_inclusion.include_all_by_default:
                                     if venue_type in default_inclusion.exclude_venues:
-                                        pass
-                                    elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                        pass
-                                    else:
-                                        results.append(zone_data)
+                                        continue
+                                    if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                        continue
+                                    results.append(zone_data)
                                 elif venue_type in default_inclusion.include_venues:
                                     results.append(zone_data)
                                 elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
@@ -1275,15 +716,50 @@ class LotPickerMixin:
                             default_inclusion = inst_or_cls.default_inclusion
                             if inst_or_cls.default_inclusion.include_all_by_default:
                                 if venue_type in default_inclusion.exclude_venues:
-                                    pass
-                                elif any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
-                                    pass
-                                else:
-                                    results.append(zone_data)
+                                    continue
+                                if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                    continue
+                                results.append(zone_data)
                             elif venue_type in default_inclusion.include_venues:
                                 results.append(zone_data)
                             elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
                                 results.append(zone_data)
+                else:
+                    venue_type_id = build_buy.get_current_venue(zone_id)
+                    if venue_type_id is None:
+                        continue
+                    venue_type = venue_manager.get(venue_type_id)
+                    if venue_type is None:
+                        continue
+                    region_tests = inst_or_cls.testable_region_inclusion.get(venue_type)
+                    if region_tests is not None:
+                        resolver = SingleSimResolver(actor.sim_info)
+                        if region_tests.run_tests(resolver):
+                            results.append(zone_data)
+                        else:
+                            default_inclusion = inst_or_cls.default_inclusion
+                            if inst_or_cls.default_inclusion.include_all_by_default:
+                                if venue_type in default_inclusion.exclude_venues:
+                                    continue
+                                if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                    continue
+                                results.append(zone_data)
+                            elif venue_type in default_inclusion.include_venues:
+                                results.append(zone_data)
+                            elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
+                                results.append(zone_data)
+                    else:
+                        default_inclusion = inst_or_cls.default_inclusion
+                        if inst_or_cls.default_inclusion.include_all_by_default:
+                            if venue_type in default_inclusion.exclude_venues:
+                                continue
+                            if any(venue_type in venue_list for venue_list in default_inclusion.exclude_lists):
+                                continue
+                            results.append(zone_data)
+                        elif venue_type in default_inclusion.include_venues:
+                            results.append(zone_data)
+                        elif any(venue_type in venue_list for venue_list in default_inclusion.include_lists):
+                            results.append(zone_data)
         return results
 
 class MapViewPickerInteraction(LotPickerMixin, PickerSuperInteraction):
@@ -1326,8 +802,10 @@ class MapViewPickerInteraction(LotPickerMixin, PickerSuperInteraction):
         if self.bypass_picker_on_single_choice and len(choices) == 1:
             self._push_continuations(choices[0])
             return True
+            yield
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
+        yield
 
     @flexmethod
     def create_row(cls, inst, tag):
@@ -1408,13 +886,14 @@ class ObjectPickerMixin:
                             local_target = next(iter(local_targets), None)
                         else:
                             local_target = None
-                        if local_target.is_sim:
-                            if isinstance(local_target, sims.sim_info.SimInfo):
-                                local_target = local_target.get_sim_instance()
-                        elif local_target.is_part:
-                            local_target = local_target.part_owner
+                        if local_target is not None:
+                            if local_target.is_sim:
+                                if isinstance(local_target, sims.sim_info.SimInfo):
+                                    local_target = local_target.get_sim_instance()
+                            elif local_target.is_part:
+                                local_target = local_target.part_owner
                         affordance = continuation.affordance
-                        if local_target is not None and affordance.is_super:
+                        if affordance.is_super:
                             result = local_actor.test_super_affordance(affordance, local_target, local_context, picked_object=target, picked_item_ids=picked_item_set)
                         else:
                             if continuation.si_affordance_override is not None:
@@ -1438,13 +917,14 @@ class ObjectPickerMixin:
                         local_target = next(iter(local_targets), None)
                     else:
                         local_target = None
-                    if local_target.is_sim:
-                        if isinstance(local_target, sims.sim_info.SimInfo):
-                            local_target = local_target.get_sim_instance()
-                    elif local_target.is_part:
-                        local_target = local_target.part_owner
+                    if local_target is not None:
+                        if local_target.is_sim:
+                            if isinstance(local_target, sims.sim_info.SimInfo):
+                                local_target = local_target.get_sim_instance()
+                        elif local_target.is_part:
+                            local_target = local_target.part_owner
                     affordance = continuation.affordance
-                    if local_target is not None and affordance.is_super:
+                    if affordance.is_super:
                         result = local_actor.test_super_affordance(affordance, local_target, local_context, picked_object=target, picked_item_ids=picked_item_set)
                     else:
                         if continuation.si_affordance_override is not None:
@@ -1555,9 +1035,12 @@ class ObjectPickerInteraction(ObjectPickerMixin, PickerSingleChoiceSuperInteract
                     obj = AutoPickRandom.perform_auto_pick(choices)
                 self._push_continuation(obj)
                 return True
+                yield
             return False
+            yield
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
+        yield
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):
@@ -1594,11 +1077,10 @@ class AutonomousObjectPickerInteraction(ObjectPickerMixin, AutonomousPickerSuper
         sim = inst.sim if inst is not None else context.sim
         for obj in inst_or_cls._get_objects_internal_gen(target, context, **kwargs):
             if sim.has_lockout(obj):
-                pass
-            elif not inst_or_cls._test_continuation_for_object(obj.id, context=context, target=target, **kwargs):
-                pass
-            else:
-                yield obj
+                continue
+            if not inst_or_cls._test_continuation_for_object(obj.id, context=context, target=target, **kwargs):
+                continue
+            yield obj
 
     @flexmethod
     def _get_objects_with_results_gen(cls, inst, target, context, **kwargs):
@@ -1625,6 +1107,7 @@ class AutonomousObjectPickerInteraction(ObjectPickerMixin, AutonomousPickerSuper
                 gen_objects = self._choice_enumeration_strategy.get_gen_objects()
                 gsi_handlers.picker_handler.archive_picker_message(self.interaction, self._sim, self._target, chosen_obj, gen_objects)
         return True
+        yield
 
 class ActorsUrnstonePickerMixin:
 
@@ -1651,22 +1134,24 @@ class ObjectInInventoryPickerMixin:
         inst_or_cls = inst if inst is not None else cls
         inventory_subject = inst_or_cls.get_participant(participant_type=inst_or_cls.inventory_subject, sim=context.sim, target=target, **kwargs)
         used_definition_ids = set()
-        if inventory_subject.inventory_component is not None:
-            for obj in inventory_subject.inventory_component:
-                if not inst_or_cls.suppress_duplicate_definitions or obj.definition.id in used_definition_ids:
-                    pass
-                elif not inst_or_cls.inventory_item_test(obj):
-                    pass
-                elif inst_or_cls.additional_item_test:
-                    resolver = SingleObjectResolver(obj)
-                    if not inst_or_cls.additional_item_test.run_tests(resolver):
-                        pass
+        if inventory_subject is not None:
+            if inventory_subject.inventory_component is not None:
+                actor_sim = inst_or_cls.get_participant(participant_type=ParticipantType.Actor, sim=context.sim, target=target, **kwargs)
+                actor_sim_info = actor_sim.sim_info if actor_sim is not None else None
+                target_sim = inst_or_cls.get_participant(participant_type=ParticipantType.TargetSim, sim=context.sim, target=target, **kwargs)
+                target_sim_info = target_sim.sim_info if target_sim is not None else None
+                for obj in inventory_subject.inventory_component:
+                    if not not inst_or_cls.suppress_duplicate_definitions and obj.definition.id in used_definition_ids:
+                        continue
+                    if not inst_or_cls.inventory_item_test(obj):
+                        continue
+                    if inst_or_cls.additional_item_test:
+                        resolver = DoubleSimAndObjectResolver(actor_sim_info, target_sim_info, obj, inst_or_cls)
+                        if not inst_or_cls.additional_item_test.run_tests(resolver):
+                            continue
                     else:
                         used_definition_ids.add(obj.definition.id)
                         yield obj
-                else:
-                    used_definition_ids.add(obj.definition.id)
-                    yield obj
 
     @flexmethod
     def get_stack_count(cls, inst, obj):
@@ -1691,18 +1176,17 @@ class ObjectInSlotPickerMixin:
     def _get_objects_internal_gen(cls, inst, target, context, **kwargs):
         inst_or_cls = inst if inst is not None else cls
         slot_subject = inst_or_cls.get_participant(participant_type=inst_or_cls.subject_with_slots, sim=context.sim, target=target, **kwargs)
-        if slot_subject.children:
-            for child in slot_subject.children:
-                if not inst_or_cls.required_slot_types is not None or child.location.slot_hash or child.location.joint_name_hash not in inst_or_cls.required_slot_types:
-                    pass
-                elif inst_or_cls.slot_obj_test:
-                    resolver = SingleObjectResolver(child)
-                    if not inst_or_cls.slot_obj_test.run_tests(resolver):
-                        pass
+        if slot_subject is not None:
+            if slot_subject.children:
+                for child in slot_subject.children:
+                    if not not inst_or_cls.required_slot_types is not None and (child.location.slot_hash or child.location.joint_name_hash) not in inst_or_cls.required_slot_types:
+                        continue
+                    if inst_or_cls.slot_obj_test:
+                        resolver = SingleObjectResolver(child)
+                        if not inst_or_cls.slot_obj_test.run_tests(resolver):
+                            continue
                     else:
                         yield child
-                else:
-                    yield child
 
 class AutonomousObjectInSlotPickerInteraction(ObjectInSlotPickerMixin, AutonomousObjectPickerInteraction):
     pass
@@ -1738,27 +1222,26 @@ class AutonomousObjectTaggedPickerInteraction(AutonomousObjectPickerInteraction)
         skipped = []
         (prevent_outside, outside_multiplier) = sim.sim_info.get_outside_object_score_modification()
         handle_outside = outside_multiplier != 1.0 or prevent_outside
-        should_do_outside_later = (inst_or_cls.counts_as_inside or not inst_or_cls.supress_outside_if_modifier) and not prevent_outside
+        should_do_outside_later = (inst_or_cls.counts_as_inside or not not inst_or_cls.supress_outside_if_modifier) and not prevent_outside
         for obj in object_manager.get_objects_with_filter_gen(inst_or_cls.whitelist_filter):
             if sim_level != obj.level:
-                pass
-            elif not inst_or_cls.blacklist_filter is not None or inst_or_cls.blacklist_filter.matches(obj):
-                pass
-            else:
-                delta = obj.intended_position - sim_intended_postion
-                if delta.magnitude() > inst_or_cls.radius:
-                    pass
-                elif not handle_outside or obj.is_in_sim_inventory(sim) or obj.is_outside:
-                    if should_do_outside_later:
-                        skipped.append(obj)
-                        if inst_or_cls._passes_post_skip_tests(sim, obj):
-                            should_do_outside_later = False
-                            skipped.clear()
-                            yield obj
-                elif inst_or_cls._passes_post_skip_tests(sim, obj):
-                    should_do_outside_later = False
-                    skipped.clear()
-                    yield obj
+                continue
+            if not not inst_or_cls.blacklist_filter is not None and inst_or_cls.blacklist_filter.matches(obj):
+                continue
+            delta = obj.intended_position - sim_intended_postion
+            if delta.magnitude() > inst_or_cls.radius:
+                continue
+            if not not handle_outside and not obj.is_in_sim_inventory(sim) and obj.is_outside:
+                if should_do_outside_later:
+                    skipped.append(obj)
+                    if inst_or_cls._passes_post_skip_tests(sim, obj):
+                        should_do_outside_later = False
+                        skipped.clear()
+                        yield obj
+            elif inst_or_cls._passes_post_skip_tests(sim, obj):
+                should_do_outside_later = False
+                skipped.clear()
+                yield obj
         for obj in skipped:
             if inst_or_cls._passes_post_skip_tests(sim, obj):
                 yield obj
@@ -1859,8 +1342,9 @@ class InventoryItems(HasTunableSingletonFactory, AutoFactoryInit):
             elif self.object_requirement.requirement_type == OBJ_REQUIREMENT_STATE_THRESHOLD:
                 desired_state = self.object_requirement.threshold.value.state
                 for obj in inventory_component:
-                    if obj.has_state(desired_state) and self.object_requirement.threshold.compare_value(obj.get_state(desired_state)):
-                        yield obj
+                    if obj.has_state(desired_state):
+                        if self.object_requirement.threshold.compare_value(obj.get_state(desired_state)):
+                            yield obj
 
     def has_choices(self, inst_or_cls, **kwargs):
         for _ in self._get_items_internal_gen(inst_or_cls, **kwargs):
@@ -1942,6 +1426,7 @@ class PurchasePickerInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim)
         return True
+        yield
 
     @classmethod
     def has_valid_choice(cls, target, context, **kwargs):

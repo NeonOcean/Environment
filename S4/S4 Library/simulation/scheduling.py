@@ -60,74 +60,76 @@ class Timeline:
             else:
                 end_time = None
             early_exit = False
-            while self.heap and self.heap[0].when <= until:
-                count += 1
-                handle = heapq.heappop(self.heap)
-                if handle.element is None:
-                    self._garbage -= 1
-                else:
-                    (when, _, _t, _s, e) = handle
-                    if self.now != when:
-                        self.now = when
-                        self.on_time_advanced()
-                    calling = True
-                    result = None
-                    try:
-                        while e is not None:
-                            handle._set_when(None)
-                            handle._set_scheduled(False)
-                            self._active = (e, handle)
-                            try:
-                                if calling:
-                                    result = e._run(self)
-                                else:
-                                    result = e._resume(self, result)
-                                if self._pending_hard_stop:
-                                    raise HardStopError('Hard stop exception was consumed by {}'.format(e))
-                            except BaseException as exc:
-                                self._pending_hard_stop = False
-                                self._active = None
+            while self.heap:
+                while self.heap[0].when <= until:
+                    count += 1
+                    handle = heapq.heappop(self.heap)
+                    if handle.element is None:
+                        self._garbage -= 1
+                    else:
+                        (when, _, _t, _s, e) = handle
+                        if self.now != when:
+                            self.now = when
+                            self.on_time_advanced()
+                        calling = True
+                        result = None
+                        try:
+                            while e is not None:
+                                handle._set_when(None)
+                                handle._set_scheduled(False)
+                                self._active = (e, handle)
                                 try:
-                                    if not isinstance(exc, HardStopError):
-                                        self._report_exception(e, exc, 'Exception {} Element'.format('running' if calling else 'resuming'))
-                                finally:
-                                    if e._parent_handle is not None:
-                                        self.hard_stop(e._parent_handle)
-                            if inspect.isgenerator(result):
-                                raise RuntimeError('Element {} returned a generator {}'.format(e, result))
-                            if self._active is None:
+                                    if calling:
+                                        result = e._run(self)
+                                    else:
+                                        result = e._resume(self, result)
+                                    if self._pending_hard_stop:
+                                        raise HardStopError('Hard stop exception was consumed by {}'.format(e))
+                                except BaseException as exc:
+                                    self._pending_hard_stop = False
+                                    self._active = None
+                                    try:
+                                        if not isinstance(exc, HardStopError):
+                                            self._report_exception(e, exc, 'Exception {} Element'.format('running' if calling else 'resuming'))
+                                    finally:
+                                        if e._parent_handle is not None:
+                                            self.hard_stop(e._parent_handle)
+                                if inspect.isgenerator(result):
+                                    raise RuntimeError('Element {} returned a generator {}'.format(e, result))
+                                if self._active is None:
+                                    break
+                                if self._child is not None:
+                                    handle = self._child
+                                    self._child = None
+                                    e = handle.element
+                                    calling = True
+                                    count += 1
+                                else:
+                                    if handle.is_scheduled:
+                                        break
+                                    e._element_handle = None
+                                    handle = e._parent_handle
+                                    e._parent_handle = None
+                                    if handle is None:
+                                        e._teardown()
+                                        break
+                                    child = e
+                                    e = handle.element
+                                    will_reschedule = e._child_returned(child)
+                                    if not will_reschedule:
+                                        child._teardown()
+                                    del child
+                                    calling = False
+                        finally:
+                            self._active = None
+                            self._child = None
+                        if count >= max_elements:
+                            early_exit = True
+                            break
+                        if end_time is not None:
+                            if time.monotonic() > end_time:
+                                early_exit = True
                                 break
-                            if self._child is not None:
-                                handle = self._child
-                                self._child = None
-                                e = handle.element
-                                calling = True
-                                count += 1
-                            else:
-                                if handle.is_scheduled:
-                                    break
-                                e._element_handle = None
-                                handle = e._parent_handle
-                                e._parent_handle = None
-                                if handle is None:
-                                    e._teardown()
-                                    break
-                                child = e
-                                e = handle.element
-                                will_reschedule = e._child_returned(child)
-                                if not will_reschedule:
-                                    child._teardown()
-                                del child
-                                calling = False
-                    finally:
-                        self._active = None
-                        self._child = None
-                    if count >= max_elements:
-                        early_exit = True
-                        break
-                    if end_time is not None and time.monotonic() > end_time:
-                        early_exit = True
-                        break
             if self._garbage > ACCEPTABLE_GARBAGE and self._garbage > len(self.heap)*MAX_GARBAGE_FACTOR:
                 self._clear_garbage()
             if not early_exit:
@@ -204,11 +206,10 @@ class Timeline:
             element = handle.element
             if not element is None:
                 if id(element) in visited:
-                    pass
-                else:
-                    visited[id(element)] = element
-                    if not element._soft_stop():
-                        pending.extend(element._get_child_handles())
+                    continue
+                visited[id(element)] = element
+                if not element._soft_stop():
+                    pending.extend(element._get_child_handles())
 
     def hard_stop(self, handle):
         element = handle.element
@@ -268,10 +269,11 @@ class Timeline:
             handle._clear_element()
         self._garbage += len(to_stop_handles)
         for element in elements:
-            if not self._active[1] is element._element_handle:
-                if self._active[0] is element:
-                    self._active = None
-            self._active = None
+            if self._active is not None:
+                if not self._active[1] is element._element_handle:
+                    if self._active[0] is element:
+                        self._active = None
+                self._active = None
         exceptions = []
         for element in elements:
             try:
@@ -286,8 +288,9 @@ class Timeline:
 
     def _collect_element_tree(self, handle):
         root = handle
-        while root.element is not None and root.element._parent_handle is not None:
-            root = root.element._parent_handle
+        while root.element is not None:
+            while root.element._parent_handle is not None:
+                root = root.element._parent_handle
         visited = {}
         pending = [root]
         all_handles = []
@@ -296,11 +299,10 @@ class Timeline:
             element = handle.element
             if not element is None:
                 if id(element) in visited:
-                    pass
-                else:
-                    visited[id(element)] = element
-                    all_handles.append(handle)
-                    pending.extend(element._get_child_handles())
+                    continue
+                visited[id(element)] = element
+                all_handles.append(handle)
+                pending.extend(element._get_child_handles())
         return list(reversed(all_handles))
 
     def _mark_scheduled(self, element):

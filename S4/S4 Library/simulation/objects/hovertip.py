@@ -29,6 +29,7 @@ class TooltipFields(enum.Int):
     relic_description = 22
     season_text = 23
     spoiled_time_text = 24
+    rel_override_id = 25
 
 class TooltipFieldsComplete(TooltipFields, export=False):
     quality = 11

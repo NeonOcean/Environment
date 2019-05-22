@@ -164,13 +164,14 @@ class StartCraftingMixin:
     @classmethod
     def _get_ingredient_candidates(cls, crafter, crafting_target=None):
         candidate_ingredients = StartCraftingMixin.get_default_candidate_ingredients(crafter)
-        if crafting_target is not None:
-            if crafting_target.inventory_component is None:
-                logger.error('Inventory component is None, this interaction is likely mistuned. \n\tinteraction={}', cls.__name__)
-                return candidate_ingredients
-            for obj in crafting_target.inventory_component:
-                if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
-                    candidate_ingredients.append(obj)
+        if cls.check_target_inventory:
+            if crafting_target is not None:
+                if crafting_target.inventory_component is None:
+                    logger.error('Inventory component is None, this interaction is likely mistuned. \n\tinteraction={}', cls.__name__)
+                    return candidate_ingredients
+                for obj in crafting_target.inventory_component:
+                    if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
+                        candidate_ingredients.append(obj)
         candidate_ingredients.sort(key=lambda x: IngredientTuning.get_quality_bonus(x))
         return candidate_ingredients
 
@@ -184,8 +185,9 @@ class StartCraftingMixin:
             candidate_ingredients = self._get_ingredient_candidates(crafter, crafting_target=crafting_target)
             for ingredient_requirement in ingredient_requirements:
                 ingredient_requirement.attempt_satisfy_ingredients(candidate_ingredients, ingredients_used)
-                if all_ingredients_required and not ingredient_requirement.satisfied:
-                    return (TestResult(False, 'All ingredients required but not satisfied.'), ingredients_used)
+                if all_ingredients_required:
+                    if not ingredient_requirement.satisfied:
+                        return (TestResult(False, 'All ingredients required but not satisfied.'), ingredients_used)
         return (TestResult(True), ingredients_used)
 
     def _get_ingredients_modifier_and_quality_bonus(self, ingredient_requirements):
@@ -222,8 +224,10 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         if self.favorite_recipe is None:
             self._show_picker_dialog(crafter, target_sim=crafter, order_count=len(self.orderer_ids), crafter=crafter, funds_source=self.funds_source)
             return True
+            yield
         else:
             return self._push_make_favorite_recipe(crafter=crafter)
+            yield
 
     def get_crafter_participant(self):
         crafter = self.get_participant(self.crafter)
@@ -241,7 +245,8 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         paying_sim = None if self.paying_sim is None else self.get_participant(self.paying_sim)
         favorite_recipe = orderer.sim_info.get_favorite_recipe(self.favorite_recipe.recipe_tags)
         if favorite_recipe is None:
-            favorite_recipe = self._pick_random_favorite_recipe(crafter, orderer)
+            test_paying_sim = orderer if paying_sim is None else paying_sim
+            favorite_recipe = self._pick_random_favorite_recipe(crafter, test_paying_sim)
         if favorite_recipe is None:
             return False
         orderer.sim_info.set_favorite_recipe(favorite_recipe)
@@ -250,18 +255,18 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         else:
             return handle_crafting_func(favorite_recipe)
 
-    def _pick_random_favorite_recipe(self, crafter, orderer):
+    def _pick_random_favorite_recipe(self, crafter, payer):
         candidate_recipes = []
         resolver = self.get_resolver()
         for recipe in self.recipes:
             if recipe.use_ingredients is not None:
-                pass
-            else:
-                is_order_interaction = issubclass(type(self), StartCraftingOrderSuperInteraction)
-                multiplier = self.price_multiplier.get_multiplier(resolver)
-                (_, discounted_price) = recipe.get_price(is_order_interaction, multiplier)
-                recipe_test_result = CraftingProcess.recipe_test(self.target, self.context, recipe, crafter, discounted_price, ordering_sim=orderer)
-                if recipe_test_result.visible and not recipe_test_result.errors:
+                continue
+            is_order_interaction = issubclass(type(self), StartCraftingOrderSuperInteraction)
+            multiplier = self.price_multiplier.get_multiplier(resolver)
+            (_, discounted_price) = recipe.get_price(is_order_interaction, multiplier)
+            recipe_test_result = CraftingProcess.recipe_test(self.target, self.context, recipe, crafter, discounted_price, paying_sim=payer)
+            if recipe_test_result.visible:
+                if not recipe_test_result.errors:
                     candidate_recipes.append(recipe)
         if not candidate_recipes:
             return
@@ -276,11 +281,12 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         if cls.favorite_recipe is not None:
             favorite_recipe = orderer.sim_info.get_favorite_recipe(cls.favorite_recipe.recipe_tags)
             if favorite_recipe is not None:
-                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, 0, ordering_sim=orderer)
+                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, 0, paying_sim=orderer)
         for recipe in cls.recipes:
-            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, 0, ordering_sim=orderer)
-            if recipe_test_result.visible and not recipe_test_result.errors:
-                return True
+            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, 0, paying_sim=orderer)
+            if recipe_test_result.visible:
+                if not recipe_test_result.errors:
+                    return True
         return False
 
     @flexmethod
@@ -288,7 +294,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         crafter = context.sim
         candidate_ingredients = cls._get_ingredient_candidates(crafter, crafting_target=target)
         recipe_list = []
-        if crafter is DEFAULT and inst is not None:
+        if not crafter is DEFAULT or inst is not None:
             inst._choice_enumeration_strategy.build_choice_list(inst)
             recipe_list = inst._choice_enumeration_strategy.choices
             resolver = inst.get_resolver()
@@ -321,12 +327,12 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
             (original_price, discounted_price) = recipe.get_price(is_order_interaction, adjusted_ingredient_price, multiplier)
             original_price *= order_count
             discounted_price *= order_count
-            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, ordering_sim=context.sim, funds_source=funds_source)
-            if not recipe.use_ingredients is not None or ingredients_needed_count and recipe_test_result.visible:
+            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=context.sim, funds_source=funds_source)
+            if not recipe.use_ingredients is not None or not ingredients_needed_count or recipe_test_result.visible:
                 ingredient_display_list = tuple(ingredient_requirement.get_display_data() for ingredient_requirement in recipe_ingredients_map.get(recipe, ()))
                 if recipe_test_result.errors:
                     if len(recipe_test_result.errors) > 1:
-                        localized_error_string = LocalizationHelperTuning.get_bulleted_list((None,), recipe_test_result.errors)
+                        localized_error_string = LocalizationHelperTuning.get_bulleted_list(None, *recipe_test_result.errors)
                     else:
                         localized_error_string = recipe_test_result.errors[0]
                     description = cls.create_unavailable_recipe_description(localized_error_string)
@@ -335,7 +341,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                     description = recipe.recipe_description(crafter)
                     if recipe.use_ingredients is not None:
                         tooltip_ingredients = [ingredient.ingredient_name for ingredient in ingredient_display_list]
-                        ingredients_list_string = LocalizationHelperTuning.get_bulleted_list((None,), tooltip_ingredients)
+                        ingredients_list_string = LocalizationHelperTuning.get_bulleted_list(None, *tooltip_ingredients)
                         if recipe.all_ingredients_required:
                             tooltip = functools.partial(IngredientTuning.REQUIRED_INGREDIENT_LIST_STRING, ingredients_list_string)
                             if crafter is not context.sim:
@@ -343,7 +349,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                             else:
                                 description = IngredientTuning.REQUIRED_INGREDIENT_LIST_STRING(ingredients_list_string)
                                 tooltip = functools.partial(sims4.localization.LocalizationHelperTuning.RAW_TEXT, sims4.localization.LocalizationHelperTuning.get_new_line_separated_strings(recipe.recipe_description(crafter), tooltip()))
-                                if recipe.use_ingredients.missing_ingredient_tooltip_style == IngredientTooltipStyle.DEFAULT_MISSING_INGREDIENTS and recipe.recipe_description and recipe.has_final_product_definition:
+                                if not (not recipe.use_ingredients.missing_ingredient_tooltip_style == IngredientTooltipStyle.DEFAULT_MISSING_INGREDIENTS or recipe.recipe_description) or recipe.has_final_product_definition:
                                     recipe_icon = IconInfoData(icon_resource=recipe.icon_override, obj_def_id=recipe.final_product_definition_id, obj_geo_hash=recipe.final_product_geo_hash, obj_material_hash=recipe.final_product_material_hash)
                                 else:
                                     recipe_icon = IconInfoData(recipe.icon_override)
@@ -362,7 +368,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                 tooltip = discount_tooltip
                 row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=multiplier != 1)
                 yield row
-        if recipe_ingredients_map is None and inst is not None:
+        if not recipe_ingredients_map is None or inst is not None:
             inst._recipe_ingredients_map = recipe_ingredients_map
 
     def _setup_dialog(self, dialog, crafter=DEFAULT, order_count=1, **kwargs):
@@ -488,10 +494,11 @@ class StartCraftingOrderSuperInteraction(StartCraftingSuperInteraction):
         if who.is_being_destroyed:
             return TestResult(False, 'Crafter Participant is being destroyed.')
         for interaction in who.si_state:
-            if not interaction.phase.allows_multiple_orders:
-                return TestResult(False, "The crafter is in a phase doesn't allow multiple orders.")
-            if isinstance(interaction, CraftingPhaseSuperInteractionMixin) and interaction.process.is_last_phase:
-                return TestResult(False, 'The crafter is almost done.', tooltip=cls.tooltip_crafting_almost_done)
+            if isinstance(interaction, CraftingPhaseSuperInteractionMixin):
+                if not interaction.phase.allows_multiple_orders:
+                    return TestResult(False, "The crafter is in a phase doesn't allow multiple orders.")
+                if interaction.process.is_last_phase:
+                    return TestResult(False, 'The crafter is almost done.', tooltip=cls.tooltip_crafting_almost_done)
         return TestResult.TRUE
 
     def _run_interaction_gen(self, timeline):
@@ -500,9 +507,11 @@ class StartCraftingOrderSuperInteraction(StartCraftingSuperInteraction):
         if self.favorite_recipe is None:
             self._show_picker_dialog(self.sim, target_sim=crafter, order_count=len(self.orderer_ids), crafter=crafter)
             return True
+            yield
         crafter = self.get_participant(self.crafter, target=self.target)
         start_crafting_handler = StartCraftingOrderHandler(self.sim, crafter, self)
         return self._push_make_favorite_recipe(orderer=self.sim, crafter=crafter, handle_crafting_func=start_crafting_handler.start_order_affordance)
+        yield
 
     def on_choice_selected(self, choice_tag, **kwargs):
         recipe = choice_tag
@@ -531,7 +540,8 @@ class StartCraftingAutonomouslySuperInteraction(AutonomousPickerSuperInteraction
                 reservation_handler = cls.test_reserve_object(context.sim, cls, reserve_target=target)
                 if reservation_handler.may_reserve(context=context):
                     break
-            return TestResult(False, 'Object {} is in use, cannot autonomously used by sim {}', target, context.sim)
+            else:
+                return TestResult(False, 'Object {} is in use, cannot autonomously used by sim {}', target, context.sim)
         return cls._autonomous_test(target, context, context.sim)
 
     @classmethod
@@ -578,7 +588,9 @@ class StartCraftingAutonomouslySuperInteraction(AutonomousPickerSuperInteraction
         recipe = self._choice_enumeration_strategy.find_best_choice(self)
         if recipe is None:
             return False
+            yield
         return self._handle_begin_crafting(recipe, self.sim, orderer_ids=self.orderer_ids)
+        yield
 
 class StartCraftingOrderAutonomouslySuperInteraction(StartCraftingAutonomouslySuperInteraction):
     INSTANCE_TUNABLES = {'crafter': TunableEnumEntry(ParticipantType, ParticipantType.Object, description='Who or what to apply this test to'), 'order_craft_affordance': TunableReference(services.affordance_manager(), description='The affordance used to order the chosen craft'), 'order_wait_affordance': TunableReference(services.affordance_manager(), description='The affordance used to wait for an ordered craft'), 'tooltip_crafting_almost_done': OptionalTunable(description="\n            If enabled and the crafter is crafting a recipe on it's final\n            phase, the order will be greyed out with this tooltip.\n            ", tunable=TunableLocalizedStringFactory(description='"\n                Grayed-out tooltip message when another order can\'t be added because the crafter is almost done.\n                ', default=1860708663), enabled_name='tooltip', disabled_name='hidden')}
@@ -593,11 +605,12 @@ class StartCraftingOrderAutonomouslySuperInteraction(StartCraftingAutonomouslySu
         if not test_result:
             return test_result
         for interaction in crafter.si_state:
-            if isinstance(interaction, CraftingPhaseSuperInteractionMixin) and interaction.phase.allows_multiple_orders:
-                tooltip = None
-                if cls.tooltip_crafting_almost_done is not None:
-                    tooltip = cls.create_localized_string(cls.tooltip_crafting_almost_done, target=target, context=context)
-                return TestResult(False, 'The crafter is almost done.', tooltip=tooltip)
+            if isinstance(interaction, CraftingPhaseSuperInteractionMixin):
+                if interaction.phase.allows_multiple_orders:
+                    tooltip = None
+                    if cls.tooltip_crafting_almost_done is not None:
+                        tooltip = cls.create_localized_string(cls.tooltip_crafting_almost_done, target=target, context=context)
+                    return TestResult(False, 'The crafter is almost done.', tooltip=tooltip)
         return TestResult.TRUE
 
     def _run_interaction_gen(self, timeline):
@@ -606,10 +619,12 @@ class StartCraftingOrderAutonomouslySuperInteraction(StartCraftingAutonomouslySu
         recipe = self._choice_enumeration_strategy.find_best_choice(self)
         if recipe is None:
             return False
+            yield
         crafter = self.get_participant(self.crafter, target=self.target)
         start_crafting_handler = StartCraftingOrderHandler(self.sim, crafter, self)
         start_crafting_handler.start_order_affordance(recipe)
         return True
+        yield
 
 class CraftingResumeInteraction(SuperInteraction):
     CRAFTING_RESUME_INTERACTION = TunableReference(description='\n        A Tunable Reference to the CraftingResumeInteraction for interaction\n        save/load to reference in order to resume crafting interactions.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), class_restrictions='CraftingResumeInteraction')
@@ -619,23 +634,29 @@ class CraftingResumeInteraction(SuperInteraction):
         if self.sim is None:
             logger.error('Sim resume does not exist and will not be able to set owner of the completed recipe: {}', self.process.recipe.__name__)
             return False
+            yield
         self.process.change_crafter(self.sim)
         if self.resume_phase_name is not None:
             resume_phase = self.process.get_phase_by_name(self.resume_phase_name)
             if resume_phase is None:
                 logger.error("Try to resume phase {} which doesn't exist in recipe {}", self.resume_phase_name, self.process.recipe.__name__)
                 return False
+                yield
             self.process.send_process_update(self, increment_turn=False)
             return self.process.push_si_for_current_phase(self, next_phases=[resume_phase])
+            yield
         curr_phase = self.process.phase
         if curr_phase is None:
             logger.error('Trying to resume a crafting interaction that is finished.')
             return False
+            yield
         if curr_phase.super_affordance is None:
             logger.error("{} doesn't have a tuned super affordance in stage {}", self.process.recipe.__name__, type(curr_phase).__name__)
             return False
+            yield
         self.process.send_process_update(self, increment_turn=False)
         return self.process.push_si_for_current_phase(self, from_resume=curr_phase.repeat_on_resume)
+        yield
 
     @flexmethod
     def _get_name(cls, inst, target=DEFAULT, context=DEFAULT, **interaction_parameters):
@@ -668,7 +689,7 @@ class CraftingResumeInteraction(SuperInteraction):
         process = cls.get_process(target=target)
         if process is None:
             return TestResult(False, 'No crafting process on target.')
-        if process.recipe.resumable_by_different_sim or process.crafter is not context.sim:
+        if not process.recipe.resumable_by_different_sim and process.crafter is not context.sim:
             return TestResult(False, "This sim can't resume crafting this target")
         result = process.resume_test(target, context)
         if not result:
@@ -679,7 +700,7 @@ class CraftingResumeInteraction(SuperInteraction):
         error_tooltip = None
         if result.errors:
             if len(result.errors) > 1:
-                localized_error_string = LocalizationHelperTuning.get_bulleted_list((None,), result.errors)
+                localized_error_string = LocalizationHelperTuning.get_bulleted_list(None, *result.errors)
             else:
                 localized_error_string = result.errors[0]
             error_tooltip = lambda *_, **__: cls.create_unavailable_recipe_description(localized_error_string)
@@ -755,6 +776,7 @@ class CraftingStepInteraction(CraftingMixerInteractionMixin, MixerInteraction):
                 crafting_liability.send_quality_update()
             self.process.send_process_update(self.super_interaction)
         return result
+        yield
 
 class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
     INSTANCE_TUNABLES = {'crafting_type_requirement': TunableReference(services.recipe_manager(), class_restrictions=CraftingObjectType, allow_none=True, description="This specifies the crafting object type that is required for this interaction to work.This allows the crafting system to know what type of object the SI was expecting when it can't find that SI.")}
@@ -813,10 +835,14 @@ class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
         return True
 
     def _maybe_push_cancel_phase(self):
-        if self.process.cancel_crafting(self):
-            self._cancel_phase_ran = True
-            self._went_to_next_phase_or_finished_crafting = True
-            self._pushed_cancel_replacement_aop = True
+        if self.sim.is_simulating:
+            if self.running:
+                if not self._went_to_next_phase_or_finished_crafting:
+                    if self.process.cancel_phase is not None:
+                        if self.process.cancel_crafting(self):
+                            self._cancel_phase_ran = True
+                            self._went_to_next_phase_or_finished_crafting = True
+                            self._pushed_cancel_replacement_aop = True
         return self._pushed_cancel_replacement_aop
 
     def _try_exit_via_cancel_aop(self, carry_cancel_override=None):
@@ -897,7 +923,9 @@ class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
         result = yield from super()._do_perform_gen(timeline)
         if self._should_go_to_next_phase(result) and self.auto_goto_next_phase:
             return self._go_to_next_phase()
+            yield
         return result
+        yield
 
 lock_instance_tunables(CraftingPhaseSuperInteractionMixin, display_name=None, display_name_overrides=None, allow_user_directed=False, allow_autonomous=False)
 
@@ -1007,6 +1035,7 @@ class CraftingPhaseCreateObjectSuperInteraction(CraftingPhaseSuperInteractionMix
                 sequence = state_change(targets={self.created_target}, new_value_ending=apply_state, xevt_id=self._apply_state_xevt_id, animation_context=self.animation_context, sequence=sequence)
             result = yield from element_utils.run_child(timeline, sequence)
             return result
+            yield
 
         return (self._object_create_helper.create(crafting_sequence), lambda _: success)
 
@@ -1113,6 +1142,7 @@ class CreateConsumableAndPushConsumeSuperInteraction(CraftingPhaseCreateObjectIn
         result = yield from super()._run_interaction_gen(timeline)
         if not result:
             return result
+            yield
         else:
             (aop, context) = self.get_consume_aop_and_context()
             if aop is not None and context is not None:
@@ -1121,7 +1151,9 @@ class CreateConsumableAndPushConsumeSuperInteraction(CraftingPhaseCreateObjectIn
                     result.interaction.add_liability(UNCLAIMED_CRAFTABLE_LIABILITY, UnclaimedCraftableLiability(self.consume_object, self.recipe.crafting_price, self.sim))
                     aop.execute_interaction(result.interaction)
                 return result
+                yield
         return False
+        yield
 
     def get_consume_aop_and_context(self):
         (aop, _) = super().get_consume_aop_and_context()
@@ -1240,6 +1272,7 @@ class CraftingPhaseStagingSuperInteraction(CraftingPhaseSuperInteractionMixin, S
         self.add_consume_exit_behavior()
         result = yield from super()._run_interaction_gen(timeline)
         return result
+        yield
 
 class CraftingPhaseTransferCraftingComponentSuperInteraction(CraftingPhaseStagingSuperInteraction):
     INSTANCE_TUNABLES = {'crafting_component_recipient': TunableEnumEntry(ParticipantType, ParticipantType.Object, description='The participant of this interaction to which the Crafting process is transferred.')}
@@ -1327,15 +1360,16 @@ class GrabServingSuperInteraction(SuperInteraction):
                 total_constraint = total_constraint.intersect(constraint)
             if participant_type != ParticipantType.Actor:
                 return total_constraint
+                yield
             total_constraint = total_constraint.intersect(target.get_carry_transition_constraint(sim, target.position, target.routing_surface))
-            if yielded_geometry or target.parent is None or inst is None:
+            if yielded_geometry or not target.parent is None or inst is None:
                 yield total_constraint
                 return
             surface = target.parent
             surface = surface.part_owner
             target_obj_def = inst.create_target
             target_obj_def = inst.created_target.definition
-            if surface.is_part and inst.target.has_component(CRAFTING_COMPONENT) or inst.created_target is not None and target_obj_def is None:
+            if surface.is_part and inst.target.has_component(CRAFTING_COMPONENT) or not inst.created_target is not None or target_obj_def is None:
                 return
             slot_manifest = SlotManifest()
             slot_manifest_entry = SlotManifestEntry(target_obj_def, surface, SlotTypeReferences.SIT_EAT_SLOT)
@@ -1464,9 +1498,10 @@ class GrabServingSuperInteraction(SuperInteraction):
             nonlocal sequence
             sequence = super_build_basic_elements(sequence=sequence)
             inventory_target = None
-            if not self.target.is_in_sim_inventory():
-                inventory_target = self.sim.posture_state.surface_target
-            if self.target.is_in_inventory() and inventory_target is not None:
+            if self.target.is_in_inventory():
+                if not self.target.is_in_sim_inventory():
+                    inventory_target = self.sim.posture_state.surface_target
+            if inventory_target is not None:
                 custom_animation = inventory_target.inventory_component._get_put.get_access_animation_factory(is_put=False)
 
                 def setup_asm(asm):
@@ -1481,6 +1516,7 @@ class GrabServingSuperInteraction(SuperInteraction):
             sequence = enter_carry_while_holding(self, self.created_target, create_si_fn=create_si, sequence=sequence)
             result = yield from element_utils.run_child(timeline, sequence)
             return result
+            yield
 
         return unless(lambda *_: self._has_handled_mutation, self._object_create_helper.create(grab_sequence))
 
@@ -1496,9 +1532,10 @@ class DebugCreateCraftableInteraction(PickerSuperInteraction):
 
         product = create_object(chosen_recipe.final_product.definition.id, init=setup_object, post_add=post_add)
         try:
-            if product.inventoryitem_component.inventory_only:
-                place_in_crafter_inventory = True
-            if product.inventoryitem_component is not None and place_in_crafter_inventory:
+            if product.inventoryitem_component is not None:
+                if product.inventoryitem_component.inventory_only:
+                    place_in_crafter_inventory = True
+            if place_in_crafter_inventory:
                 crafter_sim.inventory_component.system_add_object(product)
             if chosen_recipe.final_product.apply_states:
                 for apply_state in chosen_recipe.final_product.apply_states:
@@ -1517,17 +1554,17 @@ class DebugCreateCraftableInteraction(PickerSuperInteraction):
         recipes = services.get_instance_manager(sims4.resources.Types.RECIPE).get_ordered_types(only_subclasses_of=Recipe)
         for (i, recipe) in enumerate(recipes):
             if cls.recipe_tag not in recipe.recipe_tags:
-                pass
-            elif recipe.final_product.definition is None:
-                pass
-            else:
-                recipe_icon = IconInfoData(icon_resource=recipe.icon_override, obj_def_id=recipe.final_product_definition_id, obj_geo_hash=recipe.final_product_geo_hash, obj_material_hash=recipe.final_product_material_hash)
-                row = RecipePickerRow(name=recipe.get_recipe_name(sim), icon=recipe.icon_override, row_description=recipe.recipe_description(sim), linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(sim), icon_info=recipe_icon, tag=recipe, skill_level=i)
-                yield row
+                continue
+            if recipe.final_product.definition is None:
+                continue
+            recipe_icon = IconInfoData(icon_resource=recipe.icon_override, obj_def_id=recipe.final_product_definition_id, obj_geo_hash=recipe.final_product_geo_hash, obj_material_hash=recipe.final_product_material_hash)
+            row = RecipePickerRow(name=recipe.get_recipe_name(sim), icon=recipe.icon_override, row_description=recipe.recipe_description(sim), linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(sim), icon_info=recipe_icon, tag=recipe, skill_level=i)
+            yield row
 
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim)
         return True
+        yield
 
     def _on_picker_selected(self, dialog):
         for recipe in dialog.get_result_tags():

@@ -123,9 +123,10 @@ def _build_interaction_msg(interaction_info, msg):
         else:
             icon_info_data = icon_info
         build_icon_info_msg(icon_info_data, interaction_info.display_name, msg.icon_info)
-    if interaction_info.target.id is not None:
-        msg.target_manager_object_id.object_id = interaction_info.target.id
-    if interaction_info.target is not None and interaction_info.target is not None:
+    if interaction_info.target is not None:
+        if interaction_info.target.id is not None:
+            msg.target_manager_object_id.object_id = interaction_info.target.id
+    if interaction_info.target is not None:
         msg.target_manager_object_id.manager_id = interaction_info.target.manager_id
     for participant in interaction_info.participants:
         if participant is not None:

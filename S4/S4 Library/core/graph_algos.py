@@ -33,8 +33,8 @@ def _strongconnect(node, sccs, nodes, parents_gen_fn, indices, lowlinks, stack, 
     if parents is not None:
         for parent in parents:
             if parent not in nodes:
-                pass
-            elif parent not in indices:
+                continue
+            if parent not in indices:
                 index = _strongconnect(parent, sccs, nodes, parents_gen_fn, indices, lowlinks, stack, stack_members, index)
                 lowlinks[node] = min(lowlinks[node], lowlinks[parent])
             elif parent in stack_members:

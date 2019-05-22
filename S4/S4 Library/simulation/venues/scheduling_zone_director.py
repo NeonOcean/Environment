@@ -1,7 +1,7 @@
 from celebrity_fans.fan_zone_director_mixin import FanZoneDirectorMixin
 from sims4.resources import Types
 from sims4.tuning.tunable import TunableSimMinute, TunableList, TunableTuple, TunableEnumEntry, TunableVariant, Tunable, TunableReference
-from situations.additional_situation_sources import HolidayWalkbys, ZoneModifierSituations
+from situations.additional_situation_sources import HolidayWalkbys, ZoneModifierSituations, NarrativeSituations
 from situations.situation_curve import SituationCurve, ShiftlessDesiredSituations
 from situations.situation_guest_list import SituationGuestList
 from situations.situation_types import SituationSerializationOption
@@ -31,7 +31,7 @@ class SchedulingZoneDirectorMixin:
             if situation.situation_serialization_option != SituationSerializationOption.DONT:
                 logger.error('Situation {} in situations on load tuning for zone director {} has an invalid persistence option. Only DONT is acceptable.', situation, instance_class)
 
-    INSTANCE_TUNABLES = {'situations_on_load': TunableList(description="\n            Situations that are always started when the zone director loads and\n            are only shut down by the zone director when the zone director shuts\n            down (although they can still end by other means). Because these\n            situations are always restarted, it is invalid to schedule\n            situations with a positive persistence option here (ask a GPE if you\n            need to determine a situation's persistence option).\n            ", tunable=TunableReference(manager=services.get_instance_manager(Types.SITUATION), pack_safe=True), verify_tunable_callback=_verify_situations_on_load_callback), 'situation_shifts': TunableList(description='\n            A list of situation distributions and their strictness rules.\n            ', tunable=TunableTuple(shift_curve=TunableVariant(curve_based=SituationCurve.TunableFactory(get_create_params={'user_facing': True}), shiftless=ShiftlessDesiredSituations.TunableFactory(get_create_params={'user_facing': True}), default='curve_based'), shift_strictness=TunableEnumEntry(description='\n                    Determine how situations on shift will be handled on shift\n                    change.\n                    \n                    Example: I want 3 customers between 10-12.  then after 12 I\n                    want only 1.  Having this checked will allow 3 customers to\n                    stay and will let situation duration kick the sim out when\n                    appropriate.  This will not create new situations if over\n                    the cap.\n                    ', tunable_type=SituationShiftStrictness, default=SituationShiftStrictness.DESTROY), additional_sources=TunableList(description='\n                    Any additional sources of NPCs that we want to use to add\n                    into the possible situations of this shift curve.\n                    ', tunable=TunableVariant(description='\n                        The different additional situation sources that we\n                        want to use to get additional situation possibilities\n                        that can be chosen.\n                        ', holiday=HolidayWalkbys.TunableFactory(), zone_modifier=ZoneModifierSituations.TunableFactory(), default='holiday')))), 'churn_alarm_interval': TunableSimMinute(description='\n            Number sim minutes to check to make sure shifts and churn are being accurate.\n            ', default=10), 'set_host_as_active_sim': Tunable(description='\n            If checked then the active Sim will be set as the host of\n            situations started from this director if we do not have a pre-made\n            guest list.\n            ', tunable_type=bool, default=False)}
+    INSTANCE_TUNABLES = {'situations_on_load': TunableList(description="\n            Situations that are always started when the zone director loads and\n            are only shut down by the zone director when the zone director shuts\n            down (although they can still end by other means). Because these\n            situations are always restarted, it is invalid to schedule\n            situations with a positive persistence option here (ask a GPE if you\n            need to determine a situation's persistence option).\n            ", tunable=TunableReference(manager=services.get_instance_manager(Types.SITUATION), pack_safe=True), verify_tunable_callback=_verify_situations_on_load_callback), 'situation_shifts': TunableList(description='\n            A list of situation distributions and their strictness rules.\n            ', tunable=TunableTuple(shift_curve=TunableVariant(curve_based=SituationCurve.TunableFactory(get_create_params={'user_facing': True}), shiftless=ShiftlessDesiredSituations.TunableFactory(get_create_params={'user_facing': True}), default='curve_based'), shift_strictness=TunableEnumEntry(description='\n                    Determine how situations on shift will be handled on shift\n                    change.\n                    \n                    Example: I want 3 customers between 10-12.  then after 12 I\n                    want only 1.  Having this checked will allow 3 customers to\n                    stay and will let situation duration kick the sim out when\n                    appropriate.  This will not create new situations if over\n                    the cap.\n                    ', tunable_type=SituationShiftStrictness, default=SituationShiftStrictness.DESTROY), additional_sources=TunableList(description='\n                    Any additional sources of NPCs that we want to use to add\n                    into the possible situations of this shift curve.\n                    ', tunable=TunableVariant(description='\n                        The different additional situation sources that we\n                        want to use to get additional situation possibilities\n                        that can be chosen.\n                        ', holiday=HolidayWalkbys.TunableFactory(), zone_modifier=ZoneModifierSituations.TunableFactory(), narrative=NarrativeSituations.TunableFactory(), default='holiday')))), 'churn_alarm_interval': TunableSimMinute(description='\n            Number sim minutes to check to make sure shifts and churn are being accurate.\n            ', default=10), 'set_host_as_active_sim': Tunable(description='\n            If checked then the active Sim will be set as the host of\n            situations started from this director if we do not have a pre-made\n            guest list.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -163,8 +163,9 @@ class SchedulingZoneDirectorMixin:
             (situation_to_start, params) = situation_shift.shift_curve.get_situation_and_params(predicate=predicate, additional_situations=additional_situations)
             if situation_to_start is not None:
                 op = SituationChurnOperation.START_SITUATION
-        elif not situation_shift.shift_strictness == SituationShiftStrictness.OVERLAP:
-            op = SituationChurnOperation.REMOVE_SITUATION
+        elif number_situations_desire < len(situation_ids):
+            if not situation_shift.shift_strictness == SituationShiftStrictness.OVERLAP:
+                op = SituationChurnOperation.REMOVE_SITUATION
         situation_manager = services.get_zone_situation_manager()
         if op == SituationChurnOperation.START_SITUATION:
             if situation_to_start is not None:
@@ -208,12 +209,11 @@ class SchedulingZoneDirectorMixin:
     def _load_situation_shifts(self, zone_director_proto, reader):
         for situation_data_proto in zone_director_proto.situations:
             if situation_data_proto.situation_list_guid >= len(self.situation_shifts):
-                pass
-            else:
-                situation_shift = self.situation_shifts[situation_data_proto.situation_list_guid]
-                situation_ids = []
-                situation_ids.extend(situation_data_proto.situation_ids)
-                self._situation_shifts_to_situation_ids[situation_shift] = situation_ids
+                continue
+            situation_shift = self.situation_shifts[situation_data_proto.situation_list_guid]
+            situation_ids = []
+            situation_ids.extend(situation_data_proto.situation_ids)
+            self._situation_shifts_to_situation_ids[situation_shift] = situation_ids
 
 class SchedulingZoneDirector(FanZoneDirectorMixin, ObjectBasedSituationZoneDirectorMixin, SchedulingZoneDirectorMixin, ZoneDirectorBase):
     pass

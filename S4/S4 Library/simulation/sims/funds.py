@@ -108,7 +108,7 @@ class _Funds:
         if amount < 0:
             logger.error('Attempt to remove negative amount of money from Family Funds.')
             return
-        if self.allow_npcs or sim is not None and sim.is_npc:
+        if not self.allow_npcs and sim is not None and sim.is_npc:
             return amount
         if require_full_amount == False and amount > self._funds and not self.allow_negative_funds:
             amount = self._funds
@@ -121,10 +121,11 @@ class _Funds:
         if amount == 0:
             return
         self._funds = min(self._funds + amount, self.MAX_FUNDS)
-        if not self.allow_negative_funds:
-            logger.error('Negative funds amount ({}) not supported', self._funds)
-            self._funds = 0
-        vfx_amount = amount if self._funds < 0 and show_fx else 0
+        if self._funds < 0:
+            if not self.allow_negative_funds:
+                logger.error('Negative funds amount ({}) not supported', self._funds)
+                self._funds = 0
+        vfx_amount = amount if show_fx else 0
         self.send_money_update(vfx_amount=vfx_amount, sim=sim, reason=reason)
         with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_FUNDS_CHANGE, sim=sim) as hook:
             hook.write_int(TELEMETRY_AMOUNT, amount)

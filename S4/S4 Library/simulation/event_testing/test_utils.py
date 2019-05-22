@@ -8,9 +8,8 @@ def get_disallowed_ages(affordance):
     for test in affordance.test_globals:
         if isinstance(test, SimInfoTest):
             if test.ages is None:
-                pass
-            else:
-                for age in sims.sim_info_types.Age:
-                    if age not in test.ages:
-                        disallowed_ages.add(age)
+                continue
+            for age in sims.sim_info_types.Age:
+                if age not in test.ages:
+                    disallowed_ages.add(age)
     return disallowed_ages

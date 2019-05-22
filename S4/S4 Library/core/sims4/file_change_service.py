@@ -33,8 +33,9 @@ class FileChangeService(Service):
                 changed_resources.append(resource_key)
         else:
             for data in self.change_sets.values():
-                if data[1] and resource_key not in data[1]:
-                    data[1].append(resource_key)
+                if data[1]:
+                    if resource_key not in data[1]:
+                        data[1].append(resource_key)
         mtg = get_manager()
         mtg.register_change(resource_key)
 

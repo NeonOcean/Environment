@@ -35,14 +35,11 @@ def generate_bucks_perks_view(sim_id:int=None, filter=None):
         if 'Unlocked Only' in filter_list:
             if not perk_specific_bucks_tracker is None:
                 if not perk_specific_bucks_tracker.is_perk_unlocked(perk):
-                    pass
-                elif len(filter_list) > 1 and str(perk.associated_bucks_type) not in filter_list:
-                    pass
-                else:
-                    bucks_perks_data.append({'sim_id': str(sim_id), 'name': perk.__name__, 'bucks_type': str(perk.associated_bucks_type), 'bucks_type_value': int(perk.associated_bucks_type), 'bucks_tracker_name': str(perk_specific_bucks_tracker), 'is_unlocked': perk_specific_bucks_tracker.is_perk_unlocked(perk) if perk_specific_bucks_tracker is not None else False})
+                    continue
+                if len(filter_list) > 1 and str(perk.associated_bucks_type) not in filter_list:
+                    continue
+                bucks_perks_data.append({'sim_id': str(sim_id), 'name': perk.__name__, 'bucks_type': str(perk.associated_bucks_type), 'bucks_type_value': int(perk.associated_bucks_type), 'bucks_tracker_name': str(perk_specific_bucks_tracker), 'is_unlocked': perk_specific_bucks_tracker.is_perk_unlocked(perk) if perk_specific_bucks_tracker is not None else False})
         elif str(perk.associated_bucks_type) not in filter_list:
-            pass
-        else:
-            bucks_perks_data.append({'sim_id': str(sim_id), 'name': perk.__name__, 'bucks_type': str(perk.associated_bucks_type), 'bucks_type_value': int(perk.associated_bucks_type), 'bucks_tracker_name': str(perk_specific_bucks_tracker), 'is_unlocked': perk_specific_bucks_tracker.is_perk_unlocked(perk) if perk_specific_bucks_tracker is not None else False})
-        bucks_perks_data.append({'sim_id': str(sim_id), 'name': perk.__name__, 'bucks_type': str(perk.associated_bucks_type), 'bucks_type_value': int(perk.associated_bucks_type), 'bucks_tracker_name': str(perk_specific_bucks_tracker), 'is_unlocked': perk_specific_bucks_tracker.is_perk_unlocked(perk) if filter_list is not None and perk_specific_bucks_tracker is not None else False})
+            continue
+        bucks_perks_data.append({'sim_id': str(sim_id), 'name': perk.__name__, 'bucks_type': str(perk.associated_bucks_type), 'bucks_type_value': int(perk.associated_bucks_type), 'bucks_tracker_name': str(perk_specific_bucks_tracker), 'is_unlocked': perk_specific_bucks_tracker.is_perk_unlocked(perk) if not filter_list is not None or perk_specific_bucks_tracker is not None else False})
     return bucks_perks_data

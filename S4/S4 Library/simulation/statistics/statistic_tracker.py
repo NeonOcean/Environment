@@ -33,16 +33,14 @@ class StatisticTracker(statistics.base_statistic_tracker.BaseStatisticTracker):
                 stat_cls = statistics_manager.get(statistics_data.name_hash)
                 if stat_cls is not None:
                     if not self._should_add_commodity_from_gallery(stat_cls, skip_load):
-                        pass
-                    elif not stat_cls.persisted:
-                        pass
-                    elif self.statistics_to_skip_load is not None and stat_cls in self.statistics_to_skip_load:
-                        pass
-                    elif owner_lod is not None and owner_lod < stat_cls.min_lod_value:
-                        pass
-                    else:
-                        self.set_value(stat_cls, statistics_data.value, from_load=True)
-                        logger.info('Trying to load unavailable STATISTIC resource: {}', statistics_data.name_hash)
+                        continue
+                    if not stat_cls.persisted:
+                        continue
+                    if self.statistics_to_skip_load is not None and stat_cls in self.statistics_to_skip_load:
+                        continue
+                    if owner_lod is not None and owner_lod < stat_cls.min_lod_value:
+                        continue
+                    self.set_value(stat_cls, statistics_data.value, from_load=True)
                 else:
                     logger.info('Trying to load unavailable STATISTIC resource: {}', statistics_data.name_hash)
         finally:

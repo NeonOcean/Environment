@@ -166,11 +166,12 @@ class SeasonService(Service):
                 start_value = SeasonService.MIN_WRAPPING_SEASONAL_PARAMETER_VALUE
             else:
                 target_value = SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE
-        elif force_loop:
-            if end_value == SeasonService.MIN_WRAPPING_SEASONAL_PARAMETER_VALUE:
-                new_end_value = SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE
-            else:
-                target_value = SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE
+        elif end_value == start_value:
+            if force_loop:
+                if end_value == SeasonService.MIN_WRAPPING_SEASONAL_PARAMETER_VALUE:
+                    new_end_value = SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE
+                else:
+                    target_value = SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE
         if target_value is not None:
             if sync_end_time is None:
                 delta = start_value - end_value
@@ -232,19 +233,19 @@ class SeasonService(Service):
                 sync_end_time = None
                 for seasonal_parameter in SeasonParameters:
                     if seasonal_parameter not in param_to_start_value:
-                        pass
-                    else:
-                        start_value = param_to_start_value[seasonal_parameter]
-                        new_end_time = end_time
-                        (end_value, _, _, _) = self._get_regional_season_change_values(seasonal_parameter, end_time, region)
-                        if seasonal_parameter == SeasonParameters.FOLIAGE_REDUCTION:
-                            (start_value, end_value, new_end_time) = self._add_secondary_forward_wraparound_interp(seasonal_parameter, start_time, start_value, end_time, end_value, force_loop)
-                            if end_time != new_end_time:
-                                sync_end_time = new_end_time
+                        continue
+                    start_value = param_to_start_value[seasonal_parameter]
+                    new_end_time = end_time
+                    (end_value, _, _, _) = self._get_regional_season_change_values(seasonal_parameter, end_time, region)
+                    if seasonal_parameter == SeasonParameters.FOLIAGE_REDUCTION:
+                        (start_value, end_value, new_end_time) = self._add_secondary_forward_wraparound_interp(seasonal_parameter, start_time, start_value, end_time, end_value, force_loop)
+                        if end_time != new_end_time:
+                            sync_end_time = new_end_time
+                    if seasonal_parameter == SeasonParameters.FOLIAGE_COLORSHIFT:
                         if SeasonParameters.FOLIAGE_REDUCTION in param_to_start_value:
                             (start_value, end_value, new_end_time) = self._add_secondary_forward_wraparound_interp(seasonal_parameter, start_time, start_value, end_time, end_value, force_loop, sync_end_time=sync_end_time)
-                        if seasonal_parameter == SeasonParameters.FOLIAGE_COLORSHIFT and end_value != start_value:
-                            self._send_regional_season_change_update(seasonal_parameter, start_value, start_time, end_value, new_end_time)
+                    if end_value != start_value:
+                        self._send_regional_season_change_update(seasonal_parameter, start_value, start_time, end_value, new_end_time)
                 if self._season_change_handler is not None and not self._season_change_handler.is_active:
                     self._season_change_handler.trigger_hard_stop()
                 self._season_change_handler = self._season_timeline.schedule(build_element((lambda _: self._handle_season_content_delayed(trigger_weather=True),)), end_time)
@@ -365,7 +366,7 @@ class SeasonService(Service):
 
     def _get_wrapped_value(self, seasonal_parameter, current_value, next_value):
         if seasonal_parameter == SeasonParameters.FOLIAGE_REDUCTION or seasonal_parameter == SeasonParameters.FOLIAGE_COLORSHIFT:
-            if abs(next_value) == abs(current_value) and abs(current_value) == SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE:
+            if abs(next_value) == abs(current_value) == SeasonService.MAX_WRAPPING_SEASONAL_PARAMETER_VALUE:
                 return next_value
             if next_value < 0.0 and current_value > 0.0:
                 logger.error('Seasonal Parameter {} frame values going backwards from positive to negative.  Perhaps should wrap the other way.  This is safely handled when both frame values are 1 or -1', seasonal_parameter, owner='nabaker')

@@ -75,104 +75,61 @@ class Condition:
             for stat_op in stat_op_list:
                 if stat_op.stat is linked_stat:
                     if not stat_op.test_resolver(interaction.get_resolver()):
-                        pass
+                        continue
+                    if blacklist_statistics and linked_stat in blacklist_statistics:
+                        return (None, None, None)
+                    if override_min_max_stats is not None and override_min_max_stats.statistic is stat_op.stat:
+                        override_stat_values = True
                     else:
-                        if blacklist_statistics and linked_stat in blacklist_statistics:
-                            return (None, None, None)
-                        if override_min_max_stats is not None and override_min_max_stats.statistic is stat_op.stat:
-                            override_stat_values = True
+                        override_stat_values = False
+                    stat_instance = tracker.get_statistic(stat_op.stat)
+                    if stat_instance is None:
+                        continue
+                    if stat_instance.continuous:
+                        rate_change = stat_instance.get_change_rate()
+                    else:
+                        interval = stat_op._get_interval(interaction)
+                        if not interval:
+                            continue
+                        rate_change = stat_op.get_value()/interval
+                    if rate_change > 0:
+                        if state_range is not None:
+                            upper_bound = state_range.lower_bound
                         else:
-                            override_stat_values = False
-                        stat_instance = tracker.get_statistic(stat_op.stat)
-                        if stat_instance is None:
-                            pass
+                            upper_bound = self.threshold.value
+                        lower_bound = linked_stat.min_value
+                    else:
+                        if state_range is not None:
+                            lower_bound = state_range.upper_bound
                         else:
-                            if stat_instance.continuous:
-                                rate_change = stat_instance.get_change_rate()
-                            else:
-                                interval = stat_op._get_interval(interaction)
-                                if not interval:
-                                    pass
-                                else:
-                                    rate_change = stat_op.get_value()/interval
-                                    if rate_change > 0:
-                                        if state_range is not None:
-                                            upper_bound = state_range.lower_bound
-                                        else:
-                                            upper_bound = self.threshold.value
-                                        lower_bound = linked_stat.min_value
-                                    else:
-                                        if state_range is not None:
-                                            lower_bound = state_range.upper_bound
-                                        else:
-                                            lower_bound = self.threshold.value
-                                        upper_bound = linked_stat.max_value
-                                    if override_stat_values:
-                                        if override_min_max_stats.min_value is not None:
-                                            lower_bound = override_min_max_stats.min_value
-                                        if override_min_max_stats.max_value is not None:
-                                            upper_bound = override_min_max_stats.max_value
-                                    if rate_change > 0:
-                                        threshold = upper_bound
-                                        denominator = threshold - lower_bound
-                                        percent = abs((current_value - lower_bound)/denominator) if denominator else 0
-                                    else:
-                                        threshold = lower_bound
-                                        denominator = threshold - upper_bound
-                                        percent = abs((current_value + denominator)/denominator) if denominator else 0
-                                    if rate_change:
-                                        if not denominator:
-                                            pass
-                                        else:
-                                            time = (threshold - current_value)/rate_change
-                                            rate_of_change = abs((1 - percent)/time if time != 0 else 0)
-                                            if not best_time is None:
-                                                if time < best_time:
-                                                    best_time = time
-                                                    best_percent = percent
-                                                    best_rate_of_change = rate_of_change
-                                            best_time = time
-                                            best_percent = percent
-                                            best_rate_of_change = rate_of_change
-                            if rate_change > 0:
-                                if state_range is not None:
-                                    upper_bound = state_range.lower_bound
-                                else:
-                                    upper_bound = self.threshold.value
-                                lower_bound = linked_stat.min_value
-                            else:
-                                if state_range is not None:
-                                    lower_bound = state_range.upper_bound
-                                else:
-                                    lower_bound = self.threshold.value
-                                upper_bound = linked_stat.max_value
-                            if override_stat_values:
-                                if override_min_max_stats.min_value is not None:
-                                    lower_bound = override_min_max_stats.min_value
-                                if override_min_max_stats.max_value is not None:
-                                    upper_bound = override_min_max_stats.max_value
-                            if rate_change > 0:
-                                threshold = upper_bound
-                                denominator = threshold - lower_bound
-                                percent = abs((current_value - lower_bound)/denominator) if denominator else 0
-                            else:
-                                threshold = lower_bound
-                                denominator = threshold - upper_bound
-                                percent = abs((current_value + denominator)/denominator) if denominator else 0
-                            if rate_change:
-                                if not denominator:
-                                    pass
-                                else:
-                                    time = (threshold - current_value)/rate_change
-                                    rate_of_change = abs((1 - percent)/time if time != 0 else 0)
-                                    if not best_time is None:
-                                        if time < best_time:
-                                            best_time = time
-                                            best_percent = percent
-                                            best_rate_of_change = rate_of_change
-                                    best_time = time
-                                    best_percent = percent
-                                    best_rate_of_change = rate_of_change
+                            lower_bound = self.threshold.value
+                        upper_bound = linked_stat.max_value
+                    if override_stat_values:
+                        if override_min_max_stats.min_value is not None:
+                            lower_bound = override_min_max_stats.min_value
+                        if override_min_max_stats.max_value is not None:
+                            upper_bound = override_min_max_stats.max_value
+                    if rate_change > 0:
+                        threshold = upper_bound
+                        denominator = threshold - lower_bound
+                        percent = abs((current_value - lower_bound)/denominator) if denominator else 0
+                    else:
+                        threshold = lower_bound
+                        denominator = threshold - upper_bound
+                        percent = abs((current_value + denominator)/denominator) if denominator else 0
+                    if rate_change:
+                        if not denominator:
+                            continue
+                        time = (threshold - current_value)/rate_change
+                        rate_of_change = abs((1 - percent)/time if time != 0 else 0)
+                        if not best_time is None:
+                            if time < best_time:
+                                best_time = time
+                                best_percent = percent
+                                best_rate_of_change = rate_of_change
+                        best_time = time
+                        best_percent = percent
+                        best_rate_of_change = rate_of_change
         return (best_time, best_percent, best_rate_of_change)
 
 class StatisticCondition(Condition):
@@ -196,11 +153,12 @@ class StatisticCondition(Condition):
             cur_val = 0
         else:
             cur_val = tracker.get_value(self.stat, add=True)
+        if not self.absolute:
+            if self.threshold.comparison is operator.ge:
+                pass
+            if self.threshold.comparison is operator.le:
+                pass
         if self.threshold.comparison is operator.ge:
-            pass
-        if self.threshold.comparison is operator.le:
-            pass
-        if self.absolute or self.threshold.comparison is operator.ge:
             threshold.value = min([cur_val + self.threshold.value, self.stat.max_value])
         elif self.threshold.comparison is operator.le:
             threshold.value = max([cur_val + self.threshold.value, self.stat.min_value])
@@ -348,14 +306,15 @@ class InUseCondition(HasTunableFactory, AutoFactoryInit, Condition):
 
     def _on_use_list_changed(self, **kwargs):
         obj = self._get_use_list_obj()
-        if self.affordance is None:
-            if obj.in_use:
-                return
-        else:
-            for user in obj.get_users(sims_only=True):
-                for si in user.si_state:
-                    if si.get_interaction_type() is self.affordance:
-                        return
+        if obj is not None:
+            if self.affordance is None:
+                if obj.in_use:
+                    return
+            else:
+                for user in obj.get_users(sims_only=True):
+                    for si in user.si_state:
+                        if si.get_interaction_type() is self.affordance:
+                            return
         self._satisfy(None)
 
     def attach_to_owner(self, owner, callback):
@@ -729,7 +688,7 @@ class ObjectRelationshipCondition(HasTunableFactory, AutoFactoryInit, Condition)
             self._satisfy()
             if self._interaction:
                 self._interaction._send_progress_bar_update_msg(1, 0, self._owner)
-        if self._satisfied or self._interaction:
+        if not self._satisfied and self._interaction:
             initial_value = obj.objectrelationship_component.get_relationship_initial_value()
             denominator = self.threshold.value - initial_value
             if denominator != 0:
@@ -863,20 +822,22 @@ class ObjectChildrenChangedCondition(HasTunableFactory, AutoFactoryInit, Conditi
 
     def _all_slots_test(self, parent, *_, **__):
         runtime_slots = list(parent.get_runtime_slots_gen(slot_types=self.slot_types, bone_name_hash=None))
-        if self.condition.negate and all([runtime_slot.empty for runtime_slot in runtime_slots]) or self.condition.negate or all([not runtime_slot.empty for runtime_slot in runtime_slots]):
+        if self.condition.negate and all([runtime_slot.empty for runtime_slot in runtime_slots]) or not self.condition.negate and all([not runtime_slot.empty for runtime_slot in runtime_slots]):
             self._satisfy()
         else:
             self._unsatisfy()
 
     def _child_changed_test(self, parent, child, location=None):
         if location is None:
-            if self.condition.negate:
-                self._staisfy()
+            if child.parent is parent:
+                if self.condition.negate:
+                    self._staisfy()
         elif location.parent is parent:
             for runtime_slot in parent.get_runtime_slots_gen(slot_types=self.slot_types, bone_name_hash=None):
-                if location.slot_hash == runtime_slot.slot_name_hash and not self.condition.negate:
-                    self._satisfy()
-                    break
+                if location.slot_hash == runtime_slot.slot_name_hash:
+                    if not self.condition.negate:
+                        self._satisfy()
+                        break
 
     def _on_child_changed_callback(self, child, location=None, new_parent=None):
         parent = self.parent_object
@@ -908,7 +869,7 @@ class HiddenOrShownCondition(HasTunableFactory, AutoFactoryInit, Condition):
         obj = self._owner.get_participant(self.participant)
         is_hidden = obj.is_hidden()
         if self.timing == HiddenOrShownCondition.Timing.IS_HIDDEN:
-            if is_hidden and self.hidden_flags and obj.has_hidden_flags(self.hidden_flags):
+            if is_hidden and (not self.hidden_flags or obj.has_hidden_flags(self.hidden_flags)):
                 self._satisfy()
         elif self.timing == HiddenOrShownCondition.Timing.NOT_HIDDEN and (is_hidden and self.hidden_flags) and not obj.has_hidden_flags(self.hidden_flags):
             self._satisfy()
@@ -930,12 +891,12 @@ class HiddenOrShownCondition(HasTunableFactory, AutoFactoryInit, Condition):
             obj.unregister_on_hidden_or_shown(self._on_hidden_or_shown)
 
     def _on_hidden_or_shown(self, obj, hidden_flags_delta, added=False):
-        if added and self.hidden_flags and obj.has_hidden_flags(self.hidden_flags):
+        if added and (not self.hidden_flags or obj.has_hidden_flags(self.hidden_flags)):
             if self.timing == HiddenOrShownCondition.Timing.ON_HIDDEN or self.timing == HiddenOrShownCondition.Timing.IS_HIDDEN:
                 self._satisfy()
             else:
                 self._unsatisfy()
-        elif added or not (self.hidden_flags and obj.has_hidden_flags(self.hidden_flags)):
+        elif not (not added and not (self.hidden_flags and obj.has_hidden_flags(self.hidden_flags))):
             if self.timing == HiddenOrShownCondition.Timing.ON_SHOWN or self.timing == HiddenOrShownCondition.Timing.NOT_HIDDEN:
                 self._satisfy()
             else:

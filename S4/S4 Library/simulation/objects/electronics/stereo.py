@@ -37,6 +37,7 @@ class ListenSuperInteraction(SuperInteraction):
     def _run_interaction_gen(self, timeline):
         result = yield from element_utils.run_child(timeline, build_critical_section(self.ensure_state(self.affordance.required_station), objects.components.state.with_on_state_changed(self.target, self.affordance.required_station.state, self._changed_state_callback, super()._run_interaction_gen)))
         return result
+        yield
 
 class CancelOnStateChangeInteraction(SuperInteraction):
     INSTANCE_TUNABLES = {'cancel_state_test': event_testing.state_tests.TunableStateTest(description="the state test to run when the object's state changes. If this test passes, the interaction will cancel")}
@@ -44,6 +45,7 @@ class CancelOnStateChangeInteraction(SuperInteraction):
     def _run_interaction_gen(self, timeline):
         result = yield from element_utils.run_child(timeline, element_utils.build_element([self._cancel_on_state_test_pass(self.cancel_state_test, super()._run_interaction_gen)]))
         return result
+        yield
 
     def _cancel_on_state_test_pass(self, cancel_on_state_test, *sequence):
         value = cancel_on_state_test.value
@@ -56,7 +58,7 @@ class CancelOnStateChangeInteraction(SuperInteraction):
                 if object_callback is not None:
                     object_callback(self)
 
-        return with_on_state_changed(self.target, value.state, callback_fn, sequence)
+        return with_on_state_changed(self.target, value.state, callback_fn, *sequence)
 
 class SkipToNextSongSuperInteraction(ImmediateSuperInteraction):
     INSTANCE_TUNABLES = {'audio_state_type': TunableStateTypeReference(description='The state type that when changed, will change the audio on the target object. This is used to get the audio channel to advance the playlist.')}
@@ -68,12 +70,15 @@ class SkipToNextSongSuperInteraction(ImmediateSuperInteraction):
             msg.object_id = self.target.id
             if self.target.inventoryitem_component is not None:
                 forward_to_owner_list = self.target.inventoryitem_component.forward_client_state_change_to_inventory_owner
-                if self.target.inventoryitem_component.inventory_owner is not None:
-                    msg.object_id = self.target.inventoryitem_component.inventory_owner.id
+                if forward_to_owner_list:
+                    if StateChange.AUDIO_STATE in forward_to_owner_list:
+                        if self.target.inventoryitem_component.inventory_owner is not None:
+                            msg.object_id = self.target.inventoryitem_component.inventory_owner.id
             msg.channel = play_audio_primative.channel
             distributor = Distributor.instance()
             distributor.add_op_with_no_owner(GenericProtocolBufferOp(Operation.OBJECT_AUDIO_PLAYLIST_SKIP_TO_NEXT, msg))
         return True
+        yield
 
 class StereoPieMenuChoicesInteraction(ImmediateSuperInteraction):
     INSTANCE_TUNABLES = {'channel_state_type': objects.components.state.TunableStateTypeReference(description='The state used to populate the picker.'), 'push_additional_affordances': Tunable(bool, True, description="Whether to push affordances specified by the channel. This is used for stereo's turn on and listen to... interaction"), 'off_state_pie_menu_category': TunableTuple(off_state=objects.components.state.TunableStateValueReference(description='\n                The state value at which to display the name\n                ', allow_none=True), pie_menu_category=TunableReference(description='\n                Pie menu category so we can display a submenu for each outfit category\n                ', manager=services.get_instance_manager(sims4.resources.Types.PIE_MENU_CATEGORY), allow_none=True), pie_menu_category_on_forwarded=TunableReference(description='\n                Pie menu category so when this interaction is forwarded from inventory\n                object to inventory owner.\n                ', manager=services.get_instance_manager(sims4.resources.Types.PIE_MENU_CATEGORY), allow_none=True))}
@@ -104,8 +109,9 @@ class StereoPieMenuChoicesInteraction(ImmediateSuperInteraction):
     @classmethod
     def potential_interactions(cls, target, context, from_inventory_to_owner=False, **kwargs):
         for client_state in target.get_client_states(cls.channel_state_type):
-            if client_state.show_in_picker and client_state.test_channel(target, context):
-                yield AffordanceObjectPair(cls, target, cls, None, stereo=target, audio_channel=client_state, from_inventory_to_owner=from_inventory_to_owner)
+            if client_state.show_in_picker:
+                if client_state.test_channel(target, context):
+                    yield AffordanceObjectPair(cls, target, cls, None, stereo=target, audio_channel=client_state, from_inventory_to_owner=from_inventory_to_owner)
 
     def _run_interaction_gen(self, timeline):
         self.audio_channel.activate_channel(interaction=self, push_affordances=self.push_additional_affordances)

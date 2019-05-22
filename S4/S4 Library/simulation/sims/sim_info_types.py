@@ -5,6 +5,7 @@ from tag import Tag
 import enum
 
 class Species(enum.Int):
+    INVALID = 0
     HUMAN = 1
     DOG = 2
     CAT = 3

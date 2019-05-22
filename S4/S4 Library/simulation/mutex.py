@@ -22,5 +22,6 @@ def with_mutex(key, sequence):
         else:
             del mutex_data[key]
         return True
+        yield
 
     return do_acquire

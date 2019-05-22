@@ -35,15 +35,14 @@ class StoryProgressionActionFame(_StoryProgressionAction):
         non_played_fame_level = Counter()
         for sim_info in services.sim_info_manager().get_all():
             if sim_info.lod == SimInfoLODLevel.MINIMUM:
-                pass
-            else:
-                fame_stat = sim_info.get_statistic(FameTunables.FAME_RANKED_STATISTIC)
-                if fame_stat.rank_level >= 1:
-                    if sim_info.is_player_sim:
-                        played_famous += 1
-                    else:
-                        non_played_famous += 1
-                        non_played_fame_level[fame_stat.rank_level] += 1
+                continue
+            fame_stat = sim_info.get_statistic(FameTunables.FAME_RANKED_STATISTIC)
+            if fame_stat.rank_level >= 1:
+                if sim_info.is_player_sim:
+                    played_famous += 1
+                else:
+                    non_played_famous += 1
+                    non_played_fame_level[fame_stat.rank_level] += 1
         with telemetry_helper.begin_hook(fame_telemetry_writer, TELEMETRY_HOOK_FAME) as hook:
             hook.write_int(TELEMETRY_FIELD_FAME_PLAYED, played_famous)
             hook.write_int(TELEMETRY_FIELD_FAME_NON_PLAYED, non_played_famous)

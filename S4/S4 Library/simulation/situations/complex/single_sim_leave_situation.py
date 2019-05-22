@@ -83,7 +83,7 @@ class LeaveState(situations.situation_complex.SituationState):
         sim = self.owner._leaver
         interaction_context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, Priority.Critical)
         enqueue_result = sim.push_super_affordance(self.owner.affordance_to_push, None, interaction_context)
-        if enqueue_result and enqueue_result.interaction.is_finishing:
+        if not enqueue_result or enqueue_result.interaction.is_finishing:
             logger.debug('Leaver :{} failed to push leave interaction', self.owner._leaver)
             return
         logger.debug('Leaver :{} pushed leave interaction', sim)

@@ -101,13 +101,11 @@ class MergedTuningManager:
 
     def get_tuning_res(self, res_key, silent_fail=False):
         if res_key.type not in sims4.resources.TYPE_RES_DICT:
-            if not silent_fail:
-                raise AssertionError('Resource type {0:x} is not defined in resources.py'.format(res_key.type))
+            assert silent_fail
             return
         res_ext = sims4.resources.TYPE_RES_DICT[res_key.type]
         if res_ext not in self._tuning_resources:
-            if not silent_fail:
-                raise AssertionError("Resource type {0:x} with ext {1} doesn't exist in combined file".format(res_key.type, res_ext))
+            assert silent_fail
             return
         res_dict = self._tuning_resources[res_ext]
         if res_key.instance not in res_dict:

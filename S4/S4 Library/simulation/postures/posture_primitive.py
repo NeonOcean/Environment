@@ -31,6 +31,7 @@ class PosturePrimitive(StageControllerElement):
         posture_element = self._get_behavior()
         result = yield from element_utils.run_child(timeline, posture_element)
         return result
+        yield
 
     def _get_behavior(self):
         posture = self._posture
@@ -39,8 +40,10 @@ class PosturePrimitive(StageControllerElement):
         prev_posture_state = sim.posture_state
         self._prev_posture = prev_posture_state.get_aspect(posture.track)
         animate_in = None
-        if not self._animate_in.empty:
-            animate_in = create_run_animation(self._animate_in)
+        if not multi_sim_posture_transition:
+            if self._animate_in is not None:
+                if not self._animate_in.empty:
+                    animate_in = create_run_animation(self._animate_in)
         my_stage = self._stage()
 
         def posture_change(timeline):
@@ -60,6 +63,7 @@ class PosturePrimitive(StageControllerElement):
             else:
                 self._dest_state = None
             return True
+            yield
 
         def end_posture_on_same_track(timeline):
             if self._prev_posture is not None and self._prev_posture is not posture:
@@ -67,9 +71,11 @@ class PosturePrimitive(StageControllerElement):
                 self._prev_posture = None
                 result = yield from element_utils.run_child(timeline, build_element(prev_posture.end()))
                 return result
+                yield
             return True
+            yield
 
-        if multi_sim_posture_transition or self._animate_in is not None and services.current_zone().animate_instantly:
+        if services.current_zone().animate_instantly:
             flush = flush_all_animations_instantly
         else:
             flush = flush_all_animations
@@ -97,9 +103,11 @@ class PosturePrimitive(StageControllerElement):
 
     def _hard_stop(self):
         super()._hard_stop()
-        if self._prev_posture._primitive is not self:
-            self._prev_posture._primitive.trigger_hard_stop()
-            self._prev_posture = None
-        if self._prev_posture is not None and self._prev_posture._primitive is not None and self._posture is not None:
+        if self._prev_posture is not None:
+            if self._prev_posture._primitive is not None:
+                if self._prev_posture._primitive is not self:
+                    self._prev_posture._primitive.trigger_hard_stop()
+                    self._prev_posture = None
+        if self._posture is not None:
             self._posture._on_reset()
             self._posture = None

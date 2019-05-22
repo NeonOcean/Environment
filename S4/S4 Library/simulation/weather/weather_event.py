@@ -14,7 +14,7 @@ class WeatherEvent(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, 
         def __init__(self, default_lower=40, default_upper=60, **kwargs):
             super().__init__(start_delay=TunableSimMinute(description='\n                    Delay in sim minutes before change starts.  Used if new weather is more\n                    severe than existing weather.\n                    ', default=1, minimum=0), start_rate=Tunable100ConvertRange(description='\n                    Rate at which ramp up occurs.  Used if new weather is more\n                    severe than existing weather.\n                    ', default=3.3, minimum=0), end_delay=TunableSimMinute(description='\n                    Delay in sim minutes before element ends.  Used if existing weather is more\n                    severe than new weather.\n                    ', default=1, minimum=0), end_rate=Tunable100ConvertRange(description='\n                    Rate at which ramp doown occurs.  Used if existing weather is more\n                    severe than new weather.\n                    ', default=3.3, minimum=0), range=TunableInterval(description='\n                    Range.\n                    ', tunable_type=Tunable100ConvertRange, minimum=0, maximum=100, default_lower=default_lower, default_upper=default_upper), **kwargs)
 
-    INSTANCE_TUNABLES = {'precipitation': OptionalTunable(description='\n            The amount/type of precipitation for this weather event.\n            ', tunable=TunableWeatherElementTuple(precipitation_type=TunableEnumEntry(description='\n                    The type of precipitation.\n                    ', tunable_type=PrecipitationType, default=PrecipitationType.RAIN))), 'cloud_states': TunableMapping(description='\n            The types of clouds for this weather event.\n            ', key_type=TunableEnumEntry(description='\n                The type of clouds.\n                ', tunable_type=CloudType, default=CloudType.PARTLY_CLOUDY), value_type=TunableWeatherElementTuple(default_lower=100, default_upper=100), minlength=1), 'wind': OptionalTunable(description='\n            The amount of wind for this weather event.\n            ', tunable=TunableWeatherElementTuple()), 'temperature': TunableEnumEntry(description='\n            The temperature.\n            ', tunable_type=Temperature, default=Temperature.WARM), 'thunder': OptionalTunable(description='\n            The amount of thunder for this weather event.\n            ', tunable=TunableWeatherElementTuple()), 'lightning': OptionalTunable(description='\n            The amount of lightning for this weather event.\n            ', tunable=TunableWeatherElementTuple())}
+    INSTANCE_TUNABLES = {'precipitation': OptionalTunable(description='\n            The amount/type of precipitation for this weather event.\n            ', tunable=TunableWeatherElementTuple(precipitation_type=TunableEnumEntry(description='\n                    The type of precipitation.\n                    ', tunable_type=PrecipitationType, default=PrecipitationType.RAIN))), 'cloud_states': TunableMapping(description='\n            The types of clouds for this weather event.\n            ', key_type=TunableEnumEntry(description='\n                The type of clouds.\n                ', tunable_type=CloudType, default=CloudType.PARTLY_CLOUDY, invalid_enums=(CloudType.STRANGE, CloudType.VERY_STRANGE)), value_type=TunableWeatherElementTuple(default_lower=100, default_upper=100), minlength=1), 'wind': OptionalTunable(description='\n            The amount of wind for this weather event.\n            ', tunable=TunableWeatherElementTuple()), 'temperature': TunableEnumEntry(description='\n            The temperature.\n            ', tunable_type=Temperature, default=Temperature.WARM), 'thunder': OptionalTunable(description='\n            The amount of thunder for this weather event.\n            ', tunable=TunableWeatherElementTuple()), 'lightning': OptionalTunable(description='\n            The amount of lightning for this weather event.\n            ', tunable=TunableWeatherElementTuple())}
 
     @classmethod
     def get_transition_data(cls, previous_event, old_transition_data, duration):
@@ -57,10 +57,12 @@ class WeatherEvent(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, 
                 event_element = cls.precipitation
                 previous_event_element = previous_event.precipitation
                 key = int(precip_type)
-                if event_element.precipitation_type != key:
-                    event_element = None
-                if previous_event_element.precipitation_type != key:
-                    previous_event_element = None
+                if event_element is not None:
+                    if event_element.precipitation_type != key:
+                        event_element = None
+                if previous_event_element is not None:
+                    if previous_event_element.precipitation_type != key:
+                        previous_event_element = None
                 clouds_use_new_delay = cls._create_weather_transition_element(now, transition_data, old_transition_data, key, event_element, previous_event_element, clouds_use_new_delay)
             old_cloud_set = set(previous_event.cloud_states.keys())
             new_cloud_set = set(cls.cloud_states.keys())
@@ -93,10 +95,11 @@ class WeatherEvent(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, 
                 transition_data[old_cloud_type] = WeatherElementTuple(start_value, longest_end_time, 0.0, end_time)
             for cloudtype in CloudType:
                 old_data = old_transition_data.get(int(cloudtype))
-                if cloudtype not in transition_data.keys() and old_data is not None:
-                    logger.assert_log(old_data.end_value == 0.0, "Obsolete cloud transition that doesn't end at 0")
-                    if old_data.end_time >= now:
-                        transition_data[int(cloudtype)] = old_data
+                if cloudtype not in transition_data.keys():
+                    if old_data is not None:
+                        logger.assert_log(old_data.end_value == 0.0, "Obsolete cloud transition that doesn't end at 0")
+                        if old_data.end_time >= now:
+                            transition_data[int(cloudtype)] = old_data
         if duration is None:
             next_time = DATE_AND_TIME_ZERO
         else:

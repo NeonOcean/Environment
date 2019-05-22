@@ -234,11 +234,14 @@ def c_api_request_client_disconnect(session_id, zone_id, callback, is_traveling=
                 if client is None:
                     logger.error('Client {0} not in client manager from zone {1}', session_id, zone_id)
                     return callback(zone_id, session_id, NO_CLIENT_ERROR_CODE)
+                    yield
                 client_manager.remove(client)
             return callback(zone_id, session_id, SUCCESS_CODE)
+            yield
         except:
             logger.exception('Error disconnecting the client')
             return callback(zone_id, session_id, EXCEPTION_ERROR_CODE)
+            yield
 
     logger.info('Client {0} requesting disconnect in zone {1}', session_id, zone_id)
     if zone_id == WORLDBUILDER_ZONE_ID:
@@ -271,8 +274,9 @@ def c_api_add_sims(session_id, zone_id, sim_ids, callback, add_to_skewer):
     if add_to_skewer:
         for sim_id in sim_ids:
             sim_info = services.sim_info_manager().get(sim_id)
-            if sim_info is not None and client.household_id == sim_info.household_id:
-                client.add_selectable_sim_info(sim_info)
+            if sim_info is not None:
+                if client.household_id == sim_info.household_id:
+                    client.add_selectable_sim_info(sim_info)
     return SUCCESS_CODE
 
 @exception_protected

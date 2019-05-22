@@ -8,13 +8,12 @@ def with_audio_awareness(*actors, sequence=()):
     def begin(_):
         for actor in actors:
             if actor is None:
-                pass
-            elif actor.is_sim:
-                pass
-            else:
-                awareness_modifier = AwarenessSourceRequest(actor, awareness_sources={AwarenessChannel.AUDIO_VOLUME: 1})
-                awareness_modifier.start()
-                awareness_modifiers.append(awareness_modifier)
+                continue
+            if actor.is_sim:
+                continue
+            awareness_modifier = AwarenessSourceRequest(actor, awareness_sources={AwarenessChannel.AUDIO_VOLUME: 1})
+            awareness_modifier.start()
+            awareness_modifiers.append(awareness_modifier)
 
     def end(_):
         for awareness_modifier in awareness_modifiers:

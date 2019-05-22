@@ -27,7 +27,7 @@ def exclusivity_compare(current_request, other_request):
     if option == BouncerExclusivityOption.EXPECTATION_PREFERENCE:
         if current_request._expectation_preference and not other_request._expectation_preference:
             return determine_result(current_request._exclusivity)
-        if current_request._expectation_preference or other_request._expectation_preference:
+        if not current_request._expectation_preference and other_request._expectation_preference:
             return determine_result(other_request._exclusivity)
         if current_request._expectation_preference and other_request._expectation_preference:
             if current_request._creation_id >= other_request._creation_id:
@@ -121,8 +121,9 @@ class BouncerRequest:
         else:
             unfulfilled_index = len(BouncerRequestPriority)*self.BOUNCER_PRIORITY_INDEX_MULTIPLIER
         unfulfilled_index += self._request_priority*self.BOUNCER_PRIORITY_INDEX_MULTIPLIER
-        if not self.elevated_importance_override:
-            unfulfilled_index += 1
+        if not self._job_type.elevated_importance:
+            if not self.elevated_importance_override:
+                unfulfilled_index += 1
         self._unfulfilled_index = unfulfilled_index
         self._sim_spawner_service_request = None
         self._accept_looking_for_more_work = accept_looking_for_more_work
@@ -153,8 +154,7 @@ class BouncerRequest:
         return True
 
     def _assign_sim(self, sim, silently=False):
-        if self._sim is not None:
-            raise AssertionError('Attempting to assign sim: {} to a request: {} that already has a sim: {}'.format(sim, self, self._sim))
+        assert not self._sim is not None
         self._status = BouncerRequestStatus.FULFILLED
         self._sim = sim
         if gsi_handlers.situation_handlers.bouncer_archiver.enabled:
@@ -165,8 +165,7 @@ class BouncerRequest:
     def _unassign_sim(self, sim, silently=False):
         if self._status == BouncerRequestStatus.DESTROYED:
             return
-        if self._is_sim_assigned_to_request(sim) == False:
-            raise AssertionError('Attempting to unassign sim {} from a request {} that it is not assigned to{}'.format(sim, self))
+        assert not self._is_sim_assigned_to_request(sim) == False
         self._sim = None
         if gsi_handlers.situation_handlers.bouncer_archiver.enabled:
             gsi_handlers.situation_handlers.archive_bouncer_request(self, 'SIM UNASSIGNED', sim_override=sim)
@@ -315,6 +314,9 @@ class BouncerRequest:
             klout += 2
         return klout
 
+    def get_additional_filter_terms(self):
+        return self._job_type.get_location_based_filter_terms()
+
     @property
     def callback_data(self):
         return self._callback_data
@@ -452,8 +454,8 @@ class BouncerNPCFallbackRequestFactory(BouncerRequestFactory):
 
 class SelectableSimRequestFactory(BouncerRequestFactory):
 
-    def __init__(self, situation, callback_data, job_type, exclusivity):
-        super().__init__(situation, callback_data=callback_data, job_type=job_type, request_priority=BouncerRequestPriority.EVENT_VIP, user_facing=False, exclusivity=exclusivity)
+    def __init__(self, situation, callback_data, job_type, exclusivity, request_priority=BouncerRequestPriority.EVENT_VIP):
+        super().__init__(situation, callback_data=callback_data, job_type=job_type, request_priority=request_priority, user_facing=False, exclusivity=exclusivity)
 
     def _can_assign_sim_to_request(self, sim):
         return sim.is_selectable

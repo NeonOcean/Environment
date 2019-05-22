@@ -25,7 +25,7 @@ class SocialThrowMixerInteraction(SocialMixerInteraction):
     def on_throw_impact(self, event_data):
         if self._throw_asm is None or self._finished:
             return
-        if self._finished or self.throw_impact_data.asm_state_name is not None:
+        if not self._finished and self.throw_impact_data.asm_state_name is not None:
             impact_arb = animation.arb.Arb(additional_blockers={self.sim})
             self._throw_asm.request(self.throw_impact_data.asm_state_name, impact_arb)
             distribute_arb_element(impact_arb, master=self.target)

@@ -97,8 +97,8 @@ def print_scoring_info(_connection=None):
     filters_used = defaultdict(int)
     for node_type in dnm.types.values():
         if node_type.scoring is None:
-            pass
-        elif node_type.sender_sim_info.type == DramaNodeParticipantOption.DRAMA_PARTICIPANT_OPTION_FILTER:
+            continue
+        if node_type.sender_sim_info.type == DramaNodeParticipantOption.DRAMA_PARTICIPANT_OPTION_FILTER:
             filters_used[node_type.sender_sim_info.sim_filter] += 1
     for (sim_filter, frequency) in filters_used.items():
         sims4.commands.output('{}: {}'.format(sim_filter, frequency), _connection)

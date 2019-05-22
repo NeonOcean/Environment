@@ -284,7 +284,7 @@ class AnimationOverrides:
             self.balloon_target_override = overrides.balloon_target_override or None
 
     def __call__(self, overrides=None, **kwargs):
-        if overrides or not kwargs:
+        if not overrides and not kwargs:
             return self
         if kwargs:
             overrides = AnimationOverrides(overrides=overrides, **kwargs)
@@ -321,9 +321,8 @@ class AnimationOverrides:
                     else:
                         actor_name = None
                     if actor_name is not None and asm.set_actor_parameter(actor_name, actor, param_name, param_value, suffix):
-                        pass
-                    else:
-                        asm.set_parameter(param_name, param_value)
+                        continue
+                    asm.set_parameter(param_name, param_value)
             if self.props:
                 for (prop_name, definition) in self.props.items():
                     asm.set_prop_override(prop_name, definition)
@@ -377,9 +376,8 @@ def get_actors_for_arb_sequence(*arb_sequence):
                 for actor_id in sub_arb._actors():
                     actor = om.get(actor_id)
                     if actor is None:
-                        pass
-                    else:
-                        all_actors.add(actor)
+                        continue
+                    all_actors.add(actor)
     return all_actors
 
 def disable_asm_auto_exit(sim, sequence):
@@ -402,13 +400,21 @@ def unhash_bone_name(bone_name_hash:int, try_appending_subroot=True) -> str:
                 bone_name = native.animation.get_joint_name_for_hash_from_rig(rig_key, bone_name_hash)
             except KeyError:
                 pass
-            break
-        bone_name = None
-        if try_appending_subroot:
-            bone_name_hash_with_subroot = sims4.hash_util.hash32('1', initial_hash=bone_name_hash)
-            bone_name_with_subroot = unhash_bone_name(bone_name_hash_with_subroot, False)
-            if bone_name_with_subroot is not None:
-                bone_name = bone_name_with_subroot[:-1]
+            else:
+                break
+                bone_name = None
+                if try_appending_subroot:
+                    bone_name_hash_with_subroot = sims4.hash_util.hash32('1', initial_hash=bone_name_hash)
+                    bone_name_with_subroot = unhash_bone_name(bone_name_hash_with_subroot, False)
+                    if bone_name_with_subroot is not None:
+                        bone_name = bone_name_with_subroot[:-1]
+        else:
+            bone_name = None
+            if try_appending_subroot:
+                bone_name_hash_with_subroot = sims4.hash_util.hash32('1', initial_hash=bone_name_hash)
+                bone_name_with_subroot = unhash_bone_name(bone_name_hash_with_subroot, False)
+                if bone_name_with_subroot is not None:
+                    bone_name = bone_name_with_subroot[:-1]
         _unhash_bone_name_cache[bone_name_hash] = bone_name
     return _unhash_bone_name_cache[bone_name_hash]
 
@@ -467,29 +473,32 @@ def get_release_contexts_fn(contexts_to_release, tag):
 def release_auto_exit(actor):
     contexts_to_release = []
     for other_actor in actor.asm_auto_exit.asm[1]:
-        if other_actor.is_sim and other_actor.asm_auto_exit.asm is not None:
-            animation_context = other_actor.asm_auto_exit.asm[2]
-            contexts_to_release.append(animation_context)
-            other_actor.asm_auto_exit.asm = None
+        if other_actor.is_sim:
+            if other_actor.asm_auto_exit.asm is not None:
+                animation_context = other_actor.asm_auto_exit.asm[2]
+                contexts_to_release.append(animation_context)
+                other_actor.asm_auto_exit.asm = None
     return contexts_to_release
 
 def get_auto_exit(actors, asm=None, interaction=None, required_actors=()):
     arb_exit = None
     contexts_to_release_all = []
     for actor in actors:
-        if actor.is_sim and actor.asm_auto_exit.asm is not None:
-            asm_to_exit = actor.asm_auto_exit.asm[0]
-            if asm_to_exit is asm:
-                pass
-            elif required_actors:
-                asm_actors = set(asm_to_exit.actors_gen())
-                if not all(a in asm_actors for a in required_actors):
-                    pass
+        if actor.is_sim:
+            if actor.asm_auto_exit.asm is not None:
+                asm_to_exit = actor.asm_auto_exit.asm[0]
+                if asm_to_exit is asm:
+                    continue
+                if required_actors:
+                    asm_actors = set(asm_to_exit.actors_gen())
+                    if not all(a in asm_actors for a in required_actors):
+                        continue
                 else:
                     if arb_exit is None:
                         arb_exit = animation.arb.Arb()
-                    if gsi_handlers.interaction_archive_handlers.is_archive_enabled(interaction):
-                        prev_state = asm_to_exit.current_state
+                    if interaction is not None:
+                        if gsi_handlers.interaction_archive_handlers.is_archive_enabled(interaction):
+                            prev_state = asm_to_exit.current_state
                     try:
                         asm_to_exit.request('exit', arb_exit, debug_context=(interaction, asm))
                     finally:
@@ -497,18 +506,6 @@ def get_auto_exit(actors, asm=None, interaction=None, required_actors=()):
                             gsi_handlers.interaction_archive_handlers.add_animation_data(interaction, asm_to_exit, prev_state, 'exit', 'arb_exit is empty' if arb_exit.empty else arb_exit.get_contents_as_string())
                     contexts_to_release = release_auto_exit(actor)
                     contexts_to_release_all.extend(contexts_to_release)
-            else:
-                if arb_exit is None:
-                    arb_exit = animation.arb.Arb()
-                if gsi_handlers.interaction_archive_handlers.is_archive_enabled(interaction):
-                    prev_state = asm_to_exit.current_state
-                try:
-                    asm_to_exit.request('exit', arb_exit, debug_context=(interaction, asm))
-                finally:
-                    if gsi_handlers.interaction_archive_handlers.is_archive_enabled(interaction):
-                        gsi_handlers.interaction_archive_handlers.add_animation_data(interaction, asm_to_exit, prev_state, 'exit', 'arb_exit is empty' if arb_exit.empty else arb_exit.get_contents_as_string())
-                contexts_to_release = release_auto_exit(actor)
-                contexts_to_release_all.extend(contexts_to_release)
     release_contexts_fn = get_release_contexts_fn(contexts_to_release_all, AUTO_EXIT_REF_TAG)
     if arb_exit is not None and not arb_exit.empty:
         element = build_critical_section_with_finally(build_critical_section(create_run_animation(arb_exit), flush_all_animations), release_contexts_fn)
@@ -521,9 +518,12 @@ def mark_auto_exit(actors, asm):
         return
     contexts_to_release_all = []
     for actor in actors:
-        if actor.is_sim and (actor.asm_auto_exit is not None and actor.asm_auto_exit.asm is not None) and actor.asm_auto_exit.asm[0] is asm:
-            contexts_to_release = release_auto_exit(actor)
-            contexts_to_release_all.extend(contexts_to_release)
+        if actor.is_sim:
+            if actor.asm_auto_exit is not None:
+                if actor.asm_auto_exit.asm is not None:
+                    if actor.asm_auto_exit.asm[0] is asm:
+                        contexts_to_release = release_auto_exit(actor)
+                        contexts_to_release_all.extend(contexts_to_release)
     if not contexts_to_release_all:
         return
     return get_release_contexts_fn(contexts_to_release_all, AUTO_EXIT_REF_TAG)

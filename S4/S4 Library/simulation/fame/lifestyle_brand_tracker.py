@@ -3,11 +3,14 @@ from bucks.bucks_utils import BucksUtils
 from event_testing.resolver import SingleSimResolver
 from fame.fame_tuning import LifestyleBrandTargetMarket, LifestyleBrandProduct, FameTunables
 from scheduler import WeeklySchedule
+from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_tracker import SimInfoTracker
 from sims4.tuning.geometric import TunableCurve
 from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, TunableTuple, Tunable
+from sims4.utils import classproperty
 from tunable_multiplier import TunableMultiplier
 from ui.ui_dialog_notification import UiDialogNotification
+import services
 import sims4.resources
 
 class LifestyleBrandTracker(SimInfoTracker):
@@ -104,7 +107,7 @@ class LifestyleBrandTracker(SimInfoTracker):
             if payment_data is not None:
                 (final_payment_day, _) = payment_data.curve.points[-1]
                 if self._days_active > final_payment_day:
-                    self._days_active = final_payment_day
+                    self._days_active = int(final_payment_day)
                 payout = payment_data.curve.get(self._days_active)
                 payout *= self._active_multiplier
                 payout = self._apply_deviation_calculation(payout, payment_data.payment_deviation_percent)
@@ -148,3 +151,15 @@ class LifestyleBrandTracker(SimInfoTracker):
         self._logo = sims4.resources.Key(data.logo.type, data.logo.instance, data.logo.group)
         self._brand_name = data.brand_name
         self._days_active = data.days_active
+
+    @classproperty
+    def _tracker_lod_threshold(cls):
+        return SimInfoLODLevel.FULL
+
+    def on_lod_update(self, old_lod, new_lod):
+        if new_lod < self._tracker_lod_threshold:
+            self.clear_brand()
+        elif old_lod < self._tracker_lod_threshold:
+            sim_msg = services.get_persistence_service().get_sim_proto_buff(self._sim_info.id)
+            if sim_msg is not None:
+                self.load(sim_msg.attributes.lifestyle_brand_tracker)

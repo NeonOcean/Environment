@@ -5,8 +5,9 @@ from protocolbuffers.InteractionOps_pb2 import TravelSimsToZone
 from clock import ClockSpeedMode
 from distributor.ops import BreakThroughMessage, GenericProtocolBufferOp
 from distributor.system import Distributor
+from event_testing.resolver import SingleActorAndObjectResolver, SingleObjectResolver
 from event_testing.tests import TunableTestSet
-from interactions import ParticipantType
+from interactions import ParticipantType, ParticipantTypeSingleSim
 from interactions.utils import LootType
 from interactions.utils.loot_basic_op import BaseLootOperation, BaseTargetedLootOperation
 from objects.components.portal_lock_data import LockAllWithGenusException, LockAllWithSimIdExceptionData, LockAllWithSituationJobExceptionData, LockRankedStatisticData
@@ -14,9 +15,11 @@ from objects.components.portal_locking_enums import LockPriority, LockType, Clea
 from objects.components.state import TunableStateValueReference
 from objects.components.types import PORTAL_LOCKING_COMPONENT
 from objects.slot_strategy import SlotStrategyVariant
+from sims.funds import FundsSource, get_funds_for_source
 from sims.unlock_tracker import TunableUnlockVariant
 from sims4 import math
-from sims4.tuning.tunable import Tunable, TunableRange, TunableReference, OptionalTunable, TunableRealSecond, TunableVariant, TunableEnumEntry, TunableList, TunableFactory, HasTunableSingletonFactory, AutoFactoryInit, TunablePackSafeReference
+from sims4.tuning.tunable import Tunable, TunableRange, TunableReference, OptionalTunable, TunableRealSecond, TunableVariant, TunableEnumEntry, TunableList, TunableFactory, HasTunableSingletonFactory, AutoFactoryInit, TunablePackSafeReference, TunableTuple
+from tunable_multiplier import TunableMultiplier
 from ui.notebook_tuning import NotebookSubCategories
 from ui.ui_dialog import UiDialogOk
 from ui.ui_dialog_labeled_icons import UiDialogAspirationProgress
@@ -192,9 +195,10 @@ class CollectibleShelveItem(BaseLootOperation):
         target_slot = subject.get_collectible_slot()
         if target_slot:
             for runtime_slot in target.get_runtime_slots_gen(bone_name_hash=sims4.hash_util.hash32(target_slot)):
-                if runtime_slot and runtime_slot.empty:
-                    runtime_slot.add_child(subject)
-                    return True
+                if runtime_slot:
+                    if runtime_slot.empty:
+                        runtime_slot.add_child(subject)
+                        return True
         return False
 
 class FireDeactivateSprinklerLootOp(BaseLootOperation):
@@ -319,21 +323,69 @@ class DestroyObjectsFromInventorySource(enum.Int):
     HIDDEN_STORAGE = 2
 
 class DestroyObjectsFromInventoryLootOp(BaseLootOperation):
-    FACTORY_TUNABLES = {'description': "\n            Destroy every object in the target's inventory that passes the\n            tuned tests.\n            ", 'object_tests': TunableTestSet(description='\n            A list of tests to apply to all objects in the target inventory.\n            Every object that passes these tests will be destroyed.\n            '), 'object_source': TunableEnumEntry(description="\n            The target's inventory storage types to search for objects to\n            destroy.\n            ", tunable_type=DestroyObjectsFromInventorySource, default=DestroyObjectsFromInventorySource.ALL_STORAGE), 'count': TunableVariant(description='\n            The total number of objects to destroy. If multiple types of objects\n            match the criteria test, an arbitrary set of objects, no more than\n            the specified count, is destroyed.\n            ', number=TunableRange(tunable_type=int, default=1, minimum=0), locked_args={'all': math.MAX_INT32}, default='all')}
+    FACTORY_TUNABLES = {'description': "\n            Destroy every object in the target's inventory that passes the\n            tuned tests.\n            ", 'object_tests': TunableTestSet(description='\n            A list of tests to apply to all objects in the target inventory.\n            Every object that passes these tests will be destroyed.\n            '), 'object_source': TunableEnumEntry(description="\n            The target's inventory storage types to search for objects to\n            destroy.\n            ", tunable_type=DestroyObjectsFromInventorySource, default=DestroyObjectsFromInventorySource.ALL_STORAGE), 'count': TunableVariant(description='\n            The total number of objects to destroy. If multiple types of objects\n            match the criteria test, an arbitrary set of objects, no more than\n            the specified count, is destroyed.\n            ', number=TunableRange(tunable_type=int, default=1, minimum=0), locked_args={'all': math.MAX_INT32}, default='all'), 'award_value': OptionalTunable(description="\n            If necessary, define how an amount corresponding to the objects'\n            value is given to Sims.\n            ", tunable=TunableTuple(recipient=TunableEnumEntry(description='\n                    Who to award funds to.\n                    ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor, invalid_enums=(ParticipantTypeSingleSim.Invalid,)), funds=TunableEnumEntry(description='\n                    Where to award funds to.  This can go to household\n                    funds by default, or to business funds.\n                    ', tunable_type=FundsSource, default=FundsSource.HOUSEHOLD), multiplier=TunableRange(description='\n                    Value multiplier for the award.\n                    ', tunable_type=float, default=1.0, minimum=0.0), tested_multipliers=TunableMultiplier.TunableFactory(description='\n                    Each multiplier that passes its test set will be applied to\n                    each award payment.\n                    ')))}
 
-    def __init__(self, *args, object_tests, object_source, count, **kwargs):
+    def __init__(self, *args, object_tests, object_source, count, award_value, **kwargs):
         super().__init__(*args, **kwargs)
         self.object_tests = object_tests
         self.object_source = object_source
         self.count = count
+        self.award_value = award_value
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
+        inventory = self._get_subject_inventory(subject)
+        if inventory is None:
+            return
+        objects_to_destroy = self._get_objects_and_award_values(inventory, resolver)
+        award_value = 0
+        pending_count = self.count
+        for (obj, value) in objects_to_destroy.items():
+            count = min(pending_count, obj.stack_count())
+            if inventory.try_destroy_object(obj, count=count, source=self, cause='Destroying specified objects from inventory loot op.'):
+                pending_count -= count
+                if self.award_value:
+                    award_value += count*value
+            else:
+                logger.error('Error trying to destroy object {}.', obj)
+            if pending_count <= 0:
+                break
+        if award_value > 0:
+            recipient = resolver.get_participant(self.award_value.recipient).get_sim_instance()
+            tags = set()
+            if resolver.interaction is not None:
+                tags |= resolver.interaction.get_category_tags()
+            funds = get_funds_for_source(self.award_value.funds, sim=recipient)
+            funds.add(award_value, Consts_pb2.TELEMETRY_OBJECT_SELL, subject, tags=tags)
+
+    def get_simoleon_delta(self, interaction, target, context, **interaction_parameters):
+        if self.award_value is None:
+            return (0, FundsSource.HOUSEHOLD)
+        resolver = interaction.get_resolver(target, context, **interaction_parameters)
+        subject = resolver.get_participant(self.subject)
+        inventory = self._get_subject_inventory(subject)
+        if inventory is None:
+            return (0, FundsSource.HOUSEHOLD)
+        objects_values = self._get_objects_and_award_values(inventory, resolver)
+        award_value = 0
+        pending_count = self.count
+        for (obj, value) in objects_values.items():
+            count = min(pending_count, obj.stack_count())
+            pending_count -= count
+            award_value += count*value
+            if pending_count <= 0:
+                break
+        return (award_value, self.award_value.funds)
+
+    def _get_subject_inventory(self, subject):
         if subject.is_sim:
             subject = subject.get_sim_instance()
         inventory = getattr(subject, 'inventory_component', None)
         if inventory is None:
             logger.error('Subject {} does not have an inventory to check for objects to destroy.', subject)
             return
+        return inventory
+
+    def _get_object_source(self, inventory):
         if self.object_source == DestroyObjectsFromInventorySource.ALL_STORAGE:
             obj_source = inventory
         elif self.object_source == DestroyObjectsFromInventorySource.VISIBLE_STORAGE:
@@ -341,26 +393,27 @@ class DestroyObjectsFromInventoryLootOp(BaseLootOperation):
         elif self.object_source == DestroyObjectsFromInventorySource.HIDDEN_STORAGE:
             obj_source = inventory.hidden_storage
         else:
-            logger.error('Unknown object source type {} to chech for objects to destroy.', self.object_source)
-        objects_to_destroy = set()
+            logger.error('Unknown object source type {} to check for objects to destroy.', self.object_source)
+            obj_source = ()
+        return obj_source
+
+    def _get_objects_and_award_values(self, inventory, resolver):
+        obj_source = self._get_object_source(inventory)
+        objects_to_destroy = {}
         for obj in obj_source:
-            single_object_resolver = event_testing.resolver.SingleObjectResolver(obj)
+            single_object_resolver = SingleObjectResolver(obj)
             if not self.object_tests.run_tests(single_object_resolver):
-                pass
-            else:
-                objects_to_destroy.add(obj)
-        pending_count = self.count
-        for obj in objects_to_destroy:
-            count = min(pending_count, obj.stack_count())
-            if inventory.try_destroy_object(obj, count=count, source=inventory, cause='Destroying specified objects from inventory loot op.'):
-                pending_count -= count
-            else:
-                logger.error('Error trying to destroy object {}.', obj)
-            if pending_count <= 0:
-                break
+                continue
+            objects_to_destroy[obj] = self._get_object_value(obj, resolver) if self.award_value else 0
+        return objects_to_destroy
+
+    def _get_object_value(self, obj, resolver):
+        resolver = SingleActorAndObjectResolver(resolver.get_participant(self.award_value.recipient), obj, self)
+        multiplier = self.award_value.tested_multipliers.get_multiplier(resolver)
+        return int(obj.current_value*self.award_value.multiplier*multiplier)
 
 class RemoveNotebookEntry(BaseLootOperation):
-    FACTORY_TUNABLES = {'subcategory_id': TunableEnumEntry(description='\n            Subcategory type.\n            ', tunable_type=NotebookSubCategories, default=NotebookSubCategories.INVALID), 'removal_type': OptionalTunable(description='\n            Option to select if we want to remove by subcategory (like remove\n            all clues) or by a specific entry.\n            ', tunable=TunableList(description='\n                List of entries to be removed.\n                ', tunable=TunableReference(description="\n                    The entry that will be removed from the player's notebook.\n                    ", manager=services.get_instance_manager(sims4.resources.Types.NOTEBOOK_ENTRY), pack_safe=True)), disabled_name='all_entries', enabled_name='remove_by_reference')}
+    FACTORY_TUNABLES = {'subcategory_id': TunableEnumEntry(description='\n            Subcategory type.\n            ', tunable_type=NotebookSubCategories, default=NotebookSubCategories.INVALID, invalid_enums=(NotebookSubCategories.INVALID,)), 'removal_type': OptionalTunable(description='\n            Option to select if we want to remove by subcategory (like remove\n            all clues) or by a specific entry.\n            ', tunable=TunableList(description='\n                List of entries to be removed.\n                ', tunable=TunableReference(description="\n                    The entry that will be removed from the player's notebook.\n                    ", manager=services.get_instance_manager(sims4.resources.Types.NOTEBOOK_ENTRY), pack_safe=True)), disabled_name='all_entries', enabled_name='remove_by_reference')}
 
     def __init__(self, *args, subcategory_id, removal_type, **kwargs):
         super().__init__(*args, **kwargs)
@@ -412,7 +465,7 @@ class LockDoor(BaseTargetedLootOperation):
 
     @staticmethod
     def _verify_tunable_callback(instance_class, tunable_name, source, value):
-        if value.replace_same_lock_type or value.lock_data.factory is not LockAllWithSimIdExceptionData:
+        if not value.replace_same_lock_type and value.lock_data.factory is not LockAllWithSimIdExceptionData:
             logger.error('Lock Data {} is tuned to not replace same lock type. This is not supported.', value.lock_data.factory, owner='nsavalani')
 
     FACTORY_TUNABLES = {'lock_data': TunableVariant(lock_all_with_simid_exception=LockAllWithSimIdExceptionData.TunableFactory(), lock_all_with_situation_job_exception=LockAllWithSituationJobExceptionData.TunableFactory(), lock_all_with_genus_exception=LockAllWithGenusException.TunableFactory(), lock_ranked_statistic=LockRankedStatisticData.TunableFactory(), default='lock_all_with_simid_exception'), 'replace_same_lock_type': Tunable(description='\n            If True, it will replace the same type of lock data in the locking\n            component, otherwise it will update the existing data.\n            ', tunable_type=bool, default=True), 'clear_existing_locks': TunableEnumEntry(description='\n            Which locks should be cleared before adding the new lock data.\n            ', tunable_type=ClearLock, default=ClearLock.CLEAR_ALL), 'verify_tunable_callback': _verify_tunable_callback}

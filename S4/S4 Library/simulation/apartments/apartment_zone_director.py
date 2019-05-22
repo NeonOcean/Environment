@@ -46,12 +46,11 @@ class ApartmentZoneDirectorMixin(SchedulingZoneDirectorMixin):
             zone_data = persistence_service.get_zone_proto_buff(zone_id)
             gameplay_zone_data = zone_data.gameplay_zone_data
             if not gameplay_zone_data.HasField('game_time'):
-                pass
-            else:
-                if not last_save_ticks is None:
-                    if last_save_ticks < gameplay_zone_data.game_time:
-                        last_save_ticks = gameplay_zone_data.game_time
-                last_save_ticks = gameplay_zone_data.game_time
+                continue
+            if not last_save_ticks is None:
+                if last_save_ticks < gameplay_zone_data.game_time:
+                    last_save_ticks = gameplay_zone_data.game_time
+            last_save_ticks = gameplay_zone_data.game_time
         if last_save_ticks is not None:
             last_save_time = DateAndTime(last_save_ticks)
             next_cleanup_time = last_save_time.time_of_next_day_time(ApartmentZoneDirectorMixin.COMMON_AREA_CLEANUP.time_of_day)

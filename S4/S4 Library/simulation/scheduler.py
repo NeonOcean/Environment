@@ -68,9 +68,8 @@ class WeeklySchedule(HasTunableFactory):
             for (start_time, end_time) in entry.get_start_and_end_times():
                 is_random = entry.random_start
                 if required_start_time is not None and now.time_to_week_time(required_start_time) != now.time_to_week_time(start_time):
-                    pass
-                else:
-                    self._schedule_entries.add(AlarmData(start_time, end_time, entry, is_random))
+                    continue
+                self._schedule_entries.add(AlarmData(start_time, end_time, entry, is_random))
         self._start_callback = start_callback
         self._alarm_handle = None
         self._random_alarm_handles = []
@@ -101,17 +100,21 @@ class WeeklySchedule(HasTunableFactory):
         now = services.time_service().sim_now
         (time_span, best_work_data) = self.time_until_next_scheduled_event(now, schedule_immediate=schedule_immediate, min_duration_remaining=min_duration_remaining)
         if time_span is not None:
-            if time_span < self._min_alarm_time_span:
-                time_span = self._min_alarm_time_span
-            if schedule_immediate:
-                time_span = date_and_time.TimeSpan.ONE
+            if self._min_alarm_time_span is not None:
+                if time_span < self._min_alarm_time_span:
+                    time_span = self._min_alarm_time_span
+            if time_span == date_and_time.TimeSpan.ZERO:
+                if schedule_immediate:
+                    time_span = date_and_time.TimeSpan.ONE
             self._alarm_handle = alarms.add_alarm(self, time_span, self._alarm_callback)
             self._alarm_data[self._alarm_handle] = best_work_data
-            if self._early_warning_time_span > date_and_time.TimeSpan.ZERO:
-                warning_time_span = time_span - self._early_warning_time_span
-                if warning_time_span > date_and_time.TimeSpan.ZERO:
-                    logger.assert_log(self._early_warning_alarm_handle is None, 'Scheduler is setting an early warning alarm when the previous one has not fired.', owner='tingyul')
-                    self._early_warning_alarm_handle = alarms.add_alarm(self, warning_time_span, self._early_warning_alarm_callback)
+            if self._early_warning_callback is not None:
+                if self._early_warning_time_span is not None:
+                    if self._early_warning_time_span > date_and_time.TimeSpan.ZERO:
+                        warning_time_span = time_span - self._early_warning_time_span
+                        if warning_time_span > date_and_time.TimeSpan.ZERO:
+                            logger.assert_log(self._early_warning_alarm_handle is None, 'Scheduler is setting an early warning alarm when the previous one has not fired.', owner='tingyul')
+                            self._early_warning_alarm_handle = alarms.add_alarm(self, warning_time_span, self._early_warning_alarm_callback)
 
     def _random_alarm_callback(self, handle, alarm_data):
         self._random_alarm_handles.remove(handle)

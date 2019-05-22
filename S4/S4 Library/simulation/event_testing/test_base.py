@@ -1,3 +1,5 @@
+from event_testing.resolver import RESOLVER_PARTICIPANT
+from singletons import DEFAULT
 import event_testing.results
 import sims4.localization
 import sims4.tuning.tunable
@@ -10,14 +12,24 @@ class BaseTest:
     TAG_CHECKLIST_TRACKING_AVAILABLE = False
     USES_EVENT_DATA = False
     FACTORY_TUNABLES = {'tooltip': sims4.tuning.tunable.OptionalTunable(sims4.localization.TunableLocalizedStringFactory(description='Reason of failure.'))}
-    __slots__ = ('tooltip', '_safe_to_skip', 'expected_kwargs')
+    __slots__ = ('tooltip', '_safe_to_skip', 'expected_kwargs', 'participants_for_early_testing', '_supports_early_testing')
 
     def __init__(self, *args, safe_to_skip=False, tooltip=None, **kwargs):
         super().__init__(*args, **kwargs)
-        if not (tooltip is not None or hasattr(self, 'tooltip')):
+        if not (tooltip is not None or not hasattr(self, 'tooltip')):
             self.tooltip = tooltip
         self._safe_to_skip = safe_to_skip
         self.expected_kwargs = None
+        self.participants_for_early_testing = None
+        self._supports_early_testing = None
+
+    def supports_early_testing(self):
+        if self._supports_early_testing is None:
+            if any(participant == RESOLVER_PARTICIPANT for participant in self.get_expected_args().values()):
+                self._supports_early_testing = False
+            else:
+                self._supports_early_testing = True
+        return self._supports_early_testing
 
     def has_tooltip(self):
         return self.tooltip is not None

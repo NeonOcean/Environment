@@ -56,7 +56,7 @@ class ServiceNpcService(Service):
     def _send_service_npc(self, scheduler, alarm_data, situation_creation_params):
         household = situation_creation_params.hiring_household
         service_npc_type = situation_creation_params.service_npc_type
-        if self._auto_scheduled_services_enabled or service_npc_type.auto_schedule_on_client_connect():
+        if not self._auto_scheduled_services_enabled and service_npc_type.auto_schedule_on_client_connect():
             return
         service_record = household.get_service_npc_record(service_npc_type.guid64)
         preferred_sim_id = service_record.get_preferred_sim_id()
@@ -71,7 +71,7 @@ class ServiceNpcService(Service):
                 return
             if service_npc_type.full_time_npc and is_situation_running:
                 return
-        if not (service_record.time_last_started_service is None or service_npc_type.full_time_npc):
+        if not (service_record.time_last_started_service is None or not service_npc_type.full_time_npc):
             service_record.time_last_started_service = now
             service_record.time_last_finished_service = None
         duration = alarm_data.end_time - now.time_since_beginning_of_week()
@@ -116,9 +116,8 @@ class ServiceNpcService(Service):
                 return guest_list
             for household in household_manager.values():
                 if household.id == hiring_household:
-                    pass
-                else:
-                    blacklist_sim_ids.update(household.get_preferred_service_npcs())
+                    continue
+                blacklist_sim_ids.update(household.get_preferred_service_npcs())
         worker_filter = service_npc_type.situation.default_job().filter
         filter_results = services.sim_filter_service().submit_matching_filter(sim_filter=worker_filter, allow_yielding=False, blacklist_sim_ids=blacklist_sim_ids, gsi_source_fn=self.get_sim_filter_gsi_name)
         if not filter_results:
@@ -165,9 +164,10 @@ class ServiceNpcService(Service):
             situation_creation_params = request.extra_data
             schedule_household = situation_creation_params.hiring_household
             request_service_npc_tuning = situation_creation_params.service_npc_type
-            if household == schedule_household and request_service_npc_tuning is service_npc_type:
-                request.destroy()
-                self._service_npc_requests.remove(request)
+            if household == schedule_household:
+                if request_service_npc_tuning is service_npc_type:
+                    request.destroy()
+                    self._service_npc_requests.remove(request)
         service_record = household.get_service_npc_record(service_npc_type.guid64, add_if_no_record=False)
         if service_record is not None:
             service_record.on_cancel_service()
@@ -183,18 +183,20 @@ class ServiceNpcService(Service):
 
     def on_service_sim_fired(self, sim_id, service_npc_type):
         service_type_set = self._active_service_sim_infos.get(sim_id)
-        if service_npc_type in service_type_set:
-            service_type_set.remove(service_npc_type)
-            if not service_type_set:
-                del self._active_service_sim_infos[sim_id]
+        if service_type_set is not None:
+            if service_npc_type in service_type_set:
+                service_type_set.remove(service_npc_type)
+                if not service_type_set:
+                    del self._active_service_sim_infos[sim_id]
 
     def is_service_already_in_request_list(self, household, service_npc_type):
         for request in self._service_npc_requests:
             situation_creation_params = request.extra_data
             schedule_household = situation_creation_params.hiring_household
             request_service_npc_tuning = situation_creation_params.service_npc_type
-            if household == schedule_household and request_service_npc_tuning is service_npc_type:
-                return True
+            if household == schedule_household:
+                if request_service_npc_tuning is service_npc_type:
+                    return True
         return False
 
     def on_all_households_and_sim_infos_loaded(self, client):
@@ -209,12 +211,11 @@ class ServiceNpcService(Service):
             npc_household.load_fixup_service_npcs()
             preferred_npc_data = npc_household.get_all_prefered_sim_id_service_id()
             if preferred_npc_data is None:
-                pass
-            else:
-                for (sim_id, service_type) in preferred_npc_data:
-                    service_npc_tuning = service_npc_manager.get(service_type)
-                    if service_npc_tuning is not None:
-                        self.register_service_npc(sim_id, service_npc_tuning)
+                continue
+            for (sim_id, service_type) in preferred_npc_data:
+                service_npc_tuning = service_npc_manager.get(service_type)
+                if service_npc_tuning is not None:
+                    self.register_service_npc(sim_id, service_npc_tuning)
         if household.id != services.active_lot().owner_household_id:
             return
         business_manager = services.business_service().get_business_manager_for_zone()
@@ -267,24 +268,23 @@ class ServiceNpcService(Service):
             service_npc_type = situation_creation_params.service_npc_type
             service_record = household.get_service_npc_record(service_npc_type.guid64, add_if_no_record=False)
             if service_record is None:
-                pass
+                continue
+            (time_until_service_arrives, alarm_data_entries) = scheduler.time_until_next_scheduled_event(time_period_start, schedule_immediate=True)
+            if len(alarm_data_entries) != 1:
+                logger.error('There are {} alarm data entries instead of 1 when fake performing services: {}', len(alarm_data_entries), alarm_data_entries, owner='bhill')
             else:
-                (time_until_service_arrives, alarm_data_entries) = scheduler.time_until_next_scheduled_event(time_period_start, schedule_immediate=True)
-                if len(alarm_data_entries) != 1:
-                    logger.error('There are {} alarm data entries instead of 1 when fake performing services: {}', len(alarm_data_entries), alarm_data_entries, owner='bhill')
-                else:
-                    alarm_data = alarm_data_entries[0]
-                    time_service_starts = time_period_start + time_until_service_arrives
-                    time_service_would_end = alarm_data.end_time
-                    min_service_duration = service_npc_type.min_duration_left_for_arrival_on_lot()
-                    if not now < time_service_starts:
-                        if now + min_service_duration <= time_service_would_end:
-                            pass
-                        elif service_record.time_last_started_service is not None and service_record.time_last_started_service >= time_service_starts:
-                            pass
-                        else:
-                            service_npc_type.fake_perform(household)
-                            service_record.time_last_started_service = time_service_starts
-                            service_record.time_last_finished_service = min(now, time_service_would_end)
-                            if service_record.recurring or not service_npc_type.full_time_npc:
-                                self.cancel_service(household, service_npc_type)
+                alarm_data = alarm_data_entries[0]
+                time_service_starts = time_period_start + time_until_service_arrives
+                time_service_would_end = alarm_data.end_time
+                min_service_duration = service_npc_type.min_duration_left_for_arrival_on_lot()
+                if not now < time_service_starts:
+                    if now + min_service_duration <= time_service_would_end:
+                        continue
+                    if service_record.time_last_started_service is not None and service_record.time_last_started_service >= time_service_starts:
+                        continue
+                    service_npc_type.fake_perform(household)
+                    service_record.time_last_started_service = time_service_starts
+                    service_record.time_last_finished_service = min(now, time_service_would_end)
+                    if not service_record.recurring:
+                        if not service_npc_type.full_time_npc:
+                            self.cancel_service(household, service_npc_type)

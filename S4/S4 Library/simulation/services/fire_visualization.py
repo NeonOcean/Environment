@@ -45,19 +45,18 @@ class FireQuadTreeVisualizer:
             layer.set_color(Color.YELLOW)
             for obj in flammable_objects:
                 if obj.location.world_routing_surface is None:
-                    pass
-                else:
-                    level = obj.location.level
-                    height = terrain.get_lot_level_height(obj.position.x, obj.position.z, level, zone.id) + 0.1
-                    object_bounds = obj.object_bounds_for_flammable_object(FireService.FIRE_RETARDANT_EXTRA_OBJECT_RADIUS)
-                    if isinstance(object_bounds, QtCircle):
-                        pos = sims4.math.Vector3(obj.position.x, height, obj.position.z)
-                        layer.add_circle(pos, object_bounds.radius, altitude=KEEP_ALTITUDE)
-                    elif isinstance(object_bounds, QtRect):
-                        v0 = sims4.math.Vector3(object_bounds.a.x, height, object_bounds.a.y)
-                        v2 = sims4.math.Vector3(object_bounds.b.x, height, object_bounds.b.y)
-                        delta = v2 - v0
-                        v1 = v0 + sims4.math.Vector3(delta.x, 0, 0)
-                        v3 = v0 + sims4.math.Vector3(0, 0, delta.z)
-                        vertices = [v0, v1, v2, v3]
-                        layer.add_polygon(vertices, altitude=KEEP_ALTITUDE)
+                    continue
+                level = obj.location.level
+                height = terrain.get_lot_level_height(obj.position.x, obj.position.z, level, zone.id) + 0.1
+                object_bounds = obj.object_bounds_for_flammable_object(FireService.FIRE_RETARDANT_EXTRA_OBJECT_RADIUS)
+                if isinstance(object_bounds, QtCircle):
+                    pos = sims4.math.Vector3(obj.position.x, height, obj.position.z)
+                    layer.add_circle(pos, object_bounds.radius, altitude=KEEP_ALTITUDE)
+                elif isinstance(object_bounds, QtRect):
+                    v0 = sims4.math.Vector3(object_bounds.a.x, height, object_bounds.a.y)
+                    v2 = sims4.math.Vector3(object_bounds.b.x, height, object_bounds.b.y)
+                    delta = v2 - v0
+                    v1 = v0 + sims4.math.Vector3(delta.x, 0, 0)
+                    v3 = v0 + sims4.math.Vector3(0, 0, delta.z)
+                    vertices = [v0, v1, v2, v3]
+                    layer.add_polygon(vertices, altitude=KEEP_ALTITUDE)

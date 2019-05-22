@@ -11,8 +11,9 @@ def _weighted(pairs, random=random, flipped=False):
     select = random.uniform(0, total)
     for (index, weight) in enumerate(weights):
         select -= weight
-        if select <= 0 and weight > 0:
-            return index
+        if select <= 0:
+            if weight > 0:
+                return index
 
 def weighted_random_item(pairs, random=random, flipped=False):
     value_index = 0 if flipped else 1

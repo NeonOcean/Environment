@@ -43,14 +43,12 @@ class SicknessService(Service):
         for sim_info in services.sim_info_manager().values():
             if not sim_info.Buffs is None:
                 if not sim_info.has_component(objects.components.types.STATISTIC_COMPONENT):
-                    pass
-                else:
-                    resolver = SingleSimResolver(sim_info)
-                    if not self._should_sim_become_sick(resolver):
-                        pass
-                    else:
-                        sickness = self._choose_sickness_for_sim(resolver, criteria_func=lambda s: not s.distribute_manually)
-                        sickness.apply_to_sim_info(sim_info)
+                    continue
+                resolver = SingleSimResolver(sim_info)
+                if not self._should_sim_become_sick(resolver):
+                    continue
+                sickness = self._choose_sickness_for_sim(resolver, criteria_func=lambda s: not s.distribute_manually)
+                sickness.apply_to_sim_info(sim_info)
 
     def can_become_sick(self, resolver):
         return SicknessTuning.SICKNESS_TESTS.run_tests(resolver)

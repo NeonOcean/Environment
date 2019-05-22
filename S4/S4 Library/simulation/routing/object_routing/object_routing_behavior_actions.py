@@ -37,10 +37,12 @@ class _ObjectRoutingActionAnimation(HasTunableSingletonFactory, AutoFactoryInit)
         result = yield from element_utils.run_child(timeline, animation_element)
         if not result:
             return result
-        if executed_actions or callback is not None:
+            yield
+        if not executed_actions and callback is not None:
             fn_element = FunctionElement(callback)
             yield from element_utils.run_child(timeline, fn_element)
         return True
+        yield
 
 class ObjectRoutingBehaviorAction(HasTunableSingletonFactory, AutoFactoryInit):
 
@@ -54,7 +56,9 @@ class ObjectRoutingBehaviorActionAnimation(ObjectRoutingBehaviorAction):
         result = yield from self.animation(timeline, obj, target)
         if not result:
             return result
+            yield
         return True
+        yield
 
 class ObjectRoutingBehaviorActionDestroyObjects(ObjectRoutingBehaviorAction):
     FACTORY_TUNABLES = {'radius': TunableDistanceSquared(description='\n            Only objects within this distance are considered.\n            ', default=1), 'tags': TunableTags(description='\n            Only objects with these tags are considered.\n            ', filter_prefixes=('Func',)), 'animation_success': _ObjectRoutingActionAnimation.TunableFactory(description='\n            The animation to play if there are objects to destroy.\n            '), 'animation_failure': _ObjectRoutingActionAnimation.TunableFactory(description='\n            The animation to play if there are no objects to destroy.\n            '), 'loot_success': TunableList(description='\n            For each destroyed object, apply this loot between the routing\n            object (Actor) and the destroyed object (Object).\n            ', tunable=LootActions.TunableReference())}
@@ -64,6 +68,7 @@ class ObjectRoutingBehaviorActionDestroyObjects(ObjectRoutingBehaviorAction):
         if not objects:
             result = yield from self.animation_failure(timeline, obj, target)
             return result
+            yield
         else:
 
             def _callback():
@@ -77,4 +82,6 @@ class ObjectRoutingBehaviorActionDestroyObjects(ObjectRoutingBehaviorAction):
             result = yield from self.animation_success(timeline, obj, target, callback=_callback)
             if not result:
                 return result
+                yield
         return True
+        yield

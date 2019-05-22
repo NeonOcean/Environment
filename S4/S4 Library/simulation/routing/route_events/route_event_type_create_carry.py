@@ -95,6 +95,8 @@ class RouteEventTypeCreateCarry(_RouteEventTypeCarry):
         enter_carry_element = enter_carry_while_holding(route_interaction, obj=created_object, owning_affordance=self.carry_interaction, carry_track_override=PostureTrack.RIGHT, target_participant_type=ParticipantType.CarriedObject, sequence=build_element(_send_arb), carry_sim=actor, asm_context=asm.context, priority_override=self.priority_override, target_override=created_object)
 
         def event_finished(_):
+            if actor.routing_component is None:
+                return
             actor.routing_component.remove_route_event_by_data(self)
 
         enter_carry_element = build_critical_section_with_finally(enter_carry_element, event_finished)

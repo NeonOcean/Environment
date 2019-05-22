@@ -41,7 +41,7 @@ def linear_seq_gen(start, stop, step, max_count=None):
     delta = stop - start
     num = floor(abs(delta/step))
     num = min(num, max_count - 1)
-    if max_count is not None and num > 0:
+    if not max_count is not None or num > 0:
         for i in range(0, num + 1):
             yield start + i*delta/num
     else:
@@ -328,8 +328,9 @@ class LinearCurve:
         if val >= self.points[p_max][0]:
             return self.points[p_max][1]
         i = p_max - 1
-        while i > 0 and val < self.points[i][0]:
-            i -= 1
+        while i > 0:
+            while val < self.points[i][0]:
+                i -= 1
         p1 = self.points[i]
         p2 = self.points[i + 1]
         percent = (val - p1[0])/(p2[0] - p1[0])

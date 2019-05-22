@@ -21,7 +21,7 @@ _NOT_SPECIFIC_ACTOR = (None, MATCH_ANY, MATCH_NONE, HOLSTER)
 _NOT_SPECIFIC_ACTOR_OR_NONE = (None, MATCH_ANY, HOLSTER)
 MATCH_NONE_POSTURE_PARAM = ''
 _NOT_SPECIFIC_POSTURE = (None, MATCH_NONE_POSTURE_PARAM, MATCH_ANY)
-SORT_ORDER = {MATCH_ANY: 5, HOLSTER: 4, FULL_BODY: 2, UPPER_BODY: 1, MATCH_NONE: 0}
+SORT_ORDER = {MATCH_NONE: 0, UPPER_BODY: 1, FULL_BODY: 2, HOLSTER: 4, MATCH_ANY: 5}
 SORT_ORDER_DEFAULT = 3
 
 class AnimationParticipant(enum.Int):
@@ -188,9 +188,10 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
     _attr_names_intersect_ignore = ()
 
     def __new__(cls, actor, specific, family, level, left, right, surface, provides=False, from_asm=False, target_object_filter=None):
-        if from_asm:
-            surface = MATCH_ANY
-        if provides and family == 'none':
+        if provides:
+            if from_asm:
+                surface = MATCH_ANY
+        if family == 'none':
             family = None
         return super().__new__(cls, actor or MATCH_ANY, specific or MATCH_NONE_POSTURE_PARAM, family or MATCH_NONE_POSTURE_PARAM, level or MATCH_NONE_POSTURE_PARAM, left or MATCH_ANY, right or MATCH_ANY, surface or MATCH_ANY, provides or False, target_object_filter or MATCH_ANY)
 
@@ -230,10 +231,12 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
             surface = self.surface
         if self.left == self.right and left not in _NOT_SPECIFIC_ACTOR and right not in _NOT_SPECIFIC_ACTOR:
             return [self._with_overrides(surface=surface, left=left), self._with_overrides(surface=surface, right=right)]
-        if left != MATCH_NONE:
-            left = self.left
-        if right != MATCH_NONE:
-            right = self.right
+        if left is None or self.left == MATCH_ANY:
+            if left != MATCH_NONE:
+                left = self.left
+        if right is None or self.right == MATCH_ANY:
+            if right != MATCH_NONE:
+                right = self.right
         return [self._with_overrides(surface=surface, left=left, right=right)]
 
     def get_holster_version(self):
@@ -275,7 +278,7 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
             return value0
         if value0 == value1:
             return value0
-        if isinstance(value0, (str, int, Definition)) or not isinstance(value1, (str, int, Definition)):
+        if not isinstance(value0, (str, int, Definition)) and not isinstance(value1, (str, int, Definition)):
             if value0.is_part and value1.parts and value0 in value1.parts:
                 return value0
             if value1.is_part and value0.parts and value1 in value0.parts:
@@ -293,30 +296,28 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
 
     @property
     def valid(self):
-        if self.specific or not self.family:
+        if not self.specific and not self.family:
             return False
         uniques = None
         for e in (self.left, self.right, self.surface):
             if e in _NOT_SPECIFIC_ACTOR:
-                pass
-            else:
-                if uniques and e in uniques:
-                    return False
-                if uniques is None:
-                    uniques = set()
-                uniques.add(e)
+                continue
+            if uniques and e in uniques:
+                return False
+            if uniques is None:
+                uniques = set()
+            uniques.add(e)
         return True
 
     def intersect(self, other_manifest_entry):
         init_kwargs = AttributeDict(zip(self._fields, self))
         for attr_name in self._ATTR_NAMES_DEFAULT_INTERSECT:
             if attr_name in self._attr_names_intersect_ignore:
-                pass
-            else:
-                attr_value = self._intersect_attr(getattr(self, attr_name), getattr(other_manifest_entry, attr_name))
-                if attr_value is None:
-                    return
-                init_kwargs[attr_name] = attr_value
+                continue
+            attr_value = self._intersect_attr(getattr(self, attr_name), getattr(other_manifest_entry, attr_name))
+            if attr_value is None:
+                return
+            init_kwargs[attr_name] = attr_value
         provides0 = self.provides
         provides1 = other_manifest_entry.provides
         init_kwargs.provides = provides0 or provides1
@@ -340,13 +341,14 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
             init_kwargs.family = other_manifest_entry.family
         elif other_manifest_entry.family == MATCH_ANY:
             posture_type_family1 = posture_type_family0
-        if posture_type_specific0 is not None:
-            if posture_type_specific1 is not None:
-                return
-        elif posture_type_specific1 is not None:
-            init_kwargs.specific = other_manifest_entry.specific
+        if posture_type_specific0 != posture_type_specific1:
+            if posture_type_specific0 is not None:
+                if posture_type_specific1 is not None:
+                    return
+            elif posture_type_specific1 is not None:
+                init_kwargs.specific = other_manifest_entry.specific
         init_kwargs.level = self._intersect_attr(self.level, other_manifest_entry.level)
-        if posture_type_specific0 != posture_type_specific1 and init_kwargs.level is None:
+        if init_kwargs.level is None:
             if provides0 == provides1:
                 return
             level0 = self.level
@@ -366,7 +368,7 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
                 init_kwargs.family = posture_type_family0.name
             elif posture_type_family1 is not None and provides1:
                 init_kwargs.family = posture_type_family1.name
-            elif provides0 or not provides1:
+            elif not provides0 and not provides1:
                 init_kwargs.family = (posture_type_family0 or posture_type_family1).name
             else:
                 return
@@ -493,15 +495,16 @@ class SlotManifestBase:
             entry0 = open_set.pop()
             to_remove = set()
             for entry1 in open_set:
-                if not entry0.target == entry1.target:
-                    if entry0.slot == entry1.slot:
-                        intersection = entry0.intersect(entry1)
-                        if intersection is None:
-                            return
-                        entry0 = intersection
-                        to_remove.add(entry1)
+                if not entry0.actor == entry1.actor:
+                    if not entry0.target == entry1.target:
+                        if entry0.slot == entry1.slot:
+                            intersection = entry0.intersect(entry1)
+                            if intersection is None:
+                                return
+                            entry0 = intersection
+                            to_remove.add(entry1)
                 intersection = entry0.intersect(entry1)
-                if entry0.actor == entry1.actor or intersection is None:
+                if intersection is None:
                     return
                 entry0 = intersection
                 to_remove.add(entry1)
@@ -639,7 +642,7 @@ class SlotManifestEntry(tuple, InternMixin):
         return self.from_entries(entries)
 
     def __repr__(self):
-        return standard_repr(self, self)
+        return standard_repr(self, *self)
 
     def __str__(self):
         return str(tuple(self))

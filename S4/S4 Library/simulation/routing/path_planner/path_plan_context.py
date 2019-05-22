@@ -4,7 +4,7 @@ from routing.path_planner.path_plan_enums import FootprintKeyMaskBits
 from routing.portals.portal_tuning import PortalFlags
 from sims.sim_info_types import SpeciesExtended
 from sims4.geometry import QtCircle, build_rectangle_from_two_points_and_radius
-from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, TunableRange, OptionalTunable, TunableEnumFlags, HasTunableSingletonFactory, TunableVariant, TunableEnumEntry, TunableMapping, TunableEnumSet
+from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, TunableRange, OptionalTunable, TunableEnumFlags, HasTunableSingletonFactory, TunableVariant, TunableEnumEntry, TunableMapping
 from singletons import DEFAULT
 import placement
 import routing

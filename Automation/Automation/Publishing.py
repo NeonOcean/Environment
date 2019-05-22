@@ -1,6 +1,5 @@
 import datetime
 import getpass
-import importlib
 import os
 import re
 import sys
@@ -10,33 +9,54 @@ import zipfile
 from distutils import dir_util, file_util
 from json import decoder, encoder
 
-from Automation import Mods, Paths, S4
+from Automation import Mods, Paths, S4, Sites
 
 def VerifyStripping () -> None:
 	print("Verifying stripping.")
 
-	with open(os.path.join(Paths.AutomationPath, "Stripping.json")) as strippingFile:
-		strippingInformation = decoder.JSONDecoder().decode(strippingFile.read())
+	print("Verifiying environment file stripping.")
 
-	if not strippingInformation["Exclude Account Name"]:
-		print("There is nothing to verify the removal of.")
-
-	environmentIncludedPaths = GetIncludedPaths(Paths.RootPath)  # type: typing.List[str]
-
+	environmentIncludedPaths = GetIncludedPaths(Paths.StrippingEnvironmentFilePath, Paths.RootPath)  # type: typing.List[str]
 	_VerifyStripped(Paths.RootPath, environmentIncludedPaths)
+
+	for modName in Mods.GetAllModNames():  # type: str
+		print("Verifiying mod '" + modName + "' file stripping.")
+
+		modPath = Mods.GetModPath(modName)  # type: str
+		modIncludedPaths = GetIncludedPaths(Paths.StrippingModsFilePath, modPath)
+		_VerifyStripped(modPath, modIncludedPaths)
+
+	for siteName in Sites.GetAllSiteNames():  # type: str
+		print("Verifiying site '" + siteName + "' file stripping.")
+
+		sitePath = Sites.GetSitePath(siteName)  # type: str
+		siteIncludedPaths = GetIncludedPaths(Paths.StrippingSitesFilePath, sitePath)
+
+		_VerifyStripped(sitePath, siteIncludedPaths)
 
 def PublishModRelease (modNamespace: str) -> None:
 	print("Publishing mod '" + modNamespace + "' as a release.")
 
-	modModule = importlib.import_module("Mod_" + modNamespace.replace(".", "_") + ".Mod")
-
+	mod = Mods.GetMod(modNamespace)  # type: Mods.Mod
 	modDirectoryPath = Mods.GetModPath(modNamespace)  # type: str
 
-	version = modModule.GetVersion()  # type: str
+	version = mod.GetVersion()  # type: typing.Optional[str]
 
-	installerFilePath = modModule.GetInstallerFilePath()  # type: str
-	filesFilePath = modModule.GetFilesFilePath()  # type: str
-	sourcesFileName = modModule.GetSourcesFileName()  # type: str
+	installerFilePath = mod.GetInstallerFilePath()  # type: typing.Optional[str]
+	filesFilePath = mod.GetFilesFilePath()  # type: typing.Optional[str]
+	sourcesFileName = mod.GetSourcesFileName()  # type: typing.Optional[str]
+
+	if version is None:
+		raise Exception("Couldn't get the current version number for this mod.")
+
+	if installerFilePath is None:
+		raise Exception("Couldn't get the current installer file path for this mod.")
+
+	if filesFilePath is None:
+		raise Exception("Couldn't get the current files file path for this mod.")
+
+	if sourcesFileName is None:
+		raise Exception("Couldn't get the current sources file name for this mod.")
 
 	distributionVersionDirectoryPath = os.path.join(Paths.DistributionReleasesPath, modNamespace.lower(), version)  # type: str
 	distributionInstallerDirectoryPath = os.path.join(distributionVersionDirectoryPath, "installer")  # type: str
@@ -53,7 +73,7 @@ def PublishModRelease (modNamespace: str) -> None:
 	file_util.copy_file(installerFilePath, distributionInstallerDirectoryPath, preserve_times = 0)
 	file_util.copy_file(filesFilePath, distributionFilesDirectoryPath, preserve_times = 0)
 
-	sourcesIncludedPaths = GetIncludedPaths(Mods.GetModPath(modNamespace))  # type: typing.List[str]
+	sourcesIncludedPaths = GetIncludedPaths(Paths.StrippingModsFilePath, Mods.GetModPath(modNamespace))  # type: typing.List[str]
 
 	archiveFile = zipfile.ZipFile(os.path.join(distributionSourcesDirectoryPath, sourcesFileName), mode = "w", compression = zipfile.ZIP_DEFLATED)  # type: zipfile.ZipFile
 
@@ -71,15 +91,26 @@ def PublishModRelease (modNamespace: str) -> None:
 def PublishModPreview (modNamespace: str) -> None:
 	print("Publishing mod '" + modNamespace + "' as a preview.")
 
-	modModule = importlib.import_module("Mod_" + modNamespace.replace(".", "_") + ".Mod")
-
+	mod = Mods.GetMod(modNamespace)  # type: Mods.Mod
 	modDirectoryPath = Mods.GetModPath(modNamespace)  # type: str
 
-	version = modModule.GetVersion()  # type: str
+	version = mod.GetVersion()  # type: typing.Optional[str]
 
-	installerFilePath = modModule.GetInstallerFilePath()  # type: str
-	filesFilePath = modModule.GetFilesFilePath()  # type: str
-	sourcesFileName = modModule.GetSourcesFileName()  # type: str
+	installerFilePath = mod.GetInstallerFilePath()  # type: typing.Optional[str]
+	filesFilePath = mod.GetFilesFilePath()  # type: typing.Optional[str]
+	sourcesFileName = mod.GetSourcesFileName()  # type: typing.Optional[str]
+
+	if version is None:
+		raise Exception("Couldn't get the current version number for this mod.")
+
+	if installerFilePath is None:
+		raise Exception("Couldn't get the current installer file path for this mod.")
+
+	if filesFilePath is None:
+		raise Exception("Couldn't get the current files file path for this mod.")
+
+	if sourcesFileName is None:
+		raise Exception("Couldn't get the current sources file name for this mod.")
 
 	distributionVersionDirectoryPath = os.path.join(Paths.DistributionPreviewsPath, modNamespace.lower(), version)  # type: str
 	distributionConcealerDirectoryPath = os.path.join(distributionVersionDirectoryPath, str(uuid.uuid4()))  # type: str
@@ -97,7 +128,7 @@ def PublishModPreview (modNamespace: str) -> None:
 	file_util.copy_file(installerFilePath, distributionInstallerDirectoryPath, preserve_times = 0)
 	file_util.copy_file(filesFilePath, distributionFilesDirectoryPath, preserve_times = 0)
 
-	sourcesIncludedPaths = GetIncludedPaths(Mods.GetModPath(modNamespace))  # type: typing.List[str]
+	sourcesIncludedPaths = GetIncludedPaths(Paths.StrippingModsFilePath, Mods.GetModPath(modNamespace))  # type: typing.List[str]
 
 	archiveFile = zipfile.ZipFile(os.path.join(distributionSourcesDirectoryPath, sourcesFileName), mode = "w", compression = zipfile.ZIP_DEFLATED)  # type: zipfile.ZipFile
 
@@ -115,10 +146,10 @@ def PublishModPreview (modNamespace: str) -> None:
 def PublishSite (siteNamespace: str) -> None:
 	print("Publishing site '" + siteNamespace + "'.")
 
-	siteModule = importlib.import_module("Site_" + siteNamespace.replace(".", "_") + ".Site")
+	site = Sites.GetSite(siteNamespace)
 
-	buildDirectoryPath = siteModule.GetBuildPath()  # type: str
-	hostingPath = os.path.join(Paths.WebsitesHostingPath, siteModule.GetGithubName() + "_Hosting")  # type: str
+	buildDirectoryPath = site.GetBuildPath()  # type: str
+	hostingPath = os.path.join(Paths.WebsitesHostingPath, site.GetGithubName() + "_Hosting")  # type: str
 
 	if not os.path.exists(hostingPath):
 		os.makedirs(hostingPath)
@@ -144,10 +175,10 @@ def PublishSite (siteNamespace: str) -> None:
 		else:
 			file_util.copy_file(buildFilePath, buildFileHostingPath)
 
-def GetIncludedPaths (targetDirectoryPath: str) -> typing.List[str]:
+def GetIncludedPaths (strippingFilePath: str, targetDirectoryPath: str) -> typing.List[str]:
 	includedPaths = list()  # type: typing.List[str]
 
-	with open(os.path.join(Paths.AutomationPath, "Stripping.json")) as strippingFile:
+	with open(strippingFilePath) as strippingFile:
 		strippingInformation = decoder.JSONDecoder().decode(strippingFile.read())
 
 	strippingPatterns = strippingInformation["Patterns"]  # type: list
@@ -160,9 +191,6 @@ def GetIncludedPaths (targetDirectoryPath: str) -> typing.List[str]:
 
 	for directoryRoot, directoryNames, fileNames in os.walk(targetDirectoryPath):  # type: str, typing.List[str], typing.List[str]
 		for directoryName in directoryNames:
-			if directoryName.startswith("."):
-				continue
-
 			if directoryRoot != targetDirectoryPath:
 				directoryPath = os.path.join(directoryRoot.replace(targetDirectoryPath + os.path.sep, ""), directoryName).replace("\\", "/")  # type: str
 			else:
@@ -181,9 +209,6 @@ def GetIncludedPaths (targetDirectoryPath: str) -> typing.List[str]:
 				includedPaths.append(directoryPath)
 
 		for fileName in fileNames:
-			if fileName.startswith("."):
-				continue
-
 			if directoryRoot != targetDirectoryPath:
 				filePath = os.path.join(directoryRoot.replace(targetDirectoryPath + os.path.sep, ""), fileName).replace("\\", "/")  # type: str
 			else:

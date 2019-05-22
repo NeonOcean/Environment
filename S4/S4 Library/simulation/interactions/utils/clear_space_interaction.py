@@ -14,12 +14,15 @@ class ClearSpaceSuperInteraction(SuperInteraction):
         result = yield from super().prepare_gen(timeline, *args, **kwargs)
         if result != InteractionQueuePreparationStatus.SUCCESS:
             return result
+            yield
         constraint_target = self.get_participant(participant_type=self.clear_constraints_actor)
         sim = self.get_participant(ParticipantType.Actor, target=constraint_target)
         if sim is None:
             return result
+            yield
         if constraint_target is None:
             return result
+            yield
         intersection = Anywhere()
         for tuned_constraint in self.clear_constraints:
             constraint = tuned_constraint.create_constraint(sim, constraint_target)
@@ -27,10 +30,14 @@ class ClearSpaceSuperInteraction(SuperInteraction):
             intersection = constraint.intersect(intersection)
             if not intersection.valid:
                 return result
+                yield
         for constraint_polygon in constraint.polygons:
             if isinstance(constraint_polygon, sims4.geometry.CompoundPolygon):
                 for polygon in constraint_polygon:
                     UserFootprintHelper.force_move_sims_in_polygon(polygon, constraint_target.routing_surface, exclude=[sim])
+                else:
+                    UserFootprintHelper.force_move_sims_in_polygon(constraint_polygon, constraint_target.routing_surface, exclude=[sim])
             else:
                 UserFootprintHelper.force_move_sims_in_polygon(constraint_polygon, constraint_target.routing_surface, exclude=[sim])
         return result
+        yield

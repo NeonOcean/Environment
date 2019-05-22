@@ -99,6 +99,8 @@ def turn_off_lifestyle_brand(opt_sim:OptionalTargetParam=None, _connection=None)
 
 @sims4.commands.Command('fame.award_parent_fame_bonus', command_type=sims4.commands.CommandType.Live)
 def award_parent_fame_bonus(child_sim_id:int, _connection=None):
+    if FameTunables.FAME_RANKED_STATISTIC is None:
+        return False
     sim_info_manager = services.sim_info_manager()
     child_sim = sim_info_manager.get(child_sim_id)
     if child_sim is None:
@@ -110,18 +112,17 @@ def award_parent_fame_bonus(child_sim_id:int, _connection=None):
     for parent_id in genealogy.get_parent_sim_ids_gen():
         parent = sim_info_manager.get(parent_id)
         if parent is None:
-            pass
-        else:
-            fame = parent.commodity_tracker.get_statistic(FameTunables.FAME_RANKED_STATISTIC)
-            if fame is None:
-                pass
-            else:
-                fame_rank = fame.rank_level
-                if fame_rank > max_parent_rank:
-                    max_parent_rank = fame_rank
+            continue
+        fame = parent.commodity_tracker.get_statistic(FameTunables.FAME_RANKED_STATISTIC)
+        if fame is None:
+            continue
+        fame_rank = fame.rank_level
+        if fame_rank > max_parent_rank:
+            max_parent_rank = fame_rank
     difference = max(0, max_parent_rank - child_fame_rank)
     bonus = FameTunables.PARENT_FAME_AGE_UP_BONUS.get(difference, 0)
     child_fame.add_value(bonus)
+    return True
 
 @sims4.commands.Command('fame.force_fame_moments', command_type=sims4.commands.CommandType.Cheat)
 def force_fame_moments(enable:bool=True, _connection=None):

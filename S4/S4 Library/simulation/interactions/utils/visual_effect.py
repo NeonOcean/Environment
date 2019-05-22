@@ -106,8 +106,9 @@ class PlayVisualEffectElement(XevtTriggeredElement, PlayVisualEffectMixin):
         from sims.sim_info import SimInfo
         resolver = self.interaction.get_resolver()
         for participant in self.participant.get_objects(resolver):
-            if isinstance(participant, SimInfo):
-                participant = participant.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if participant.is_sim:
+                if isinstance(participant, SimInfo):
+                    participant = participant.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             vfx = self._start_vfx(participant, target_participant)
             self._running_vfx.append(vfx)
 
@@ -130,6 +131,7 @@ class PlayVisualEffectLootOp(BaseLootOperation, PlayVisualEffectMixin):
             if target_participant is None:
                 return
         from sims.sim_info import SimInfo
-        if isinstance(subject, SimInfo):
-            subject = subject.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+        if subject.is_sim:
+            if isinstance(subject, SimInfo):
+                subject = subject.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
         self._start_vfx(subject, target_participant)

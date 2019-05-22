@@ -63,11 +63,10 @@ class AgingTransition(HasTunableSingletonFactory, AutoFactoryInit):
         if self.per_household_member_loot:
             for member_info in sim_info.household.sim_info_gen():
                 if member_info is sim_info:
-                    pass
-                else:
-                    resolver = DoubleSimResolver(sim_info, member_info)
-                    for household_loot in self.per_household_member_loot:
-                        household_loot.apply_to_resolver(resolver)
+                    continue
+                resolver = DoubleSimResolver(sim_info, member_info)
+                for household_loot in self.per_household_member_loot:
+                    household_loot.apply_to_resolver(resolver)
         for relbit_based_loot in self.relbit_based_loot:
             self._apply_aging_transition_relbit_loot(sim_info, sim_info, relbit_based_loot, 0)
         resolver = SingleSimResolver(sim_info)

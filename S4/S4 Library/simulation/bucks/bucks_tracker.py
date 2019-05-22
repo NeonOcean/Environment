@@ -183,12 +183,14 @@ class BucksTrackerBase:
             if perk_timer_handle is not None:
                 current_time = services.time_service().sim_now
                 remaining_ticks = (perk_timer_handle.finishing_time - current_time).in_ticks()
-                if not cancel_remaining_time:
-                    self._inactive_perk_timers[perk.associated_bucks_type][perk] = remaining_ticks
+                if remaining_ticks > 0:
+                    if not cancel_remaining_time:
+                        self._inactive_perk_timers[perk.associated_bucks_type][perk] = remaining_ticks
                 perk_timer_handle.cancel()
             del self._active_perk_timers[perk.associated_bucks_type][perk]
-        elif cancel_remaining_time:
-            del self._inactive_perk_timers[perk.associated_bucks_type][perk]
+        elif perk in self._inactive_perk_timers[perk.associated_bucks_type]:
+            if cancel_remaining_time:
+                del self._inactive_perk_timers[perk.associated_bucks_type][perk]
 
     def _set_up_temporary_perk_timer(self, perk, remaining_ticks=None):
         if perk.temporary_perk_information is None:
@@ -214,8 +216,9 @@ class BucksTrackerBase:
     def all_perks_of_type_with_lock_state_gen(self, bucks_type, is_unlocked):
         perks_instance_manager = services.get_instance_manager(sims4.resources.Types.BUCKS_PERK)
         for perk in perks_instance_manager.types.values():
-            if perk.associated_bucks_type is bucks_type and self.is_perk_unlocked(perk) is is_unlocked:
-                yield perk
+            if perk.associated_bucks_type is bucks_type:
+                if self.is_perk_unlocked(perk) is is_unlocked:
+                    yield perk
 
     def get_disabled_tooltip_for_perk(self, perk):
         if perk.temporary_perk_information is not None:
@@ -260,9 +263,10 @@ class BucksTrackerBase:
                 timestamp = self._get_perk_unlock_timestamp(perk)
                 if timestamp is not None:
                     perk_message.unlock_timestamp = timestamp
-            if self.is_perk_recently_locked(perk):
-                perk_message.recently_locked = True
-            if unlocked or unlocked:
+            if not unlocked:
+                if self.is_perk_recently_locked(perk):
+                    perk_message.recently_locked = True
+            if unlocked:
                 disabled_tooltip = self.get_disabled_tooltip_for_perk(perk)
                 if disabled_tooltip is not None:
                     perk_message.disabled_tooltip = disabled_tooltip
@@ -314,7 +318,8 @@ class BucksTrackerBase:
                     perks_to_lock.append(recently_unlocked_perk)
                     if new_amount >= 0:
                         break
-                return False
+                else:
+                    return False
                 for perk in perks_to_lock:
                     self.lock_perk(perk, refund_cost=False)
             else:

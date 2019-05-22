@@ -30,9 +30,9 @@ class _AutonomySettings:
 
     def __init__(self, use_tuned_defaults=False):
         if use_tuned_defaults:
-            self._autonomy_settings = {AutonomyRandomization: AutonomySettings.STARTING_DEFAULT_RANDOMIZATION, AutonomyState: AutonomySettings.STARTING_DEFAULT_AUTONOMY_STATE}
+            self._autonomy_settings = {AutonomyState: AutonomySettings.STARTING_DEFAULT_AUTONOMY_STATE, AutonomyRandomization: AutonomySettings.STARTING_DEFAULT_RANDOMIZATION}
         else:
-            self._autonomy_settings = {AutonomyRandomization: AutonomyRandomization.UNDEFINED, AutonomyState: AutonomyState.UNDEFINED}
+            self._autonomy_settings = {AutonomyState: AutonomyState.UNDEFINED, AutonomyRandomization: AutonomyRandomization.UNDEFINED}
 
     def get_setting(self, autonomy_setting_class):
         setting = self._autonomy_settings.get(autonomy_setting_class)

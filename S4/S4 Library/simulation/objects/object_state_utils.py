@@ -11,19 +11,17 @@ logger = sims4.log.Logger('ObjectStateUtils', default_owner='mkartika')
 def all_objects_gen(objects):
     plex_service = services.get_plex_service()
     for obj in objects:
-        if not plex_service.is_active_zone_a_plex() or plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
-            pass
-        else:
-            yield obj
+        if not not plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
+            continue
+        yield obj
 
 def objects_in_target_room_gen(target, objects):
     target_block_id = get_block_id(target.zone_id, target.position, target.level)
     for obj in objects:
         obj_block_id = get_block_id(obj.zone_id, obj.position, obj.level)
         if obj_block_id != target_block_id:
-            pass
-        else:
-            yield obj
+            continue
+        yield obj
 
 class _ObjectTargetAll(HasTunableSingletonFactory):
 

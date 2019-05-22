@@ -1,4 +1,5 @@
 from distributor.shared_messages import IconInfoData
+from element_utils import build_critical_section_with_finally
 from event_testing.tests import TunableTestSet
 from interactions.aop import AffordanceObjectPair
 from interactions.base.mixer_interaction import MixerInteraction
@@ -33,7 +34,7 @@ class UseMusicProductionStationSuperInteraction(SuperInteraction):
         self.store_event_handler(self._play_music_track, self.audio_start_event)
         self.store_event_handler(self._stop_music_track, self.audio_stop_event)
         sequence = super().build_basic_content(sequence, **kwargs)
-        return sequence
+        return build_critical_section_with_finally(sequence, self._stop_music_track)
 
     def _play_music_track(self, event_data, *args, **kwargs):
         self._stored_audio_component = self.target.get_component(STORED_AUDIO_COMPONENT)
@@ -64,19 +65,21 @@ class RemixTrackMixerInteraction(MixerInteraction):
             return
         resolver = si.get_resolver()
         for (channel, channel_data) in si.channels.items():
-            if channel_data.channel_tests.run_tests(resolver) and channel is not ChannelFlags.CHANNEL1:
-                stored_audio_component = target.get_component(STORED_AUDIO_COMPONENT)
-                if not stored_audio_component.get_channel_value(channel):
-                    display_name = si.turn_on_channel_display_name(channel_data.channel_name)
-                    yield AffordanceObjectPair(cls, target, sa, si, display_name=display_name, channel_name=channel_data.channel_name, icon=si.turn_on_channel_icon, channel=channel, channel_value=1)
-                else:
-                    display_name = si.turn_off_channel_display_name(channel_data.channel_name)
-                    yield AffordanceObjectPair(cls, target, sa, si, display_name=display_name, channel_name=channel_data.channel_name, icon=si.turn_off_channel_icon, channel=channel, channel_value=0)
+            if channel_data.channel_tests.run_tests(resolver):
+                if channel is not ChannelFlags.CHANNEL1:
+                    stored_audio_component = target.get_component(STORED_AUDIO_COMPONENT)
+                    if not stored_audio_component.get_channel_value(channel):
+                        display_name = si.turn_on_channel_display_name(channel_data.channel_name)
+                        yield AffordanceObjectPair(cls, target, sa, si, display_name=display_name, channel_name=channel_data.channel_name, icon=si.turn_on_channel_icon, channel=channel, channel_value=1)
+                    else:
+                        display_name = si.turn_off_channel_display_name(channel_data.channel_name)
+                        yield AffordanceObjectPair(cls, target, sa, si, display_name=display_name, channel_name=channel_data.channel_name, icon=si.turn_off_channel_icon, channel=channel, channel_value=0)
 
     @flexmethod
     def _get_name(cls, inst, target=DEFAULT, context=DEFAULT, display_name=None, **interaction_parameters):
-        if inst.display_name_in_queue is not None:
-            display_name = inst.display_name_in_queue(inst._kwargs['channel_name'])
+        if inst is not None:
+            if inst.display_name_in_queue is not None:
+                display_name = inst.display_name_in_queue(inst._kwargs['channel_name'])
         return display_name
 
     @flexmethod

@@ -52,21 +52,20 @@ class BringHereInteraction(SimInfoInteraction):
         current_zone_id = services.current_zone_id()
         for sim_info in household:
             if sim_info is self._sim_info:
-                pass
-            elif sim_info.is_human:
+                continue
+            if sim_info.is_human:
                 if sim_info.is_child_or_older:
                     caretaker_zone_ids.add(sim_info.zone_id)
                     if sim_info.zone_id == current_zone_id:
-                        pass
-                    elif sim_info.zone_id == sim_info.vacation_or_home_zone_id:
-                        pass
-                    else:
-                        offlot_pets.add(sim_info)
-            elif sim_info.zone_id == current_zone_id:
-                pass
-            elif sim_info.zone_id == sim_info.vacation_or_home_zone_id:
-                pass
+                        continue
+                    if sim_info.zone_id == sim_info.vacation_or_home_zone_id:
+                        continue
+                    offlot_pets.add(sim_info)
             else:
+                if sim_info.zone_id == current_zone_id:
+                    continue
+                if sim_info.zone_id == sim_info.vacation_or_home_zone_id:
+                    continue
                 offlot_pets.add(sim_info)
         for pet in offlot_pets:
             if pet.zone_id not in caretaker_zone_ids:
@@ -88,3 +87,4 @@ class SwitchToZoneInteraction(SimInfoInteraction):
     def _run_interaction_gen(self, timeline):
         self._sim_info.send_travel_switch_to_zone_op()
         return True
+        yield

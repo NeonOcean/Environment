@@ -55,7 +55,7 @@ class WaitingLine:
     def get_neighboring_interaction(self, waiting_interaction, *, offset):
         if waiting_interaction in self._line:
             neighbor_index = self._line.index(waiting_interaction) + offset
-            if -1 < neighbor_index and neighbor_index < len(self._line):
+            if -1 < neighbor_index < len(self._line):
                 return self._line[neighbor_index]
             else:
                 return

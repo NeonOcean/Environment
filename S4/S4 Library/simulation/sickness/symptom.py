@@ -13,8 +13,9 @@ class Symptom(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manag
         if sim_info is None:
             return
         for buff in cls.associated_buffs:
-            if buff.can_add(sim_info) and not sim_info.has_buff(buff):
-                sim_info.add_buff(buff, buff_reason=cls.display_name)
+            if buff.can_add(sim_info):
+                if not sim_info.has_buff(buff):
+                    sim_info.add_buff(buff, buff_reason=cls.display_name)
         for stat in cls.associated_statistics:
             if not sim_info.get_tracker(stat).has_statistic(stat):
                 sim_info.add_statistic(stat, stat.default_value)

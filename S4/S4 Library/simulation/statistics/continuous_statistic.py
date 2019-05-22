@@ -223,6 +223,9 @@ class ContinuousStatistic(BaseStatistic):
         else:
             return 0
 
+    def has_decay_rate_modifier(self, value):
+        return self._decay_rate_modifiers and value in self._decay_rate_modifiers
+
     def add_decay_rate_modifier(self, value):
         if value < 0:
             logger.error('Attempting to add negative decay rate modifier of {} to {}', value, self)
@@ -313,12 +316,14 @@ class ContinuousStatistic(BaseStatistic):
         new_value = None
         if change_rate == 0 and decay_rate != 0:
             time_to_convergence = self._calculate_minutes_until_value_is_reached_through_decay(self.convergence_value)
-            if local_time_delta > time_to_convergence:
-                new_value = self.convergence_value
+            if time_to_convergence is not None:
+                if local_time_delta > time_to_convergence:
+                    new_value = self.convergence_value
             delta_rate = decay_rate
         else:
-            if self._use_delayed_decay():
-                self._time_of_last_value_change = now
+            if change_rate != 0:
+                if self._use_delayed_decay():
+                    self._time_of_last_value_change = now
             delta_rate = change_rate
         if new_value is None:
             new_value = start_value + local_time_delta*delta_rate
@@ -447,7 +452,7 @@ class ContinuousStatistic(BaseStatistic):
             return 0
         if current_value == target_value:
             return 0
-        if target_value < self._get_minimum_decay_level() and self._get_minimum_decay_level() <= current_value:
+        if target_value < self._get_minimum_decay_level() <= current_value:
             return
         else:
             change_rate = self._get_change_rate_without_decay()
@@ -461,8 +466,8 @@ class ContinuousStatistic(BaseStatistic):
         if decay_rate != 0:
             if decay_rate < 0 and target_value > current_value or decay_rate > 0 and target_value < current_value:
                 return
-            if not (current_value < self.convergence_value and self.convergence_value < target_value):
-                if current_value > self.convergence_value and self.convergence_value > target_value:
+            if not current_value < self.convergence_value < target_value:
+                if current_value > self.convergence_value > target_value:
                     return
                 else:
                     result = (target_value - current_value)/decay_rate
@@ -482,8 +487,9 @@ class ContinuousStatistic(BaseStatistic):
             multiplier = self.get_skill_based_statistic_multiplier([self.tracker.owner], -1)
             self._decay_rate_modifier *= multiplier
         resort_callbacks = False
-        if self.get_decay_rate() != 0:
-            resort_callbacks = True
+        if old_decay_rate == 0:
+            if self.get_decay_rate() != 0:
+                resort_callbacks = True
         self._update_callback_listeners(resort_list=resort_callbacks)
 
     def add_statistic_modifier(self, value):
@@ -509,8 +515,10 @@ class ContinuousStatistic(BaseStatistic):
         value = cls_or_inst.get_value()
         if inst is not None:
             owner = inst._tracker.owner
-            if owner.inventoryitem_component.save_for_stack_compaction:
-                value = round(value/cls.SAVE_VALUE_MULTIPLE)*cls.SAVE_VALUE_MULTIPLE
+            if owner is not None:
+                if owner.inventoryitem_component is not None:
+                    if owner.inventoryitem_component.save_for_stack_compaction:
+                        value = round(value/cls.SAVE_VALUE_MULTIPLE)*cls.SAVE_VALUE_MULTIPLE
         return value
 
     def unlocks_skills_on_max(self):
@@ -533,7 +541,7 @@ class ContinuousStatistic(BaseStatistic):
             self.set_value(self.min_value)
         self.send_commodity_progress_msg()
 
-    def on_unlock(self):
+    def on_unlock(self, auto_satisfy=True):
         self.decay_enabled = True
         if self._use_delayed_decay():
             self._delayed_decay_active = False
@@ -550,7 +558,7 @@ class ContinuousStatistic(BaseStatistic):
     def _use_delayed_decay(self):
         if self.delayed_decay_rate is None:
             return False
-        elif self.delayed_decay_rate.npc_decay or self.tracker.owner.is_npc:
+        elif not self.delayed_decay_rate.npc_decay and self.tracker.owner.is_npc:
             return False
         return True
 
@@ -622,7 +630,7 @@ class ContinuousStatistic(BaseStatistic):
     def get_time_till_decay_starts(self):
         if self.delayed_decay_rate is None:
             return DelayedDecayStatus.NOT_TUNED
-        if self._time_of_last_value_change is None or not (self.tracker.owner.is_npc and self.delayed_decay_rate.npc_decay):
+        if self._time_of_last_value_change is None or not not (self.tracker.owner.is_npc and self.delayed_decay_rate.npc_decay):
             return DelayedDecayStatus.NOT_TRACKED
         now = services.time_service().sim_now
         time_passed = now - self._time_of_last_value_change
@@ -646,7 +654,7 @@ class ContinuousStatistic(BaseStatistic):
         if not data.time_of_last_value_change:
             return
         owner = self.tracker.owner
-        if owner.is_sim and owner.is_npc and self.delayed_decay_rate.npc_decay:
+        if owner.is_sim and (not owner.is_npc or self.delayed_decay_rate.npc_decay):
             last_save_time = services.current_zone().time_of_last_save()
             timer_start_time = DateAndTime(data.time_of_last_value_change)
             difference = timer_start_time - last_save_time

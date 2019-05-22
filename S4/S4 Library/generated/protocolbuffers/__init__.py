@@ -1,1 +1,1 @@
-"""Protocol Buffers Shared"""
+'Protocol Buffers Shared'

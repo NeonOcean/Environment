@@ -54,7 +54,7 @@ class AwayActionTracker(SimInfoTracker):
                 return
         else:
             return
-        if self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS) and (on_travel_away or self._current_away_action is not None):
+        if not self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS) or on_travel_away or self._current_away_action is not None:
             self._run_current_away_action()
             return
         away_action_cls = self._find_away_action_from_load()
@@ -79,7 +79,7 @@ class AwayActionTracker(SimInfoTracker):
         if not self.is_sim_info_valid_to_run_away_actions():
             return
         current_zone = services.current_zone()
-        if current_zone.is_zone_running or not current_zone.are_sims_hitting_their_marks:
+        if not current_zone.is_zone_running and not current_zone.are_sims_hitting_their_marks:
             return
         if self._sim_info.zone_id == services.current_zone_id():
             self.stop()

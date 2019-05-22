@@ -4,6 +4,7 @@ from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
 from protocolbuffers.DistributorOps_pb2 import Operation
 from bucks.household_bucks_tracker import HouseholdBucksTracker
 from date_and_time import create_time_span, DateAndTime, DATE_AND_TIME_ZERO
+from delivery.delivery_tracker import DeliveryTracker
 from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
 from distributor.system import Distributor
@@ -65,6 +66,7 @@ class Household:
         self._has_cheated = False
         self.laundry_tracker = HouseholdLaundryTracker(self)
         self.missing_pet_tracker = MissingPetsTracker(self)
+        self.delivery_tracker = DeliveryTracker(self)
         self._household_milestone_tracker = None
         self._holiday_tracker = None
         self._service_npc_record = None
@@ -204,11 +206,11 @@ class Household:
             return
         self._home_world_id = world_id
 
-    def get_home_region_id(self):
+    def get_home_region(self):
         if self._home_zone_id != 0:
-            return region.get_region_description_id_from_zone_id(self._home_zone_id)
+            return region.get_region_instance_from_zone_id(self._home_zone_id)
         elif self._home_world_id != 0:
-            return region.get_region_description_id_from_world_id(self._home_world_id)
+            return region.get_region_instance_from_world_id(self._home_world_id)
         return 0
 
     @property
@@ -312,24 +314,28 @@ class Household:
     def set_highest_medal_for_situation(self, situation_id, medal_earned):
         if situation_id is not None:
             highest_medal = self._highest_earned_situation_medals.get(situation_id)
-            if highest_medal is None or highest_medal < medal_earned:
-                self._highest_earned_situation_medals[situation_id] = medal_earned
+            if medal_earned is not None:
+                if highest_medal is None or highest_medal < medal_earned:
+                    self._highest_earned_situation_medals[situation_id] = medal_earned
 
     def get_sims_at_home_not_instanced_not_busy(self):
         at_home_sim_ids = set()
         for sim_info in self.sim_info_gen():
-            if sim_info.zone_id == self.home_zone_id and not (sim_info.is_instanced(allow_hidden_flags=HiddenReasonFlag.NOT_INITIALIZED) or sim_info.career_tracker.currently_during_work_hours):
-                at_home_sim_ids.add(sim_info.id)
+            if sim_info.zone_id == self.home_zone_id:
+                if not sim_info.is_instanced(allow_hidden_flags=HiddenReasonFlag.NOT_INITIALIZED):
+                    if not sim_info.career_tracker.currently_during_work_hours:
+                        at_home_sim_ids.add(sim_info.id)
         return at_home_sim_ids
 
     def get_sims_at_home(self):
         at_home_sim_ids = set()
         current_zone_is_home_zone = services.current_zone_id() == self.home_zone_id
         for sim_info in self.sim_info_gen():
-            if current_zone_is_home_zone:
-                if sim_info.is_instanced(allow_hidden_flags=HiddenReasonFlag.NOT_INITIALIZED):
-                    at_home_sim_ids.add(sim_info.id)
-            at_home_sim_ids.add(sim_info.id)
+            if sim_info.zone_id == self.home_zone_id:
+                if current_zone_is_home_zone:
+                    if sim_info.is_instanced(allow_hidden_flags=HiddenReasonFlag.NOT_INITIALIZED):
+                        at_home_sim_ids.add(sim_info.id)
+                at_home_sim_ids.add(sim_info.id)
         return at_home_sim_ids
 
     def household_net_worth(self, billable=False):
@@ -353,18 +359,17 @@ class Household:
         is_plex = plex_service.is_zone_a_plex(self.home_zone_id)
         for obj in services.object_manager().values():
             if obj.is_sim:
-                pass
-            elif obj.get_household_owner_id() == self.id:
-                pass
-            elif not home_zone.lot.is_position_on_lot(obj.position):
-                pass
-            elif is_plex and plex_service.get_plex_zone_at_position(obj.position, obj.level) != self.home_zone_id:
-                pass
-            else:
-                billable_value -= obj.current_value
-                obj_inventory = obj.inventory_component
-                if obj_inventory is not None:
-                    billable_value -= obj_inventory.inventory_value
+                continue
+            if obj.get_household_owner_id() == self.id:
+                continue
+            if not home_zone.lot.is_position_on_lot(obj.position):
+                continue
+            if is_plex and plex_service.get_plex_zone_at_position(obj.position, obj.level) != self.home_zone_id:
+                continue
+            billable_value -= obj.current_value
+            obj_inventory = obj.inventory_component
+            if obj_inventory is not None:
+                billable_value -= obj_inventory.inventory_value
         if billable_value < 0:
             logger.error('The billable household value for household {} is a negative number ({}). Defaulting to 0.', self, billable_value, owner='tastle')
             billable_value = 0
@@ -401,6 +406,7 @@ class Household:
             self.bucks_tracker.on_zone_load()
         if self.is_active_household:
             self._collection_tracker.send_all_collection_data(self.id)
+        self.delivery_tracker.on_zone_load()
         self.missing_pet_tracker.fix_up_data()
 
     def on_zone_unload(self):
@@ -541,7 +547,7 @@ class Household:
         if services.current_zone().is_zone_running:
             services.get_event_manager().process_events_for_household(test_events.TestEvent.HouseholdChanged, self)
         self.resend_sim_infos()
-        if self._sim_infos or destroy_if_empty_household:
+        if not self._sim_infos and destroy_if_empty_household:
             services.get_persistence_service().del_household_proto_buff(self.id)
             services.household_manager().remove(self)
 
@@ -644,8 +650,9 @@ class Household:
             self._is_player_household = False
         move_in_time = DateAndTime(household_msg.gameplay_data.home_zone_move_in_ticks)
         self.set_household_lot_ownership(zone_id=household_msg.home_zone, move_in_time=move_in_time, from_load=True)
-        if household_msg.gameplay_data.home_world_id != 0:
-            self._home_world_id = household_msg.gameplay_data.home_world_id
+        if household_msg.home_zone == 0:
+            if household_msg.gameplay_data.home_world_id != 0:
+                self._home_world_id = household_msg.gameplay_data.home_world_id
         self._last_played_home_zone_id = household_msg.gameplay_data.last_played_home_zone_id
         self.last_modified_time = household_msg.last_modified_time
         self._funds = sims.funds.FamilyFunds(self.id, household_msg.money)
@@ -653,7 +660,7 @@ class Household:
         self.creator_id = household_msg.creator_id
         self.creator_name = household_msg.creator_name
         self.creator_uuid = household_msg.creator_uuid
-        if household_msg.home_zone == 0 and household_msg.sims.ids:
+        if household_msg.sims.ids:
             default_lod = SimInfoLODLevel.FULL if self.is_played_household else SimInfoLODLevel.BASE
             for sim_id in household_msg.sims.ids:
                 try:
@@ -677,14 +684,16 @@ class Household:
                             sim_info.assign_to_household(self)
                 except:
                     logger.exception('Sim {} failed to load', sim_id)
-        if any(sim_info.creation_source.is_creation_source(SimInfoCreationSource.CAS_INITIAL | SimInfoCreationSource.CAS_REENTRY | SimInfoCreationSource.GALLERY) for sim_info in self):
-            self._is_player_household = True
+        if update_player_status_from_creation_source:
+            if any(sim_info.creation_source.is_creation_source(SimInfoCreationSource.CAS_INITIAL | SimInfoCreationSource.CAS_REENTRY | SimInfoCreationSource.GALLERY) for sim_info in self):
+                self._is_player_household = True
         self.bills_manager.load_data(household_msg)
         self._cached_billable_household_value = household_msg.gameplay_data.billable_household_value
         self.collection_tracker.load_data(household_msg)
         self.bucks_tracker.load_data(household_msg.gameplay_data)
         self.missing_pet_tracker.load_data(household_msg.gameplay_data)
         self.laundry_tracker.load_data(household_msg.gameplay_data)
+        self.delivery_tracker.load_data(household_msg.gameplay_data)
         for record_msg in household_msg.gameplay_data.service_npc_records:
             record = self.get_service_npc_record(record_msg.service_type, add_if_no_record=True)
             record.load_npc_record(record_msg)
@@ -692,7 +701,7 @@ class Household:
             self._highest_earned_situation_medals[situation_medal.situation_id] = situation_medal.medal
         self._reward_inventory = serialization.RewardPartList()
         self._reward_inventory.CopyFrom(household_msg.reward_inventory)
-        if update_player_status_from_creation_source and hasattr(household_msg.gameplay_data, 'build_buy_unlock_list'):
+        if hasattr(household_msg.gameplay_data, 'build_buy_unlock_list'):
             for key_proto in household_msg.gameplay_data.build_buy_unlock_list.resource_keys:
                 key = sims4.resources.Key(key_proto.type, key_proto.instance, key_proto.group)
                 self._build_buy_unlocks.add(key)
@@ -755,6 +764,7 @@ class Household:
         self.bucks_tracker.save_data(household_msg.gameplay_data)
         self.missing_pet_tracker.save_data(household_msg.gameplay_data)
         self.laundry_tracker.save_data(household_msg.gameplay_data)
+        self.delivery_tracker.save_data(household_msg.gameplay_data)
         if self._service_npc_record is not None:
             for service_record in self._service_npc_record.values():
                 with ProtocolBufferRollback(household_msg.gameplay_data.service_npc_records) as record_msg:
@@ -789,9 +799,10 @@ class Household:
             else:
                 return
         record = self._service_npc_record.get(service_guid64)
-        if add_if_no_record:
-            record = ServiceNpcRecord(service_guid64, self)
-            self._service_npc_record[service_guid64] = record
+        if record is None:
+            if add_if_no_record:
+                record = ServiceNpcRecord(service_guid64, self)
+                self._service_npc_record[service_guid64] = record
         return record
 
     def get_all_hired_service_npcs(self):
@@ -844,8 +855,9 @@ class Household:
             return True
         for sim_info in self:
             travel_group = sim_info.travel_group
-            if travel_group is not None and travel_group.zone_id == current_zone_id:
-                return True
+            if travel_group is not None:
+                if travel_group.zone_id == current_zone_id:
+                    return True
         return False
 
     def available_to_populate_zone(self):
@@ -907,14 +919,14 @@ class Household:
             zone_data_proto = services.get_persistence_service().get_zone_proto_buff(zone_id)
             zone_data_proto.nucleus_id = self.account.id
             zone_data_proto.household_id = self.id
-            if self.is_active_household and zone_data_proto.gameplay_zone_data.active_household_id_on_save != self.id:
+            if self.is_active_household and services.current_zone().lot_owner_household_changed_between_save_and_load():
                 services.get_door_service().unlock_all_doors()
             lot_decoration_service = services.lot_decoration_service()
             neighborhood_proto = services.get_persistence_service().get_neighborhood_proto_buff(zone_data_proto.neighborhood_id)
             for lot_owner_info in neighborhood_proto.lots:
                 if lot_owner_info.zone_instance_id == zone_id:
                     lot_owner_info.ClearField('lot_owner')
-                    if from_load or lot_decoration_service is not None:
+                    if not from_load and lot_decoration_service is not None:
                         lot_decoration_service.handle_lot_owner_changed(zone_id, self)
                     with ProtocolBufferRollback(lot_owner_info.lot_owner) as household_account_pair_msg:
                         household_account_pair_msg.household_id = self.id
@@ -931,13 +943,14 @@ class Household:
         instanced_sims = [sim for sim in self.instanced_sims_gen() if sim.sim_info.can_live_alone]
         if sort_by_distance:
             instanced_sims.sort(key=lambda sim: (obj.position - sim.position).magnitude_squared())
+        inventory = obj.get_inventory()
+        if inventory is not None:
+            inventory.try_remove_object_by_id(obj.id, count=obj.stack_count())
         for sim in instanced_sims:
-            inventory = obj.get_inventory()
-            if inventory is not None:
-                inventory.try_remove_object_by_id(obj.id, count=obj.stack_count())
             if sim.inventory_component.player_try_add_object(obj):
                 break
-        build_buy.move_object_to_household_inventory(obj)
+        else:
+            build_buy.move_object_to_household_inventory(obj)
 
     def move_into_zone(self, zone_id):
         if self.home_zone_id == zone_id:

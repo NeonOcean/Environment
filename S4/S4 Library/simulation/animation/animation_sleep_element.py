@@ -6,8 +6,7 @@ from animation.animation_drift_monitor import build_animation_drift_monitor_sequ
 class AnimationSleepElement(elements.SubclassableGeneratorElement):
 
     def __init__(self, duration_must_run, duration_interrupt, duration_repeat, enable_optional_sleep_time=True, arbs=()):
-        if duration_interrupt != 0 and duration_repeat != 0:
-            raise AssertionError('An animation with both interrupt and repeat duration is not allowed.')
+        assert not (duration_interrupt != 0 and duration_repeat != 0)
         super().__init__()
         self._duration_must_run = duration_must_run
         self._duration_interrupt = duration_interrupt
@@ -35,9 +34,11 @@ class AnimationSleepElement(elements.SubclassableGeneratorElement):
             yield from element_utils.run_child(timeline, sequence)
         if self._stop_requested:
             return False
+            yield
         if self._duration_repeat > 0.0:
-            while not self._stop_requested:
-                yield from element_utils.run_child(timeline, elements.SleepElement(clock.interval_in_real_seconds(self._duration_repeat)))
+            while True:
+                while not self._stop_requested:
+                    yield from element_utils.run_child(timeline, elements.SleepElement(clock.interval_in_real_seconds(self._duration_repeat)))
         elif self.enable_optional_sleep_time and self._duration_interrupt > 0:
             then = timeline.now
             yield from element_utils.run_child(timeline, elements.SoftSleepElement(clock.interval_in_real_seconds(self._duration_interrupt)))
@@ -46,6 +47,7 @@ class AnimationSleepElement(elements.SubclassableGeneratorElement):
         else:
             yield from element_utils.run_child(timeline, element_utils.sleep_until_next_tick_element())
         return True
+        yield
 
     def _soft_stop(self):
         super()._soft_stop()

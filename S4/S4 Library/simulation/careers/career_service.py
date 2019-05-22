@@ -59,9 +59,8 @@ class CareerService(Service):
     def _remove_invalid_careers(self):
         for sim_info in services.sim_info_manager().get_all():
             if sim_info.career_tracker is None:
-                pass
-            else:
-                sim_info.career_tracker.remove_invalid_careers()
+                continue
+            sim_info.career_tracker.remove_invalid_careers()
 
     def get_days_from_time(self, time):
         return math.floor(time.absolute_days())
@@ -103,11 +102,11 @@ class CareerService(Service):
             zone_restored_sis = zone.should_restore_sis()
             for sim_info in manager.get_all():
                 if zone_restored_sis and sim_info.has_loaded_si_state:
-                    pass
-                else:
-                    sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED)
-                    if sim_info.is_npc:
-                        if sim is not None and sim_info.can_go_to_work(zone_id=zone_id):
+                    continue
+                sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED)
+                if sim_info.is_npc:
+                    if sim is not None:
+                        if sim_info.can_go_to_work(zone_id=zone_id):
                             for career in sim_info.careers.values():
                                 (time_to_work, start_time, end_time) = career.get_next_work_time(check_if_can_go_now=True)
                                 if time_to_work is not None and time_to_work == TimeSpan.ZERO and career.should_restore_career_state:
@@ -126,14 +125,15 @@ class CareerService(Service):
                                     if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
                                         logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
                                     if sim is not None:
-                                        if career.currently_at_work and career.push_go_to_work_affordance():
-                                            sim.set_allow_route_instantly_when_hitting_marks(True)
-                                            manager.set_sim_to_skip_preroll(sim_info.id)
-                                            if career.should_restore_career_state:
-                                                if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                    career.send_uninstantiated_sim_home_for_work()
-                                                else:
-                                                    career.attend_work()
+                                        if career.currently_at_work:
+                                            if career.push_go_to_work_affordance():
+                                                sim.set_allow_route_instantly_when_hitting_marks(True)
+                                                manager.set_sim_to_skip_preroll(sim_info.id)
+                                                if career.should_restore_career_state:
+                                                    if sim_info.household.home_zone_id != sim_info.zone_id:
+                                                        career.send_uninstantiated_sim_home_for_work()
+                                                    else:
+                                                        career.attend_work()
                                     elif career.should_restore_career_state:
                                         if sim_info.household.home_zone_id != sim_info.zone_id:
                                             career.send_uninstantiated_sim_home_for_work()
@@ -143,47 +143,50 @@ class CareerService(Service):
                                 if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
                                     logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
                                 if sim is not None:
-                                    if career.currently_at_work and career.push_go_to_work_affordance():
-                                        sim.set_allow_route_instantly_when_hitting_marks(True)
-                                        manager.set_sim_to_skip_preroll(sim_info.id)
-                                        if career.should_restore_career_state:
-                                            if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                career.send_uninstantiated_sim_home_for_work()
-                                            else:
-                                                career.attend_work()
+                                    if career.currently_at_work:
+                                        if career.push_go_to_work_affordance():
+                                            sim.set_allow_route_instantly_when_hitting_marks(True)
+                                            manager.set_sim_to_skip_preroll(sim_info.id)
+                                            if career.should_restore_career_state:
+                                                if sim_info.household.home_zone_id != sim_info.zone_id:
+                                                    career.send_uninstantiated_sim_home_for_work()
+                                                else:
+                                                    career.attend_work()
                                 elif career.should_restore_career_state:
                                     if sim_info.household.home_zone_id != sim_info.zone_id:
                                         career.send_uninstantiated_sim_home_for_work()
                                     else:
                                         career.attend_work()
-                    else:
-                        career = sim_info.career_tracker.career_currently_within_hours
-                        if career is None:
-                            pass
-                        elif career.is_at_active_event:
-                            if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
-                                career.end_career_event_without_payout()
-                                if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                    logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
-                                if sim is not None:
-                                    if career.currently_at_work and career.push_go_to_work_affordance():
-                                        sim.set_allow_route_instantly_when_hitting_marks(True)
-                                        manager.set_sim_to_skip_preroll(sim_info.id)
-                                        if career.should_restore_career_state:
-                                            if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                career.send_uninstantiated_sim_home_for_work()
-                                            else:
-                                                career.attend_work()
-                                elif career.should_restore_career_state:
-                                    if sim_info.household.home_zone_id != sim_info.zone_id:
-                                        career.send_uninstantiated_sim_home_for_work()
-                                    else:
-                                        career.attend_work()
-                        else:
+                else:
+                    career = sim_info.career_tracker.career_currently_within_hours
+                    if career is None:
+                        pass
+                    elif career.is_at_active_event:
+                        if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
+                            career.end_career_event_without_payout()
                             if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
                                 logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
                             if sim is not None:
-                                if career.currently_at_work and career.push_go_to_work_affordance():
+                                if career.currently_at_work:
+                                    if career.push_go_to_work_affordance():
+                                        sim.set_allow_route_instantly_when_hitting_marks(True)
+                                        manager.set_sim_to_skip_preroll(sim_info.id)
+                                        if career.should_restore_career_state:
+                                            if sim_info.household.home_zone_id != sim_info.zone_id:
+                                                career.send_uninstantiated_sim_home_for_work()
+                                            else:
+                                                career.attend_work()
+                            elif career.should_restore_career_state:
+                                if sim_info.household.home_zone_id != sim_info.zone_id:
+                                    career.send_uninstantiated_sim_home_for_work()
+                                else:
+                                    career.attend_work()
+                    else:
+                        if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
+                            logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
+                        if sim is not None:
+                            if career.currently_at_work:
+                                if career.push_go_to_work_affordance():
                                     sim.set_allow_route_instantly_when_hitting_marks(True)
                                     manager.set_sim_to_skip_preroll(sim_info.id)
                                     if career.should_restore_career_state:
@@ -191,11 +194,11 @@ class CareerService(Service):
                                             career.send_uninstantiated_sim_home_for_work()
                                         else:
                                             career.attend_work()
-                            elif career.should_restore_career_state:
-                                if sim_info.household.home_zone_id != sim_info.zone_id:
-                                    career.send_uninstantiated_sim_home_for_work()
-                                else:
-                                    career.attend_work()
+                        elif career.should_restore_career_state:
+                            if sim_info.household.home_zone_id != sim_info.zone_id:
+                                career.send_uninstantiated_sim_home_for_work()
+                            else:
+                                career.attend_work()
         except:
             logger.exception('Exception raised while trying to restore career interactions.', owner='tingyul')
 
@@ -218,8 +221,9 @@ class CareerService(Service):
         if active_household is not None:
             for sim_info in active_household:
                 career = sim_info.career_tracker.get_at_work_career()
-                if career is not None and career.is_at_active_event:
-                    return career
+                if career is not None:
+                    if career.is_at_active_event:
+                        return career
 
     def add_pending_career_event_offer(self, career, career_event, on_accepted, on_canceled):
         pending = _PendingCareerEvent(career=career, career_event=career_event, on_accepted=on_accepted, on_canceled=on_canceled)

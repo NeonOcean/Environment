@@ -70,12 +70,11 @@ class ProximityComponent(objects.components.Component, sims4.tuning.tunable.HasT
         object_constraint = interactions.constraints.Transform(self.owner.transform, routing_surface=self.owner.routing_surface)
         for sim in nearby_sims:
             if sim.is_hidden():
-                pass
-            else:
-                los_constraint = sim.lineofsight_component.constraint
-                test_constraint = los_constraint.intersect(object_constraint)
-                if test_constraint.valid:
-                    sims.add(sim)
+                continue
+            los_constraint = sim.lineofsight_component.constraint
+            test_constraint = los_constraint.intersect(object_constraint)
+            if test_constraint.valid:
+                sims.add(sim)
         return sims
 
     def _remove_buffs_from_sims(self, sim_exceptions=None, **kwargs):
@@ -102,9 +101,8 @@ class ProximityComponent(objects.components.Component, sims4.tuning.tunable.HasT
             resolver = event_testing.resolver.SingleActorAndObjectResolver(sim.sim_info, self.owner, self)
         for buff in self._proximity_buffs_gen(sim.sim_info):
             if buff.proximity_detection_tests and not buff.proximity_detection_tests.run_tests(resolver):
-                pass
-            else:
-                buffs_to_add.add(buff)
+                continue
+            buffs_to_add.add(buff)
         buffs_component = sim.Buffs
         active_buff_handles = self.active_buff_handles.get(sim.id)
         if active_buff_handles:

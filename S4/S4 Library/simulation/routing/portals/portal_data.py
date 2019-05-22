@@ -113,10 +113,11 @@ class _Portal(HasTunableSingletonFactory, AutoFactoryInit):
         def clear_portal_cost_override(self, sim=None):
             if sim is None:
                 self._cost_override = None
-            else:
-                del self._cost_override_map[sim]
-                if not self._cost_override_map:
-                    self._cost_override_map = None
+            elif self._cost_override_map is not None:
+                if sim in self._cost_override_map:
+                    del self._cost_override_map[sim]
+                    if not self._cost_override_map:
+                        self._cost_override_map = None
             self._refresh_portal_cost(sim=sim)
 
         def _refresh_portal_cost(self, sim=None, sim_override_cost=None):
@@ -186,27 +187,26 @@ class _Portal(HasTunableSingletonFactory, AutoFactoryInit):
         portal_instances = []
         for (there_entry, there_exit, back_entry, back_exit, additional_required_flags) in self.traversal_type.get_portal_locations(obj):
             if not all(location is None or location.routing_surface.valid for location in (there_entry, there_exit, back_entry, back_exit)):
-                pass
-            elif not self._validate_portal_positions(obj, there_entry, there_exit):
-                pass
+                continue
+            if not self._validate_portal_positions(obj, there_entry, there_exit):
+                continue
+            allowed_key_mask = tuned_allowed_key_mask | additional_required_flags
+            if there_entry is not None and there_exit is not None:
+                there_cost = self.traversal_cost(there_entry, there_exit)
+                there = add_portal(there_entry, there_exit, self.traversal_type.portal_type, obj.id, there_cost, allowed_key_mask, self.usage_penalty, discouraged_key_mask)
             else:
-                allowed_key_mask = tuned_allowed_key_mask | additional_required_flags
-                if there_entry is not None and there_exit is not None:
-                    there_cost = self.traversal_cost(there_entry, there_exit)
-                    there = add_portal(there_entry, there_exit, self.traversal_type.portal_type, obj.id, there_cost, allowed_key_mask, self.usage_penalty, discouraged_key_mask)
-                else:
-                    there = None
-                    there_cost = None
-                if back_entry is not None and back_exit is not None:
-                    back_cost = self.traversal_cost(back_entry, back_exit)
-                    back = add_portal(back_entry, back_exit, self.traversal_type.portal_type, obj.id, back_cost, allowed_key_mask, self.usage_penalty, discouraged_key_mask)
-                else:
-                    back = None
-                    back_cost = None
-                if not there is not None:
-                    if back is not None:
-                        portal_instances.append(_Portal._PortalInstance(self, obj, there, back, there_entry, there_exit, there_cost, back_entry, back_exit, back_cost))
-                portal_instances.append(_Portal._PortalInstance(self, obj, there, back, there_entry, there_exit, there_cost, back_entry, back_exit, back_cost))
+                there = None
+                there_cost = None
+            if back_entry is not None and back_exit is not None:
+                back_cost = self.traversal_cost(back_entry, back_exit)
+                back = add_portal(back_entry, back_exit, self.traversal_type.portal_type, obj.id, back_cost, allowed_key_mask, self.usage_penalty, discouraged_key_mask)
+            else:
+                back = None
+                back_cost = None
+            if not there is not None:
+                if back is not None:
+                    portal_instances.append(_Portal._PortalInstance(self, obj, there, back, there_entry, there_exit, there_cost, back_entry, back_exit, back_cost))
+            portal_instances.append(_Portal._PortalInstance(self, obj, there, back, there_entry, there_exit, there_cost, back_entry, back_exit, back_cost))
         return portal_instances
 
     def get_dynamic_portal_locations_gen(self, *args, **kwargs):

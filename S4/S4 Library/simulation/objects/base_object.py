@@ -40,10 +40,9 @@ class BaseObject(ComponentContainer):
             for component_id in definition.components:
                 comp = objects.components.native_component_id_to_class[component_id]
                 if not comp.has_server_component():
-                    pass
-                else:
-                    factory = getattr(tuned_native_components, comp.CNAME, None) or comp.create_component
-                    self.add_component(factory(self))
+                    continue
+                factory = getattr(tuned_native_components, comp.CNAME, None) or comp.create_component
+                self.add_component(factory(self))
 
     def __repr__(self):
         guid = getattr(self, 'id', None)
@@ -160,10 +159,7 @@ class BaseObject(ComponentContainer):
                 sim = interaction.sim
                 transition_controller = sim.queue.transition_controller if sim is not None else None
                 if transition_controller is not None and transition_controller.will_derail_if_given_object_is_reset(self):
-                    pass
-                elif interaction.should_reset_based_on_pipeline_progress:
-                    self.remove_interaction_reference(interaction)
-                    reset_records.append(ResetRecord(interaction.sim, ResetReason.RESET_EXPECTED, self, 'Actor in interaction targeting source. {}, {}'.format(interaction, interaction.pipeline_progress)))
+                    continue
             elif interaction.should_reset_based_on_pipeline_progress:
                 self.remove_interaction_reference(interaction)
                 reset_records.append(ResetRecord(interaction.sim, ResetReason.RESET_EXPECTED, self, 'Actor in interaction targeting source. {}, {}'.format(interaction, interaction.pipeline_progress)))
@@ -405,6 +401,5 @@ class BaseObject(ComponentContainer):
             return
         for interaction in tuple(self._interaction_refs):
             if interaction not in self._interaction_refs:
-                pass
-            else:
-                interaction.cancel(finishing_type, cancel_reason_msg=cancel_reason_msg)
+                continue
+            interaction.cancel(finishing_type, cancel_reason_msg=cancel_reason_msg)

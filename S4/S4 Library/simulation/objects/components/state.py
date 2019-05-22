@@ -35,6 +35,7 @@ from objects.components.types import STATE_COMPONENT, CANVAS_COMPONENT, FLOWING_
 from objects.components.video import RESOURCE_TYPE_VP6
 from objects.glow import Glow
 from objects.helpers.user_footprint_helper import UserFootprintHelper
+from objects.hovertip import TooltipFieldsComplete
 from objects.mixins import SuperAffordanceProviderMixin
 from objects.object_enums import ResetReason
 from objects.slots import SlotType
@@ -54,6 +55,7 @@ from sims4.tuning.tunable import HasTunableReference, TunableEnumEntry, TunableV
 from sims4.tuning.tunable_hash import TunableStringHash32
 from sims4.utils import classproperty, Result, strformatter
 from singletons import DEFAULT, UNSET
+from situations.situation_guest_list import SituationGuestList
 from snippets import TunableColorSnippet
 from statistics.statistic_ops import ObjectStatisticChangeOp, TunableStatisticChange
 from tunable_utils.tunable_model import TunableModelOrDefault
@@ -182,6 +184,34 @@ class LotStatisticModifierList(HasTunableFactory, AutoFactoryInit):
         for statistic_op in self.statistic_changes:
             statistic_op.remove_from_object(lot)
 
+class StateSituationRequest(HasTunableFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'situations_to_create': TunableList(description='\n            A list of situations that will be created while the object is in\n            this state.\n            ', tunable=TunableTuple(situation=TunableReference(description='\n                    A situation that will be created when this state is set.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION)), invite_only=Tunable(description='\n                    If this situation should use an invite only guest list or\n                    not.\n                    ', tunable_type=bool, default=True)))}
+
+    def __init__(self, target, **kwargs):
+        super().__init__(**kwargs)
+        self.target = target
+        self._situation_ids = []
+
+    def start(self):
+        situation_manager = services.get_zone_situation_manager()
+        if situation_manager is None:
+            return
+        for situation_info in self.situations_to_create:
+            situation = situation_info.situation
+            guest_list = situation.get_predefined_guest_list()
+            if guest_list is None:
+                guest_list = SituationGuestList(invite_only=situation_info.invite_only)
+            situation_id = situation_manager.create_situation(situation_type=situation, guest_list=guest_list, user_facing=False)
+            situation_manager.disable_save_to_situation_manager(situation_id)
+            self._situation_ids.append(situation_id)
+
+    def stop(self, *_, **__):
+        situation_manager = services.get_zone_situation_manager()
+        if situation_manager is None:
+            return
+        for situation_id in self._situation_ids:
+            situation_manager.destroy_situation_by_id(situation_id)
+
 class UiMetadataList(HasTunableFactory, AutoFactoryInit, NeedsStateValue):
     FACTORY_TUNABLES = {'data': TunableMapping(description='\n        ', key_type=str, value_type=TunableVariant(other_value=TunableVariant(default='integral', boolean=Tunable(bool, False), string=TunableLocalizedString(), integral=Tunable(int, 0), icon=TunableIcon(), color=TunableColor()), state_value=TunableVariant(default='value', locked_args={'display_name': 'display_name', 'display_description': 'display_description', 'icon': 'icon', 'value': 'value'})))}
 
@@ -220,9 +250,10 @@ class ObjectReplacementOperation(HasTunableSingletonFactory, AutoFactoryInit):
             target.destroy(source=self, cause='Object replacement state operation, new_object is None', fade_duration=ClientObjectMixin.FADE_DURATION)
             return self.RESULT_OBJECT_DESTROYED
         new_location = None
-        if target.parent_slot.is_valid_for_placement(definition=self.new_object, objects_to_ignore=(target,)):
-            new_location = target.location
-        if target.parent_slot is not None and new_location is None:
+        if target.parent_slot is not None:
+            if target.parent_slot.is_valid_for_placement(definition=self.new_object, objects_to_ignore=(target,)):
+                new_location = target.location
+        if new_location is None:
             if target.location.routing_surface is None:
                 logger.error('Object {} in location {} is creating an object with an invalid routing surface', target, target.location, owner='camilogarcia')
                 return self.RESULT_REPLACEMENT_FAILED
@@ -289,8 +320,9 @@ class ToggleFootprintOperation(HasTunableFactory, AutoFactoryInit):
             enabled_footprints = set()
             for toggle in self.toggles:
                 footprint_component.start_toggle_footprint(toggle.enable, toggle.footprint_hash)
-                if toggle.enable and toggle.push_sims:
-                    enabled_footprints.add(toggle.footprint_hash)
+                if toggle.enable:
+                    if toggle.push_sims:
+                        enabled_footprints.add(toggle.footprint_hash)
             self._try_push_sims(enabled_footprints)
 
     def stop(self, *_, **__):
@@ -302,8 +334,9 @@ class ToggleFootprintOperation(HasTunableFactory, AutoFactoryInit):
             enabled_footprints = set()
             for toggle in self.toggles:
                 footprint_component.stop_toggle_footprint(toggle.enable, toggle.footprint_hash)
-                if toggle.enable or toggle.push_sims:
-                    enabled_footprints.add(toggle.footprint_hash)
+                if not toggle.enable:
+                    if toggle.push_sims:
+                        enabled_footprints.add(toggle.footprint_hash)
             self._try_push_sims(enabled_footprints)
 
     def _try_push_sims(self, footprint_name_hashes):
@@ -417,8 +450,9 @@ class StateComponentManagedDistributables:
         if not self._client_state_suppressors:
             for (distributable_key, distributable) in self._distributables_map.items():
                 (_, state_owner) = distributable_key
-                if state_owner not in self._client_state_suppressors and state_owner is not suppressor:
-                    distributable.stop(immediate=True)
+                if state_owner not in self._client_state_suppressors:
+                    if state_owner is not suppressor:
+                        distributable.stop(immediate=True)
         self._client_state_suppressors.add(suppressor)
 
     def remove_client_state_suppressor(self, suppressor):
@@ -437,11 +471,11 @@ class StateComponentManagedDistributables:
             return self._distributables_map[distributable_key]
 
 class StateChangeOperation(HasTunableSingletonFactory):
-    FACTORY_TUNABLES = {StateChange.PERIODIC_LOOT: OptionalTunableClientStateChangeItem(tunable=PeriodicLootOperation.TunableFactory()), StateChange.FOCUS_SCORE: OptionalTunableClientStateChangeItem(tunable=TunableFocusScoreVariant()), StateChange.LIVE_DRAG: OptionalTunableClientStateChangeItem(tunable=LiveDragStateOperation.TunableFactory()), StateChange.UTILITY_MODIFIERS: OptionalTunableClientStateChangeItem(tunable=UtilityModifierState.TunableFactory()), StateChange.MANNEQUIN_POSE: OptionalTunableClientStateChangeItem(tunable=ObjectPose.TunableReference()), StateChange.CHANGE_VALUE: OptionalTunable(disabled_value=UNSET, tunable=ObjectValueChangeOperation.TunableFactory()), StateChange.SCRATCHED: OptionalTunableClientStateChangeItem(description='\n            Change the state of this object appearing scratched.\n            ', tunable=Tunable(tunable_type=bool, default=True)), StateChange.GRUBBY: OptionalTunableClientStateChangeItem(tunable=Tunable(tunable_type=bool, default=True)), StateChange.SINGED: OptionalTunableClientStateChangeItem(tunable=Tunable(tunable_type=bool, default=True)), StateChange.LOT_MODIFIERS: OptionalTunableClientStateChangeItemWithDisable(tunable=LotStatisticModifierList.TunableFactory(), tunable_disabled_name='no_modifiers', tunable_enabled_name='apply_modifiers'), StateChange.LIGHT_MATERIAL_STATE: OptionalTunableClientStateChangeItem(description='\n            Override the material states to apply on the object when its light\n            is on or off.\n            ', tunable=TunableTuple(material_state_on=TunableVariant(description='\n                    If specified, override the material state for this light\n                    when the object is on.\n                    ', apply_new_value=Tunable(description='\n                        The material state for this light when the object is on.\n                        ', tunable_type=str, default='lightson'), locked_args={'set_to_default': DEFAULT, 'leave_unchanged': None}, default='leave_unchanged'), material_state_off=TunableVariant(description='\n                    If specified, override the material state for this light\n                    when the object is off.\n                    ', apply_new_value=Tunable(description='\n                        The material state for this light when the object is\n                        off.\n                        ', tunable_type=str, default='lightsoff'), locked_args={'set_to_default': DEFAULT, 'leave_unchanged': None}, default='leave_unchanged'))), StateChange.LIGHT_DIMMER_STATE: OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 0, 0, 1, description='A dimmer value to apply')), StateChange.UI_METADATA: OptionalTunableClientStateChangeItem(tunable=UiMetadataList.TunableFactory()), StateChange.TOGGLE_FOOTPRINT: OptionalTunableClientStateChangeItem(tunable=ToggleFootprintOperation.TunableFactory()), StateChange.REPLACE_OBJECT: OptionalTunable(disabled_value=UNSET, tunable=ObjectReplacementOperation.TunableFactory()), StateChange.WALKSTYLE: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(tunable=WalkStyleRequest.TunableFactory(), disabled_name='no_request', enabled_name='request_walkstyle')), StateChange.BROADCASTER: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(tunable=BroadcasterRequest.TunableFactory(locked_args={'participant': None, 'offset_time': None}), disabled_name='no_broadcaster', enabled_name='start_broadcaster')), StateChange.AWARENESS: OptionalTunableClientStateChangeItemWithDisable(tunable=AwarenessSourceRequest.TunableFactory(), tunable_disabled_name='no_awareness', tunable_enabled_name='start_awareness'), StateChange.AUTONOMY_MODIFIERS: OptionalTunableClientStateChangeItemWithDisable(tunable=StatisticModifierList.TunableFactory(), tunable_disabled_name='no_statistic_to_apply', tunable_enabled_name='apply_statistic_modifiers'), 'transient': OptionalTunableClientStateChangeItem(tunable=Tunable(bool, False, description='This is what the objects transient value is set to')), StateChange.VIDEO_STATE_LOOPING: OptionalTunableClientStateChangeItemWithDisable(tunable=TunableResourceKey(None, resource_types=[sims4.resources.Types.PLAYLIST]), tunable_disabled_name='no_video', tunable_enabled_name='start_video'), StateChange.VIDEO_STATE: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(disabled_name='no_video', enabled_name='start_video', tunable=TunableTuple(description='\n                    List of clip names and append behavior.\n                    ', clip_list=TunableList(TunableResourceKey(None, resource_types=[RESOURCE_TYPE_VP6])), append_clip=Tunable(description='\n                        If enabled clip list will be appended to previous \n                        playing clip instead of interrupting the existing \n                        playlist.\n                        This should be tuned when the clips should have a \n                        smoother transition like a credits scene on a movie.\n                        ', tunable_type=bool, default=False), loop_last=Tunable(description="\n                        If enabled, the clip will loop. Otherwise, it's played\n                        once and stop on last frame.\n                        ", tunable_type=bool, default=True)))), StateChange.AUDIO_EFFECT_STATE: OptionalTunableClientStateChangeItemWithDisable(description='\n            A way to apply An audio effect (.effectx) to the object when state changes\n            ', tunable=ApplyAudioEffect.TunableFactory(), tunable_disabled_name='no_audio_effect', tunable_enabled_name='start_audio_effect'), StateChange.AUDIO_STATE: OptionalTunableClientStateChangeItemWithDisable(tunable=TunablePlayAudio(description='An audio state to apply'), tunable_disabled_name='no_audio', tunable_enabled_name='start_audio'), StateChange.GLOW: OptionalTunableClientStateChangeItemWithDisable(tunable=Glow.TunableFactory(), tunable_disabled_name='no_glow', tunable_enabled_name='start_glow'), StateChange.VFX_STATE: OptionalTunableClientStateChangeItem(description='\n            Define a visual effect state on any visual effects controlled by\n            this state.\n            ', tunable=PlayEffectState.TunableFactory()), StateChange.VFX: OptionalTunableClientStateChangeItemWithDisable(description='\n            Play one or more visual effects.\n            ', tunable=TunableVariant(description='\n                Define the type of visual effect to play.\n                ', single_effect=PlayEffect.TunableFactory(), multiple_effects=PlayMultipleEffects.TunableFactory(), default='single_effect'), tunable_disabled_name='no_vfx', tunable_enabled_name='start_vfx'), StateChange.FLOWING_PUDDLE_ENABLED: OptionalTunableClientStateChangeItem(tunable=Tunable(bool, False, description='If True, this object will start spawning puddles based on its PuddleSpawningComponentTuning.')), StateChange.PAINTING_STATE: OptionalTunableClientStateChangeItem(description='\n            Change the entire painting state.\n            ', tunable=ChangePaintingState.TunableFactory()), StateChange.PAINTING_REVEAL_LEVEL: OptionalTunableClientStateChangeItem(tunable=TunableRange(description='\n                A painting reveal level to apply.  Smaller values show less of\n                the final painting.  The maximum value fully reveals the\n                painting.\n                ', tunable_type=int, default=PaintingState.REVEAL_LEVEL_MIN, minimum=PaintingState.REVEAL_LEVEL_MIN, maximum=PaintingState.REVEAL_LEVEL_MAX)), StateChange.ENVIRONMENT_SCORE: OptionalTunableClientStateChangeItem(tunable=EnvironmentScoreState.TunableFactory()), 'multicolor': OptionalTunableClientStateChangeItem(tunable=TunableList(description='\n                List of colors to be applied to the object. \n                Currently only 3 colors are supported by the multicolor shader\n                and the order of these matter, so apply in the same order\n                as the layers are setup (this can been seen in medator or \n                contact your modeler).\n                If tuning RGB values, the Alpha will be ignored.\n                ', tunable=TunableColorSnippet(description='\n                    Color to be applied. \n                    '), maxlength=3)), 'pregnancy_progress': OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 0, 0, 1, description='A pregnancy progress value to apply')), 'material_variant': OptionalTunableClientStateChangeItem(tunable=TunableMaterialVariant('materialVariantName', description='A material variant to apply')), 'model': OptionalTunableClientStateChangeItem(tunable=TunableModelOrDefault(description='A model state to apply')), 'material_state': OptionalTunableClientStateChangeItem(tunable=TunableMaterialState(description='A material state to apply')), StateChange.GEOMETRY_STATE_OVERRIDE: OptionalTunableClientStateChangeItem(description='\n            Apply a geometry state override to the object.\n            ', tunable=GeometryStateOverrideOperation.TunableFactory()), 'geometry_state': OptionalTunableClientStateChangeItem(tunable=TunableGeometryState(description='A geometry state to apply')), 'visibility_flags': OptionalTunableClientStateChangeItem(description='\n            If specified, apply visibility flag overrides for this object. For\n            example, control whether or not the object is reflected in mirrors\n            and water.\n            ', tunable=OptionalTunable(tunable=TunableEnumFlags(enum_type=VisibilityFlags, allow_no_flags=True), disabled_name='No_Flags')), 'visibility': OptionalTunableClientStateChangeItem(tunable=TunableVisibilityState(description='A visibility state to apply')), 'scale': OptionalTunableClientStateChangeItem(tunable=Tunable(float, 1, description='A scale to apply')), 'opacity': OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 1, 0, 1, description='An opacity to apply')), 'tint': OptionalTunableClientStateChangeItem(tunable=TunableColorSnippet(description='A tint to apply'))}
-    CUSTOM_DISTRIBUTABLE_CHANGES = (StateChange.AUDIO_EFFECT_STATE, StateChange.AUDIO_STATE, StateChange.AUTONOMY_MODIFIERS, StateChange.AWARENESS, StateChange.BROADCASTER, StateChange.ENVIRONMENT_SCORE, StateChange.REPLACE_OBJECT, StateChange.TOGGLE_FOOTPRINT, StateChange.UI_METADATA, StateChange.VFX, StateChange.VFX_STATE, StateChange.LOT_MODIFIERS, StateChange.CHANGE_VALUE, StateChange.GEOMETRY_STATE_OVERRIDE, StateChange.UTILITY_MODIFIERS, StateChange.PAINTING_STATE, StateChange.LIVE_DRAG, StateChange.WALKSTYLE, StateChange.PERIODIC_LOOT, StateChange.GLOW)
+    FACTORY_TUNABLES = {'tint': OptionalTunableClientStateChangeItem(tunable=TunableColorSnippet(description='A tint to apply')), 'opacity': OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 1, 0, 1, description='An opacity to apply')), 'scale': OptionalTunableClientStateChangeItem(tunable=Tunable(float, 1, description='A scale to apply')), 'visibility': OptionalTunableClientStateChangeItem(tunable=TunableVisibilityState(description='A visibility state to apply')), 'visibility_flags': OptionalTunableClientStateChangeItem(description='\n            If specified, apply visibility flag overrides for this object. For\n            example, control whether or not the object is reflected in mirrors\n            and water.\n            ', tunable=OptionalTunable(tunable=TunableEnumFlags(enum_type=VisibilityFlags, allow_no_flags=True), disabled_name='No_Flags')), 'geometry_state': OptionalTunableClientStateChangeItem(tunable=TunableGeometryState(description='A geometry state to apply')), StateChange.GEOMETRY_STATE_OVERRIDE: OptionalTunableClientStateChangeItem(description='\n            Apply a geometry state override to the object.\n            ', tunable=GeometryStateOverrideOperation.TunableFactory()), 'material_state': OptionalTunableClientStateChangeItem(tunable=TunableMaterialState(description='A material state to apply')), 'model': OptionalTunableClientStateChangeItem(tunable=TunableModelOrDefault(description='A model state to apply')), 'material_variant': OptionalTunableClientStateChangeItem(tunable=TunableMaterialVariant('materialVariantName', description='A material variant to apply')), 'pregnancy_progress': OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 0, 0, 1, description='A pregnancy progress value to apply')), 'multicolor': OptionalTunableClientStateChangeItem(tunable=TunableList(description='\n                List of colors to be applied to the object. \n                Currently only 3 colors are supported by the multicolor shader\n                and the order of these matter, so apply in the same order\n                as the layers are setup (this can been seen in medator or \n                contact your modeler).\n                If tuning RGB values, the Alpha will be ignored.\n                ', tunable=TunableColorSnippet(description='\n                    Color to be applied. \n                    '), maxlength=3)), StateChange.ENVIRONMENT_SCORE: OptionalTunableClientStateChangeItem(tunable=EnvironmentScoreState.TunableFactory()), StateChange.PAINTING_REVEAL_LEVEL: OptionalTunableClientStateChangeItem(tunable=TunableRange(description='\n                A painting reveal level to apply.  Smaller values show less of\n                the final painting.  The maximum value fully reveals the\n                painting.\n                ', tunable_type=int, default=PaintingState.REVEAL_LEVEL_MIN, minimum=PaintingState.REVEAL_LEVEL_MIN, maximum=PaintingState.REVEAL_LEVEL_MAX)), StateChange.PAINTING_STATE: OptionalTunableClientStateChangeItem(description='\n            Change the entire painting state.\n            ', tunable=ChangePaintingState.TunableFactory()), StateChange.FLOWING_PUDDLE_ENABLED: OptionalTunableClientStateChangeItem(tunable=Tunable(bool, False, description='If True, this object will start spawning puddles based on its PuddleSpawningComponentTuning.')), StateChange.VFX: OptionalTunableClientStateChangeItemWithDisable(description='\n            Play one or more visual effects.\n            ', tunable=TunableVariant(description='\n                Define the type of visual effect to play.\n                ', single_effect=PlayEffect.TunableFactory(), multiple_effects=PlayMultipleEffects.TunableFactory(), default='single_effect'), tunable_disabled_name='no_vfx', tunable_enabled_name='start_vfx'), StateChange.VFX_STATE: OptionalTunableClientStateChangeItem(description='\n            Define a visual effect state on any visual effects controlled by\n            this state.\n            ', tunable=PlayEffectState.TunableFactory()), StateChange.GLOW: OptionalTunableClientStateChangeItemWithDisable(tunable=Glow.TunableFactory(), tunable_disabled_name='no_glow', tunable_enabled_name='start_glow'), StateChange.AUDIO_STATE: OptionalTunableClientStateChangeItemWithDisable(tunable=TunablePlayAudio(description='An audio state to apply'), tunable_disabled_name='no_audio', tunable_enabled_name='start_audio'), StateChange.AUDIO_EFFECT_STATE: OptionalTunableClientStateChangeItemWithDisable(description='\n            A way to apply An audio effect (.effectx) to the object when state changes\n            ', tunable=ApplyAudioEffect.TunableFactory(), tunable_disabled_name='no_audio_effect', tunable_enabled_name='start_audio_effect'), StateChange.VIDEO_STATE: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(disabled_name='no_video', enabled_name='start_video', tunable=TunableTuple(description='\n                    List of clip names and append behavior.\n                    ', clip_list=TunableList(TunableResourceKey(None, resource_types=[RESOURCE_TYPE_VP6])), append_clip=Tunable(description='\n                        If enabled clip list will be appended to previous \n                        playing clip instead of interrupting the existing \n                        playlist.\n                        This should be tuned when the clips should have a \n                        smoother transition like a credits scene on a movie.\n                        ', tunable_type=bool, default=False), loop_last=Tunable(description="\n                        If enabled, the clip will loop. Otherwise, it's played\n                        once and stop on last frame.\n                        ", tunable_type=bool, default=True)))), StateChange.VIDEO_STATE_LOOPING: OptionalTunableClientStateChangeItemWithDisable(tunable=TunableResourceKey(None, resource_types=[sims4.resources.Types.PLAYLIST]), tunable_disabled_name='no_video', tunable_enabled_name='start_video'), 'transient': OptionalTunableClientStateChangeItem(tunable=Tunable(bool, False, description='This is what the objects transient value is set to')), StateChange.AUTONOMY_MODIFIERS: OptionalTunableClientStateChangeItemWithDisable(tunable=StatisticModifierList.TunableFactory(), tunable_disabled_name='no_statistic_to_apply', tunable_enabled_name='apply_statistic_modifiers'), StateChange.AWARENESS: OptionalTunableClientStateChangeItemWithDisable(tunable=AwarenessSourceRequest.TunableFactory(), tunable_disabled_name='no_awareness', tunable_enabled_name='start_awareness'), StateChange.BROADCASTER: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(tunable=BroadcasterRequest.TunableFactory(locked_args={'participant': None, 'offset_time': None}), disabled_name='no_broadcaster', enabled_name='start_broadcaster')), StateChange.WALKSTYLE: OptionalTunableClientStateChangeItem(tunable=OptionalTunable(tunable=WalkStyleRequest.TunableFactory(), disabled_name='no_request', enabled_name='request_walkstyle')), StateChange.REPLACE_OBJECT: OptionalTunable(disabled_value=UNSET, tunable=ObjectReplacementOperation.TunableFactory()), StateChange.TOGGLE_FOOTPRINT: OptionalTunableClientStateChangeItem(tunable=ToggleFootprintOperation.TunableFactory()), StateChange.UI_METADATA: OptionalTunableClientStateChangeItem(tunable=UiMetadataList.TunableFactory()), StateChange.LIGHT_DIMMER_STATE: OptionalTunableClientStateChangeItem(tunable=TunableRange(float, 0, 0, 1, description='A dimmer value to apply')), StateChange.LIGHT_MATERIAL_STATE: OptionalTunableClientStateChangeItem(description='\n            Override the material states to apply on the object when its light\n            is on or off.\n            ', tunable=TunableTuple(material_state_on=TunableVariant(description='\n                    If specified, override the material state for this light\n                    when the object is on.\n                    ', apply_new_value=Tunable(description='\n                        The material state for this light when the object is on.\n                        ', tunable_type=str, default='lightson'), locked_args={'set_to_default': DEFAULT, 'leave_unchanged': None}, default='leave_unchanged'), material_state_off=TunableVariant(description='\n                    If specified, override the material state for this light\n                    when the object is off.\n                    ', apply_new_value=Tunable(description='\n                        The material state for this light when the object is\n                        off.\n                        ', tunable_type=str, default='lightsoff'), locked_args={'set_to_default': DEFAULT, 'leave_unchanged': None}, default='leave_unchanged'))), StateChange.LOT_MODIFIERS: OptionalTunableClientStateChangeItemWithDisable(tunable=LotStatisticModifierList.TunableFactory(), tunable_disabled_name='no_modifiers', tunable_enabled_name='apply_modifiers'), StateChange.SINGED: OptionalTunableClientStateChangeItem(tunable=Tunable(tunable_type=bool, default=True)), StateChange.GRUBBY: OptionalTunableClientStateChangeItem(tunable=Tunable(tunable_type=bool, default=True)), StateChange.SCRATCHED: OptionalTunableClientStateChangeItem(description='\n            Change the state of this object appearing scratched.\n            ', tunable=Tunable(tunable_type=bool, default=True)), StateChange.CHANGE_VALUE: OptionalTunable(disabled_value=UNSET, tunable=ObjectValueChangeOperation.TunableFactory()), StateChange.MANNEQUIN_POSE: OptionalTunableClientStateChangeItem(tunable=ObjectPose.TunableReference()), StateChange.UTILITY_MODIFIERS: OptionalTunableClientStateChangeItem(tunable=UtilityModifierState.TunableFactory()), StateChange.LIVE_DRAG: OptionalTunableClientStateChangeItem(tunable=LiveDragStateOperation.TunableFactory()), StateChange.FOCUS_SCORE: OptionalTunableClientStateChangeItem(tunable=TunableFocusScoreVariant()), StateChange.PERIODIC_LOOT: OptionalTunableClientStateChangeItem(tunable=PeriodicLootOperation.TunableFactory()), StateChange.SITUATION: OptionalTunableClientStateChangeItem(description='\n            Create situations while this state is active.\n            ', tunable=StateSituationRequest.TunableFactory())}
+    CUSTOM_DISTRIBUTABLE_CHANGES = (StateChange.AUDIO_EFFECT_STATE, StateChange.AUDIO_STATE, StateChange.AUTONOMY_MODIFIERS, StateChange.AWARENESS, StateChange.BROADCASTER, StateChange.ENVIRONMENT_SCORE, StateChange.REPLACE_OBJECT, StateChange.TOGGLE_FOOTPRINT, StateChange.UI_METADATA, StateChange.VFX, StateChange.VFX_STATE, StateChange.LOT_MODIFIERS, StateChange.CHANGE_VALUE, StateChange.GEOMETRY_STATE_OVERRIDE, StateChange.UTILITY_MODIFIERS, StateChange.PAINTING_STATE, StateChange.LIVE_DRAG, StateChange.WALKSTYLE, StateChange.PERIODIC_LOOT, StateChange.GLOW, StateChange.SITUATION)
     POST_LOAD_ENABLED_DISTRIBUTABLES = (StateChange.AUDIO_EFFECT_STATE, StateChange.AUDIO_STATE, StateChange.REPLACE_OBJECT, StateChange.TOGGLE_FOOTPRINT, StateChange.VFX, StateChange.VFX_STATE, StateChange.GEOMETRY_STATE_OVERRIDE, StateChange.PAINTING_STATE, StateChange.GLOW)
     INVENTORY_AFFECTED_DISTRIBUTABLES = (StateChange.AUDIO_EFFECT_STATE, StateChange.AUDIO_STATE, StateChange.VFX, StateChange.GLOW)
-    USE_COMPONENT_FOR = {StateChange.FOCUS_SCORE: FOCUS_COMPONENT.instance_attr, StateChange.MANNEQUIN_POSE: MANNEQUIN_COMPONENT.instance_attr, StateChange.LIGHT_MATERIAL_STATE: LIGHTING_COMPONENT.instance_attr, StateChange.LIGHT_DIMMER_STATE: LIGHTING_COMPONENT.instance_attr, StateChange.VIDEO_STATE_LOOPING: VIDEO_COMPONENT.instance_attr, StateChange.VIDEO_STATE: VIDEO_COMPONENT.instance_attr, StateChange.FLOWING_PUDDLE_ENABLED: FLOWING_PUDDLE_COMPONENT.instance_attr, StateChange.PAINTING_REVEAL_LEVEL: CANVAS_COMPONENT.instance_attr}
+    USE_COMPONENT_FOR = {StateChange.PAINTING_REVEAL_LEVEL: CANVAS_COMPONENT.instance_attr, StateChange.FLOWING_PUDDLE_ENABLED: FLOWING_PUDDLE_COMPONENT.instance_attr, StateChange.VIDEO_STATE: VIDEO_COMPONENT.instance_attr, StateChange.VIDEO_STATE_LOOPING: VIDEO_COMPONENT.instance_attr, StateChange.LIGHT_DIMMER_STATE: LIGHTING_COMPONENT.instance_attr, StateChange.LIGHT_MATERIAL_STATE: LIGHTING_COMPONENT.instance_attr, StateChange.MANNEQUIN_POSE: MANNEQUIN_COMPONENT.instance_attr, StateChange.FOCUS_SCORE: FOCUS_COMPONENT.instance_attr}
 
     def __init__(self, **ops_tuning):
         self.ops = ops_tuning
@@ -449,23 +483,22 @@ class StateChangeOperation(HasTunableSingletonFactory):
     def apply(self, target, custom_distributables, state, state_value, immediate=False, post_load_distributable_only=False):
         for (attr_name, attr_value) in self.ops.items():
             if attr_value is UNSET:
-                pass
-            elif attr_name in self.CUSTOM_DISTRIBUTABLE_CHANGES:
+                continue
+            if attr_name in self.CUSTOM_DISTRIBUTABLE_CHANGES:
                 if post_load_distributable_only and attr_name not in self.POST_LOAD_ENABLED_DISTRIBUTABLES:
-                    pass
-                else:
-                    result = custom_distributables.apply(target, attr_name, state, state_value, attr_value, immediate=immediate)
-                    if result is not None and not result:
-                        return result
-                        if attr_name in self.USE_COMPONENT_FOR:
-                            component_name = self.USE_COMPONENT_FOR[attr_name]
-                            attr_target = getattr(target, component_name)
-                            logger.debug('    {}.{} = {}', component_name, attr_name, attr_value)
-                        else:
-                            attr_target = target
-                            logger.debug('    {} = {}', attr_name, attr_value)
-                        if attr_target is not None:
-                            setattr(attr_target, attr_name, attr_value)
+                    continue
+                result = custom_distributables.apply(target, attr_name, state, state_value, attr_value, immediate=immediate)
+                if result is not None and not result:
+                    return result
+                    if attr_name in self.USE_COMPONENT_FOR:
+                        component_name = self.USE_COMPONENT_FOR[attr_name]
+                        attr_target = getattr(target, component_name)
+                        logger.debug('    {}.{} = {}', component_name, attr_name, attr_value)
+                    else:
+                        attr_target = target
+                        logger.debug('    {} = {}', attr_name, attr_value)
+                    if attr_target is not None:
+                        setattr(attr_target, attr_name, attr_value)
             else:
                 if attr_name in self.USE_COMPONENT_FOR:
                     component_name = self.USE_COMPONENT_FOR[attr_name]
@@ -607,7 +640,7 @@ class ObjectState(HasTunableReference, ObjectStateValueDisplayMixin, metaclass=O
     @classproperty
     def values(cls):
         if not cls._sorted_values:
-            if cls._values and any(v.value is None for v in cls._values):
+            if not cls._values or any(v.value is None for v in cls._values):
                 cls._sorted_values = cls._values
             else:
                 cls._sorted_values = tuple(sorted(cls._values, key=operator.attrgetter('value')))
@@ -653,7 +686,7 @@ class CommodityBasedObjectState(ObjectState):
     @classmethod
     def _verify_tuning_callback(cls):
         super()._verify_tuning_callback()
-        if cls.linked_stat.use_stat_value_on_initialization or cls.linked_stat.get_initial_value() != 0 and cls.linked_stat.initial_value_range is None:
+        if not cls.linked_stat.use_stat_value_on_initialization and cls.linked_stat.get_initial_value() != 0 and cls.linked_stat.initial_value_range is None:
             logger.error('{} has a linked stat {} that has initial tuning but Use Stat Value On Init is not checked.', cls, cls.linked_stat, owner='rmccord')
         coverage_error_msg = cls._verify_statistic_range_coverage()
         if coverage_error_msg is not None:
@@ -756,15 +789,9 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         for (state_utility, state_list) in self._delinquency_state_changes.items():
             if utility is not None:
                 if state_utility is not utility:
-                    pass
-                else:
-                    for state_value in state_list:
-                        self.apply_delinquent_state(state_value, from_load=from_load)
+                    continue
             elif not household.bills_manager.is_utility_delinquent(state_utility):
-                pass
-            else:
-                for state_value in state_list:
-                    self.apply_delinquent_state(state_value, from_load=from_load)
+                continue
             for state_value in state_list:
                 self.apply_delinquent_state(state_value, from_load=from_load)
         return True
@@ -792,8 +819,9 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
                     self.set_state(state, tested_state.state)
                     test_passed = True
                     break
-            if test_passed or value.fallback_state is not None:
-                self.set_state(state, value.fallback_state)
+            if not test_passed:
+                if value.fallback_state is not None:
+                    self.set_state(state, value.fallback_state)
 
     def _get_tracker(self, state):
         if state.lot_based:
@@ -832,7 +860,7 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
 
     def on_post_load(self, *_, **__):
         for (state, value) in self.items():
-            self.owner.on_state_changed(state, value, value)
+            self.owner.on_state_changed(state, value, value, False)
             if self._on_state_changed:
                 self._on_state_changed(self.owner, state, value, value)
             if self._state_trigger_enabled:
@@ -878,10 +906,11 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
             for value in self.values():
                 if not value.allowances.allow_in_carry:
                     logger.error('Attempting to pick up object {} when its current state value {} is not compatible with carry.', self, value, owner='tastle')
-        elif not (parent is None or parent.is_sim):
-            for value in self.values():
-                if not value.allowances.allow_out_of_carry:
-                    logger.error('Attempting to put down object {} when its current state value {} is not compatible with put down.', self, value, owner='tastle')
+        elif self.exit_carry_state is None:
+            if not (parent is None or not parent.is_sim):
+                for value in self.values():
+                    if not value.allowances.allow_out_of_carry:
+                        logger.error('Attempting to put down object {} when its current state value {} is not compatible with put down.', self, value, owner='tastle')
 
     def on_parent_change(self, parent):
         if parent is not None and parent.is_sim:
@@ -1038,7 +1067,8 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
     @state_based_value_mod.setter
     def state_based_value_mod(self, value):
         self._state_based_value_mod = value
-        self.owner.update_current_value()
+        update_tooltip = self.owner.get_tooltip_field(TooltipFieldsComplete.simoleon_value) is not None
+        self.owner.update_current_value(update_tooltip)
 
     def _verify_unique_state_changes(self):
         enter_carry_state = self.enter_carry_state
@@ -1047,49 +1077,55 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         inside_placement_state = self.inside_placement_state
         on_natural_ground_placement_state = self.on_natural_ground_placement_state
         off_natural_ground_placement_state = self.off_natural_ground_placement_state
-        if not enter_carry_state.allowances.allow_in_carry:
-            logger.error('Attempting to set enter_carry_state for {} to state value {} which is not compatible with carry. Please fix in tuning.', self.owner, enter_carry_state, owner='tastle')
-            self._unique_state_changes.enter_carry_state = None
-        if not exit_carry_state.allowances.allow_out_of_carry:
-            logger.error('Attempting to set exit_carry_state for {} to state value {} which is not compatible with carry. Please fix in tuning.', self.owner, exit_carry_state, owner='tastle')
-            self._unique_state_changes.exit_carry_state = None
-        if not outside_placement_state.allowances.allow_outside:
-            logger.error('Attempting to set outside_placement_state for {} to state value {} which is not compatible with outside placement. Please fix in tuning.', self.owner, outside_placement_state, owner='tastle')
-            self._unique_state_changes.outside_placement_state = None
-        if not inside_placement_state.allowances.allow_inside:
-            logger.error('Attempting to set inside_placement_state for {} to state value {} which is not compatible with inside placement. Please fix in tuning.', self.owner, inside_placement_state, owner='tastle')
-            self._unique_state_changes.inside_placement_state = None
-        if not on_natural_ground_placement_state.allowances.allow_on_natural_ground:
-            logger.error('Attempting to set on_natural_ground_placement_state for {} to state value {} which is not compatible with placement on natural ground. Please fix in tuning.', self.owner, on_natural_ground_placement_state, owner='tastle')
-            self._unique_state_changes.on_natural_ground_placement_state = None
-        if not off_natural_ground_placement_state.allowances.allow_off_natural_ground:
-            logger.error('Attempting to set off_natural_ground_placement_state for {} to state value {} which is not compatible with placement off of natural ground. Please fix in tuning.', self.owner, off_natural_ground_placement_state, owner='tastle')
-            self._unique_state_changes.off_natural_ground_placement_state = None
+        if enter_carry_state is not None:
+            if not enter_carry_state.allowances.allow_in_carry:
+                logger.error('Attempting to set enter_carry_state for {} to state value {} which is not compatible with carry. Please fix in tuning.', self.owner, enter_carry_state, owner='tastle')
+                self._unique_state_changes.enter_carry_state = None
+        if exit_carry_state is not None:
+            if not exit_carry_state.allowances.allow_out_of_carry:
+                logger.error('Attempting to set exit_carry_state for {} to state value {} which is not compatible with carry. Please fix in tuning.', self.owner, exit_carry_state, owner='tastle')
+                self._unique_state_changes.exit_carry_state = None
+        if outside_placement_state is not None:
+            if not outside_placement_state.allowances.allow_outside:
+                logger.error('Attempting to set outside_placement_state for {} to state value {} which is not compatible with outside placement. Please fix in tuning.', self.owner, outside_placement_state, owner='tastle')
+                self._unique_state_changes.outside_placement_state = None
+        if inside_placement_state is not None:
+            if not inside_placement_state.allowances.allow_inside:
+                logger.error('Attempting to set inside_placement_state for {} to state value {} which is not compatible with inside placement. Please fix in tuning.', self.owner, inside_placement_state, owner='tastle')
+                self._unique_state_changes.inside_placement_state = None
+        if on_natural_ground_placement_state is not None:
+            if not on_natural_ground_placement_state.allowances.allow_on_natural_ground:
+                logger.error('Attempting to set on_natural_ground_placement_state for {} to state value {} which is not compatible with placement on natural ground. Please fix in tuning.', self.owner, on_natural_ground_placement_state, owner='tastle')
+                self._unique_state_changes.on_natural_ground_placement_state = None
+        if off_natural_ground_placement_state is not None:
+            if not off_natural_ground_placement_state.allowances.allow_off_natural_ground:
+                logger.error('Attempting to set off_natural_ground_placement_state for {} to state value {} which is not compatible with placement off of natural ground. Please fix in tuning.', self.owner, off_natural_ground_placement_state, owner='tastle')
+                self._unique_state_changes.off_natural_ground_placement_state = None
 
     def _check_allowances(self, new_value):
         if self.owner.manager is None:
             return True
         owner_parent = self.owner.parent
-        if new_value.allowances.allow_in_carry or owner_parent is not None and owner_parent.is_sim:
+        if not new_value.allowances.allow_in_carry and owner_parent is not None and owner_parent.is_sim:
             logger.error('Attempting to set the state of object {}, currently being carried by {} to state value {}, which is not allowed to be set during carry.', self.owner, owner_parent, new_value, owner='tastle')
             return False
-        if new_value.allowances.allow_out_of_carry or owner_parent is None:
+        if not new_value.allowances.allow_out_of_carry and owner_parent is None:
             logger.error('Attempting to set the state of object {}, currently not being carried to state value {}, which is not allowed to be set outside of carry.', self.owner, new_value, owner='tastle')
             return False
         is_outside = self.owner.is_outside
-        if new_value.allowances.allow_outside or is_outside and is_outside is not None:
+        if not new_value.allowances.allow_outside and is_outside and is_outside is not None:
             logger.error('Attempting to set the state of object {}, currently outside to state value {}, which is not allowed to be set outside.', self.owner, new_value, owner='tastle')
             return False
-        if new_value.allowances.allow_inside or is_outside or is_outside is not None:
+        if not new_value.allowances.allow_inside and not is_outside and is_outside is not None:
             logger.error('Attempting to set the state of object {}, currently inside to state value {}, which is not allowed to be set inside.', self.owner, new_value, owner='tastle')
             return False
         is_on_natural_ground = self.owner.is_on_natural_ground()
         if is_on_natural_ground is None:
             return True
-        if new_value.allowances.allow_on_natural_ground or is_on_natural_ground and is_on_natural_ground is not None:
+        if not new_value.allowances.allow_on_natural_ground and is_on_natural_ground and is_on_natural_ground is not None:
             logger.error('Attempting to set the state of object {}, currently on natural ground to state value {}, which is not allowed to be set on natural ground.', self.owner, new_value, owner='tastle')
             return False
-        elif new_value.allowances.allow_off_natural_ground or is_on_natural_ground or is_on_natural_ground is not None:
+        elif not new_value.allowances.allow_off_natural_ground and not is_on_natural_ground and is_on_natural_ground is not None:
             logger.error('Attempting to set the state of object {}, currently not on natural ground to state value {}, which is not allowed to be set when not on natural ground.', self.owner, new_value, owner='tastle')
             return False
         return True
@@ -1127,17 +1163,18 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         self._states[state] = new_value
         if new_value.super_affordances or old_value.super_affordances:
             self.owner.update_component_commodity_flags()
-        if from_stat and from_init:
+        if not from_stat or from_init:
             self._set_stat_to_value(state, new_value)
-        self._trigger_on_state_changed(state, old_value, new_value, immediate=immediate)
+        self._trigger_on_state_changed(state, old_value, new_value, immediate=immediate, from_init=from_init)
         caches.clear_all_caches()
 
     @componentmethod
     def get_state_value_from_stat_type(self, stat_type):
         for (state, value) in self.items():
             linked_stat = getattr(state, 'linked_stat', None)
-            if linked_stat is not None and linked_stat is stat_type:
-                return value
+            if linked_stat is not None:
+                if linked_stat is stat_type:
+                    return value
 
     @property
     def state_trigger_enabled(self):
@@ -1147,7 +1184,7 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
     def state_trigger_enabled(self, value):
         self._state_trigger_enabled = value
 
-    def _trigger_on_state_changed(self, state, old_value, new_value, immediate=False):
+    def _trigger_on_state_changed(self, state, old_value, new_value, immediate=False, from_init=False):
         if not self._apply_client_state(state, new_value, immediate=immediate):
             return
         owner_id = self.owner.id
@@ -1158,7 +1195,7 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         else:
             manager = services.object_manager()
         self._add_stat_listener(state, new_value)
-        self.owner.on_state_changed(state, old_value, new_value)
+        self.owner.on_state_changed(state, old_value, new_value, from_init)
         timed_state_trigger_on_load = False
         process_timed_state_triggers = True if self._timed_state_triggers is not None and new_value in self._timed_state_triggers else False
         if process_timed_state_triggers:
@@ -1175,6 +1212,9 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         if self._state_trigger_enabled:
             for state_trigger in self._state_triggers:
                 state_trigger.trigger_state(self.owner, old_value, new_value, immediate=immediate)
+                if self.owner.state_component is None:
+                    process_timed_state_triggers = False
+                    break
         if old_value in self._active_timed_triggers:
             self._active_timed_triggers[old_value].stop_active_alarm()
             del self._active_timed_triggers[old_value]
@@ -1258,7 +1298,7 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         min_d = MAX_FLOAT
         new_value = None
         for value in state.values:
-            if value.range.lower_bound <= stat_value and stat_value <= value.range.upper_bound:
+            if value.range.lower_bound <= stat_value <= value.range.upper_bound:
                 if value is preferred_value:
                     new_value = value
                     break
@@ -1365,13 +1405,14 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
                         break
             elif slot.slot_name_hash == location.slot_hash:
                 break
-        slot = None
+        else:
+            slot = None
         if slot is not None:
             for slot_type in slot.slot_types:
                 state_tuning = self.overlapping_slot_states.get(slot_type, None)
                 if state_tuning is None:
-                    pass
-                elif parenting:
+                    continue
+                if parenting:
                     self.set_state(state_tuning.state_value_reference, state_tuning.state_to_apply_on_parent)
                 elif new_parent is UNSET:
                     self.set_state(state_tuning.state_value_reference, state_tuning.state_to_apply_on_deletion)
@@ -1444,22 +1485,20 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
             (state, value) = self._load_state_and_value(state_info)
             if not state is None:
                 if value is None:
-                    pass
-                elif self._persist_accross_gallery(state):
-                    pass
-                else:
-                    logger.info('[PERSISTENCE]: {}({}).', state, value)
-                    self.set_state(state, value)
+                    continue
+                if self._persist_accross_gallery(state):
+                    continue
+                logger.info('[PERSISTENCE]: {}({}).', state, value)
+                self.set_state(state, value)
         if state_component_data.states_before_delinquency:
             self.states_before_delinquency = []
             for state_info in state_component_data.states_before_delinquency:
                 (state, value) = self._load_state_and_value(state_info)
                 if not state is None:
                     if value is None:
-                        pass
-                    else:
-                        logger.info('[PERSISTENCE]: {}({}).', state, value)
-                        self.states_before_delinquency.append(value)
+                        continue
+                    logger.info('[PERSISTENCE]: {}({}).', state, value)
+                    self.states_before_delinquency.append(value)
         logger.info('[PERSISTENCE]: ----End loading state component of {0}.', self.owner)
 
     @classmethod
@@ -1469,16 +1508,14 @@ class StateComponent(Component, component_name=STATE_COMPONENT, persistence_key=
         for state_info in itertools.chain(state_component_data.states, state_component_data.states_before_delinquency):
             state = object_state_manager.get(state_info.state_name_hash)
             if state is None:
-                pass
-            else:
-                linked_stat = state.linked_stat
-                if linked_stat is None:
-                    pass
-                else:
-                    tracker = owner.get_tracker(linked_stat)
-                    if tracker.statistics_to_skip_load is None:
-                        tracker.statistics_to_skip_load = set()
-                    tracker.statistics_to_skip_load.add(linked_stat)
+                continue
+            linked_stat = state.linked_stat
+            if linked_stat is None:
+                continue
+            tracker = owner.get_tracker(linked_stat)
+            if tracker.statistics_to_skip_load is None:
+                tracker.statistics_to_skip_load = set()
+            tracker.statistics_to_skip_load.add(linked_stat)
 
 class StateTriggerOperation(enum.Int):
     AND = 0
@@ -1502,7 +1539,7 @@ class StateTrigger(HasTunableSingletonFactory, AutoFactoryInit):
 
     @staticmethod
     def _verify_tunable_callback(instance_class, tunable_name, source, value):
-        if value.set_random_state is None and value.set_states is None and (value.statistic_operations or value.set_on_children is None):
+        if value.set_random_state is None and (value.set_states is None and not value.statistic_operations) and value.set_on_children is None:
             logger.error('Object {} has trigger state values at states {} that does nothing.', instance_class, value.at_states, owner='rmccord')
         if any(state_value.state.linked_stat in value.statistic_operations for state_value in value.at_states if state_value is not None):
             logger.error('Statistic Operation linked to state this trigger is listening for. This could cause circular triggers.')
@@ -1511,6 +1548,9 @@ class StateTrigger(HasTunableSingletonFactory, AutoFactoryInit):
 
     def is_trigger_state_valid(self, owner, at_state, state_to_trigger):
         if at_state is state_to_trigger:
+            return False
+        if owner.state_component is None:
+            logger.exception('{} does not have a state component but we are testing a state trigger value at_state={}, state_to_trigger={}', owner, at_state, state_to_trigger)
             return False
         elif owner.state_component.state_value_active(state_to_trigger):
             return False
@@ -1535,13 +1575,14 @@ class StateTrigger(HasTunableSingletonFactory, AutoFactoryInit):
                         owner.set_state(random_state_value.state, random_state_value, immediate=immediate)
                 for stat_op in self.statistic_operations:
                     stat_op.apply_to_resolver(resolver)
-                if owner.children:
-                    for child in owner.children:
-                        for state in self.set_on_children.set_states:
-                            child.set_state(state.state, state, immediate=immediate)
-                        child_resolver = SingleObjectResolver(child)
-                        for stat_op in self.set_on_children.statistic_ops:
-                            stat_op.apply_to_resolver(child_resolver)
+                if self.set_on_children is not None:
+                    if owner.children:
+                        for child in owner.children:
+                            for state in self.set_on_children.set_states:
+                                child.set_state(state.state, state, immediate=immediate)
+                            child_resolver = SingleObjectResolver(child)
+                            for stat_op in self.set_on_children.statistic_ops:
+                                stat_op.apply_to_resolver(child_resolver)
             except:
                 logger.exception('Failed to trigger state. Object: {}, State: {}, Exception: {}', owner, at_state)
 
@@ -1580,8 +1621,8 @@ class StateTrigger(HasTunableSingletonFactory, AutoFactoryInit):
             return False
         for state_value in self.at_states:
             if state_value is None:
-                pass
-            elif owner.state_component.state_value_active(state_value):
+                continue
+            if owner.state_component.state_value_active(state_value):
                 return False
         return True
 
@@ -1603,10 +1644,11 @@ class TunableStateComponent(TunableFactory):
                 for trigger_item in timed_trigger.ops:
                     if trigger_item.states_to_trigger is not None:
                         for state_value in trigger_item.states_to_trigger:
-                            if state_value.state is None:
-                                logger.error("State value '{}' triggered in the timed state triggers of Object {} has no tuned state.", state_value, instance_class, owner='shipark')
-                            if state_value is not None and state_value.state not in [object_state.default_value.state for object_state in states]:
-                                logger.error("Object {} triggers the state '{}' in its timed state triggers but isn't tuned in the states list of the state component.", instance_class, state_value.state, owner='shipark')
+                            if state_value is not None:
+                                if state_value.state is None:
+                                    logger.error("State value '{}' triggered in the timed state triggers of Object {} has no tuned state.", state_value, instance_class, owner='shipark')
+                                if state_value.state not in [object_state.default_value.state for object_state in states]:
+                                    logger.error("Object {} triggers the state '{}' in its timed state triggers but isn't tuned in the states list of the state component.", instance_class, state_value.state, owner='shipark')
                     if trigger_item.trigger_time <= lowest_trigger:
                         logger.error('Object {} has a list of trigger trigger_item {} is lower than previous trigger {}', instance_class, trigger_item, lowest_trigger, owner='camilogarcia')
                     lowest_trigger = trigger_item.trigger_time
@@ -1807,9 +1849,8 @@ class TimedStateChange:
         if states_to_trigger:
             for state in states_to_trigger:
                 if state is None:
-                    pass
-                else:
-                    self._state.set_state(state.state, state)
+                    continue
+                self._state.set_state(state.state, state)
             resolver = SingleObjectResolver(self._owner)
             for loot_action in trigger_time.loot_list:
                 loot_action.apply_to_resolver(resolver)

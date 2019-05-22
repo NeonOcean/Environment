@@ -28,7 +28,7 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
 
     def _cleanup_noncore_commodity(self, stat_type):
         commodity = self.get_statistic(stat_type)
-        if commodity is not None and (commodity.core or commodity.remove_on_convergence and commodity.is_at_convergence()):
+        if commodity is not None and (not commodity.core and commodity.remove_on_convergence) and commodity.is_at_convergence():
             self.remove_statistic(stat_type)
 
     def set_value(self, stat_type, value, from_load=False, **kwargs):
@@ -42,9 +42,8 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
     def send_commodity_progress_update(self, from_add=False):
         for statistic in tuple(self._statistics_values_gen()):
             if not statistic.can_decay():
-                pass
-            else:
-                statistic.create_and_send_commodity_update_msg(from_add=from_add)
+                continue
+            statistic.create_and_send_commodity_update_msg(from_add=from_add)
 
     def on_initial_startup(self):
         for commodity in tuple(self._statistics_values_gen()):
@@ -82,12 +81,11 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         ranked_statistics = []
         for stat in tuple(self._statistics_values_gen()):
             if not stat.persisted:
-                pass
-            else:
-                try:
-                    stat.save_statistic(commodities, skills, ranked_statistics, self)
-                except Exception:
-                    logger.error('Exception thrown while trying to save stat {}', stat)
+                continue
+            try:
+                stat.save_statistic(commodities, skills, ranked_statistics, self)
+            except Exception:
+                logger.error('Exception thrown while trying to save stat {}', stat)
         return (commodities, skills, ranked_statistics)
 
     def load(self, statistics, skip_load=False, update_affordance_cache=True):
@@ -101,18 +99,19 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
                     logger.info('Trying to load unavailable STATISTIC resource: {}', commodity_proto.name_hash, owner='rez')
                 elif not commodity_class.persisted:
                     logger.info('Trying to load unavailable STATISTIC resource: {}', commodity_proto.name_hash, owner='rez')
-                elif self.statistics_to_skip_load is not None and commodity_class in self.statistics_to_skip_load:
-                    pass
-                elif commodity_class.is_skill and commodity_proto.value == commodity_class.initial_value:
-                    pass
-                elif skip_load and commodity_class.remove_on_convergence:
-                    logger.info('Not loading {} because load is not required.', commodity_class, owner='rez')
-                elif not self._should_add_commodity_from_gallery(commodity_class, skip_load):
-                    pass
-                elif owner_lod is not None and owner_lod < commodity_class.min_lod_value:
-                    pass
                 else:
-                    commodity_class.load_statistic_data(self, commodity_proto)
+                    if self.statistics_to_skip_load is not None and commodity_class in self.statistics_to_skip_load:
+                        continue
+                    if commodity_class.is_skill and commodity_proto.value == commodity_class.initial_value:
+                        continue
+                    if skip_load and commodity_class.remove_on_convergence:
+                        logger.info('Not loading {} because load is not required.', commodity_class, owner='rez')
+                    else:
+                        if not self._should_add_commodity_from_gallery(commodity_class, skip_load):
+                            continue
+                        if owner_lod is not None and owner_lod < commodity_class.min_lod_value:
+                            continue
+                        commodity_class.load_statistic_data(self, commodity_proto)
         finally:
             self.statistics_to_skip_load = None
             self.load_in_progress = False
@@ -137,13 +136,12 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         target_affordances = list()
         for commodity in self._statistics_values_gen():
             if not commodity.is_skill:
-                pass
-            else:
-                (skill_affordances, skill_target_affordances) = commodity.get_skill_provided_affordances()
-                affordances.update(skill_affordances)
-                for provided_affordance in skill_target_affordances:
-                    provided_affordance_data = ProvidedAffordanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self)
-                    target_affordances.append(provided_affordance_data)
+                continue
+            (skill_affordances, skill_target_affordances) = commodity.get_skill_provided_affordances()
+            affordances.update(skill_affordances)
+            for provided_affordance in skill_target_affordances:
+                provided_affordance_data = ProvidedAffordanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self)
+                target_affordances.append(provided_affordance_data)
         return (affordances, target_affordances)
 
     def get_actor_and_provided_mixers_list(self):

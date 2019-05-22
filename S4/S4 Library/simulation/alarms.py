@@ -197,26 +197,24 @@ def get_alarm_data_for_gsi():
     for alarm_handle_ref in tuple(_ALARM_ELEMENT_HANDLES.values()):
         alarm_handle = alarm_handle_ref()
         if alarm_handle is None:
-            pass
+            continue
+        element_handle = alarm_handle._element_handle
+        element = element_handle.element
+        if element is None:
+            continue
+        entry = {}
+        entry['time'] = str(element_handle.when)
+        entry['ticks'] = alarm_handle.get_remaining_time().in_ticks()
+        entry['time_left'] = str(alarm_handle.get_remaining_time())
+        owner = alarm_handle._owner_ref()
+        if owner is None:
+            owner_name = 'None Owner'
         else:
-            element_handle = alarm_handle._element_handle
-            element = element_handle.element
-            if element is None:
-                pass
-            else:
-                entry = {}
-                entry['time'] = str(element_handle.when)
-                entry['ticks'] = alarm_handle.get_remaining_time().in_ticks()
-                entry['time_left'] = str(alarm_handle.get_remaining_time())
-                owner = alarm_handle._owner_ref()
-                if owner is None:
-                    owner_name = 'None Owner'
-                else:
-                    owner_name = str(owner)
-                entry['owner'] = owner_name
-                entry['handle'] = id(alarm_handle)
-                entry['callback'] = str(element.callback)
-                alarm_data.append(entry)
+            owner_name = str(owner)
+        entry['owner'] = owner_name
+        entry['handle'] = id(alarm_handle)
+        entry['callback'] = str(element.callback)
+        alarm_data.append(entry)
     sort_key_fn = lambda data: data['ticks']
     alarm_data = sorted(alarm_data, key=sort_key_fn)
     return alarm_data

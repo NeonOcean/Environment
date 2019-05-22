@@ -136,7 +136,9 @@ class RallyInteraction(ProxyInteraction):
                             if possible_target is not None and possible_target.parts is not None:
                                 for part in possible_target.parts:
                                     if part.in_use:
-                                        pass
+                                        if part.in_use_by(sim):
+                                            if part.supports_affordance(scored_interaction_data.interaction.affordance):
+                                                num_possible_parts = num_possible_parts + 1
                                     if part.supports_affordance(scored_interaction_data.interaction.affordance):
                                         num_possible_parts = num_possible_parts + 1
                             else:
@@ -163,8 +165,9 @@ class RallyInteraction(ProxyInteraction):
                     return False
             else:
                 target = self._get_rally_affordance_target()
-                if target.is_part:
-                    target = target.part_owner
+                if target is not None:
+                    if target.is_part:
+                        target = target.part_owner
             if affordance is not None:
                 affordance = self.generate_continuation_affordance(affordance, rally_constraint=constraint)
                 return sim.push_super_affordance(affordance, target, context, from_rally_interaction=self, push_social=self.rally_push_social, **self.interaction_parameters)
@@ -174,9 +177,10 @@ class RallyInteraction(ProxyInteraction):
         if not self.should_rally:
             return
         anchor_object = self.target
-        if anchor_object.is_part:
-            anchor_object = anchor_object.part_owner
-        if anchor_object is not None and RallySource.SOCIAL_GROUP in self.rally_sources:
+        if anchor_object is not None:
+            if anchor_object.is_part:
+                anchor_object = anchor_object.part_owner
+        if RallySource.SOCIAL_GROUP in self.rally_sources:
             main_group = self.sim.get_visible_group()
             if main_group:
                 main_group.try_relocate_around_focus(self.sim, priority=self.priority)

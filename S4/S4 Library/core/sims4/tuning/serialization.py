@@ -70,9 +70,9 @@ def _enumerate_members(module, predicate, skip_private=True):
     else:
         qual_path = ''
     for (key, value) in items:
-        if not skip_private or not key.startswith('__') or key.endswith('__'):
-            pass
-        elif predicate(qual_path + key, value):
+        if not not skip_private and not not key.startswith('__') and key.endswith('__'):
+            continue
+        if predicate(qual_path + key, value):
             yield (key, value)
 
 def _tunable_check(_, obj):
@@ -122,27 +122,29 @@ def _scan_module_rec(scan, module, key_name, root_name, visited=None, for_export
     else:
         module_scan = collections.OrderedDict()
     attr_name = Attributes.Name if for_export else LoadingAttributes.Name
-    if hasattr(module, '__name__'):
-        module_name = module.__name__
-        if key_name in scan:
-            for class_dict in scan[key_name]:
-                if class_dict.get(attr_name) == module_name:
-                    return False
-        module_scan[attr_name] = module_name
-    if attr_name not in module_scan and inspect.isclass(module):
+    if attr_name not in module_scan:
+        if hasattr(module, '__name__'):
+            module_name = module.__name__
+            if key_name in scan:
+                for class_dict in scan[key_name]:
+                    if class_dict.get(attr_name) == module_name:
+                        return False
+            module_scan[attr_name] = module_name
+    if inspect.isclass(module):
         if for_export:
             has_tunables = _scan_tunables(module_scan, module)
-            if module.export:
-                module_scan[ENUM_ENTRIES] = module
-                module_scan[Attributes.EnumBitFlag] = issubclass(module, enum.IntFlags)
-                module_scan[Attributes.EnumLocked] = module.locked
-                if module.offset:
-                    module_scan[Attributes.EnumOffset] = module.offset
-                if module.display_sorted:
-                    module_scan[Attributes.DisplaySorted] = module.display_sorted
-                if module.partitioned:
-                    module_scan[Attributes.Partitioned] = module.partitioned
-                has_tunables = True
+            if isinstance(module, enum.Metaclass):
+                if module.export:
+                    module_scan[ENUM_ENTRIES] = module
+                    module_scan[Attributes.EnumBitFlag] = issubclass(module, enum.IntFlags)
+                    module_scan[Attributes.EnumLocked] = module.locked
+                    if module.offset:
+                        module_scan[Attributes.EnumOffset] = module.offset
+                    if module.display_sorted:
+                        module_scan[Attributes.DisplaySorted] = module.display_sorted
+                    if module.partitioned:
+                        module_scan[Attributes.Partitioned] = module.partitioned
+                    has_tunables = True
         else:
             has_tunables = _replace_tunables(module_scan, module)
     else:
@@ -280,6 +282,9 @@ def _export_module(writer, scan):
                 writer.start_namespace(name, sub_dict)
                 _export_module(writer, sub_dict)
                 writer.end_namespace(name)
+            else:
+                if value is DELETEDMARKER:
+                    writer.write_deleted_tunable(name)
         elif value is DELETEDMARKER:
             writer.write_deleted_tunable(name)
 
@@ -654,7 +659,7 @@ class TuningDescFileWriter:
                 while bit_flags:
                     bit_flags >>= 1
                     enum_value += 1
-            attr_vals = {Attributes.EnumValue: enum_value, Attributes.Name: enum_name}
+            attr_vals = {Attributes.Name: enum_name, Attributes.EnumValue: enum_value}
             self._writer.startElement(Tags.EnumItem, AttributesImpl(attr_vals), can_close=True)
             self._writer.endElement(Tags.EnumItem)
 
@@ -686,7 +691,7 @@ class TuningDescFileWriter:
                         sub_elements[attr_name] = value
                     elif value is not None:
                         self._write(' %s=%s' % (attr_name, quoteattr(str(value))))
-                if sub_elements or can_close:
+                if not sub_elements and can_close:
                     self._write(' />\n'.format(name))
                     self._already_closed = name
                 else:
@@ -722,8 +727,12 @@ class TuningDescFileWriter:
     def start_namespace(self, namespace, contents):
         attribute_dict = {}
         for (attribute, value) in contents.items():
-            if isinstance(value, TunableBase) or (isinstance(value, dict) or (isinstance(value, list) or isinstance(value, enum.Metaclass))) or value is not DELETEDMARKER:
-                attribute_dict[attribute] = value
+            if not isinstance(value, TunableBase):
+                if not isinstance(value, dict):
+                    if not isinstance(value, list):
+                        if not isinstance(value, enum.Metaclass):
+                            if value is not DELETEDMARKER:
+                                attribute_dict[attribute] = value
         self._writer.startElement(namespace, attribute_dict)
 
     def end_namespace(self, namespace):

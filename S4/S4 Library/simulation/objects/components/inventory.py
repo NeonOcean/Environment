@@ -205,7 +205,9 @@ class InventoryComponent(Component):
     def _allow_destruction_on_inventory_transfer(self, obj):
         if obj.consumable_component is not None and obj.consumable_component.allow_destruction_on_inventory_transfer:
             return True
-        elif obj.has_servings_statistic():
+        if obj.has_servings_statistic():
+            return True
+        elif obj.inventoryitem_component is not None and obj.inventoryitem_component.always_destroy_on_inventory_transfer:
             return True
         return False
 
@@ -214,23 +216,24 @@ class InventoryComponent(Component):
         for child_obj in tuple(obj.children):
             if self._allow_destruction_on_inventory_transfer(child_obj):
                 child_obj.destroy(source=self.owner, cause='Parent is being inventoried.')
-            elif self.player_try_add_object(child_obj):
-                pass
-            elif build_buy.move_object_to_household_inventory(child_obj):
-                objects_in_household_inventory.append(child_obj)
             else:
-                world_obj = self.owner
-                fgl_context_fn = create_fgl_context_for_object if world_obj.is_on_active_lot() else create_fgl_context_for_object_off_lot
-                fgl_starting_location = create_starting_location(position=world_obj.position)
-                (translation, orientation) = find_good_location(fgl_context_fn(fgl_starting_location, child_obj))
-                if translation is not None and orientation is not None:
-                    child_obj.set_parent(None, transform=sims4.math.Transform(translation, orientation), routing_surface=world_obj.routing_surface)
+                if self.player_try_add_object(child_obj):
+                    continue
+                if build_buy.move_object_to_household_inventory(child_obj):
+                    objects_in_household_inventory.append(child_obj)
                 else:
-                    child_obj.destroy(source=self.owner, cause="Parent is being inventoried and object can't be placed anywhere.")
+                    world_obj = self.owner
+                    fgl_context_fn = create_fgl_context_for_object if world_obj.is_on_active_lot() else create_fgl_context_for_object_off_lot
+                    fgl_starting_location = create_starting_location(position=world_obj.position)
+                    (translation, orientation) = find_good_location(fgl_context_fn(fgl_starting_location, child_obj))
+                    if translation is not None and orientation is not None:
+                        child_obj.set_parent(None, transform=sims4.math.Transform(translation, orientation), routing_surface=world_obj.routing_surface)
+                    else:
+                        child_obj.destroy(source=self.owner, cause="Parent is being inventoried and object can't be placed anywhere.")
         if objects_in_household_inventory and self.PARENTED_OBJECT_MOVED_TO_HOUSEHOLD_INVENTORY_NOTIFICATION is not None:
             sim_info = self.owner.sim_info if self.owner.is_sim else services.active_sim_info()
             notification = self.PARENTED_OBJECT_MOVED_TO_HOUSEHOLD_INVENTORY_NOTIFICATION(sim_info, resolver=SingleObjectResolver(obj))
-            notification.show_dialog(additional_tokens=(LocalizationHelperTuning.get_bulleted_list((None,), (LocalizationHelperTuning.get_object_name(obj) for obj in objects_in_household_inventory)),))
+            notification.show_dialog(additional_tokens=(LocalizationHelperTuning.get_bulleted_list(None, *(LocalizationHelperTuning.get_object_name(obj) for obj in objects_in_household_inventory)),))
 
     def purge_inventory(self):
         for obj in tuple(self):
@@ -392,13 +395,12 @@ class InventoryComponent(Component):
             if obj in client.live_drag_objects:
                 client.cancel_live_drag(obj)
             if self._allow_destruction_on_inventory_transfer(obj):
-                pass
-            else:
-                try:
-                    if self.try_remove_object_by_id(obj.id, count=obj.stack_count()) and not build_buy.move_object_to_household_inventory(obj, object_location_type=ObjectOriginLocation.SIM_INVENTORY):
-                        logger.error('{} failed to push object from inventory to household inventory', obj)
-                except Exception:
-                    logger.exception('{} failed to push object from inventory to household inventory', obj)
+                continue
+            try:
+                if self.try_remove_object_by_id(obj.id, count=obj.stack_count()) and not build_buy.move_object_to_household_inventory(obj, object_location_type=ObjectOriginLocation.SIM_INVENTORY):
+                    logger.error('{} failed to push object from inventory to household inventory', obj)
+            except Exception:
+                logger.exception('{} failed to push object from inventory to household inventory', obj)
 
     def on_reset_component_get_interdependent_reset_records(self, reset_reason, reset_records):
         if self.is_shared_inventory:

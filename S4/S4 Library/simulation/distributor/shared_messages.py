@@ -29,7 +29,7 @@ def add_message_if_selectable(sim, msg_id, msg, immediate):
         distributor.add_op(sim, op)
 
 def add_message_if_player_controlled_sim(sim, msg_id, msg, immediate):
-    if sim.is_npc or sim.valid_for_distribution:
+    if not sim.is_npc and sim.valid_for_distribution:
         distributor = Distributor.instance()
         op = MessageOp(msg, msg_id, immediate)
         distributor.add_op(sim, op)
@@ -92,8 +92,9 @@ def build_icon_info_msg(icon_info, name, msg, desc=None, tooltip=None):
             msg.icon_object_def.geo_state_hash = icon_obj_geo_hash
         if icon_obj_material_hash is not None:
             msg.icon_object_def.material_hash = icon_obj_material_hash
-        if icon_obj_name is not None:
-            msg.name = icon_obj_name
+        if name is None:
+            if icon_obj_name is not None:
+                msg.name = icon_obj_name
 
 def create_icon_info_msg(icon_info, name=None, desc=None, tooltip=None):
     icon_info_msg = protocolbuffers.UI_pb2.IconInfo()

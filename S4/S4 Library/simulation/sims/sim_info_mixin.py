@@ -207,6 +207,9 @@ class HasSimInfoBasicMixin:
     def get_significant_other_sim_info(self):
         return self.sim_info.get_significant_other_sim_info()
 
+    def get_fiance_sim_info(self):
+        return self.sim_info.get_fiance_sim_info()
+
     def get_spouse_sim_info(self):
         return self.sim_info.get_spouse_sim_info()
 
@@ -299,6 +302,9 @@ class HasSimInfoMixin(HasSimInfoBasicMixin):
 
     def get_actor_basic_extras_reversed_gen(self, *args, **kwargs):
         yield from self.sim_info.get_actor_basic_extras_reversed_gen(*args, **kwargs)
+
+    def test_pie_menu_modifiers(self, *args, **kwargs):
+        return self.sim_info.test_pie_menu_modifiers(*args, **kwargs)
 
     def get_all_stats_gen(self):
         return self.sim_info.get_all_stats_gen()

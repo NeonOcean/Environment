@@ -13,7 +13,6 @@ import clock
 import enum
 import event_testing
 import services
-import sims
 import sims4.log
 logger = sims4.log.Logger('SimInfoTests')
 
@@ -22,13 +21,13 @@ class MatchType(enum.Int):
     MATCH_ANY = 1
 
 class _SpeciesTestSpecies(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'species': TunableEnumSet(description='\n            The Sim must be one of the specified species. Species are\n            consolidated, e.g. large/small dog are both DOG.\n            ', enum_type=Species, enum_default=Species.HUMAN)}
+    FACTORY_TUNABLES = {'species': TunableEnumSet(description='\n            The Sim must be one of the specified species. Species are\n            consolidated, e.g. large/small dog are both DOG.\n            ', enum_type=Species, enum_default=Species.HUMAN, invalid_enums=(Species.INVALID,))}
 
     def __call__(self, sim_info):
         return sim_info.species in self.species
 
 class _SpeciesTestExtendedSpecies(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'species': TunableEnumSet(description='\n            The Sim must be one of the specified species. Species are *not*\n            consolidated, e.g. large/small dog are different species.\n            ', enum_type=SpeciesExtended, enum_default=Species.HUMAN)}
+    FACTORY_TUNABLES = {'species': TunableEnumSet(description='\n            The Sim must be one of the specified species. Species are *not*\n            consolidated, e.g. large/small dog are different species.\n            ', enum_type=SpeciesExtended, enum_default=Species.HUMAN, invalid_enums=(SpeciesExtended.INVALID,))}
 
     def __call__(self, sim_info):
         return sim_info.extended_species in self.species
@@ -145,15 +144,15 @@ class TraitTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                 pass_white = False
                 for trait in self.whitelist_traits:
                     if trait is None:
-                        pass
-                    elif trait_tracker.has_trait(trait):
+                        continue
+                    if trait_tracker.has_trait(trait):
                         white_count += 1
                         if self.subject == ParticipantType.Actor:
                             trait_pie_menu_icon = trait.pie_menu_icon
                         if white_count >= self.num_whitelist_required:
                             pass_white = True
                             break
-                if pass_white or self.apply_thresholds_on_individual_basis:
+                if not pass_white and self.apply_thresholds_on_individual_basis:
                     return TestResult(False, "{} doesn't have any or enough traits in white list", self.subject.name, tooltip=self.tooltip)
             if self.blacklist_traits:
                 if self.apply_thresholds_on_individual_basis:
@@ -163,7 +162,7 @@ class TraitTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                         black_count += 1
                         if black_count >= self.num_blacklist_allowed:
                             return TestResult(False, '{} has trait {} in black list', self.subject.name, trait, tooltip=self.tooltip)
-        if self.apply_thresholds_on_individual_basis or white_count < self.num_whitelist_required:
+        if not self.apply_thresholds_on_individual_basis and white_count < self.num_whitelist_required:
             return TestResultNumeric(False, 'Not enough enough whitelist traits through all participants.', current_value=white_count, goal_value=self.num_whitelist_required, is_money=False)
         return TestResult(True, icon=trait_pie_menu_icon)
 
@@ -196,10 +195,12 @@ class BuffTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                 if self.apply_whitelist_on_individual_basis:
                     if not any(target.has_buff(buff_type) for buff_type in self.whitelist):
                         return TestResult(False, "{} doesn't have any buff in whitelist", target, tooltip=self.tooltip)
-                        if has_satisfied_whitelist_once or any(target.has_buff(buff_type) for buff_type in self.whitelist):
-                            has_satisfied_whitelist_once = True
-                elif has_satisfied_whitelist_once or any(target.has_buff(buff_type) for buff_type in self.whitelist):
-                    has_satisfied_whitelist_once = True
+                        if not has_satisfied_whitelist_once:
+                            if any(target.has_buff(buff_type) for buff_type in self.whitelist):
+                                has_satisfied_whitelist_once = True
+                elif not has_satisfied_whitelist_once:
+                    if any(target.has_buff(buff_type) for buff_type in self.whitelist):
+                        has_satisfied_whitelist_once = True
         if self.apply_whitelist_on_individual_basis:
             return TestResult.TRUE
         if has_satisfied_whitelist_once:
@@ -236,7 +237,7 @@ class BuffAddedTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
         return TestResult.TRUE
 
     def validate_tuning_for_objective(self, objective):
-        if self.check_visibility or not self.acceptable_buffs:
+        if not self.check_visibility and not self.acceptable_buffs:
             logger.error('Invalid tuning in objective {}.  One of the following must be true: Check Visibility must be true or Acceptable Buffs must have entries.', objective)
 
 class MoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
@@ -246,7 +247,7 @@ class MoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     def participant_type_override(participant_type_enum, participant_type_default):
         return {'who': TunableEnumEntry(description='\n                    To whom or what this test should be applied.\n                    ', tunable_type=participant_type_enum, default=participant_type_default)}
 
-    FACTORY_TUNABLES = {'who': TunableEnumEntry(description='\n            To whom or what this test should be applied.\n            ', tunable_type=ParticipantTypeSim, default=ParticipantTypeSim.Actor), 'mood': TunableReference(description="\n            The mood that must be active (or must be inactive, if 'Disallow' is\n            checked).\n            ", manager=services.get_instance_manager(sims4.resources.Types.MOOD)), 'disallow': Tunable(description="\n            If True, this test will pass if the Sim's mood does NOT match the tuned mood reference.\n            ", tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'who': TunableEnumEntry(description='\n            To whom or what this test should be applied.\n            ', tunable_type=ParticipantTypeSim, default=ParticipantTypeSim.Actor), 'mood': TunablePackSafeReference(description="\n            The mood that must be active (or must be inactive, if 'Disallow' is\n            checked).\n            ", manager=services.get_instance_manager(sims4.resources.Types.MOOD)), 'disallow': Tunable(description="\n            If True, this test will pass if the Sim's mood does NOT match the tuned mood reference.\n            ", tunable_type=bool, default=False)}
     __slots__ = ('who', 'mood', 'disallow')
 
     def __init__(self, **kwargs):
@@ -257,6 +258,10 @@ class MoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
 
     @cached_test
     def __call__(self, test_targets=()):
+        if self.mood is None:
+            if self.disallow:
+                return TestResult(True)
+            return TestResult(False, "Can't match mood as it is None, probably due pack safeness.")
         influence_by_active_mood = False
         for target in test_targets:
             if target is None:
@@ -476,8 +481,9 @@ class PregnancyTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
             first_offspring = next(pregnancy_tracker.get_offspring_data_gen(), None)
             if first_offspring is None:
                 return TestResult(False, '{} has no offspring.', target, tooltip=self.tooltip)
-            if self.offspring_gender is not None and first_offspring.gender != self.offspring_gender:
-                return TestResult(False, "{}'s first offspring should be {} but is {}.", target, self.offspring_gender, first_offspring.gender, tooltip=self.tooltip)
+            if self.offspring_gender is not None:
+                if first_offspring.gender != self.offspring_gender:
+                    return TestResult(False, "{}'s first offspring should be {} but is {}.", target, self.offspring_gender, first_offspring.gender, tooltip=self.tooltip)
         return TestResult.TRUE
 
 class FilterTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
@@ -579,7 +585,7 @@ class SimInfoGameplayOptionsTest(HasTunableSingletonFactory, AutoFactoryInit, Ba
         if not is_required_pack_installed(self.gameplay_option):
             return TestResult(False, '{} option missing required pack', self.gameplay_option, self.tooltip)
         option_result = subject.sim_info.get_gameplay_option(self.gameplay_option)
-        if self.invert or option_result or not (self.invert and option_result):
+        if self.invert or not option_result or not not (self.invert and option_result):
             return TestResult.TRUE
         return TestResult(False, "{}'s option {} is set to {}", subject, self.gameplay_option, option_result, tooltip=self.tooltip)
 

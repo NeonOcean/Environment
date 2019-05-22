@@ -38,19 +38,23 @@ class AnimationDataUniversal(_AnimationDataBase):
         provided_postures = asm.provided_postures
         if provided_postures:
             for species in Species:
+                if species == Species.INVALID:
+                    continue
                 yield (species, provided_postures, asm)
 
     def get_supported_postures_gen(self):
         asm = create_asm(self._animation_data._asm_key, get_throwaway_animation_context())
         supported_postures = asm.get_supported_postures_for_actor(self._animation_data._actor_param_name)
         for species in Species:
+            if species == Species.INVALID:
+                continue
             yield (species, supported_postures, asm)
 
 class AnimationDataByActorSpecies(_AnimationDataBase):
 
     @TunableFactory.factory_option
     def animation_data_options(locked_args=None, **tunable_data_entries):
-        return {'_actor_species_mapping': TunableMapping(description='\n                A mapping from actor species to animation data.\n                ', key_type=TunableEnumEntry(description='\n                    Species these animations are intended for.\n                    ', tunable_type=Species, default=Species.HUMAN), value_type=_TunableAnimationData(locked_args=locked_args, **tunable_data_entries))}
+        return {'_actor_species_mapping': TunableMapping(description='\n                A mapping from actor species to animation data.\n                ', key_type=TunableEnumEntry(description='\n                    Species these animations are intended for.\n                    ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=_TunableAnimationData(locked_args=locked_args, **tunable_data_entries))}
 
     def get_animation_data(self, sim, target):
         return self._actor_species_mapping.get(sim.species)
@@ -63,9 +67,8 @@ class AnimationDataByActorSpecies(_AnimationDataBase):
             asm = create_asm(animation_data._asm_key, get_throwaway_animation_context())
             provided_postures = asm.provided_postures
             if not provided_postures:
-                pass
-            else:
-                yield (species, provided_postures, asm)
+                continue
+            yield (species, provided_postures, asm)
 
     def get_supported_postures_gen(self):
         for (species, animation_data) in self._actor_species_mapping.items():
@@ -77,7 +80,7 @@ class AnimationDataByActorAndTargetSpecies(_AnimationDataBase):
 
     @TunableFactory.factory_option
     def animation_data_options(locked_args=None, **tunable_data_entries):
-        return {'_actor_species_mapping': TunableMapping(description='\n                A mapping from actor species to target-based animation data\n                mappings.\n                ', key_type=TunableEnumEntry(description='\n                    Species these animations are intended for.\n                    ', tunable_type=Species, default=Species.HUMAN), value_type=TunableMapping(description='\n                    A mapping of target species to animation data.\n                    ', key_type=TunableEnumEntry(description='\n                        Species these animations are intended for.\n                        ', tunable_type=Species, default=Species.HUMAN), value_type=_TunableAnimationData(locked_args=locked_args, **tunable_data_entries)))}
+        return {'_actor_species_mapping': TunableMapping(description='\n                A mapping from actor species to target-based animation data\n                mappings.\n                ', key_type=TunableEnumEntry(description='\n                    Species these animations are intended for.\n                    ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunableMapping(description='\n                    A mapping of target species to animation data.\n                    ', key_type=TunableEnumEntry(description='\n                        Species these animations are intended for.\n                        ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=_TunableAnimationData(locked_args=locked_args, **tunable_data_entries)))}
 
     def get_animation_data(self, sim, target):
         actor_animation_data = self._actor_species_mapping.get(sim.species)
@@ -90,9 +93,8 @@ class AnimationDataByActorAndTargetSpecies(_AnimationDataBase):
             asm = create_asm(animation_data._asm_key, get_throwaway_animation_context())
             provided_postures = asm.provided_postures
             if not provided_postures:
-                pass
-            else:
-                yield (species, provided_postures, asm)
+                continue
+            yield (species, provided_postures, asm)
 
     def get_supported_postures_gen(self):
         for (species, target_species_data) in self._actor_species_mapping.items():

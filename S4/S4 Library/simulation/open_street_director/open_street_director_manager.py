@@ -45,12 +45,11 @@ class OpenStreetDirectorManager:
     def _pop_next_request(self):
         for requests in reversed(self._open_street_director_requests):
             if not requests:
-                pass
-            else:
-                request = requests[-1]
-                if request.is_factory:
-                    return request.get_request()
-                return requests.pop()
+                continue
+            request = requests[-1]
+            if request.is_factory:
+                return request.get_request()
+            return requests.pop()
 
     def on_request_finished_shutting_down(self, request):
         if request is self._active_open_street_director_request:

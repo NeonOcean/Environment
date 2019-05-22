@@ -35,9 +35,10 @@ class ReactionSi(AutoFactoryInit):
 
     def _get_target_and_context(self, sim, resolver, source=DEFAULT, priority=DEFAULT, insert_strategy=QueueInsertStrategy.NEXT, must_run_next=False):
         affordance_target = resolver.get_participant(self.affordance_target) if self.affordance_target is not None else None
-        if affordance_target.is_sim:
-            affordance_target = affordance_target.get_sim_instance()
-        source = InteractionSource.SCRIPT if affordance_target is not None and source is DEFAULT else source
+        if affordance_target is not None:
+            if affordance_target.is_sim:
+                affordance_target = affordance_target.get_sim_instance()
+        source = InteractionSource.SCRIPT if source is DEFAULT else source
         priority = self.affordance_priority if priority is DEFAULT else priority
         context = InteractionContext(sim, source, priority, run_priority=self.affordance_run_priority, insert_strategy=insert_strategy, must_run_next=must_run_next)
         return (affordance_target, context)
@@ -75,7 +76,7 @@ class ReactionMixer(AutoFactoryInit):
         if sim_specific_lockout and sim.is_sub_action_locked_out(self.affordance):
             return TestResult(False, 'Reaction Mixer Affordance {} is currently locked out.', self.affordance)
         if self.affordance_target is not None:
-            targets = [affordance_target.get_sim_instance() for affordance_target in resolver.get_participants(self.affordance_target) if affordance_target is not None and affordance_target.is_sim]
+            targets = [affordance_target.get_sim_instance() for affordance_target in resolver.get_participants(self.affordance_target) if affordance_target is not None if affordance_target.is_sim]
         else:
             targets = [None]
             if source_interaction is not None:
@@ -85,21 +86,19 @@ class ReactionMixer(AutoFactoryInit):
         for target in targets:
             for (aop, test_result) in get_valid_aops_gen(target, self.affordance, source_affordance, source_interaction, context, False, push_super_on_prepare=push_super_on_prepare, aop_kwargs=kwargs):
                 if not test_result:
-                    pass
-                else:
-                    interaction_constraint = aop.constraint_intersection(sim=sim, posture_state=None)
-                    posture_constraint = sim.posture_state.posture_constraint_strict
-                    constraint_intersection = interaction_constraint.intersect(posture_constraint)
-                    if constraint_intersection.valid:
-                        mixer_result = aop.execute(context)
-                        if not mixer_result:
-                            pass
-                        else:
-                            if sim.queue.always_start_inertial:
-                                running_interaction = sim.queue.running
-                                if running_interaction is not None and not running_interaction.is_super:
-                                    running_interaction.cancel(FinishingType.DISPLACED, cancel_reason_msg='Reaction displaced mixer.')
-                            return mixer_result
+                    continue
+                interaction_constraint = aop.constraint_intersection(sim=sim, posture_state=None)
+                posture_constraint = sim.posture_state.posture_constraint_strict
+                constraint_intersection = interaction_constraint.intersect(posture_constraint)
+                if constraint_intersection.valid:
+                    mixer_result = aop.execute(context)
+                    if not mixer_result:
+                        continue
+                    if sim.queue.always_start_inertial:
+                        running_interaction = sim.queue.running
+                        if running_interaction is not None and not running_interaction.is_super:
+                            running_interaction.cancel(FinishingType.DISPLACED, cancel_reason_msg='Reaction displaced mixer.')
+                    return mixer_result
         return TestResult(False, "Could not push reaction affordance {} on {}. It's likely that the Sim is in a posture that is incompatible with this mixer.", self.affordance, sim)
 
 TunableReactionMixer = TunableSingletonFactory.create_auto_factory(ReactionMixer)
@@ -121,13 +120,12 @@ class ReactionLootOp(BaseLootOperation):
     def _should_fallback_to_mixer_reaction(self, sim, interaction):
         for running_interaction in sim.si_state:
             if not running_interaction.is_guaranteed():
-                pass
-            elif can_displace(interaction, running_interaction):
-                pass
-            elif sim.si_state.are_sis_compatible(running_interaction, interaction):
-                pass
-            else:
-                return True
+                continue
+            if can_displace(interaction, running_interaction):
+                continue
+            if sim.si_state.are_sis_compatible(running_interaction, interaction):
+                continue
+            return True
         return False
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
@@ -142,7 +140,7 @@ class ReactionLootOp(BaseLootOperation):
             return
         if self.si_reaction is not None:
             result = self._push_si_reaction(sim, resolver)
-            if self.mixer_reaction is not None and result and self._should_fallback_to_mixer_reaction(sim, result.execute_result.interaction):
+            if self.mixer_reaction is not None and (not result or self._should_fallback_to_mixer_reaction(sim, result.execute_result.interaction)):
                 self._push_mixer_reaction(sim, resolver)
         elif self.mixer_reaction is not None:
             self._push_mixer_reaction(sim, resolver)

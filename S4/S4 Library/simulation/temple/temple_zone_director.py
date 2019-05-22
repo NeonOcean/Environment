@@ -88,10 +88,11 @@ class TempleZoneDirector(SchedulingZoneDirector):
             arrival_spawn_point = services.current_zone().active_lot_arrival_spawn_point
             for sim in services.sim_info_manager().instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
                 if not sim.is_on_active_lot():
-                    if arrival_spawn_point is not None and test_point_in_polygon(sim.intended_position, arrival_spawn_point.get_footprint_polygon()):
-                        sim_resolver = SingleSimResolver(sim.sim_info)
-                        for loot in self._temple_data.enter_lot_loot:
-                            loot.apply_to_resolver(sim_resolver)
+                    if arrival_spawn_point is not None:
+                        if test_point_in_polygon(sim.intended_position, arrival_spawn_point.get_footprint_polygon()):
+                            sim_resolver = SingleSimResolver(sim.sim_info)
+                            for loot in self._temple_data.enter_lot_loot:
+                                loot.apply_to_resolver(sim_resolver)
                 sim_resolver = SingleSimResolver(sim.sim_info)
                 for loot in self._temple_data.enter_lot_loot:
                     loot.apply_to_resolver(sim_resolver)

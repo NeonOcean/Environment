@@ -108,6 +108,7 @@ class CreateCarriedObjectMixin:
         def enter_carry(timeline):
             result = yield from element_utils.run_child(timeline, enter_carry_while_holding(self, self.created_target, callback=claim_object, create_si_fn=self._get_create_continuation_affordance(), track=self.track, sequence=build_critical_section(super_build_basic_content(sequence, **kwargs), flush_all_animations)))
             return result
+            yield
 
         return (self._object_create_helper.create(set_carry_target, enter_carry), lambda _: self._object_create_helper.claimed)
 

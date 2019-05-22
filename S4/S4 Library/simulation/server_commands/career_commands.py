@@ -1,4 +1,3 @@
-import random
 from careers.career_base import set_career_event_override
 from careers.career_event_manager import CareerEventManager
 from careers.career_ops import CareerOps
@@ -9,10 +8,11 @@ from server_commands.argument_helpers import OptionalTargetParam, get_optional_t
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.localization import LocalizationHelperTuning
 import interactions
+import random
 import services
 import sims4.commands
 import sims4.log
-logger = sims4.log.Logger('CareerCommand')
+logger = sims4.log.Logger('CareerCommand', default_owner='rrodgers')
 
 @sims4.commands.Command('careers.select', command_type=sims4.commands.CommandType.Live)
 def select_career(sim_id:int=None, career_instance_id:int=None, track_id:int=None, level:int=None, company_name_hash:int=None, reason:int=CareerOps.JOIN_CAREER, _connection=None):
@@ -189,7 +189,7 @@ def career_pay_retirement(opt_sim:OptionalSimInfoParam=None, _connection=None):
     return True
 
 @sims4.commands.Command('careers.add_performance', command_type=sims4.commands.CommandType.Cheat)
-def add_career_performance(opt_sim:OptionalTargetParam=None, amount:int=None, career_uid:int=None, _connection=None):
+def add_career_performance(opt_sim:OptionalTargetParam=None, amount:int=None, career_type:TunableInstanceParam(sims4.resources.Types.CAREER)=None, _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is None:
         sims4.commands.output('careers.add_performance Invalid Sim passed', _connection)
@@ -199,8 +199,10 @@ def add_career_performance(opt_sim:OptionalTargetParam=None, amount:int=None, ca
         sims4.commands.output('careers.add_performance Invalid amount passed', _connection)
         sims4.commands.output('Usage: careers.add_performance <opt_sim> <amount>', _connection)
         return
+    if career_type is None:
+        sims4.commands.output('careers.add_performance Invalid career passed', _connection)
     if len(sim.sim_info.careers) > 0:
-        career = sim.sim_info.career_tracker.get_career_by_uid(career_uid)
+        career = sim.sim_info.career_tracker.get_career_by_uid(career_type.guid64)
         if career is not None:
             performance_stat = sim.statistic_tracker.get_statistic(career.current_level_tuning.performance_stat)
             performance_stat.add_value(amount)
@@ -333,15 +335,18 @@ def set_avg_careers(average_careers:float, _connection=None):
     career_count = 0
     for sim_info_id in sim_info_manager:
         sim_info = sim_info_manager.get(sim_info_id)
-        if sim_info is not None and sim_info.lod != SimInfoLODLevel.MINIMUM:
-            if sim_info.career_tracker.has_career:
-                career_count += 1
-                if sim_info.is_young_adult_or_older and sim_info.is_npc:
-                    adult_career_sims_infos.append(sim_info)
+        if sim_info is not None:
+            if sim_info.lod != SimInfoLODLevel.MINIMUM:
+                if sim_info.career_tracker.has_career:
+                    career_count += 1
                     if sim_info.is_young_adult_or_older and sim_info.is_npc:
+                        adult_career_sims_infos.append(sim_info)
+                        if sim_info.is_young_adult_or_older:
+                            if sim_info.is_npc:
+                                adult_jobless_sim_infos.append(sim_info)
+                elif sim_info.is_young_adult_or_older:
+                    if sim_info.is_npc:
                         adult_jobless_sim_infos.append(sim_info)
-            elif sim_info.is_young_adult_or_older and sim_info.is_npc:
-                adult_jobless_sim_infos.append(sim_info)
     needed_careers = target_careers - career_count
     career_delta = 0
     if needed_careers > 0:
@@ -386,6 +391,22 @@ def add_pto(amount:int=1, opt_sim:OptionalSimInfoParam=None, _connection=None):
         career.resend_career_data()
         sims4.commands.output('add_pto: {} now has {} pto days after adding {} days'.format(career, career.pto, amount), _connection)
 
+@sims4.commands.Command('careers.add_gig', command_type=sims4.commands.CommandType.DebugOnly)
+def add_gig(gig:TunableInstanceParam(sims4.resources.Types.CAREER_GIG), opt_sim:OptionalSimInfoParam=None, _connection=None):
+    sim_info = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection)
+    if sim_info is None:
+        logger.error('Failed to get sim info for add_gig.')
+        return
+    if gig is None:
+        logger.error('Failed. Please provide a gig')
+    now = services.time_service().sim_now
+    time_till_gig = gig.get_time_until_next_possible_gig(now)
+    if time_till_gig is None:
+        logger.error('No possible scheduled times for gig.')
+        return
+    gig_time = now + time_till_gig
+    sim_info.career_tracker.set_gig(gig, gig_time)
+
 @sims4.commands.Command('careers.cancel_current_gig', command_type=sims4.commands.CommandType.Live)
 def cancel_current_gig(career_type:TunableInstanceParam(sims4.resources.Types.CAREER), opt_sim:OptionalSimInfoParam=None, _connection=None):
     sim_info = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection)
@@ -396,4 +417,16 @@ def cancel_current_gig(career_type:TunableInstanceParam(sims4.resources.Types.CA
     if career is None:
         logger.error('Failed to find career {} on sim {} for cancel_current_gig.', career_type, sim_info)
         return
-    career.clear_current_gig()
+    career.cancel_current_gig()
+
+@sims4.commands.Command('careers.score_current_home_assignment_gig', command_type=sims4.commands.CommandType.DebugOnly)
+def score_current_home_assignment_gig(career_type:TunableInstanceParam(sims4.resources.Types.CAREER), opt_sim:OptionalSimInfoParam=None, _connection=None):
+    sim_info = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection)
+    if sim_info is None:
+        logger.error('Failed to get sim info for score_current_home_assignment_gig.')
+        return
+    career = sim_info.career_tracker.get_career_by_uid(career_type.guid64)
+    if career is None:
+        logger.error('Failed to find career {} on sim {} for score_current_home_assignment_gig.', career_type, sim_info)
+        return
+    career.score_work_at_home_gig_early()

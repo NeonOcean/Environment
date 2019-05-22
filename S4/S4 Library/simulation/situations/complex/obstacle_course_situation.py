@@ -86,6 +86,7 @@ class RunCourseState(CommonInteractionCompletedSituationState):
             self._autonomy_request_handle = None
         if self.owner is None:
             return False
+            yield
         if selected_interaction is not None:
             selected_interaction.invalidate()
             affordance = selected_interaction.affordance
@@ -93,10 +94,13 @@ class RunCourseState(CommonInteractionCompletedSituationState):
             result = aop.test_and_execute(self._interaction_context)
             if not result:
                 return result
+                yield
             self.owner.continue_course()
             return True
+            yield
         self.owner.finish_course()
         return True
+        yield
 
     def _create_autonomy_request(self, sim, **kwargs):
         autonomy_service = services.autonomy_service()
@@ -203,13 +207,12 @@ class ObstacleCourseSituation(SituationComplexCommon):
             users = sim_info_manager.instanced_sims_gen()
             for user in users:
                 if user in self._situation_sims:
-                    pass
-                else:
-                    for interaction in user.get_all_running_and_queued_interactions():
-                        target = interaction.target
-                        target = target.part_owner if target is not None and target.is_part else target
-                        if target is not None and target in obstacles:
-                            interaction.cancel(FinishingType.SITUATIONS, cancel_reason_msg='Obstacle Course Starting')
+                    continue
+                for interaction in user.get_all_running_and_queued_interactions():
+                    target = interaction.target
+                    target = target.part_owner if target is not None and target.is_part else target
+                    if target is not None and target in obstacles:
+                        interaction.cancel(FinishingType.SITUATIONS, cancel_reason_msg='Obstacle Course Starting')
             self._change_state(self.run_course_state())
 
     def _register_obstacle_course_events(self):
@@ -267,7 +270,8 @@ class ObstacleCourseSituation(SituationComplexCommon):
                 dialog = threshold_notification.notification(coach)
                 dialog.show_dialog(additional_tokens=(athlete, coach, failures, course_time_span))
                 break
-        logger.error("Obstacle Course Situation doesn't have a threshold, notification for failure count of {}", failures)
+        else:
+            logger.error("Obstacle Course Situation doesn't have a threshold, notification for failure count of {}", failures)
         self._self_destruct()
 
     def setup_obstacle_course(self):

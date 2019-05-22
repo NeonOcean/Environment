@@ -1,7 +1,9 @@
 from bucks.bucks_utils import BucksUtils
 from celebrity_fans.fan_tuning import FanTuning
 from date_and_time import create_time_span
+from event_testing.resolver import GlobalResolver
 from fame.fame_tuning import FameTunables
+from interactions.utils.tested_variant import TunableTestedVariant
 from sims4.resources import Types
 from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableSimMinute, TunableMapping, TunableRange, TunablePackSafeReference, TunableVariant
 from situations.bouncer.bouncer_types import BouncerRequestPriority, RequestSpawningOption
@@ -13,7 +15,7 @@ import sims4.log
 logger = sims4.log.Logger('FanSituationManager', default_owner='jdimailig')
 
 class FanSituationManager(HasTunableFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'fan_situation_interval': TunableSimMinute(description='\n            The amount of time, in Sim minutes, between attempts to create new\n            fan/stan situations.\n            ', default=15), 'fan_count_by_fame_level': TunableMapping(description='\n            The tunable amount of fans that are allowed by fame level of\n            a celebrity on the lot.  This number determines whether or not\n            more fan situations need to be triggered.\n            ', key_type=int, value_type=int), 'fans_cap': TunableRange(description='\n            Maximum number of fans we are allowed to run within this provider.\n\n            After this cap is hit, no other fan situations will be spawned.\n            ', tunable_type=int, default=3, minimum=0), 'fan_situations': TunableVariant(description='\n            Situations to choose from when generating a fan situation.\n            ', situation_curve=SituationCurve.TunableFactory(get_create_params={'user_facing': False}), shiftless=ShiftlessDesiredSituations.TunableFactory(get_create_params={'user_facing': False}), default='shiftless'), 'stan_situation': TunablePackSafeReference(description='\n            Stan situation.  A stan situation is tied to a particular Sim\n            via a relationship bit defined in FanTuning.\n            ', manager=services.get_instance_manager(Types.SITUATION), class_restrictions='StanSituation')}
+    FACTORY_TUNABLES = {'fan_situation_interval': TunableSimMinute(description='\n            The amount of time, in Sim minutes, between attempts to create new\n            fan/stan situations.\n            ', default=15), 'fan_count_by_fame_level': TunableMapping(description='\n            The tunable amount of fans that are allowed by fame level of\n            a celebrity on the lot.  This number determines whether or not\n            more fan situations need to be triggered.\n            ', key_type=int, value_type=int), 'fans_cap': TunableTestedVariant(description='\n            Adjustable fans cap.\n            ', tunable_type=TunableRange(description='\n                Maximum number of fans we are allowed to run within this provider.\n    \n                After this cap is hit, no other fan situations will be spawned.\n                ', tunable_type=int, default=3, minimum=0), is_noncallable_type=True), 'fan_situations': TunableVariant(description='\n            Situations to choose from when generating a fan situation.\n            ', situation_curve=SituationCurve.TunableFactory(get_create_params={'user_facing': False}), shiftless=ShiftlessDesiredSituations.TunableFactory(get_create_params={'user_facing': False}), default='shiftless'), 'stan_situation': TunablePackSafeReference(description='\n            Stan situation.  A stan situation is tied to a particular Sim\n            via a relationship bit defined in FanTuning.\n            ', manager=services.get_instance_manager(Types.SITUATION), class_restrictions='StanSituation')}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -65,9 +67,8 @@ class FanSituationManager(HasTunableFactory, AutoFactoryInit):
         stanned_sim_ids = self._stanned_sim_ids()
         for sim in self._stannable_sims():
             if sim.sim_id in stanned_sim_ids:
-                pass
-            else:
-                self._try_spawn_stan_situation_for_sim(sim)
+                continue
+            self._try_spawn_stan_situation_for_sim(sim)
         expected_fan_count = self._get_expected_number_of_fans()
         if expected_fan_count == 0:
             return
@@ -92,7 +93,7 @@ class FanSituationManager(HasTunableFactory, AutoFactoryInit):
         stan_sim_info = stan_results[0].sim_info
         stan_id = stan_sim_info.sim_id
         in_stan_home_zone = stan_sim_info.household.home_zone_id == services.current_zone_id()
-        if in_stan_home_zone or FanTuning.STAN_DISABLING_BITS & set(services.relationship_service().get_all_bits(stan_id, target_sim_id=stanned_sim.sim_id)):
+        if not in_stan_home_zone and FanTuning.STAN_DISABLING_BITS & set(services.relationship_service().get_all_bits(stan_id, target_sim_id=stanned_sim.sim_id)):
             return
         duration_override = 0 if in_stan_home_zone else None
         situation_manager = services.get_zone_situation_manager()
@@ -107,12 +108,15 @@ class FanSituationManager(HasTunableFactory, AutoFactoryInit):
     def _get_expected_number_of_fans(self):
         if self._celebrity_container_situation is None:
             return 0
+        fans_cap = self.fans_cap(resolver=GlobalResolver())
+        if fans_cap <= 0:
+            return 0
         expected_fans = 0
         for sim in self._celebrity_container_situation.all_sims_in_situation_gen():
             expected_fans += self._get_num_fans_for_fame_level(self._get_fame_level(sim))
-            if expected_fans >= self.fans_cap:
+            if expected_fans >= fans_cap:
                 break
-        return min(expected_fans, self.fans_cap)
+        return min(expected_fans, fans_cap)
 
     def _get_fame_level(self, sim):
         statistic = sim.get_statistic(FameTunables.FAME_RANKED_STATISTIC)

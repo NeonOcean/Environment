@@ -9,16 +9,16 @@ class LocalizedStringHouseholdNameSelector(HasTunableSingletonFactory, AutoFacto
 
     def _get_string_for_humans(self, sim, household, *args, **kwargs):
         humans = tuple(household.get_humans_gen()) if household is not None else ()
-        if not (self.empty_household is not None and (household is None or humans)):
+        if not (self.empty_household is not None and (household is None or not humans)):
             return self.empty_household(sim, *args, **kwargs)
         if household is None:
             logger.error("LocalizedStringHouseholdNameSelector is being provided a None household, but 'empty_household' text is unset.")
             return LocalizationHelperTuning.get_raw_text('')
         if self.single_sim is not None and len(humans) == 1:
-            return self.single_sim(humans[0], args + (sim,), **kwargs)
+            return self.single_sim(humans[0], *args + (sim,), **kwargs)
         if self.single_family is not None and all(sim_info.last_name == sim.last_name for sim_info in humans) and sim.last_name == household.name:
-            return self.single_family(sim.last_name, args + (sim,), **kwargs)
-        return self.fallback(household.name, args + (sim,), **kwargs)
+            return self.single_family(sim.last_name, *args + (sim,), **kwargs)
+        return self.fallback(household.name, *args + (sim,), **kwargs)
 
     def _get_string_for_pets(self, sim, household, *args, **kwargs):
         if self.pets is None:

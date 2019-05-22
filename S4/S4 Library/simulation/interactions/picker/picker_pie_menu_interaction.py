@@ -36,9 +36,10 @@ class _PickerPieMenuProxyInteraction(ProxyInteraction):
         inst_or_cls = inst if inst is not None else cls
         context = inst.context if context is DEFAULT else context
         tooltip = inst_or_cls.display_tooltip
-        if override.new_display_tooltip is not None:
-            tooltip = override.new_display_tooltip
-        if override is not None and tooltip is None:
+        if override is not None:
+            if override.new_display_tooltip is not None:
+                tooltip = override.new_display_tooltip
+        if tooltip is None:
             tooltip = inst_or_cls.picker_row_data.row_tooltip
         if tooltip is not None:
             tooltip = inst_or_cls.create_localized_string(tooltip, context=context, **kwargs)
@@ -54,11 +55,12 @@ class _PickerPieMenuProxyInteraction(ProxyInteraction):
         inst_or_cls = inst if inst is not None else cls
         display_name = inst_or_cls.pie_menu_option.pie_menu_name
         (override_tunable, _) = inst_or_cls.get_name_override_and_test_result(target=target, context=context)
-        if override_tunable.new_display_name is not None:
-            display_name = override_tunable.new_display_name
+        if override_tunable is not None:
+            if override_tunable.new_display_name is not None:
+                display_name = override_tunable.new_display_name
         display_name = inst_or_cls.create_localized_string(display_name, inst_or_cls.picker_row_data.name, target=target, context=context, **kwargs)
         price = getattr(inst_or_cls.picker_row_data, 'price', 0)
-        if override_tunable is not None and price > 0:
+        if price > 0:
             if inst_or_cls.picker_row_data.is_discounted:
                 price = inst_or_cls.picker_row_data.discounted_price
             display_name = inst_or_cls.SIMOLEON_COST_NAME_FACTORY(display_name, price)
@@ -68,3 +70,4 @@ class _PickerPieMenuProxyInteraction(ProxyInteraction):
         yield from super()._run_interaction_gen(timeline)
         self.on_choice_selected(self.picker_row_data.tag, ingredient_data=self._kwargs.get('recipe_ingredients_map'))
         return True
+        yield

@@ -64,14 +64,13 @@ class ThrowingSocialGroup(SocialGroup):
         scoring_constraints = []
         for other_sim in self:
             if other_sim is sim:
-                pass
-            else:
-                facing_anchor = self._anchor_object if self._anchor_object is not None else other_sim
-                force_readjustment = sim.id in self._pending_adjustments
-                if force_readjustment:
-                    self._pending_adjustments.remove(sim.id)
-                scoring_constraint = self.facing_restriction.create_constraint(sim, facing_anchor, scoring_functions=(self.scoring_function(sim, other_sim, force_readjustment),))
-                scoring_constraints.append(scoring_constraint)
+                continue
+            facing_anchor = self._anchor_object if self._anchor_object is not None else other_sim
+            force_readjustment = sim.id in self._pending_adjustments
+            if force_readjustment:
+                self._pending_adjustments.remove(sim.id)
+            scoring_constraint = self.facing_restriction.create_constraint(sim, facing_anchor, scoring_functions=(self.scoring_function(sim, other_sim, force_readjustment),))
+            scoring_constraints.append(scoring_constraint)
         scoring_constraints = create_constraint_set(scoring_constraints)
         geometric_constraint = geometric_constraint.intersect(scoring_constraints)
         return geometric_constraint

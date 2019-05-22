@@ -64,7 +64,7 @@ class BasicPropObject(ClientObjectMixin, ReservationMixin, BaseObject):
         return False
 
     @forward_to_components
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         pass
 
     @property

@@ -51,13 +51,14 @@ class ZoneModifierService(Service):
             return
         removed_modifiers = cached_zone_modifiers - zone_modifiers_update
         added_modifiers = zone_modifiers_update - cached_zone_modifiers
-        if removed_modifiers or not added_modifiers:
+        if not removed_modifiers and not added_modifiers:
             return
         if self._scheduler is not None:
             for schedule_entry in self._scheduler:
                 data = schedule_entry.entry
-                if data.execute_on_removal and data.zone_modifier in removed_modifiers:
-                    self._on_scheduled_alarm(None, schedule_entry, None)
+                if data.execute_on_removal:
+                    if data.zone_modifier in removed_modifiers:
+                        self._on_scheduled_alarm(None, schedule_entry, None)
         instanced_sims = frozenset(services.sim_info_manager().instanced_sims_on_active_lot_gen())
         for sim in instanced_sims:
             loot_resolver = SingleSimResolver(sim.sim_info)

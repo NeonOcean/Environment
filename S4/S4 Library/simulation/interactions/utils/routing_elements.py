@@ -23,14 +23,14 @@ class RouteToLocationElement(elements.ParentElement, HasTunableFactory, AutoFact
         for (relative_participant, constraints) in self.route_constraints.items():
             relative_object = self.interaction.get_participant(relative_participant)
             if relative_object is None:
-                pass
-            else:
-                for constraint in constraints:
-                    relative_constraint = constraint.create_constraint(self.interaction.sim, relative_object, objects_to_ignore=[relative_object])
-                    total_constraint = total_constraint.intersect(relative_constraint)
-                    if not total_constraint.valid:
-                        logger.error('Routing Element cannot resolve constraints for {}', self.interaction)
-                        return False
+                continue
+            for constraint in constraints:
+                relative_constraint = constraint.create_constraint(self.interaction.sim, relative_object, objects_to_ignore=[relative_object])
+                total_constraint = total_constraint.intersect(relative_constraint)
+                if not total_constraint.valid:
+                    logger.error('Routing Element cannot resolve constraints for {}', self.interaction)
+                    return False
+                    yield
         sim = self.interaction.sim
         goals = []
         handles = total_constraint.get_connectivity_handles(sim)
@@ -38,16 +38,20 @@ class RouteToLocationElement(elements.ParentElement, HasTunableFactory, AutoFact
             goals.extend(handle.get_goals())
         if not goals:
             return False
+            yield
         route = routing.Route(sim.routing_location, goals, routing_context=sim.routing_context)
         plan_primitive = PlanRoute(route, sim)
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result:
             return False
+            yield
         if not (plan_primitive.path.nodes and plan_primitive.path.nodes.plan_success):
             return False
+            yield
         route = get_route_element_for_path(sim, plan_primitive.path, interaction=self.interaction)
         result = yield from element_utils.run_child(timeline, build_critical_section(route))
         return result
+        yield
 
     def _run(self, timeline):
         child_element = build_critical_section(self.sequence, self.behavior_element)

@@ -197,17 +197,16 @@ class ClientObjectMixin:
             ui_metadata[name] = value
         for (name, value) in ui_metadata.items():
             if name in self._ui_metadata_cache and self._ui_metadata_cache[name] == value and use_cache:
-                pass
+                continue
+            if name in self._generic_ui_metadata_setters:
+                setter = self._generic_ui_metadata_setters[name]
             else:
-                if name in self._generic_ui_metadata_setters:
-                    setter = self._generic_ui_metadata_setters[name]
-                else:
-                    setter = type(self).ui_metadata.generic_setter(name)
-                    self._generic_ui_metadata_setters[name] = setter
-                try:
-                    setter(self, value)
-                except (ValueError, TypeError):
-                    logger.error('Error trying to set field {} to value {} in object {}.', name, value, self, owner='camilogarcia')
+                setter = type(self).ui_metadata.generic_setter(name)
+                self._generic_ui_metadata_setters[name] = setter
+            try:
+                setter(self, value)
+            except (ValueError, TypeError):
+                logger.error('Error trying to set field {} to value {} in object {}.', name, value, self, owner='camilogarcia')
         self._ui_metadata_cache = ui_metadata
 
     @property
@@ -406,15 +405,13 @@ class ClientObjectMixin:
                     if not distance is None:
                         if new_distance <= distance:
                             if new_distance == distance and found_part.subroot_index is not None:
-                                pass
-                            else:
-                                distance = new_distance
-                                found_part = part
+                                continue
+                            distance = new_distance
+                            found_part = part
                     if new_distance == distance and found_part.subroot_index is not None:
-                        pass
-                    else:
-                        distance = new_distance
-                        found_part = part
+                        continue
+                    distance = new_distance
+                    found_part = part
             return found_part
         return parent
 
@@ -423,8 +420,9 @@ class ClientObjectMixin:
             parent = self.bb_parent
         else:
             parent = self.parent
-        if parent.is_part:
-            parent = parent.part_owner
+        if parent is not None:
+            if parent.is_part:
+                parent = parent.part_owner
         return parent
 
     @property
@@ -435,8 +433,7 @@ class ClientObjectMixin:
         bone_name_hash = self._location.joint_name_or_hash or self._location.slot_hash
         result = None
         for runtime_slot in parent.get_runtime_slots_gen(bone_name_hash=bone_name_hash):
-            if result is not None:
-                raise AssertionError('Multiple slots!')
+            assert not result is not None
             result = runtime_slot
         if result is None:
             result = RuntimeSlot(parent, bone_name_hash, frozenset())
@@ -499,13 +496,14 @@ class ClientObjectMixin:
 
     def on_reset_send_op(self, reset_reason):
         super().on_reset_send_op(reset_reason)
-        if reset_reason != ResetReason.BEING_DESTROYED:
-            try:
-                reset_op = distributor.ops.ResetObject(self.id)
-                dist = Distributor.instance()
-                dist.add_op(self, reset_op)
-            except:
-                logger.exception('Exception thrown sending reset op for {}', self)
+        if self.valid_for_distribution:
+            if reset_reason != ResetReason.BEING_DESTROYED:
+                try:
+                    reset_op = distributor.ops.ResetObject(self.id)
+                    dist = Distributor.instance()
+                    dist.add_op(self, reset_op)
+                except:
+                    logger.exception('Exception thrown sending reset op for {}', self)
 
     def on_reset_internal_state(self, reset_reason):
         if self.valid_for_distribution and reset_reason != ResetReason.BEING_DESTROYED:
@@ -780,8 +778,9 @@ class ClientObjectMixin:
             state_hash = sims4.hash_util.hash32(value)
         elif isinstance(value, int):
             state_hash = value
-        if state_hash in self._geometry_state_overrides:
-            state_hash = self._geometry_state_overrides[state_hash]
+        if self._geometry_state_overrides is not None:
+            if state_hash in self._geometry_state_overrides:
+                state_hash = self._geometry_state_overrides[state_hash]
         return state_hash
 
     @distributor.fields.Field(op=distributor.ops.SetCensorState, default=None)
@@ -805,8 +804,11 @@ class ClientObjectMixin:
         if not isinstance(value, VisibilityState):
             raise TypeError('Visibility must be set to value of type VisibilityState')
         self._visibility = value
-        if value.enable_drop_shadow is False:
-            self._visibility = None
+        if value is not None:
+            if value.visibility is True:
+                if value.inherits is False:
+                    if value.enable_drop_shadow is False:
+                        self._visibility = None
 
     @distributor.fields.Field(op=distributor.ops.SetVisibilityFlags)
     def visibility_flags(self):
@@ -899,15 +901,15 @@ class ClientObjectMixin:
         bone_name_hash = location.joint_name_or_hash or location.slot_hash
         found_runtime_slot = None
         for runtime_slot in location.parent.get_runtime_slots_gen(bone_name_hash=bone_name_hash):
-            if found_runtime_slot is not None:
-                raise AssertionError('Multiple slots found for {}'.format(location.parent))
+            assert not found_runtime_slot is not None
             found_runtime_slot = runtime_slot
         if found_runtime_slot is not None:
             for slot_type in found_runtime_slot.slot_types:
                 if not slot_type.bb_only:
                     self._children_objects[ChildrenType.DEFAULT].add(child)
                     break
-            self._children_objects[ChildrenType.BB_ONLY].add(child)
+            else:
+                self._children_objects[ChildrenType.BB_ONLY].add(child)
         else:
             self._children_objects[ChildrenType.DEFAULT].add(child)
         if self.parts:
@@ -972,11 +974,14 @@ class ClientObjectMixin:
             if slot_hash and not parent.has_slot(slot_hash):
                 raise KeyError('Could not slot {}/{} in slot {} on {}/{}'.format(self, self.definition, hex(slot_hash), parent, parent.definition))
         part_joint_name = joint_name_or_hash or slot_hash
-        if parent.parts:
-            for part in parent.parts:
-                if part.has_slot(part_joint_name):
-                    parent = part
-                    break
+        if parent is not None:
+            if part_joint_name is not None:
+                if not parent.is_part:
+                    if parent.parts:
+                        for part in parent.parts:
+                            if part.has_slot(part_joint_name):
+                                parent = part
+                                break
         new_location = self._location.clone(transform=transform, joint_name_or_hash=joint_name_or_hash, slot_hash=slot_hash, parent=parent, routing_surface=routing_surface)
         return new_location
 
@@ -1012,9 +1017,10 @@ class ClientObjectMixin:
     def fade_in(self, fade_duration=None):
         if fade_duration is None:
             fade_duration = ClientObjectMixin.FADE_DURATION
-        if not self.visibility.visibility:
-            self.visibility = VisibilityState()
-            self.opacity = 0
+        if self.visibility is not None:
+            if not self.visibility.visibility:
+                self.visibility = VisibilityState()
+                self.opacity = 0
         self.fade_opacity(1, fade_duration)
 
     def fade_out(self, fade_duration=None):

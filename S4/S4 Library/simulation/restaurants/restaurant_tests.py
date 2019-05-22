@@ -36,11 +36,11 @@ class RestaurantTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.Base
                     if self.waiting_for_food:
                         return TestResult(False, 'Sim {} does not have a group order and therefore cannot be waiting for an order', subject)
                         group_order = zone_director.get_group_order(subject.id)
-                        if self.waiting_for_food != group_order.order_status >= OrderStatus.ORDER_TAKEN and group_order.order_status < OrderStatus.ORDER_DELIVERED:
+                        if self.waiting_for_food != (group_order.order_status >= OrderStatus.ORDER_TAKEN and group_order.order_status < OrderStatus.ORDER_DELIVERED):
                             return TestResult(False, 'The subject is failing the waiting for order check. Sim: {}, Waiting For Order: {}', subject, self.waiting_for_food)
                 else:
                     group_order = zone_director.get_group_order(subject.id)
-                    if self.waiting_for_food != group_order.order_status >= OrderStatus.ORDER_TAKEN and group_order.order_status < OrderStatus.ORDER_DELIVERED:
+                    if self.waiting_for_food != (group_order.order_status >= OrderStatus.ORDER_TAKEN and group_order.order_status < OrderStatus.ORDER_DELIVERED):
                         return TestResult(False, 'The subject is failing the waiting for order check. Sim: {}, Waiting For Order: {}', subject, self.waiting_for_food)
         return TestResult.TRUE
 
@@ -164,8 +164,9 @@ class DressCodeTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.BaseT
             sim_current_outfit_category = sim_info.get_current_outfit()[0]
             if self.pass_when_match and sim_current_outfit_category != outfit_to_test:
                 return TestResult(False, "Dresscode {}, {} is wearing {}, they don't match".format(outfit_to_test, sim_info, sim_current_outfit_category), tooltip=self.tooltip)
-            if self.pass_when_match or sim_current_outfit_category == outfit_to_test:
-                return TestResult(False, '{} is wearing {} that matches the dresscode'.format(sim_info, sim_current_outfit_category), tooltip=self.tooltip)
+            if not self.pass_when_match:
+                if sim_current_outfit_category == outfit_to_test:
+                    return TestResult(False, '{} is wearing {} that matches the dresscode'.format(sim_info, sim_current_outfit_category), tooltip=self.tooltip)
         return TestResult.TRUE
 
 class RestaurantPaymentTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.BaseTest):
@@ -192,8 +193,9 @@ class RestaurantPaymentTest(HasTunableSingletonFactory, AutoFactoryInit, test_ba
                         return TestResult.TRUE
             if has_bill and self.negate:
                 return TestResult(False, "{}'s group has bill need to pay".format(sim_info), tooltip=self.tooltip)
-            if has_bill or not self.negate:
-                return TestResult(False, "{}'s group doesn't have bill to pay".format(sim_info), tooltip=self.tooltip)
+            if not has_bill:
+                if not self.negate:
+                    return TestResult(False, "{}'s group doesn't have bill to pay".format(sim_info), tooltip=self.tooltip)
         return TestResult.TRUE
 
 class RestaurantCourseItemCountTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.BaseTest):

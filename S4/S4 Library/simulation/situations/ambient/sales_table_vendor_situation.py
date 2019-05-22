@@ -74,17 +74,18 @@ class SalesTableVendorSituationMixin:
         return [(cls.vendor_job_and_role_state.job, cls.vendor_job_and_role_state.role_state)]
 
     def destroy_created_objects(self):
-        if not services.current_zone().is_zone_shutting_down:
-            for obj_id in self.sale_item_list:
-                obj = services.object_manager().get(obj_id)
-                if obj is None:
-                    obj = services.inventory_manager().get(obj_id)
-                if obj is None:
-                    pass
-                else:
+        if self.sale_item_list is not None:
+            if not services.current_zone().is_zone_shutting_down:
+                for obj_id in self.sale_item_list:
+                    obj = services.object_manager().get(obj_id)
+                    if obj is None:
+                        obj = services.inventory_manager().get(obj_id)
+                    if obj is None:
+                        continue
                     household_owner_id = obj.get_household_owner_id()
-                    if self.situation_sim is not None and household_owner_id == self.situation_sim.household_id:
-                        obj.destroy(source=self, cause='SalesTableVendorSituation has ended.')
+                    if self.situation_sim is not None:
+                        if household_owner_id == self.situation_sim.household_id:
+                            obj.destroy(source=self, cause='SalesTableVendorSituation has ended.')
         self.sale_item_list = None
 
     def find_created_objects(self):

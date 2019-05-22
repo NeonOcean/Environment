@@ -281,15 +281,14 @@ class CollectionTracker:
             base = ObjectCollectionData.is_base_object_of_collection(collection.collectible_def_id, collection.collection_id)
             fallback_definition_id = build_buy.get_vetted_object_defn_guid(current_zone_id, 0, collection.collectible_def_id)
             if fallback_definition_id != collection.collectible_def_id:
-                pass
+                continue
+            if collection.HasField('icon_info'):
+                icon_info = ui_protocols.IconInfo()
+                icon_info.CopyFrom(collection.icon_info)
             else:
-                if collection.HasField('icon_info'):
-                    icon_info = ui_protocols.IconInfo()
-                    icon_info.CopyFrom(collection.icon_info)
-                else:
-                    icon_info = None
-                collection_tracker_data = CollectionTrackerData(collection.collection_id, collection.new, base, quality=collection.quality, icon_info=icon_info)
-                self._collections[collection.collectible_def_id] = collection_tracker_data
+                icon_info = None
+            collection_tracker_data = CollectionTrackerData(collection.collection_id, collection.new, base, quality=collection.quality, icon_info=icon_info)
+            self._collections[collection.collectible_def_id] = collection_tracker_data
 
 class CollectableComponent(Component, HasTunableFactory, AutoFactoryInit, component_name=types.COLLECTABLE_COMPONENT):
 
@@ -324,7 +323,7 @@ class CollectableComponent(Component, HasTunableFactory, AutoFactoryInit, compon
     def on_added_to_inventory(self):
         self.add_to_collection_tracker()
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         if old_value in ObjectCollectionData.COLLECTED_INVALID_STATES and new_value not in ObjectCollectionData.COLLECTED_INVALID_STATES:
             self.add_to_collection_tracker()
 

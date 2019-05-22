@@ -1,7 +1,7 @@
 from _sims4_collections import frozendict
 from _weakrefset import WeakSet
 from weakref import WeakKeyDictionary
-from protocolbuffers import InteractionOps_pb2, DistributorOps_pb2
+from protocolbuffers import Consts_pb2, InteractionOps_pb2, DistributorOps_pb2
 from animation.posture_manifest_constants import STAND_OR_MOVING_STAND_POSTURE_MANIFEST
 from clock import ClockSpeedMode
 from distributor.ops import GenericProtocolBufferOp
@@ -217,12 +217,12 @@ class GoHereSuperInteraction(TerrainSuperInteraction):
         group_constraint = next(iter(main_group.get_constraint(context.sim)))
         for constraint in group_constraint:
             group_geometry = constraint.geometry
-            if not group_geometry is not None or group_geometry.contains_point(position):
+            if not not group_geometry is not None and group_geometry.contains_point(position):
                 yield AffordanceObjectPair(cls, target, cls, None, ignore_party=True, **kwargs)
                 return
         for aop in cls.get_rallyable_aops_gen(target, context, **kwargs):
             yield aop
-        if not (position is not None and (context is not None and (context.sim is not None and main_group is not None)) and (main_group.is_solo or group_constraint is not None and group_constraint.routing_surface == surface and cls._can_rally(context)) and cls.only_available_as_rally):
+        if not ((not position is not None or (not context is not None or (not context.sim is not None or (not main_group is not None or (main_group.is_solo or (not group_constraint is not None or not group_constraint.routing_surface == surface))))) or cls._can_rally(context)) and cls.only_available_as_rally):
             yield cls.generate_aop(target, context, **kwargs)
 
     @classmethod
@@ -263,6 +263,7 @@ class DebugSetupLotInteraction(TerrainImmediateSuperInteraction):
             position = self.context.pick.location
             self.spawn_objects(position)
         return True
+        yield
 
     def _create_object(self, definition_id, position=Vector3.ZERO(), orientation=Quaternion.IDENTITY(), level=0, owner_id=0):
         obj = objects.system.create_object(definition_id)
@@ -322,7 +323,8 @@ class DebugSetupLotInteraction(TerrainImmediateSuperInteraction):
                     for runtime_slot in slot_owner.get_runtime_slots_gen(slot_types={slot_type}, bone_name_hash=bone_name_hash):
                         if runtime_slot.is_valid_for_placement(definition=child_info.definition):
                             break
-                    sims4.log.error('SetupLot', 'Unable to find slot for child object: {}', child_info)
+                    else:
+                        sims4.log.error('SetupLot', 'Unable to find slot for child object: {}', child_info)
                     child = self._create_object(child_info.definition, owner_id=owner_id)
                     if child is None:
                         sims4.log.error('SetupLot', 'Unable to create child object: {}', child_info)
@@ -371,7 +373,7 @@ class DebugSetupLotInteraction(TerrainImmediateSuperInteraction):
         return closest_point
 
 class DebugCreateSimWithGenderAndAgeInteraction(TerrainImmediateSuperInteraction):
-    INSTANCE_TUNABLES = {'gender': TunableEnumEntry(description='\n            The gender of the Sim to be created.\n            ', tunable_type=Gender, default=Gender.MALE), 'age': TunableEnumEntry(description='\n            The age of the Sim to be created.\n            ', tunable_type=Age, default=Age.ADULT), 'species': TunableEnumEntry(description='\n            The species of the Sim to be created.\n            ', tunable_type=Species, default=Species.HUMAN), 'breed_picker': OptionalTunable(description='\n            Breed picker to use if using a non-human species.\n            \n            If disabled, breed will be random.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), class_restrictions=('BreedPickerSuperInteraction',), allow_none=True))}
+    INSTANCE_TUNABLES = {'gender': TunableEnumEntry(description='\n            The gender of the Sim to be created.\n            ', tunable_type=Gender, default=Gender.MALE), 'age': TunableEnumEntry(description='\n            The age of the Sim to be created.\n            ', tunable_type=Age, default=Age.ADULT), 'species': TunableEnumEntry(description='\n            The species of the Sim to be created.\n            ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), 'breed_picker': OptionalTunable(description='\n            Breed picker to use if using a non-human species.\n            \n            If disabled, breed will be random.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), class_restrictions=('BreedPickerSuperInteraction',), allow_none=True))}
 
     def _run_interaction_gen(self, timeline):
         if self.species == Species.HUMAN or self.breed_picker is None:
@@ -390,6 +392,7 @@ class DebugCreateSimWithGenderAndAgeInteraction(TerrainImmediateSuperInteraction
         else:
             self.sim.push_super_affordance(self.breed_picker, self.target, self.context, picked_object=self.target, age=self.age, gender=self.gender, species=self.species)
         return True
+        yield
 
 class Terrain(ScriptObject):
 
@@ -437,7 +440,7 @@ class Terrain(ScriptObject):
             return
         if context.pick.pick_type not in PICK_UNGREETED:
             return
-        if context.pick.lot_id and context.pick.lot_id != services.active_lot().lot_id:
+        if not context.pick.lot_id or context.pick.lot_id != services.active_lot().lot_id:
             return
         if not services.get_zone_situation_manager().is_player_waiting_to_be_greeted():
             return

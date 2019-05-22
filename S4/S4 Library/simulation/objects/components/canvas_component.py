@@ -8,6 +8,7 @@ from interactions.utils.interaction_elements import XevtTriggeredElement
 from objects import PaintingState
 from objects.components import Component, componentmethod_with_fallback
 from objects.components.types import STORED_SIM_INFO_COMPONENT
+from objects.hovertip import TooltipFieldsComplete
 from sims.outfits.outfit_enums import OutfitCategory
 from sims4.tuning.dynamic_enum import DynamicEnumFlags
 from sims4.tuning.tunable import HasTunableFactory, TunableEnumFlags, TunableEnumEntry, TunableVariant, TunableResourceKey, HasTunableSingletonFactory, AutoFactoryInit, TunableList, TunableTuple, OptionalTunable, Tunable, TunableColor
@@ -114,9 +115,10 @@ class CanvasComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
 
     @componentmethod_with_fallback(lambda msg: None)
     def populate_icon_canvas_texture_info(self, msg):
-        if msg is not None:
-            msg.texture_id = self.painting_state.texture_id
-            msg.texture_effect = self.painting_state.effect
+        if self.painting_state is not None:
+            if msg is not None:
+                msg.texture_id = self.painting_state.texture_id
+                msg.texture_effect = self.painting_state.effect
 
     @componentmethod_with_fallback(lambda *_, **__: None)
     def get_canvas_texture_id(self):
@@ -163,8 +165,9 @@ class FamilyPortraitComponent(CanvasComponent):
         if canvas_data.HasField('no_op_version'):
             self.no_op_version = canvas_data.no_op_version
         current_zone = services.current_zone()
-        if current_zone.is_zone_running:
-            self.ignore_last_update_composite_image = True
+        if current_zone is not None:
+            if current_zone.is_zone_running:
+                self.ignore_last_update_composite_image = True
 
     def on_add(self, *_, **__):
         services.current_zone().register_callback(zone_types.ZoneState.HOUSEHOLDS_AND_SIM_INFOS_LOADED, self._on_households_loaded)
@@ -286,7 +289,8 @@ class UpdateObjectValue(XevtTriggeredElement):
             sim_info = portrait_obj.get_component(STORED_SIM_INFO_COMPONENT).get_stored_sim_info()
             if sim_info is not None:
                 portrait_obj.current_value = portrait_obj.catalog_value*self._get_total_multiplier(sim_info)
-                portrait_obj.update_current_value()
+                update_tooltip = portrait_obj.get_tooltip_field(TooltipFieldsComplete.simoleon_value) is not None
+                portrait_obj.update_current_value(update_tooltip)
                 return True
         return False
 
@@ -301,14 +305,15 @@ class PaintingStateTransfer(XevtTriggeredElement):
     def _do_behavior(self):
         source_participant = self.interaction.get_participant(self._source_participant)
         target_participant = self.interaction.get_participant(self._target_participant)
-        if target_participant is not None:
-            source_canvas = source_participant.canvas_component
-            if source_canvas is None:
-                logger.error('Painting State Transfer: Source object {} has no canvas_component', source_participant)
-                return
-            target_canvas = target_participant.canvas_component
-            if target_participant.canvas_component is None:
-                logger.error('Painting State Transfer: target object {} has no canvas_component', target_participant)
-                return
-            if target_canvas.painting_state != source_canvas.painting_state:
-                target_canvas.painting_state = source_canvas.painting_state
+        if source_participant is not None:
+            if target_participant is not None:
+                source_canvas = source_participant.canvas_component
+                if source_canvas is None:
+                    logger.error('Painting State Transfer: Source object {} has no canvas_component', source_participant)
+                    return
+                target_canvas = target_participant.canvas_component
+                if target_participant.canvas_component is None:
+                    logger.error('Painting State Transfer: target object {} has no canvas_component', target_participant)
+                    return
+                if target_canvas.painting_state != source_canvas.painting_state:
+                    target_canvas.painting_state = source_canvas.painting_state

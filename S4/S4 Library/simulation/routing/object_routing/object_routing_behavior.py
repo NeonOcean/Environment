@@ -27,27 +27,35 @@ class ObjectRoutingBehavior(HasTunableReference, SubclassableGeneratorElement, m
         if not route:
             yield from self._route_data.do_route_fail_gen(timeline)
             return True
+            yield
         self._element = plan_primitive = PlanRoute(route, self._obj)
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result:
             return result
+            yield
         nodes = plan_primitive.path.nodes
         if not (nodes and nodes.plan_success):
             yield from self._route_data.do_route_fail_gen(timeline)
             return True
+            yield
         if self._canceled:
             return False
+            yield
         self._element = follow_path_element = FollowPath(self._obj, plan_primitive.path)
         result = yield from element_utils.run_child(timeline, follow_path_element)
         if not result:
             return result
+            yield
         if self._canceled:
             return False
+            yield
         for action in self.actions:
             result = yield from action.run_action_gen(timeline, self._obj, self._route_data.get_target())
             if not result:
                 return result
+                yield
         return True
+        yield
 
     def _run_gen(self, timeline):
         if self.pre_route_animation is not None:
@@ -56,13 +64,16 @@ class ObjectRoutingBehavior(HasTunableReference, SubclassableGeneratorElement, m
             result = yield from element_utils.run_child(timeline, self._element)
             if not result:
                 return result
+                yield
 
         def do_routes(timeline):
             for route in self._route_data.get_routes_gen():
                 result = yield from self._do_single_route_gen(timeline, route)
                 if not result:
                     return result
+                    yield
             return True
+            yield
 
         if self.walkstyle_override is None:
             yield from do_routes(timeline)
@@ -73,6 +84,7 @@ class ObjectRoutingBehavior(HasTunableReference, SubclassableGeneratorElement, m
         for loot_action in self.completion_loot:
             loot_action.apply_to_resolver(resolver)
         return True
+        yield
 
     def _soft_stop(self):
         self._canceled = True

@@ -46,20 +46,18 @@ class LotDecorationService(Service):
             zone_id = decorated_lot_proto.zone_id
             neighborhood_state = self.get_neighborhood_state_for_zone(zone_id)
             if neighborhood_state is None:
-                pass
+                continue
+            deco_type_id = decorated_lot_proto.active_decoration_state
+            if self._is_valid_deco_type_id(deco_type_id):
+                provider = self._get_decoration_provider(deco_type_id)
             else:
-                deco_type_id = decorated_lot_proto.active_decoration_state
-                if self._is_valid_deco_type_id(deco_type_id):
-                    provider = self._get_decoration_provider(deco_type_id)
-                else:
-                    provider = DEFAULT_DECORATION_PROVIDER
-                decorated_lot = neighborhood_state.get_deco_lot_by_zone_id(zone_id)
-                decorated_lot.load_deco_states_from_proto(decorated_lot_proto, provider)
+                provider = DEFAULT_DECORATION_PROVIDER
+            decorated_lot = neighborhood_state.get_deco_lot_by_zone_id(zone_id)
+            decorated_lot.load_deco_states_from_proto(decorated_lot_proto, provider)
         for world_setting in service_proto.world_decorations_set:
             if not self._is_valid_deco_type_id(world_setting.set_decorations):
-                pass
-            else:
-                self._world_decorations_set[world_setting.world_id] = world_setting.set_decorations
+                continue
+            self._world_decorations_set[world_setting.world_id] = world_setting.set_decorations
 
     def save(self, save_slot_data=None, **__):
         lot_decoration_service_proto = GameplaySaveData_pb2.PersistableLotDecorationService()
@@ -235,14 +233,13 @@ class LotDecorationService(Service):
         holiday_provider = self._get_decoration_provider(holiday_id)
         for lot in neighborhood_decoration_state.lots:
             if lot.is_owned_by_active_household():
-                pass
+                continue
+            resolver = SingleSimResolver(None, additional_participants={ParticipantType.PickedZoneId: (lot.zone_id,)})
+            if any(resolver(test) for test in self.NON_DECORATABLE_TESTS):
+                decoration_provider = DEFAULT_DECORATION_PROVIDER
             else:
-                resolver = SingleSimResolver(None, additional_participants={ParticipantType.PickedZoneId: (lot.zone_id,)})
-                if any(resolver(test) for test in self.NON_DECORATABLE_TESTS):
-                    decoration_provider = DEFAULT_DECORATION_PROVIDER
-                else:
-                    decoration_provider = holiday_provider
-                lot.switch_to_appropriate_type(decoration_provider, DECORATE_IMMEDIATELY if decorate_immediately else self.AUTO_DECORATION_PARAMS, preset_override=preset_override)
+                decoration_provider = holiday_provider
+            lot.switch_to_appropriate_type(decoration_provider, DECORATE_IMMEDIATELY if decorate_immediately else self.AUTO_DECORATION_PARAMS, preset_override=preset_override)
         self._update_current_lot_statistic()
         self._world_decorations_set[neighborhood_decoration_state.world_id] = holiday_provider.decoration_type_id
 

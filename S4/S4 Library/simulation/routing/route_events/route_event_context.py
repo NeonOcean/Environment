@@ -47,7 +47,8 @@ class _RouteDuration:
         for (idx, bucket) in enumerate(self.buckets):
             if time in bucket:
                 break
-        return
+        else:
+            return
         next_bucket = _RouteDurationBucket(end_time, bucket.end_time)
         bucket.end_time = time
         kept = 1
@@ -62,10 +63,9 @@ class _RouteDuration:
         if self.buckets:
             for (route_event, time) in route_event_timing:
                 if time < self.buckets[0].start_time:
-                    pass
-                else:
-                    self.add_event(route_event, time)
-                    num_filled += 1
+                    continue
+                self.add_event(route_event, time)
+                num_filled += 1
         return num_filled
 
     def _get_start_time_for_straight_path_event(self, path, bucket, duration, offset_time, straight_duration, earliest_time, schedule_preference, specific_time=None):
@@ -82,28 +82,27 @@ class _RouteDuration:
             end_time = min(bucket.end_time, cur_node.time)
             segment_time = end_time - start_time
             if segment_time < straight_duration:
-                pass
+                continue
+            straight_path_earliest_start = start_time
+            if start_time - offset_time < adjusted_bucket_start:
+                straight_path_earliest_start = adjusted_bucket_start + offset_time
+            straight_path_latest_start = end_time - straight_duration
+            duration_after_straight_path_start = duration - offset_time
+            if straight_path_latest_start + duration_after_straight_path_start > bucket.end_time:
+                straight_path_latest_start = bucket.end_time - duration_after_straight_path_start
+            if straight_path_latest_start < straight_path_earliest_start:
+                continue
+            if specific_time is not None:
+                specific_straight_path_start = specific_time + offset_time
+                if specific_straight_path_start >= straight_path_earliest_start:
+                    if specific_straight_path_start <= straight_path_latest_start:
+                        return specific_time
+                        return straight_path_start - offset_time
+            elif schedule_preference == RouteEventSchedulePreference.RANDOM:
+                straight_path_start = uniform(straight_path_earliest_start, straight_path_latest_start)
             else:
-                straight_path_earliest_start = start_time
-                if start_time - offset_time < adjusted_bucket_start:
-                    straight_path_earliest_start = adjusted_bucket_start + offset_time
-                straight_path_latest_start = end_time - straight_duration
-                duration_after_straight_path_start = duration - offset_time
-                if straight_path_latest_start + duration_after_straight_path_start > bucket.end_time:
-                    straight_path_latest_start = bucket.end_time - duration_after_straight_path_start
-                if straight_path_latest_start < straight_path_earliest_start:
-                    pass
-                else:
-                    if specific_time is not None:
-                        specific_straight_path_start = specific_time + offset_time
-                        if specific_straight_path_start >= straight_path_earliest_start and specific_straight_path_start <= straight_path_latest_start:
-                            return specific_time
-                            return straight_path_start - offset_time
-                    elif schedule_preference == RouteEventSchedulePreference.RANDOM:
-                        straight_path_start = uniform(straight_path_earliest_start, straight_path_latest_start)
-                    else:
-                        straight_path_start = straight_path_earliest_start
-                    return straight_path_start - offset_time
+                straight_path_start = straight_path_earliest_start
+            return straight_path_start - offset_time
 
     def fill_and_get_start_time_for_route_event(self, route_event, path, repeat_event=False, schedule_preference=RouteEventSchedulePreference.BEGINNING):
         if not route_event.event_data.is_valid_for_scheduling(path.sim, path):
@@ -111,9 +110,10 @@ class _RouteDuration:
         duration = route_event.duration
         time = route_event.time
         earliest_time = route_event.earliest_repeat_time if repeat_event else 0
-        if route_event.scheduling_override is not None:
-            schedule_preference = route_event.scheduling_override
-        if repeat_event or schedule_preference == RouteEventSchedulePreference.BEGINNING:
+        if not repeat_event:
+            if route_event.scheduling_override is not None:
+                schedule_preference = route_event.scheduling_override
+        if schedule_preference == RouteEventSchedulePreference.BEGINNING:
             buckets = sorted(self.buckets, key=operator.attrgetter('start_time'))
         elif schedule_preference == RouteEventSchedulePreference.END:
             buckets = sorted(self.buckets, key=operator.attrgetter('start_time'), reverse=True)
@@ -130,13 +130,13 @@ class _RouteDuration:
                 offset_time = duration*(0.5 - straight_percentage*0.5)
         for (idx, bucket) in enumerate(buckets):
             if bucket.duration < duration:
-                pass
-            elif bucket.end_time - duration < earliest_time:
-                pass
-            elif not (time is not None and bucket.start_time > time):
+                continue
+            if bucket.end_time - duration < earliest_time:
+                continue
+            if not (time is not None and bucket.start_time > time):
                 if bucket.end_time - duration < time:
-                    pass
-                elif straight_path_tuning is None:
+                    continue
+                if straight_path_tuning is None:
                     if time is not None:
                         break
                     if schedule_preference == RouteEventSchedulePreference.BEGINNING:
@@ -151,7 +151,8 @@ class _RouteDuration:
                     time = self._get_start_time_for_straight_path_event(path, bucket, duration, offset_time, straight_duration, earliest_time, schedule_preference, specific_time=time)
                     if time is not None:
                         break
-        return
+        else:
+            return
         end_time = time + duration
         if time - bucket.start_time < _RouteDuration.MINIMUM_BUCKET_SIZE:
             bucket.start_time = end_time
@@ -215,7 +216,8 @@ class RouteEventContext:
             if route_event.id == event_id:
                 route_event.on_executed(sim)
                 break
-        return
+        else:
+            return
         if path is not None and gsi_handlers.route_event_handlers.archiver.enabled:
             gsi_handlers.route_event_handlers.gsi_route_event_executed(path, sim, route_event)
         if route_event.event_data.should_remove_on_execute():
@@ -235,10 +237,10 @@ class RouteEventContext:
 
     def route_event_already_scheduled(self, route_event_cls, time=None, provider=None):
         for (route_event, event_time) in self._scheduled_events:
-            if route_event_cls is type(route_event) and route_event.provider is provider:
-                if time is not None and not sims4.math.almost_equal(time, event_time, epsilon=route_event.duration):
-                    pass
-                else:
+            if route_event_cls is type(route_event):
+                if route_event.provider is provider:
+                    if time is not None and not sims4.math.almost_equal(time, event_time, epsilon=route_event.duration):
+                        continue
                     return True
         return False
 
@@ -298,14 +300,13 @@ class RouteEventContext:
             nonlocal num_route_events
             for route_event in self._route_events_to_schedule[route_event_priority]:
                 if failed_event_types is not None and type(route_event) in failed_event_types:
-                    pass
-                else:
-                    route_event.prepare_route_event(sim)
-                    time = time_buckets.fill_and_get_start_time_for_route_event(route_event, path=path, schedule_preference=schedule_preference)
-                    if time is not None:
-                        route_event.time = time
-                        added_events.append((route_event, time))
-                        num_route_events += 1
+                    continue
+                route_event.prepare_route_event(sim)
+                time = time_buckets.fill_and_get_start_time_for_route_event(route_event, path=path, schedule_preference=schedule_preference)
+                if time is not None:
+                    route_event.time = time
+                    added_events.append((route_event, time))
+                    num_route_events += 1
 
         for route_event_type in reversed(RouteEventType):
             if route_event_type == RouteEventType.FIRST_OUTDOOR:
@@ -322,17 +323,18 @@ class RouteEventContext:
                 shuffle(self._route_events_to_schedule[route_event_type])
                 _schedule_route_events(route_event_type, schedule_preference=RouteEventSchedulePreference.RANDOM)
             elif route_event_type == RouteEventType.BUFF_REPEAT:
-                if num_route_events > self.ROUTE_EVENT_CAPPED_COOLDOWN_THRESHOLD:
-                    for route_event in self._route_events_to_schedule[RouteEventType.BUFF_REPEAT]:
-                        self._events_already_considered[route_event.provider_ref].remove(type(route_event))
-                    break
+                if self._has_hit_cap:
+                    if num_route_events > self.ROUTE_EVENT_CAPPED_COOLDOWN_THRESHOLD:
+                        for route_event in self._route_events_to_schedule[RouteEventType.BUFF_REPEAT]:
+                            self._events_already_considered[route_event.provider_ref].remove(type(route_event))
+                        break
                 repeat_route_events = self._route_events_to_schedule[route_event_type]
                 repeat_scheduling_data = []
                 for route_event in repeat_route_events:
                     route_event.prepare_route_event(sim)
                     if not route_event.event_data.is_valid_for_scheduling(sim, path):
-                        pass
-                    elif route_event.duration <= 0:
+                        continue
+                    if route_event.duration <= 0:
                         logger.error('route event {} with 0 duration is being used as repeating. This would cause an infinite loop.', type(route_event))
                     else:
                         event_data = self._RouteEventSchedulingData()
@@ -340,7 +342,7 @@ class RouteEventContext:
                         repeat_scheduling_data.append((event_data, route_event.provider_ref, type(route_event), route_event.route_event_parameters))
                 resolver = SingleSimResolver(sim.sim_info)
                 shuffle(repeat_scheduling_data)
-                while self._has_hit_cap and len(repeat_scheduling_data) > 0:
+                while len(repeat_scheduling_data) > 0:
                     if num_route_events > self.ROUTE_EVENT_SCHEDULED_CAP:
                         for (_, provider, route_event_cls, _) in repeat_scheduling_data:
                             self._events_already_considered[provider].remove(route_event_cls)
@@ -368,19 +370,22 @@ class RouteEventContext:
         portal_events = []
         for (route_event, time) in added_events:
             portal_event = None
-            if not route_event.allowed_at_animated_portal:
-                start_index = path.node_at_time(time).index - 1
-                start_index = 0 if start_index < 0 else start_index
-                end_index = path.node_at_time(time + route_event.duration).index
-                end_index = start_index if end_index < start_index else end_index
-                event_nodes = [path.nodes[index] for index in range(start_index, end_index)]
-                for node in event_nodes:
-                    if node.portal_id and node.portal_object_id:
-                        portal_object = objects.system.find_object(node.portal_object_id)
-                        if portal_object is not None and portal_object.get_portal_type(node.portal_id) != PortalType.PortalType_Walk:
-                            portal_event = (route_event, time)
-                            break
-            if route_event.duration and portal_event is not None:
+            if route_event.duration:
+                if not route_event.allowed_at_animated_portal:
+                    start_index = path.node_at_time(time).index - 1
+                    start_index = 0 if start_index < 0 else start_index
+                    end_index = path.node_at_time(time + route_event.duration).index
+                    end_index = start_index if end_index < start_index else end_index
+                    event_nodes = [path.nodes[index] for index in range(start_index, end_index)]
+                    for node in event_nodes:
+                        if node.portal_id:
+                            if node.portal_object_id:
+                                portal_object = objects.system.find_object(node.portal_object_id)
+                                if portal_object is not None:
+                                    if portal_object.get_portal_type(node.portal_id) != PortalType.PortalType_Walk:
+                                        portal_event = (route_event, time)
+                                        break
+            if portal_event is not None:
                 portal_events.append(portal_event)
         for portal_event in portal_events:
             added_events.remove(portal_event)

@@ -20,8 +20,9 @@ class AccountService(Service):
 
     def get_account_by_id(self, account_id, try_load_account=False):
         account = self._accounts.get(account_id, None)
-        if try_load_account:
-            account = self._load_account_by_id(account_id)
+        if not account:
+            if try_load_account:
+                account = self._load_account_by_id(account_id)
         return account
 
     def add_account(self, new_account):

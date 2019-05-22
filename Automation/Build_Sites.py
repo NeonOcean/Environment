@@ -1,8 +1,8 @@
 from Automation import Sites
 
 def Run () -> bool:
-	for site in Sites.GetAllSiteNames():  # type: str
-		Sites.BuildSite(site)
+	for siteNamespace in Sites.GetAllSiteNames():  # type: str
+		Sites.BuildSite(siteNamespace)
 
 	return True
 

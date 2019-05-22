@@ -9,9 +9,11 @@ def cleanup_gardening_objects(_connection=None):
     for obj in services.object_manager().get_all_objects_with_component_gen(GARDENING_COMPONENT):
         gardening_component = obj.get_component(types.GARDENING_COMPONENT)
         if not isinstance(gardening_component, GardeningFruitComponent):
-            pass
-        elif obj.parent is None and not (obj.is_in_inventory() or obj.is_on_active_lot()):
-            sims4.commands.output('Destroyed object {} on open street was found without a parent at position {}, parent_type {}.'.format(obj, obj.position, obj.parent_type), _connection)
-            obj.destroy(source=obj, cause='Fruit/Flower with no parent on open street')
+            continue
+        if obj.parent is None:
+            if not obj.is_in_inventory():
+                if not obj.is_on_active_lot():
+                    sims4.commands.output('Destroyed object {} on open street was found without a parent at position {}, parent_type {}.'.format(obj, obj.position, obj.parent_type), _connection)
+                    obj.destroy(source=obj, cause='Fruit/Flower with no parent on open street')
     sims4.commands.output('Gardening cleanup complete', _connection)
     return True

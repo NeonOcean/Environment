@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2018 by Rocky Bernstein
+#  Copyright (c) 2015-2019 by Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #
@@ -64,8 +64,13 @@ class Scanner3(Scanner):
         # Ops that start SETUP_ ... We will COME_FROM with these names
         # Some blocks and END_ statements. And they can start
         # a new statement
-        setup_ops = [self.opc.SETUP_LOOP, self.opc.SETUP_EXCEPT,
-                      self.opc.SETUP_FINALLY]
+        if self.version < 3.8:
+            setup_ops = [self.opc.SETUP_LOOP, self.opc.SETUP_EXCEPT,
+                         self.opc.SETUP_FINALLY]
+            self.setup_ops_no_loop = frozenset(setup_ops) - frozenset([self.opc.SETUP_LOOP])
+        else:
+            setup_ops = [self.opc.SETUP_FINALLY]
+            self.setup_ops_no_loop = frozenset(setup_ops)
 
         if self.version >= 3.2:
             setup_ops.append(self.opc.SETUP_WITH)
@@ -78,11 +83,9 @@ class Scanner3(Scanner):
             self.pop_jump_tf = frozenset([self.opc.PJIF, self.opc.PJIT])
             self.not_continue_follow = ('END_FINALLY', 'POP_BLOCK')
 
-        self.setup_ops_no_loop = frozenset(setup_ops) - frozenset([self.opc.SETUP_LOOP])
 
         # Opcodes that can start a statement.
         statement_opcodes = [
-            self.opc.BREAK_LOOP,    self.opc.CONTINUE_LOOP,
             self.opc.POP_BLOCK,     self.opc.STORE_FAST,
             self.opc.DELETE_FAST,   self.opc.STORE_DEREF,
 
@@ -96,6 +99,9 @@ class Scanner3(Scanner):
             self.opc.RETURN_VALUE, self.opc.RAISE_VARARGS,
             self.opc.PRINT_EXPR,   self.opc.JUMP_ABSOLUTE
         ]
+
+        if self.version < 3.8:
+            statement_opcodes += [self.opc.BREAK_LOOP, self.opc.CONTINUE_LOOP]
 
         self.statement_opcodes = frozenset(statement_opcodes) | self.setup_ops_no_loop
 
@@ -496,9 +502,9 @@ class Scanner3(Scanner):
                     next_offset = xdis.next_offset(op, self.opc, offset)
 
                 if label is None:
-                    if op in op3.hasjrel and op != self.opc.FOR_ITER:
+                    if op in self.opc.hasjrel and op != self.opc.FOR_ITER:
                         label = next_offset + oparg
-                    elif op in op3.hasjabs:
+                    elif op in self.opc.hasjabs:
                         if op in self.jump_if_pop:
                             if oparg > offset:
                                 label = oparg
@@ -609,7 +615,9 @@ class Scanner3(Scanner):
         """
 
         code = self.code
-        op = self.insts[inst_index].opcode
+        inst = self.insts[inst_index]
+        op = inst.opcode
+
 
         # Detect parent structure
         parent = self.structs[0]
@@ -626,13 +634,13 @@ class Scanner3(Scanner):
                 end    = current_end
                 parent = struct
 
-        if op == self.opc.SETUP_LOOP:
+        if self.version < 3.8 and op == self.opc.SETUP_LOOP:
             # We categorize loop types: 'for', 'while', 'while 1' with
             # possibly suffixes '-loop' and '-else'
             # Try to find the jump_back instruction of the loop.
             # It could be a return instruction.
 
-            start += instruction_size(op, self.opc)
+            start += inst.inst_size
             target = self.get_target(offset)
             end    = self.restrict_to_parent(target, parent)
             self.setup_loops[target] = offset
@@ -718,8 +726,8 @@ class Scanner3(Scanner):
                                      'start': after_jump_offset,
                                      'end':   end})
         elif op in self.pop_jump_tf:
-            start   = offset + instruction_size(op, self.opc)
-            target  = self.insts[inst_index].argval
+            start   = offset + inst.inst_size
+            target  = inst.argval
             rtarget = self.restrict_to_parent(target, parent)
             prev_op = self.prev_op
 
@@ -757,7 +765,7 @@ class Scanner3(Scanner):
             pre_rtarget = prev_op[rtarget]
 
             # Is it an "and" inside an "if" or "while" block
-            if op == self.opc.POP_JUMP_IF_FALSE and self.version < 3.6:
+            if op == self.opc.POP_JUMP_IF_FALSE:
 
                 # Search for another POP_JUMP_IF_FALSE targetting the same op,
                 # in current statement, starting from current offset, and filter
@@ -851,14 +859,20 @@ class Scanner3(Scanner):
             # For 3.5, in addition the JUMP_FORWARD above we could have
             # JUMP_BACK or CONTINUE
             #
-            # There are other contexts we may need to consider
-            # like whether the target is "END_FINALLY"
-            # or if the condition jump is to a forward location
+            # There are other situations we may need to consider, like
+            # if the condition jump is to a forward location.
+            # Also the existence of a jump to the instruction after "END_FINALLY"
+            # will distinguish "try/else" from "try".
+            if self.version < 3.8:
+                rtarget_break = (self.opc.RETURN_VALUE, self.opc.BREAK_LOOP)
+            else:
+                rtarget_break = (self.opc.RETURN_VALUE,)
+
             if self.is_jump_forward(pre_rtarget) or (rtarget_is_ja and self.version >= 3.5):
                 if_end = self.get_target(pre_rtarget)
 
                 # If the jump target is back, we are looping
-                if (if_end < pre_rtarget and
+                if (if_end < pre_rtarget and self.version < 3.8 and
                     (code[prev_op[if_end]] == self.opc.SETUP_LOOP)):
                     if (if_end > start):
                         return
@@ -888,8 +902,7 @@ class Scanner3(Scanner):
                                      'start': start,
                                      'end': pre_rtarget})
                 self.not_continue.add(pre_rtarget)
-            elif code[pre_rtarget] in (self.opc.RETURN_VALUE,
-                                       self.opc.BREAK_LOOP):
+            elif code[pre_rtarget] in rtarget_break:
                 self.structs.append({'type': 'if-then',
                                      'start': start,
                                      'end': rtarget})
@@ -903,7 +916,7 @@ class Scanner3(Scanner):
                     # Python 3.5 may remove as dead code a JUMP
                     # instruction after a RETURN_VALUE. So we check
                     # based on seeing SETUP_EXCEPT various places.
-                    if code[rtarget] == self.opc.SETUP_EXCEPT:
+                    if self.version < 3.8 and code[rtarget] == self.opc.SETUP_EXCEPT:
                         return
                     # Check that next instruction after pops and jump is
                     # not from SETUP_EXCEPT
@@ -915,10 +928,14 @@ class Scanner3(Scanner):
                     if next_op in targets:
                         for try_op in targets[next_op]:
                             come_from_op = code[try_op]
-                            if come_from_op == self.opc.SETUP_EXCEPT:
+                            if self.version < 3.8 and come_from_op == self.opc.SETUP_EXCEPT:
                                 return
                             pass
                     pass
+
+                if self.version >= 3.4:
+                    self.fixed_jumps[offset] = rtarget
+
                 if code[pre_rtarget] == self.opc.RETURN_VALUE:
                     # If we are at some sort of POP_JUMP_IF and the instruction before was
                     # COMPARE_OP exception-match, then pre_rtarget is not an end_if
@@ -950,7 +967,7 @@ class Scanner3(Scanner):
                     if rtarget > offset:
                         self.fixed_jumps[offset] = rtarget
 
-        elif op == self.opc.SETUP_EXCEPT:
+        elif self.version < 3.8 and op == self.opc.SETUP_EXCEPT:
             target = self.get_target(offset)
             end    = self.restrict_to_parent(target, parent)
             self.fixed_jumps[offset] = end
@@ -1052,7 +1069,7 @@ class Scanner3(Scanner):
         optionally <target>ing specified offset, and return list found
         <instr> offsets which are not within any POP_JUMP_IF_TRUE jumps.
         """
-        assert(start>=0 and end<=len(self.code) and start <= end)
+        assert(start >= 0 and end <= len(self.code) and start <= end)
 
         # Find all offsets of requested instructions
         instr_offsets = self.inst_matches(start, end, instr, target,

@@ -93,7 +93,7 @@ class DoorService(Service):
             return False
         if type(zone.venue_service.venue) is VenueTuning.RESIDENTIAL_VENUE_TYPE:
             return True
-        elif services.travel_group_manager().is_current_zone_rented() or zone.lot.owner_household_id == 0:
+        elif not services.travel_group_manager().is_current_zone_rented() and zone.lot.owner_household_id == 0:
             return False
         return True
 
@@ -147,10 +147,9 @@ class DoorService(Service):
             (front_position, back_position) = door.get_door_positions()
             if not front_position is None:
                 if back_position is None:
-                    pass
-                else:
-                    dest_handles.add(DoorConnectivityHandle(front_position, door.routing_surface, door=door, is_front=True))
-                    dest_handles.add(DoorConnectivityHandle(back_position, door.routing_surface, door=door, is_front=False))
+                    continue
+                dest_handles.add(DoorConnectivityHandle(front_position, door.routing_surface, door=door, is_front=True))
+                dest_handles.add(DoorConnectivityHandle(back_position, door.routing_surface, door=door, is_front=False))
         connections = ()
         if dest_handles:
             connections = routing.estimate_path_batch(source_handles, dest_handles, routing_context=routing_context)
@@ -160,11 +159,10 @@ class DoorService(Service):
         for (_, handle, distance) in connections:
             old_info = exterior_door_to_infos.get(handle.door)
             if old_info is not None and not handle.is_front:
-                pass
-            else:
-                is_backwards = not handle.is_front
-                info = ExteriorDoorInfo(door=handle.door, distance=distance, is_backwards=is_backwards)
-                exterior_door_to_infos[handle.door] = info
+                continue
+            is_backwards = not handle.is_front
+            info = ExteriorDoorInfo(door=handle.door, distance=distance, is_backwards=is_backwards)
+            exterior_door_to_infos[handle.door] = info
         interior_doors = frozenset(door for door in doors if door not in exterior_door_to_infos)
         return (frozenset(exterior_door_to_infos.values()), interior_doors)
 
@@ -221,9 +219,9 @@ class DoorService(Service):
                     neighborhood_id = current_zone.neighborhood_id
                     neighborhood_data = services.get_persistence_service().get_neighborhood_proto_buff(neighborhood_id)
                     logger.error("Door isn't part of any plex. This will require WB fix. Door: {}, Lot desc id: {}, World desc id: {}. Neighborhood id: {}, Neighborhood Name: {}", door, lot_description_id, world_description_id, neighborhood_id, neighborhood_data.name)
-                elif front_zone_id == back_zone_id:
-                    pass
                 else:
+                    if front_zone_id == back_zone_id:
+                        continue
                     zone_id = front_zone_id or back_zone_id
                     is_backwards = front_zone_id is not None
                     info = PlexDoorInfo(door_id=door.id, zone_id=zone_id, is_backwards=is_backwards)
@@ -232,8 +230,9 @@ class DoorService(Service):
         return self._plex_door_infos
 
     def save(self, zone_data=None, **kwargs):
-        if self._front_door_id is not None:
-            zone_data.front_door_id = self._front_door_id
+        if zone_data is not None:
+            if self._front_door_id is not None:
+                zone_data.front_door_id = self._front_door_id
 
     def load(self, zone_data=None):
         for door in self._get_doors():

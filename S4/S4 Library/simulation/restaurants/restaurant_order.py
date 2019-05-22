@@ -72,8 +72,9 @@ class GroupOrder:
     def is_player_group_order(self):
         for sim_id in self.sim_ids:
             sim_info = services.sim_info_manager().get(sim_id)
-            if sim_info.is_selectable and sim_info.is_instanced():
-                return True
+            if sim_info.is_selectable:
+                if sim_info.is_instanced():
+                    return True
         return False
 
     @classmethod
@@ -221,18 +222,20 @@ class GroupOrder:
         zone_director = get_restaurant_zone_director()
         if self.has_food_order():
             for eat_object in self.slotted_objects_gen({RestaurantTuning.TABLE_FOOD_SLOT_TYPE}):
-                if eat_object.is_prop or not eat_object.state_value_active(RestaurantTuning.CONSUMABLE_EMPTY_STATE_VALUE):
-                    if self._order_status == OrderStatus.ORDER_READY:
-                        eat_object.add_state_changed_callback(self._unfinished_food_drink_state_change)
-                        zone_director.set_order_status(self, OrderStatus.ORDER_READY_DELAYED)
-                    return True
+                if not eat_object.is_prop:
+                    if not eat_object.state_value_active(RestaurantTuning.CONSUMABLE_EMPTY_STATE_VALUE):
+                        if self._order_status == OrderStatus.ORDER_READY:
+                            eat_object.add_state_changed_callback(self._unfinished_food_drink_state_change)
+                            zone_director.set_order_status(self, OrderStatus.ORDER_READY_DELAYED)
+                        return True
         if self.has_drink_order():
             for drink_object in self.slotted_objects_gen({RestaurantTuning.TABLE_DRINK_SLOT_TYPE}):
-                if drink_object.is_prop or not drink_object.state_value_active(RestaurantTuning.CONSUMABLE_EMPTY_STATE_VALUE):
-                    if self._order_status == OrderStatus.ORDER_READY:
-                        drink_object.add_state_changed_callback(self._unfinished_food_drink_state_change)
-                        zone_director.set_order_status(self, OrderStatus.ORDER_READY_DELAYED)
-                    return True
+                if not drink_object.is_prop:
+                    if not drink_object.state_value_active(RestaurantTuning.CONSUMABLE_EMPTY_STATE_VALUE):
+                        if self._order_status == OrderStatus.ORDER_READY:
+                            drink_object.add_state_changed_callback(self._unfinished_food_drink_state_change)
+                            zone_director.set_order_status(self, OrderStatus.ORDER_READY_DELAYED)
+                        return True
         if self._order_status == OrderStatus.ORDER_READY_DELAYED:
             zone_director.set_order_status(self, OrderStatus.ORDER_READY)
         return False

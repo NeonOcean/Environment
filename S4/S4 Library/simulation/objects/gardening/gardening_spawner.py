@@ -31,7 +31,7 @@ class FruitSpawnerData(SpawnerTuning):
         try:
             child = create_object(definition, loc_type=loc_type)
             gardening_component = child.get_component(types.GARDENING_COMPONENT)
-            if gardening_component.is_shoot or mother.has_state(GardeningTuning.QUALITY_STATE_VALUE):
+            if not gardening_component.is_shoot and mother.has_state(GardeningTuning.QUALITY_STATE_VALUE):
                 quality_state = mother.get_state(GardeningTuning.QUALITY_STATE_VALUE)
                 child.set_state(quality_state.state, quality_state)
                 scale *= GardeningTuning.SCALE_VARIANCE.random_float()

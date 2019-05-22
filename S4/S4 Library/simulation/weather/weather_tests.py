@@ -50,7 +50,8 @@ class WeatherTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                     for cloud_type in self.cloud_state.whitelist:
                         if weather_service.get_weather_element_value(cloud_type, time=time) > threshold:
                             break
-                    return TestResult(False, 'Whitelist specified and no specified cloud type is above the threshold', tooltip=self.tooltip)
+                    else:
+                        return TestResult(False, 'Whitelist specified and no specified cloud type is above the threshold', tooltip=self.tooltip)
                 threshold = self.cloud_state.blacklist_threshold
                 for cloud_type in self.cloud_state.blacklist:
                     if weather_service.get_weather_element_value(cloud_type, time=time) > threshold:

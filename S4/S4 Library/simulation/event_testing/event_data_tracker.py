@@ -110,8 +110,9 @@ class EventDataTracker:
                             self.update_objective(objective, test_result.current_value, test_result.goal_value, test_result.is_money)
                 else:
                     objectives_completed += 1
-                if log_enabled and milestone_event_data is not None:
-                    milestone_process_data.append(milestone_event_data)
+                if log_enabled:
+                    if milestone_event_data is not None:
+                        milestone_process_data.append(milestone_event_data)
             if objectives_completed >= self.required_completion_count(milestone):
                 self.complete_milestone(milestone, resolver.sim_info)
                 milestone_was_completed = True
@@ -142,14 +143,15 @@ class EventDataTracker:
     def _update_objectives_msg_for_client(self, msg):
         message_loaded = False
         for (objective, value) in list(self._dirty_objective_state.items()):
-            if not objective not in self._last_objective_state:
-                if self._last_objective_state[objective] != value.current_value:
-                    msg.goals_updated.append(int(objective.guid64))
-                    msg.goal_values.append(int(value[0]))
-                    msg.goal_objectives.append(int(value[1]))
-                    msg.goals_that_are_money.append(bool(value[2]))
-                    self._last_objective_state[objective] = value[0]
-                    message_loaded = True
+            if not value.from_init:
+                if not objective not in self._last_objective_state:
+                    if self._last_objective_state[objective] != value.current_value:
+                        msg.goals_updated.append(int(objective.guid64))
+                        msg.goal_values.append(int(value[0]))
+                        msg.goal_objectives.append(int(value[1]))
+                        msg.goals_that_are_money.append(bool(value[2]))
+                        self._last_objective_state[objective] = value[0]
+                        message_loaded = True
             msg.goals_updated.append(int(objective.guid64))
             msg.goal_values.append(int(value[0]))
             msg.goal_objectives.append(int(value[1]))

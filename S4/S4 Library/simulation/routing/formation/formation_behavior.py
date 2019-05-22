@@ -169,11 +169,7 @@ class RoutingFormationBehavior(HasTunableFactory, AutoFactoryInit):
         for trigger in self._triggers:
             for event_type in trigger.get_events():
                 if event_type in self._registered_events:
-                    pass
-                elif isinstance(event_type, TestEvent):
-                    event_manager.register_single_event(self, event_type)
-                else:
-                    self.master.register_routing_stage_event(event_type, self.handle_event)
+                    continue
                 self._registered_events.add(event_type)
 
     def on_release(self):

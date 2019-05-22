@@ -79,9 +79,8 @@ class WalkbyDogWalker(SituationComplexCommon):
         for result in filter_results:
             job = cls.situation_job_mapping.get(result.tag, None)
             if job is None:
-                pass
-            else:
-                guest_list.add_guest_info(SituationGuestInfo(result.sim_info.sim_id, job, RequestSpawningOption.DONT_CARE, job.sim_auto_invite_allow_priority))
+                continue
+            guest_list.add_guest_info(SituationGuestInfo(result.sim_info.sim_id, job, RequestSpawningOption.DONT_CARE, job.sim_auto_invite_allow_priority))
         return guest_list
 
     def start_situation(self):

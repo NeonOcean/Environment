@@ -31,18 +31,18 @@ class SocialJigAnimation(AutoFactoryInit, HasTunableSingletonFactory):
                 if posture_type.mobile:
                     break
             break
-        posture_type = None
+        else:
+            posture_type = None
         available_transforms = []
         if posture_type is not None:
             posture = posture_type(actor, None, PostureTrack.BODY, animation_context=animation_context)
             boundary_conditions = asm.get_boundary_conditions_list(actor, state_name, posture=posture, target=target)
             for (_, slots_to_params_entry) in boundary_conditions:
                 if not slots_to_params_entry:
-                    pass
-                else:
-                    for (boundary_condition_entry, param_sequences_entry) in slots_to_params_entry:
-                        (relative_transform, _, _, _) = boundary_condition_entry.get_transforms(asm, target)
-                        available_transforms.append((param_sequences_entry, relative_transform))
+                    continue
+                for (boundary_condition_entry, param_sequences_entry) in slots_to_params_entry:
+                    (relative_transform, _, _, _) = boundary_condition_entry.get_transforms(asm, target)
+                    available_transforms.append((param_sequences_entry, relative_transform))
         setattr(value, 'available_transforms', available_transforms)
 
     FACTORY_TUNABLES = {'canonical_animation': TunableAnimationReference(description="\n            The canonical animation element used to generate social positioning\n            for this group.\n            \n            The animation must include a target actor (such as 'y') whose\n            relative positioning from an actor, such as 'x' defines the\n            positioning.\n            ", callback=None), 'reverse_actor_sim_orientation': Tunable(description='\n            If checked then we will reverse the orientation of the actor Sim\n            when generating this jig. \n            ', tunable_type=bool, default=False), 'callback': on_tunable_loaded_callback}
@@ -53,14 +53,13 @@ class SocialJigAnimation(AutoFactoryInit, HasTunableSingletonFactory):
         target_name = animation_element.target_name
         actor_age = actor.age.age_for_animation_cache
         target_age = target.age.age_for_animation_cache
-        locked_params = {('age', target_name): target_age.animation_age_param, ('species', target_name): SpeciesExtended.get_animation_species_param(target.extended_species), ('age', actor_name): actor_age.animation_age_param, ('species', actor_name): SpeciesExtended.get_animation_species_param(actor.extended_species)}
+        locked_params = {('species', actor_name): SpeciesExtended.get_animation_species_param(actor.extended_species), ('age', actor_name): actor_age.animation_age_param, ('species', target_name): SpeciesExtended.get_animation_species_param(target.extended_species), ('age', target_name): target_age.animation_age_param}
         for (param_sequences, transform) in self.available_transforms:
             for param_sequence in param_sequences:
                 if not do_params_match(param_sequence, locked_params):
-                    pass
-                else:
-                    jig_params = frozendict({param: value for (param, value) in param_sequence.items() if param not in locked_params})
-                    yield (transform, jig_params)
+                    continue
+                jig_params = frozendict({param: value for (param, value) in param_sequence.items() if param not in locked_params})
+                yield (transform, jig_params)
 
     def get_transforms_gen(self, actor, target, fallback_routing_surface=None, fgl_kwargs=None, **kwargs):
         reserved_space_a = get_default_reserve_space(actor.species, actor.age)
@@ -75,9 +74,8 @@ class SocialJigAnimation(AutoFactoryInit, HasTunableSingletonFactory):
             actor_angle = yaw_quaternion_to_angle(transform.orientation)
             (translation_a, orientation_a, translation_b, orientation_b, routing_surface) = generate_jig_polygon(actor.location, transform.translation, actor_angle, target.location, Vector2.ZERO(), 0, reserved_space_a.left, reserved_space_a.right, reserved_space_a.front, reserved_space_a.back, reserved_space_b.left, reserved_space_b.right, reserved_space_b.front, reserved_space_b.back, fallback_routing_surface=fallback_routing_surface, reverse_nonreletive_sim_orientation=self.reverse_actor_sim_orientation, **fgl_kwargs)
             if translation_a is None:
-                pass
-            else:
-                yield (Transform(translation_a, orientation_a), Transform(translation_b, orientation_b), routing_surface, jig_params)
+                continue
+            yield (Transform(translation_a, orientation_a), Transform(translation_b, orientation_b), routing_surface, jig_params)
 
     def get_footprint_polygon(self, sim_a, sim_b, sim_a_transform, sim_b_transform, routing_surface):
         reserved_space_a = get_default_reserve_space(sim_a.species, sim_a.age)

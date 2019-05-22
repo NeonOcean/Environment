@@ -120,14 +120,17 @@ def _get_holstering_setup_asm_func(carry_posture, carry_object):
 
 def holster_carried_object(sim, interaction, unholster_predicate, flush_before_sequence=False, sequence=None):
     holstered_objects = []
-    if interaction.can_holster_incompatible_carries:
-        for (_, carry_posture) in interaction.get_uncarriable_objects_gen(allow_holster=False, use_holster_compatibility=True):
-            holstered_objects.append(carry_posture.target)
-            if not carry_posture.holstered:
-                sequence = holster_object(carry_posture, flush_before_sequence=flush_before_sequence, sequence=sequence)
+    if interaction is not None:
+        if interaction.can_holster_incompatible_carries:
+            for (_, carry_posture) in interaction.get_uncarriable_objects_gen(allow_holster=False, use_holster_compatibility=True):
+                holstered_objects.append(carry_posture.target)
+                if not carry_posture.holstered:
+                    sequence = holster_object(carry_posture, flush_before_sequence=flush_before_sequence, sequence=sequence)
     for (_, carry_posture, carry_object) in get_carried_objects_gen(sim):
-        if carry_posture.holstered and carry_object not in holstered_objects and unholster_predicate(carry_object):
-            sequence = unholster_object(carry_posture, flush_before_sequence=flush_before_sequence, sequence=sequence)
+        if carry_posture.holstered:
+            if carry_object not in holstered_objects:
+                if unholster_predicate(carry_object):
+                    sequence = unholster_object(carry_posture, flush_before_sequence=flush_before_sequence, sequence=sequence)
     return sequence
 
 def holster_objects_for_route(sim, unholster_after_predicate=lambda _: False, sequence=None):
@@ -136,15 +139,18 @@ def holster_objects_for_route(sim, unholster_after_predicate=lambda _: False, se
 
 def maybe_holster_objects_through_sequence(sim, predicate=lambda _: True, unholster_after_predicate=lambda _: True, sequence=None):
     for aspect in sim.posture_state.carry_aspects:
-        if aspect.target is not None and predicate(aspect.target):
-            sequence = holster_object(aspect, flush_before_sequence=True, sequence=sequence)
-            auto_exit_element = get_auto_exit((sim,), required_actors=(aspect.target,))
-            if auto_exit_element is not None:
-                sequence = (auto_exit_element, sequence)
+        if aspect.target is not None:
+            if predicate(aspect.target):
+                sequence = holster_object(aspect, flush_before_sequence=True, sequence=sequence)
+                auto_exit_element = get_auto_exit((sim,), required_actors=(aspect.target,))
+                if auto_exit_element is not None:
+                    sequence = (auto_exit_element, sequence)
     unholster_sequence = None
     for aspect in sim.posture_state.carry_aspects:
-        if aspect.target is not None and predicate(aspect.target) and unholster_after_predicate(aspect.target):
-            unholster_sequence = unholster_object(aspect, flush_before_sequence=True, sequence=unholster_sequence)
+        if aspect.target is not None:
+            if predicate(aspect.target):
+                if unholster_after_predicate(aspect.target):
+                    unholster_sequence = unholster_object(aspect, flush_before_sequence=True, sequence=unholster_sequence)
     sequence = (sequence, unholster_sequence)
     return sequence
 
@@ -242,10 +248,11 @@ def create_carry_nothing_constraint(hand, debug_name='CarryNothing'):
     return interactions.constraints.Constraint(debug_name=debug_name, posture_state_spec=carry_posture_state_spec)
 
 def create_carry_constraint(carry_target, hand=DEFAULT, strict=False, debug_name='CarryGeneric'):
-    if carry_target is None:
-        carry_target = MATCH_NONE
+    if strict:
+        if carry_target is None:
+            carry_target = MATCH_NONE
     entries = []
-    if strict and hand is DEFAULT or hand == Hand.LEFT:
+    if hand is DEFAULT or hand == Hand.LEFT:
         entries.append(PostureManifestEntry(None, MATCH_ANY, MATCH_ANY, MATCH_ANY, carry_target, MATCH_ANY, MATCH_ANY))
     if hand is DEFAULT or hand == Hand.RIGHT:
         entries.append(PostureManifestEntry(None, MATCH_ANY, MATCH_ANY, MATCH_ANY, MATCH_ANY, carry_target, MATCH_ANY))

@@ -195,6 +195,7 @@ class Types(enum.Int, export=False):
     CAREER_GIG = _add_inst_tuning('career_gig', resource_type=3436908253)
     HEADLINE = _add_inst_tuning('headline', resource_type=4093714525, require_reference=True)
     RABBIT_HOLE = _add_inst_tuning('rabbit_hole', resource_type=2976568058, require_reference=True)
+    NARRATIVE = _add_inst_tuning('narrative', resource_type=1047870521, require_reference=True)
     TDESC_DEBUG = _add_inst_tuning('tdesc_debug')
     TUNING_DESCRIPTION = 2519486516
     del _add_inst_tuning

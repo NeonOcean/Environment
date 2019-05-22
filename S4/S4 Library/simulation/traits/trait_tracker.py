@@ -22,6 +22,7 @@ from traits.trait_quirks import add_quirks
 from traits.traits import logger, Trait
 from ui.ui_dialog_picker import ObjectPickerRow
 from vfx.vfx_mask import generate_mask_message
+import game_services
 import services
 import sims.ghost
 import sims4.telemetry
@@ -71,8 +72,8 @@ class HasTraitTrackerMixin:
 class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
     GENDER_TRAITS = TunableMapping(description='\n        A mapping from gender to trait. Any Sim with the specified gender will\n        have the corresponding gender trait.\n        ', key_type=TunableEnumEntry(description="\n            The Sim's gender.\n            ", tunable_type=Gender, default=Gender.MALE), value_type=Trait.TunableReference(description='\n            The trait associated with the specified gender.\n            '))
     DEFAULT_GENDER_OPTION_TRAITS = TunableMapping(description="\n        A mapping from gender to default gender option traits. After loading the\n        sim's trait tracker, if no gender option traits are found (e.g. loading\n        a save created prior to them being added), the tuned gender option traits\n        for the sim's gender will be added.\n        ", key_type=TunableEnumEntry(description="\n            The Sim's gender.\n            ", tunable_type=Gender, default=Gender.MALE), value_type=TunableSet(description='\n            The default gender option traits to be added for this gender.\n            ', tunable=Trait.TunableReference(pack_safe=True)))
-    SPECIES_TRAITS = TunableMapping(description='\n        A mapping from species to trait. Any Sim of the specified species will\n        have the corresponding species trait.\n        ', key_type=TunableEnumEntry(description="\n            The Sim's species.\n            ", tunable_type=Species, default=Species.HUMAN), value_type=Trait.TunableReference(description='\n            The trait associated with the specified species.\n            ', pack_safe=True))
-    SPECIES_EXTENDED_TRAITS = TunableMapping(description='\n        A mapping from extended species to trait. Any Sim of the specified \n        extended species will have the corresponding extended species trait.\n        ', key_type=TunableEnumEntry(description="\n            The Sim's extended species.\n            ", tunable_type=SpeciesExtended, default=SpeciesExtended.SMALLDOG), value_type=Trait.TunableReference(description='\n            The trait associated with the specified extended species.\n            ', pack_safe=True))
+    SPECIES_TRAITS = TunableMapping(description='\n        A mapping from species to trait. Any Sim of the specified species will\n        have the corresponding species trait.\n        ', key_type=TunableEnumEntry(description="\n            The Sim's species.\n            ", tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=Trait.TunableReference(description='\n            The trait associated with the specified species.\n            ', pack_safe=True))
+    SPECIES_EXTENDED_TRAITS = TunableMapping(description='\n        A mapping from extended species to trait. Any Sim of the specified \n        extended species will have the corresponding extended species trait.\n        ', key_type=TunableEnumEntry(description="\n            The Sim's extended species.\n            ", tunable_type=SpeciesExtended, default=SpeciesExtended.SMALLDOG, invalid_enums=(SpeciesExtended.INVALID,)), value_type=Trait.TunableReference(description='\n            The trait associated with the specified extended species.\n            ', pack_safe=True))
     TRAIT_INHERITANCE = TunableList(description='\n        Define how specific traits are transferred to offspring. Define keys of\n        sets of traits resulting in the assignment of another trait, weighted\n        against other likely outcomes.\n        ', tunable=TunableTuple(description='\n            A set of trait requirements and outcomes. Please note that inverted\n            requirements are not necessary. The game will automatically swap\n            parents A and B to try to fulfill the constraints.\n            \n            e.g. Alien Inheritance\n                Alien inheritance follows a simple set of rules:\n                 Alien+Alien always generates aliens\n                 Alien+None always generates part aliens\n                 Alien+PartAlien generates either aliens or part aliens\n                 PartAlien+PartAlien generates either aliens, part aliens, or regular Sims\n                 PartAlien+None generates either part aliens or regular Sims\n                 \n                Given the specifications involving "None", we need to probably\n                blacklist the two traits to detect a case where only one of the\n                two parents has a meaningful trait:\n                \n                a_whitelist = Alien\n                b_whitelist = Alien\n                outcome = Alien\n                \n                a_whitelist = Alien\n                b_blacklist = Alien,PartAlien\n                outcome = PartAlien\n                \n                etc...\n            ', parent_a_whitelist=TunableList(description='\n                Traits that parent A must have in order to generate this\n                outcome.\n                ', tunable=Trait.TunableReference(pack_safe=True)), parent_a_blacklist=TunableList(description='\n                Traits that parent A must not have in order to generate this\n                outcome.\n                ', tunable=Trait.TunableReference(pack_safe=True)), parent_b_whitelist=TunableList(description='\n                Traits that parent B must have in order to generate this\n                outcome.\n                ', tunable=Trait.TunableReference(pack_safe=True)), parent_b_blacklist=TunableList(description='\n                Traits that parent B must not have in order to generate this\n                outcome.\n                ', tunable=Trait.TunableReference(pack_safe=True)), outcomes=TunableList(description='\n                A weighted list of potential outcomes given that the\n                requirements have been satisfied.\n                ', tunable=TunableTuple(description='\n                    A weighted outcome. The weight is relative to other entries\n                    within this outcome set.\n                    ', weight=Tunable(description='\n                        The relative weight of this outcome versus other\n                        outcomes in this same set.\n                        ', tunable_type=float, default=1), trait=Trait.TunableReference(description='\n                        The potential inherited trait.\n                        ', allow_none=True, pack_safe=True)))))
 
     def __init__(self, sim_info):
@@ -117,9 +118,8 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         auto_traits = (self.GENDER_TRAITS.get(self._sim_info.gender), self.SPECIES_TRAITS.get(self._sim_info.species), self.SPECIES_EXTENDED_TRAITS.get(self._sim_info.extended_species))
         for trait in auto_traits:
             if trait is None:
-                pass
-            else:
-                self._add_trait(trait)
+                continue
+            self._add_trait(trait)
 
     def remove_invalid_traits(self):
         for trait in tuple(self._equipped_traits):
@@ -133,10 +133,9 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         commodities = self._sim_info.get_initial_commodities()
         for trait in self._equipped_traits:
             if not trait.ui_commodity_sort_override:
-                pass
-            else:
-                final_list = [override_commodity for override_commodity in trait.ui_commodity_sort_override if override_commodity in commodities]
-                break
+                continue
+            final_list = [override_commodity for override_commodity in trait.ui_commodity_sort_override if override_commodity in commodities]
+            break
         if not final_list:
             final_list = sorted(commodities, key=operator.attrgetter('ui_sort_order'))
         self._send_commodity_list_msg(final_list)
@@ -146,9 +145,10 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         list_msg.sim_id = self._sim_info.sim_id
         for commodity in commodity_list:
             stat = self._sim_info.commodity_tracker.get_statistic(commodity)
-            if stat and stat.is_visible_commodity():
-                with ProtocolBufferRollback(list_msg.commodities) as commodity_msg:
-                    stat.populate_commodity_update_msg(commodity_msg, is_rate_change=False)
+            if stat:
+                if stat.is_visible_commodity():
+                    with ProtocolBufferRollback(list_msg.commodities) as commodity_msg:
+                        stat.populate_commodity_update_msg(commodity_msg, is_rate_change=False)
         send_sim_commodity_list_update_message(self._sim_info, list_msg)
 
     def _update_initial_commodities(self, trait, previous_initial_commodities):
@@ -172,7 +172,7 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         self._equipped_traits.add(trait)
         if initial_commodities_modified:
             self._update_initial_commodities(trait, previous_initial_commodities)
-        if trait.buffs_add_on_spawn_only and self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+        if not trait.buffs_add_on_spawn_only or self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
             self._add_buffs(trait)
         self._add_vfx_mask(trait, send_op=not from_load)
         self._add_day_night_tracking(trait)
@@ -196,9 +196,8 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
                 if self._sim_info.household is not None:
                     for household_sim in self._sim_info.household:
                         if household_sim is self._sim_info:
-                            pass
-                        else:
-                            household_sim.relationship_tracker.add_known_trait(trait, self._sim_info.sim_id)
+                            continue
+                        household_sim.relationship_tracker.add_known_trait(trait, self._sim_info.sim_id)
                 else:
                     logger.error("Attempting to add a trait to a Sim that doesn't have a household. This shouldn't happen. Sim={}, trait={}", self._sim_info, trait)
             self._sim_info.resend_trait_ids()
@@ -207,6 +206,7 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
             if sim is not None:
                 with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ADD_TRAIT, sim=sim) as hook:
                     hook.write_int(TELEMETRY_FIELD_TRAIT_ID, trait.guid64)
+            if trait.always_send_test_event_on_add or sim is not None:
                 services.get_event_manager().process_event(test_events.TestEvent.TraitAddEvent, sim_info=self._sim_info)
             if trait.loot_on_trait_add is not None:
                 resolver = SingleSimResolver(self._sim_info)
@@ -405,6 +405,20 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         if any(trait.is_ghost_trait for trait in self):
             sims.ghost.Ghost.enable_ghost_routing(self._sim_info)
 
+    def on_zone_unload(self):
+        if game_services.service_manager.is_traveling:
+            for trait in tuple(self):
+                if trait in self:
+                    if not trait.buffs_add_on_spawn_only:
+                        self._remove_buffs(trait)
+
+    def on_zone_load(self):
+        if game_services.service_manager.is_traveling:
+            for trait in tuple(self):
+                if trait in self:
+                    if not trait.buffs_add_on_spawn_only:
+                        self._add_buffs(trait)
+
     def on_sim_removed(self):
         for trait in self:
             if trait.buffs_add_on_spawn_only:
@@ -416,7 +430,7 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         data.trait_ids.extend(trait_ids)
         return data
 
-    def load(self, data):
+    def load(self, data, skip_load):
         trait_manager = services.get_instance_manager(sims4.resources.Types.TRAIT)
         try:
             self._load_in_progress = True
@@ -425,11 +439,12 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
                 trait = trait_manager.get(trait_instance_id)
                 if trait is not None:
                     if not self._has_valid_lod(trait):
-                        pass
-                    else:
-                        self._sim_info.add_trait(trait, from_load=True)
-            if self.personality_traits or not self._sim_info.is_baby:
-                possible_traits = [trait for trait in trait_manager.types.values() if trait.is_personality_trait and self.can_add_trait(trait)]
+                        continue
+                    if skip_load and not trait.allow_from_gallery:
+                        continue
+                    self._sim_info.add_trait(trait, from_load=True)
+            if not self.personality_traits and not self._sim_info.is_baby:
+                possible_traits = [trait for trait in trait_manager.types.values() if trait.is_personality_trait if self.can_add_trait(trait)]
                 if possible_traits:
                     chosen_trait = random.choice(possible_traits)
                     self._add_trait(chosen_trait, from_load=True)
@@ -479,24 +494,23 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
             self._day_night_state = DayNightTrackingState(is_day, in_sunlight)
         update_day_night = new_state or self._day_night_state.is_day != is_day
         update_sunlight = new_state or self._day_night_state.in_sunlight != in_sunlight
-        if force_update or update_day_night or not update_sunlight:
+        if not force_update and not (not update_day_night and not update_sunlight):
             return
         self._day_night_state.is_day = is_day
         self._day_night_state.in_sunlight = in_sunlight
         for trait in self:
             if not trait.day_night_tracking:
-                pass
-            else:
-                day_night_tracking = trait.day_night_tracking
-                if update_day_night or force_update:
-                    self._add_remove_day_night_buffs(day_night_tracking.day_buffs, add=is_day)
-                    self._add_remove_day_night_buffs(day_night_tracking.night_buffs, add=not is_day)
-                if not update_sunlight:
-                    if force_update:
-                        self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=in_sunlight)
-                        self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=not in_sunlight)
-                self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=in_sunlight)
-                self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=not in_sunlight)
+                continue
+            day_night_tracking = trait.day_night_tracking
+            if update_day_night or force_update:
+                self._add_remove_day_night_buffs(day_night_tracking.day_buffs, add=is_day)
+                self._add_remove_day_night_buffs(day_night_tracking.night_buffs, add=not is_day)
+            if not update_sunlight:
+                if force_update:
+                    self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=in_sunlight)
+                    self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=not in_sunlight)
+            self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=in_sunlight)
+            self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=not in_sunlight)
 
     def update_day_night_buffs_on_buff_removal(self, buff_to_remove):
         if not self._has_any_trait_with_day_night_tracking():
@@ -504,23 +518,21 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         for trait in self:
             if trait.day_night_tracking:
                 if not trait.day_night_tracking.force_refresh_buffs:
-                    pass
-                else:
-                    force_refresh_buffs = trait.day_night_tracking.force_refresh_buffs
-                    if any(buff.buff_type is buff_to_remove.buff_type for buff in force_refresh_buffs):
-                        self.update_day_night_tracking_state(full_reset=True, force_update=True)
-                        return
+                    continue
+                force_refresh_buffs = trait.day_night_tracking.force_refresh_buffs
+                if any(buff.buff_type is buff_to_remove.buff_type for buff in force_refresh_buffs):
+                    self.update_day_night_tracking_state(full_reset=True, force_update=True)
+                    return
 
     def _clear_all_day_night_buffs(self):
         for trait in self:
             if not trait.day_night_tracking:
-                pass
-            else:
-                day_night_tracking = trait.day_night_tracking
-                self._add_remove_day_night_buffs(day_night_tracking.day_buffs, add=False)
-                self._add_remove_day_night_buffs(day_night_tracking.night_buffs, add=False)
-                self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=False)
-                self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=False)
+                continue
+            day_night_tracking = trait.day_night_tracking
+            self._add_remove_day_night_buffs(day_night_tracking.day_buffs, add=False)
+            self._add_remove_day_night_buffs(day_night_tracking.night_buffs, add=False)
+            self._add_remove_day_night_buffs(day_night_tracking.sunlight_buffs, add=False)
+            self._add_remove_day_night_buffs(day_night_tracking.shade_buffs, add=False)
 
     def _add_remove_day_night_buffs(self, buffs, add=True):
         for buff in buffs:
@@ -577,6 +589,7 @@ class TraitPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.target, target_sim=self.target)
         return True
+        yield
 
     @classmethod
     def _trait_selection_gen(cls, target):

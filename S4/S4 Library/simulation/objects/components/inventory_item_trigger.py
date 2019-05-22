@@ -19,15 +19,17 @@ class ItemStateTrigger(HasTunableFactory, AutoFactoryInit):
     def on_object_added(self, added_obj):
         self._total_obj_count += 1
         state_component = added_obj.state_component
-        if state_component.state_value_active(self.item_state_value):
-            self._obj_with_state_count += 1
+        if state_component is not None:
+            if state_component.state_value_active(self.item_state_value):
+                self._obj_with_state_count += 1
         self._check_trigger_state()
 
     def on_obj_removed(self, removed_obj):
         self._total_obj_count -= 1
         state_component = removed_obj.state_component
-        if state_component.state_value_active(self.item_state_value):
-            self._obj_with_state_count -= 1
+        if state_component is not None:
+            if state_component.state_value_active(self.item_state_value):
+                self._obj_with_state_count -= 1
         self._check_trigger_state()
 
     def obj_state_changed(self, old_state, new_state):

@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2018 Rocky Bernstein
+#  Copyright (c) 2016-2019 Rocky Bernstein
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -41,17 +41,23 @@ class Python36Parser(Python35Parser):
 
         whilestmt       ::= SETUP_LOOP testexpr l_stmts_opt
                             JUMP_BACK come_froms POP_BLOCK COME_FROM_LOOP
+        whilestmt       ::= SETUP_LOOP testexpr l_stmts_opt
+                            come_froms JUMP_BACK come_froms POP_BLOCK COME_FROM_LOOP
 
         # 3.6 due to jump optimization, we sometimes add RETURN_END_IF where
         # RETURN_VALUE is meant. Specifcally this can happen in
         # ifelsestmt -> ...else_suite _. suite_stmts... (last) stmt
         return ::= ret_expr RETURN_END_IF
+        return ::= ret_expr RETURN_VALUE COME_FROM
+        return_stmt_lambda ::= ret_expr RETURN_VALUE_LAMBDA COME_FROM
 
         # A COME_FROM is dropped off because of JUMP-to-JUMP optimization
         and  ::= expr jmp_false expr
         and  ::= expr jmp_false expr jmp_false
 
         jf_cf       ::= JUMP_FORWARD COME_FROM
+        cf_jf_else  ::= come_froms JUMP_FORWARD ELSE
+
         conditional ::= expr jmp_false expr jf_cf expr COME_FROM
 
         async_for_stmt     ::= SETUP_LOOP expr
@@ -64,6 +70,22 @@ class Python36Parser(Python35Parser):
                                POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_BLOCK
                                JUMP_ABSOLUTE END_FINALLY COME_FROM
                                for_block POP_BLOCK
+                               COME_FROM_LOOP
+
+        stmt      ::= async_for_stmt36
+
+        async_for_stmt36   ::= SETUP_LOOP expr
+                               GET_AITER
+                               LOAD_CONST YIELD_FROM
+                               SETUP_EXCEPT GET_ANEXT LOAD_CONST
+                               YIELD_FROM
+                               store
+                               POP_BLOCK JUMP_BACK COME_FROM_EXCEPT DUP_TOP
+                               LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                               END_FINALLY for_block
+                               COME_FROM
+                               POP_TOP POP_TOP POP_TOP POP_EXCEPT
+                               POP_TOP POP_BLOCK
                                COME_FROM_LOOP
 
         async_forelse_stmt ::= SETUP_LOOP expr
@@ -85,6 +107,7 @@ class Python36Parser(Python35Parser):
 
         jb_cfs      ::= JUMP_BACK come_froms
         ifelsestmtl ::= testexpr c_stmts_opt jb_cfs else_suitel
+        ifelsestmtl ::= testexpr c_stmts_opt cf_jf_else else_suitel
 
         # In 3.6+, A sequence of statements ending in a RETURN can cause
         # JUMP_FORWARD END_FINALLY to be omitted from try middle
@@ -99,9 +122,12 @@ class Python36Parser(Python35Parser):
         try_except36     ::= SETUP_EXCEPT returns except_handler36
                              opt_come_from_except
         try_except36     ::= SETUP_EXCEPT suite_stmts
+        try_except36     ::= SETUP_EXCEPT suite_stmts_opt POP_BLOCK
+                             except_handler36 opt_come_from_except
 
         # 3.6 omits END_FINALLY sometimes
         except_handler36 ::= COME_FROM_EXCEPT except_stmts
+        except_handler36 ::= JUMP_FORWARD COME_FROM_EXCEPT except_stmts
         except_handler   ::= jmp_abs COME_FROM_EXCEPT except_stmts
 
         stmt             ::= tryfinally36
@@ -115,6 +141,8 @@ class Python36Parser(Python35Parser):
         stmt ::= tryfinally_return_stmt
         tryfinally_return_stmt ::= SETUP_FINALLY suite_stmts_opt POP_BLOCK LOAD_CONST
                                    COME_FROM_FINALLY
+
+        compare_chained2 ::= expr COMPARE_OP come_froms JUMP_FORWARD
         """
 
     def customize_grammar_rules(self, tokens, customize):
@@ -122,6 +150,7 @@ class Python36Parser(Python35Parser):
         # """)
         super(Python36Parser, self).customize_grammar_rules(tokens, customize)
         self.remove_rules("""
+           except_handler     ::= JUMP_FORWARD COME_FROM_EXCEPT except_stmts END_FINALLY COME_FROM
            async_for_stmt     ::= SETUP_LOOP expr
                                   GET_AITER
                                   LOAD_CONST YIELD_FROM SETUP_EXCEPT GET_ANEXT LOAD_CONST
@@ -144,16 +173,36 @@ class Python36Parser(Python35Parser):
                                   JUMP_ABSOLUTE END_FINALLY COME_FROM
                                   for_block pb_ja
                                   else_suite COME_FROM_LOOP
+
         """)
         self.check_reduce['call_kw'] = 'AST'
 
         for i, token in enumerate(tokens):
             opname = token.kind
 
-            if opname == 'FORMAT_VALUE':
+            if opname == 'LOAD_ASSERT':
+                if 'PyPy' in customize:
+                    rules_str = """
+                    stmt ::= JUMP_IF_NOT_DEBUG stmts COME_FROM
+                    """
+                    self.add_unique_doc_rules(rules_str, customize)
+            elif opname == 'FORMAT_VALUE':
                 rules_str = """
-                    expr ::= fstring_single
-                    fstring_single ::= expr FORMAT_VALUE
+                    expr            ::= fstring_single
+                    fstring_single  ::= expr FORMAT_VALUE
+                    expr            ::= fstring_expr
+                    fstring_expr    ::= expr FORMAT_VALUE
+
+                    str             ::= LOAD_CONST
+                    formatted_value ::= fstring_expr
+                    formatted_value ::= str
+
+                """
+                self.add_unique_doc_rules(rules_str, customize)
+            elif opname == 'FORMAT_VALUE_ATTR':
+                rules_str = """
+                expr            ::= fstring_single
+                fstring_single  ::= expr expr FORMAT_VALUE_ATTR
                 """
                 self.add_unique_doc_rules(rules_str, customize)
             elif opname == 'MAKE_FUNCTION_8':
@@ -201,12 +250,6 @@ class Python36Parser(Python35Parser):
                 v = token.attr
                 joined_str_n = "formatted_value_%s" % v
                 rules_str = """
-                    expr            ::= fstring_expr
-                    fstring_expr    ::= expr FORMAT_VALUE
-                    str             ::= LOAD_CONST
-                    formatted_value ::= fstring_expr
-                    formatted_value ::= str
-
                     expr                 ::= fstring_multi
                     fstring_multi        ::= joined_str BUILD_STRING
                     joined_str           ::= formatted_value+
@@ -214,6 +257,12 @@ class Python36Parser(Python35Parser):
                     %s                   ::= %sBUILD_STRING
                 """ % (joined_str_n, joined_str_n, "formatted_value " * v)
                 self.add_unique_doc_rules(rules_str, customize)
+                if 'FORMAT_VALUE_ATTR' in self.seen_ops:
+                    rules_str = """
+                      formatted_value_attr ::= expr expr FORMAT_VALUE_ATTR expr BUILD_STRING
+                      expr                 ::= formatted_value_attr
+                    """
+                    self.add_unique_doc_rules(rules_str, customize)
             elif opname.startswith('BUILD_MAP_UNPACK_WITH_CALL'):
                 v = token.attr
                 rule = 'build_map_unpack_with_call ::= %s%s' % ('expr ' * v, opname)
@@ -228,8 +277,6 @@ class Python36Parser(Python35Parser):
                 self.addRule(rule, nop_func)
             elif opname == 'SETUP_WITH':
                 rules_str = """
-                withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK LOAD_CONST
-                               WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
                 withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
                                WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
 
@@ -237,7 +284,22 @@ class Python36Parser(Python35Parser):
                 withasstmt ::= expr SETUP_WITH store suite_stmts_opt COME_FROM_WITH
                                WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
                 """
+                if self.version < 3.8:
+                    rules_str += """
+                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
+                                   LOAD_CONST
+                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                    """
+                else:
+                    rules_str += """
+                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
+                                   BEGIN_FINALLY COME_FROM_WITH
+                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH
+                                   END_FINALLY
+                    """
                 self.addRule(rules_str, nop_func)
+                pass
+            pass
 
     def custom_classfunc_rule(self, opname, token, customize, next_token):
 
@@ -316,7 +378,7 @@ class Python36Parser(Python35Parser):
                                             build_tuple_unpack_with_call
                                             %s
                                             CALL_FUNCTION_EX
-                            """ % 'expr '* token.attr, nop_func)
+                            """ % 'expr ' * token.attr, nop_func)
                     pass
 
                 # FIXME: Is this right?
@@ -344,8 +406,10 @@ class Python36Parser(Python35Parser):
                 if nt[0] == 'call_kw':
                     return True
                 nt = nt[0]
-
+                pass
+            pass
         return False
+
 class Python36ParserSingle(Python36Parser, PythonParserSingle):
     pass
 
@@ -365,7 +429,7 @@ if __name__ == '__main__':
             """.split()))
         remain_tokens = set(tokens) - opcode_set
         import re
-        remain_tokens = set([re.sub('_\d+$', '', t) for t in remain_tokens])
+        remain_tokens = set([re.sub(r'_\d+$', '', t) for t in remain_tokens])
         remain_tokens = set([re.sub('_CONT$', '', t) for t in remain_tokens])
         remain_tokens = set(remain_tokens) - opcode_set
         print(remain_tokens)

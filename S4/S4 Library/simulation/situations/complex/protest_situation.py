@@ -36,9 +36,10 @@ class _ProtestingState(CommonInteractionCompletedSituationState):
             protestable = self.owner.find_protestable_using_guest_list()
             if protestable is not None:
                 self._sign_definition = protestable.sign_definition
-        if self._fallback_signs:
-            self._sign_definition = random.choice(self._fallback_signs)
-        if not (self._sign_definition is None and self._sign_definition):
+        if self._sign_definition is None:
+            if self._fallback_signs:
+                self._sign_definition = random.choice(self._fallback_signs)
+        if not self._sign_definition:
             logger.error('Could not find a sign for the protester to hold.  Please verify tuning on situation: {0}.', self.owner)
         return self._sign_definition
 

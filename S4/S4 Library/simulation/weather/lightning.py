@@ -47,9 +47,10 @@ class LightningStrike:
 
         count = 20
         (position, routing_surface) = _get_random_position_and_routing_surface()
-        while count and not build_buy.is_location_outside(zone_id, position, routing_surface.secondary_id):
-            (position, routing_surface) = _get_random_position_and_routing_surface()
-            count -= 1
+        while count:
+            while not build_buy.is_location_outside(zone_id, position, routing_surface.secondary_id):
+                (position, routing_surface) = _get_random_position_and_routing_surface()
+                count -= 1
         if not count:
             return (None, None)
         return (position, routing_surface)
@@ -106,15 +107,13 @@ class LightningStrike:
         lightning_objects = []
         for obj in object_manager.get_objects_with_tags_gen(*lightning_strike_tuning.tags):
             if obj.is_sim:
-                pass
-            elif not obj.is_outside:
-                pass
-            else:
-                weight = obj.get_lightning_strike_multiplier()
-                if not weight:
-                    pass
-                else:
-                    lightning_objects.append((weight, obj))
+                continue
+            if not obj.is_outside:
+                continue
+            weight = obj.get_lightning_strike_multiplier()
+            if not weight:
+                continue
+            lightning_objects.append((weight, obj))
         return sims4.random.weighted_random_item(lightning_objects)
 
     @staticmethod
@@ -145,13 +144,11 @@ class LightningStrike:
         lightning_sims = []
         for sim in sim_info_manager.instanced_sims_gen():
             if not sim.is_outside:
-                pass
-            else:
-                weight = sim.get_lightning_strike_multiplier()
-                if not weight:
-                    pass
-                else:
-                    lightning_sims.append((weight, sim))
+                continue
+            weight = sim.get_lightning_strike_multiplier()
+            if not weight:
+                continue
+            lightning_sims.append((weight, sim))
         return sims4.random.weighted_random_item(lightning_sims)
 
     @staticmethod

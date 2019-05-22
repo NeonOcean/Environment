@@ -192,11 +192,13 @@ class BusinessService(Service):
         for business_tracker in itertools.chain(*self._business_trackers.values()):
             business_tracker_data = None
             for business_tracker_data in business_tracker_save_datas:
-                if business_tracker.owner_household_id == business_tracker_data.household_id and business_tracker.business_type == business_tracker_data.business_type:
-                    if len(business_tracker.business_managers) != len(business_tracker_data.business_manager_data):
-                        return False
-                    break
-            return False
+                if business_tracker.owner_household_id == business_tracker_data.household_id:
+                    if business_tracker.business_type == business_tracker_data.business_type:
+                        if len(business_tracker.business_managers) != len(business_tracker_data.business_manager_data):
+                            return False
+                        break
+            else:
+                return False
         return True
 
     def process_zone_loaded(self):
@@ -216,11 +218,10 @@ class BusinessService(Service):
         for business_tracker_data in save_slot_data_msg.gameplay_data.business_service_data.business_tracker_data:
             business_tuning_data = self.get_business_tuning_data_for_business_type(business_tracker_data.business_type)
             if business_tuning_data is None:
-                pass
-            else:
-                business_tracker = BusinessTracker(business_tracker_data.household_id, business_tracker_data.business_type)
-                business_tracker.load_data(business_tracker_data)
-                self._business_trackers[business_tracker_data.household_id].append(business_tracker)
+                continue
+            business_tracker = BusinessTracker(business_tracker_data.household_id, business_tracker_data.business_type)
+            business_tracker.load_data(business_tracker_data)
+            self._business_trackers[business_tracker_data.household_id].append(business_tracker)
 
     def load_legacy_data(self, household, household_proto):
         legacy_save_data = None

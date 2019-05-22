@@ -18,8 +18,10 @@ class RelicTuning:
         for (combo_id, combo_data) in RelicTuning.RELIC_DISCOVERY_DATA.items():
             if object_a.definition in combo_data.object_a and object_b.definition in combo_data.object_b and cls._objects_in_correct_states(object_a, combo_data.object_a_state, object_b, combo_data.object_b_state):
                 return (combo_id, combo_data)
-            if object_a.definition in combo_data.object_b and object_b.definition in combo_data.object_a and cls._objects_in_correct_states(object_a, combo_data.object_b_state, object_b, combo_data.object_a_state):
-                return (combo_id, combo_data)
+            if object_a.definition in combo_data.object_b:
+                if object_b.definition in combo_data.object_a:
+                    if cls._objects_in_correct_states(object_a, combo_data.object_b_state, object_b, combo_data.object_a_state):
+                        return (combo_id, combo_data)
         return (None, None)
 
     @classmethod
@@ -39,10 +41,9 @@ class RelicTuning:
         for (combo_id, combo_data) in RelicTuning.RELIC_DISCOVERY_DATA.items():
             hovertip_data = combo_data.hovertip_data
             if hovertip_data is None:
-                pass
-            elif hovertip_object.definition in hovertip_data.objects:
+                continue
+            if hovertip_object.definition in hovertip_data.objects:
                 if hovertip_data.object_state is not None and not hovertip_object.state_value_active(hovertip_data.object_state):
-                    pass
-                else:
-                    return (combo_id, combo_data)
+                    continue
+                return (combo_id, combo_data)
         return (None, None)

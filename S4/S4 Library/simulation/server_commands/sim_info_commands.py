@@ -79,26 +79,19 @@ def set_sims_to_lod(quantity:int=10, lod:SimInfoLODLevel=SimInfoLODLevel.MINIMUM
     for sim_info in sim_infos:
         if not sim_info.lod == lod:
             if not sim_info.is_npc:
-                pass
+                continue
+            household = sim_info.household
+            household_sim_infos = household.sim_infos
+            if len(household_sim_infos) > sims_left:
+                continue
+            for household_sim_info in household_sim_infos:
+                if household_sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS) or not (household_sim_info.can_set_to_lod(lod) and household_sim_info.can_change_lod(household_sim_info.lod)):
+                    break
             else:
-                household = sim_info.household
-                household_sim_infos = household.sim_infos
-                if len(household_sim_infos) > sims_left:
-                    pass
-                else:
-                    for household_sim_info in household_sim_infos:
-                        if household_sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS) or not (household_sim_info.can_set_to_lod(lod) and household_sim_info.can_change_lod(household_sim_info.lod)):
-                            break
-                    for household_sim_info in household_sim_infos:
-                        if household_sim_info.request_lod(lod):
-                            output('Sim set to {} LOD. ID:{} Name: {}'.format(lod, household_sim_info.id, household_sim_info.full_name))
-                            sims_left -= 1
-                        else:
-                            output('Sim NOT set to {} LOD. ID:{} Name: {}'.format(lod, household_sim_info.id, household_sim_info.full_name))
-                    if lod == SimInfoLODLevel.MINIMUM:
-                        household.set_to_hidden()
-                    if sims_left == 0:
-                        break
+                if lod == SimInfoLODLevel.MINIMUM:
+                    household.set_to_hidden()
+                if sims_left == 0:
+                    break
     if sims_left == 0:
         output('All {} sim infos set to {} LOD'.format(quantity, lod))
         automation_output('SetSimsToLod; Status:Success')

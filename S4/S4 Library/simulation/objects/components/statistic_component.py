@@ -233,10 +233,11 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
     @componentmethod_with_fallback(lambda *_, **__: None)
     def add_statistic_modifier(self, modifier, interaction_modifier=False, requested_handle=None):
         is_interaction_modifier = modifier._subject and not interaction_modifier
-        if is_interaction_modifier and requested_handle in self._interaction_modifiers or requested_handle in self._statistic_modifiers:
-            logger.warn('Trying to add a modifier with a requested handle that already exists. Generating a new handle. - trevorlindsey')
-            requested_handle = None
-        handle = self._get_next_statistic_handle() if requested_handle and requested_handle is None else requested_handle
+        if requested_handle:
+            if is_interaction_modifier and requested_handle in self._interaction_modifiers or requested_handle in self._statistic_modifiers:
+                logger.warn('Trying to add a modifier with a requested handle that already exists. Generating a new handle. - trevorlindsey')
+                requested_handle = None
+        handle = self._get_next_statistic_handle() if requested_handle is None else requested_handle
         if is_interaction_modifier:
             self._interaction_modifiers[handle] = modifier
             return handle
@@ -272,19 +273,19 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             for stat_instance in self._commodity_tracker:
                 categories = stat_instance.get_categories() & modifier_categories.keys()
                 if not categories:
-                    pass
-                else:
-                    for category in categories:
-                        value = modifier_categories[category]
-                        stat_instance.add_decay_rate_modifier(value)
-                    stat_instance.send_commodity_progress_msg()
+                    continue
+                for category in categories:
+                    value = modifier_categories[category]
+                    stat_instance.add_decay_rate_modifier(value)
+                stat_instance.send_commodity_progress_msg()
         if modifier.statistic_modifiers:
             for (stat_type, statistic_modifier) in modifier.statistic_modifiers.items():
                 tracker = self.get_tracker(stat_type)
                 stat = tracker.get_statistic(stat_type, stat_type.add_if_not_in_tracker)
-                if stat is not None and stat_type not in self._locked_commodities:
-                    stat.add_statistic_modifier(statistic_modifier)
-                    autonomy_modifier_entry.statistic_modifiers.append(stat_type)
+                if stat is not None:
+                    if stat_type not in self._locked_commodities:
+                        stat.add_statistic_modifier(statistic_modifier)
+                        autonomy_modifier_entry.statistic_modifiers.append(stat_type)
         if modifier.relationship_score_multiplier_with_buff_on_target is not None:
             for (buff_type, multiplier) in modifier.relationship_score_multiplier_with_buff_on_target.items():
                 self._relationship_score_multiplier_with_buff_on_target[buff_type].append(multiplier)
@@ -319,16 +320,16 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             sims = ()
         for sim in sims:
             if sim is None:
-                pass
-            else:
-                sim_instance = sim.get_sim_instance() if hasattr(sim, 'get_sim_instance') else sim
+                continue
+            sim_instance = sim.get_sim_instance() if hasattr(sim, 'get_sim_instance') else sim
+            if sim_instance is not None:
                 if modifier.super_affordance_suppress_on_add:
                     for interaction in tuple(itertools.chain(sim_instance.si_state, sim_instance.queue)):
                         if modifier.affordance_suppressed(sim_instance, interaction):
                             interaction.cancel(FinishingType.INTERACTION_INCOMPATIBILITY, cancel_reason_msg='Modifier suppression')
-                for (skill, mod) in self._get_skill_modifiers(sim, modifier):
-                    skill.add_statistic_multiplier(mod)
-                sim.relationship_tracker.add_relationship_multipliers(handle, modifier.relationship_multipliers)
+            for (skill, mod) in self._get_skill_modifiers(sim, modifier):
+                skill.add_statistic_multiplier(mod)
+            sim.relationship_tracker.add_relationship_multipliers(handle, modifier.relationship_multipliers)
         self._statistic_modifiers[handle] = autonomy_modifier_entry
         return handle
 
@@ -344,33 +345,27 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                 modifier_categories = modifier.decay_modifier_by_category
                 categories = stat.get_categories() & modifier_categories.keys()
                 if not categories:
-                    pass
-                else:
-                    for category in categories:
-                        value = modifier_categories[category]
-                        stat.add_decay_rate_modifier(value)
-                    stat.send_commodity_progress_msg()
-                    if modifier.statistic_multipliers is not None:
-                        statistic_multiplier = modifier.statistic_multipliers.get(stat_type, None)
-                        if statistic_multiplier is not None and not modifier_entry.has_multiplier(tracker, stat_type):
-                            stat.add_statistic_multiplier(statistic_multiplier)
-                            modifier_entry.add_multiplier(stat_type, tracker)
+                    continue
+                for category in categories:
+                    value = modifier_categories[category]
+                    stat.add_decay_rate_modifier(value)
+                stat.send_commodity_progress_msg()
             if modifier.statistic_multipliers is not None:
                 statistic_multiplier = modifier.statistic_multipliers.get(stat_type, None)
-                if statistic_multiplier is not None and not modifier_entry.has_multiplier(tracker, stat_type):
-                    stat.add_statistic_multiplier(statistic_multiplier)
-                    modifier_entry.add_multiplier(stat_type, tracker)
+                if statistic_multiplier is not None:
+                    if not modifier_entry.has_multiplier(tracker, stat_type):
+                        stat.add_statistic_multiplier(statistic_multiplier)
+                        modifier_entry.add_multiplier(stat_type, tracker)
 
     def add_statistic_multiplier(self, modifier, subject):
         if modifier.statistic_multipliers:
             for (stat_type, statistic_multiplier) in modifier.statistic_multipliers.items():
                 if subject is not None and subject != statistic_multiplier.subject:
-                    pass
-                else:
-                    tracker = self.get_tracker(stat_type)
-                    stat = tracker.get_statistic(stat_type, stat_type.add_if_not_in_tracker)
-                    if stat is not None:
-                        stat.add_statistic_multiplier(statistic_multiplier)
+                    continue
+                tracker = self.get_tracker(stat_type)
+                stat = tracker.get_statistic(stat_type, stat_type.add_if_not_in_tracker)
+                if stat is not None:
+                    stat.add_statistic_multiplier(statistic_multiplier)
 
     def _add_outside_suppression(self, modifier):
         if not self.owner.is_sim:
@@ -438,9 +433,8 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                 modifier = autonomy_modifier_entry.autonomy_modifier
                 for stat_type in modifier.locked_stats_gen():
                     if autonomy_modifier_entry.locked_statistics_skipped is not None and stat_type in autonomy_modifier_entry.locked_statistics_skipped:
-                        pass
-                    else:
-                        self.unlock_statistic(stat_type)
+                        continue
+                    self.unlock_statistic(stat_type, auto_satisfy=modifier.autosatisfy_on_unlock)
                 autonomy_modifier_entry.clear_locked_statistics_skipped()
                 if modifier.decay_modifiers:
                     for (stat_type, decay_modifier) in modifier.decay_modifiers.items():
@@ -453,35 +447,33 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                     for stat_instance in self._commodity_tracker:
                         categories = stat_instance.get_categories() & modifier_categories.keys()
                         if not categories:
-                            pass
-                        else:
-                            for category in categories:
-                                value = modifier_categories[category]
-                                stat_instance.remove_decay_rate_modifier(value)
-                            stat_instance.send_commodity_progress_msg()
+                            continue
+                        for category in categories:
+                            value = modifier_categories[category]
+                            stat_instance.remove_decay_rate_modifier(value)
+                        stat_instance.send_commodity_progress_msg()
                 if modifier.statistic_modifiers:
                     for (stat_type, statistic_modifier) in modifier.statistic_modifiers.items():
                         if stat_type not in autonomy_modifier_entry.statistic_modifiers:
-                            pass
-                        else:
-                            tracker = self.get_tracker(stat_type)
-                            stat = tracker.get_statistic(stat_type)
-                            if stat is not None:
-                                stat.remove_statistic_modifier(statistic_modifier)
-                            elif stat_type.add_if_not_in_tracker and not stat_type.remove_on_convergence:
+                            continue
+                        tracker = self.get_tracker(stat_type)
+                        stat = tracker.get_statistic(stat_type)
+                        if stat is not None:
+                            stat.remove_statistic_modifier(statistic_modifier)
+                        elif stat_type.add_if_not_in_tracker:
+                            if not stat_type.remove_on_convergence:
                                 logger.error("Attempting to remove a statistic modifier for a commodity that doesn't exist on object {}: {}", self.owner, stat_type)
                 autonomy_modifier_entry.statistic_modifiers.clear()
                 if modifier.statistic_multipliers:
                     for (stat_type, statistic_multiplier) in modifier.statistic_multipliers.items():
                         tracker = self.get_tracker(stat_type)
                         if not autonomy_modifier_entry.has_multiplier(stat_type, tracker):
-                            pass
-                        else:
-                            stat = tracker.get_statistic(stat_type)
-                            if stat is not None:
-                                stat.remove_statistic_multiplier(statistic_multiplier)
-                            elif stat_type.add_if_not_in_tracker:
-                                logger.error("Attempting to remove a statistic multiplier for a commodity that doesn't exist on object {}: {}", self.owner, stat_type)
+                            continue
+                        stat = tracker.get_statistic(stat_type)
+                        if stat is not None:
+                            stat.remove_statistic_multiplier(statistic_multiplier)
+                        elif stat_type.add_if_not_in_tracker:
+                            logger.error("Attempting to remove a statistic multiplier for a commodity that doesn't exist on object {}: {}", self.owner, stat_type)
                 autonomy_modifier_entry.clear_multipliers()
                 if modifier.object_tags_that_override_off_lot_autonomy is not None:
                     for tag in modifier.object_tags_that_override_off_lot_autonomy:
@@ -622,12 +614,12 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
         return True
 
     @componentmethod_with_fallback(lambda _: False)
-    def unlock_statistic(self, stat_type):
+    def unlock_statistic(self, stat_type, auto_satisfy=True):
         if stat_type in self._locked_commodities:
             if self._locked_commodities[stat_type] <= 1:
                 stat = self._commodity_tracker.get_statistic(stat_type)
                 if stat is not None:
-                    stat.on_unlock()
+                    stat.on_unlock(auto_satisfy=auto_satisfy)
                 else:
                     logger.warn("Attempting to unlock commodity that doesn't exist on object {},({}) : {}", self.owner, self.owner.id, stat_type)
                 del self._locked_commodities[stat_type]
@@ -777,9 +769,10 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             priority = 0
             for commodity_ref in self._commodity_distress_refs:
                 if not alert_type is None:
-                    if priority <= commodity_ref.commodity_distress.priority and commodity_ref.commodity_distress.skewer_alert is not None:
-                        alert_type = commodity_ref.commodity_distress.skewer_alert
-                        priority = commodity_ref.commodity_distress.priority
+                    if priority <= commodity_ref.commodity_distress.priority:
+                        if commodity_ref.commodity_distress.skewer_alert is not None:
+                            alert_type = commodity_ref.commodity_distress.skewer_alert
+                            priority = commodity_ref.commodity_distress.priority
                 alert_type = commodity_ref.commodity_distress.skewer_alert
                 priority = commodity_ref.commodity_distress.priority
             if alert_type is None:

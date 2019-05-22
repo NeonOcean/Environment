@@ -18,13 +18,12 @@ def generate_ranked_stat_data(*args, zone_id:int=None, filter=None, **kwargs):
     for sim_info in services.sim_info_manager().get_all():
         commodity_tracker = sim_info.commodity_tracker
         if commodity_tracker is None:
-            pass
-        else:
-            for commodity in commodity_tracker:
-                if issubclass(type(commodity), RankedStatistic):
-                    points_to_rank = commodity.points_to_rank(commodity.rank_level + 1) - commodity.get_value()
-                    entry = {'sim': str(sim_info), 'ranked_stat': str(type(commodity)), 'rank': str(commodity.rank_level), 'points_to_next_rank': str(points_to_rank), 'decaying': str(commodity.decay_enabled), 'decay_rate': str(commodity.get_decay_rate())}
-                    fame_data.append(entry)
+            continue
+        for commodity in commodity_tracker:
+            if issubclass(type(commodity), RankedStatistic):
+                points_to_rank = commodity.points_to_rank(commodity.rank_level + 1) - commodity.get_value()
+                entry = {'sim': str(sim_info), 'ranked_stat': str(type(commodity)), 'rank': str(commodity.rank_level), 'points_to_next_rank': str(points_to_rank), 'decaying': str(commodity.decay_enabled), 'decay_rate': str(commodity.get_decay_rate())}
+                fame_data.append(entry)
     return fame_data
 
 sim_ranked_statistics_schema = GsiGridSchema(label='Statistics/Ranked Stat', sim_specific=True)
@@ -49,11 +48,11 @@ def _get_sim_info_by_id(sim_id):
 def generate_sim_ranked_stat_view_data(sim_id:int=None):
     skill_data = []
     cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info.static_commodity_tracker is not None:
-        for statistic in list(cur_sim_info.commodity_tracker):
-            if not issubclass(type(statistic), RankedStatistic):
-                pass
-            else:
+    if cur_sim_info is not None:
+        if cur_sim_info.static_commodity_tracker is not None:
+            for statistic in list(cur_sim_info.commodity_tracker):
+                if not issubclass(type(statistic), RankedStatistic):
+                    continue
                 levels = statistic.get_level_list()
                 event_level = statistic.get_user_value()
                 value = statistic.get_value()

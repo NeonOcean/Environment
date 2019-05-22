@@ -58,9 +58,10 @@ class ToddlerPlayDateSituation(SituationComplexCommon):
             return
         if host_sim.sim_info.lives_here:
             for sim_info in host_sim.household.sim_info_gen():
-                if sim_info.is_toddler and seed.guest_list.get_guest_info_for_sim(sim_info) is None:
-                    guest_info = SituationGuestInfo.construct_from_purpose(sim_info.sim_id, self.host_toddler_job_and_role_state.job, SituationInvitationPurpose.HOSTING)
-                    seed.guest_list.add_guest_info(guest_info)
+                if sim_info.is_toddler:
+                    if seed.guest_list.get_guest_info_for_sim(sim_info) is None:
+                        guest_info = SituationGuestInfo.construct_from_purpose(sim_info.sim_id, self.host_toddler_job_and_role_state.job, SituationInvitationPurpose.HOSTING)
+                        seed.guest_list.add_guest_info(guest_info)
 
     @classmethod
     def _add_guest_parent_to_guest_list(cls, guest_list):
@@ -72,7 +73,8 @@ class ToddlerPlayDateSituation(SituationComplexCommon):
                     guest_info = SituationGuestInfo.construct_from_purpose(sim_info.sim_id, cls.guest_parent_job_and_role_state.job, SituationInvitationPurpose.INVITED)
                     guest_list.add_guest_info(guest_info)
                     break
-            logger.error('Failed to find young adult or older Sim in household {}.', household, owner='mkartika')
+            else:
+                logger.error('Failed to find young adult or older Sim in household {}.', household, owner='mkartika')
 
     @classmethod
     def get_extended_guest_list(cls, guest_list=None):

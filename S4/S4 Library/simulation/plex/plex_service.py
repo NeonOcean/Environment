@@ -62,8 +62,9 @@ class PlexService(Service):
         (master_id, _) = self._zone_to_master_map[active_zone_id]
         plex_id = build_buy.get_location_plex_id(active_zone_id, world_position, level)
         for (zone_id, (other_master_id, other_plex_id)) in self._zone_to_master_map.items():
-            if master_id == other_master_id and plex_id == other_plex_id:
-                return zone_id
+            if master_id == other_master_id:
+                if plex_id == other_plex_id:
+                    return zone_id
 
     def is_position_in_common_area_or_active_plex(self, world_position, level):
         if not services.current_zone().lot.is_position_on_lot(world_position, level):

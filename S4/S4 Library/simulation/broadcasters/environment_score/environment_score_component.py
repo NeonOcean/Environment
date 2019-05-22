@@ -67,7 +67,7 @@ class EnvironmentScoreComponent(Component, component_name=objects.components.typ
     def should_broadcast(self):
         if self.owner.is_sim:
             return False
-        elif self.has_static_scoring or self.is_mood_scoring_enabled() or len(self._state_environment_scores) <= 1:
+        elif not self.has_static_scoring and not self.is_mood_scoring_enabled() and len(self._state_environment_scores) <= 1:
             return False
         return True
 
@@ -105,8 +105,10 @@ class EnvironmentScoreComponent(Component, component_name=objects.components.typ
     @componentmethod_with_fallback(lambda *_, **__: EnvironmentScoreComponent.ENVIRONMENT_SCORE_ZERO)
     def get_environment_score(self, sim=None, ignore_disabled_state=False):
         (mood_scores, negative_score, positive_score, contributions) = self._compute_environment_score(sim, ignore_disabled_state=ignore_disabled_state)
-        if positive_score == 0:
-            (mood_scores, negative_score, positive_score, contributions) = self.ENVIRONMENT_SCORE_ZERO
+        if not mood_scores:
+            if negative_score == 0:
+                if positive_score == 0:
+                    (mood_scores, negative_score, positive_score, contributions) = self.ENVIRONMENT_SCORE_ZERO
         return (mood_scores, negative_score, positive_score, contributions)
 
     def _compute_environment_score(self, sim=None, ignore_disabled_state=False):
@@ -129,31 +131,29 @@ class EnvironmentScoreComponent(Component, component_name=objects.components.typ
             if ignore_disabled_state:
                 if not state.state_value is EnvironmentScoreTuning.DISABLED_STATE_VALUE:
                     if state.state_value is EnvironmentScoreTuning.ENABLED_STATE_VALUE:
-                        pass
-                    else:
-                        value_base_modifiers = state.base_modifiers
-                        (object_mood_modifiers, negative_modifiers, positive_modifiers) = value_base_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
-                        if gsi_enabled:
-                            contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'State Value: ' + state.state_value.__name__, value_base_modifiers))
-                        if trait_tracker is not None:
-                            for (trait, state_trait_modifiers) in state.trait_modifiers.items():
-                                if trait in trait_tracker.equipped_traits:
-                                    (object_mood_modifiers, negative_modifiers, positive_modifiers) = state_trait_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
-                                    if gsi_enabled:
-                                        contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'Trait: {} in State Value: {}'.format(trait.__name__, state.state_value.__name__), state_trait_modifiers))
+                        continue
+                    value_base_modifiers = state.base_modifiers
+                    (object_mood_modifiers, negative_modifiers, positive_modifiers) = value_base_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
+                    if gsi_enabled:
+                        contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'State Value: ' + state.state_value.__name__, value_base_modifiers))
+                    if trait_tracker is not None:
+                        for (trait, state_trait_modifiers) in state.trait_modifiers.items():
+                            if trait in trait_tracker.equipped_traits:
+                                (object_mood_modifiers, negative_modifiers, positive_modifiers) = state_trait_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
+                                if gsi_enabled:
+                                    contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'Trait: {} in State Value: {}'.format(trait.__name__, state.state_value.__name__), state_trait_modifiers))
             if state.state_value is EnvironmentScoreTuning.ENABLED_STATE_VALUE:
-                pass
-            else:
-                value_base_modifiers = state.base_modifiers
-                (object_mood_modifiers, negative_modifiers, positive_modifiers) = value_base_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
-                if gsi_enabled:
-                    contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'State Value: ' + state.state_value.__name__, value_base_modifiers))
-                if trait_tracker is not None:
-                    for (trait, state_trait_modifiers) in state.trait_modifiers.items():
-                        if trait in trait_tracker.equipped_traits:
-                            (object_mood_modifiers, negative_modifiers, positive_modifiers) = state_trait_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
-                            if gsi_enabled:
-                                contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'Trait: {} in State Value: {}'.format(trait.__name__, state.state_value.__name__), state_trait_modifiers))
+                continue
+            value_base_modifiers = state.base_modifiers
+            (object_mood_modifiers, negative_modifiers, positive_modifiers) = value_base_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
+            if gsi_enabled:
+                contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'State Value: ' + state.state_value.__name__, value_base_modifiers))
+            if trait_tracker is not None:
+                for (trait, state_trait_modifiers) in state.trait_modifiers.items():
+                    if trait in trait_tracker.equipped_traits:
+                        (object_mood_modifiers, negative_modifiers, positive_modifiers) = state_trait_modifiers.combine_modifiers(object_mood_modifiers, negative_modifiers, positive_modifiers)
+                        if gsi_enabled:
+                            contributions.extend(gsi_handlers.sim_handlers_log.get_environment_score_object_contributions(self.owner, 'Trait: {} in State Value: {}'.format(trait.__name__, state.state_value.__name__), state_trait_modifiers))
         mood_scores = {}
         instance_manager = services.get_instance_manager(sims4.resources.Types.MOOD)
         for mood in instance_manager.types.values():

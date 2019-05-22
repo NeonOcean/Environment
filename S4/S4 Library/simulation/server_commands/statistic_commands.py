@@ -206,8 +206,10 @@ def remove_modifier(stat_type:TunableInstanceParam(sims4.resources.Types.STATIST
     if stat is None:
         return
     stat.remove_statistic_modifier(level)
-    if sim.sim_info.current_skill_guid == stat.guid64:
-        sim.sim_info.current_skill_guid = 0
+    if isinstance(stat, Skill):
+        if stat._statistic_modifier <= 0:
+            if sim.sim_info.current_skill_guid == stat.guid64:
+                sim.sim_info.current_skill_guid = 0
 
 def _set_skill_level(stat_type, level, sim, _connection):
     stat = sim.commodity_tracker.get_statistic(stat_type)
@@ -376,7 +378,7 @@ with sims4.reload.protected(globals()):
     autonomy_handles = collections.defaultdict(weakref.WeakKeyDictionary)
 
 @sims4.commands.Command('stats.enable_commodities', command_type=sims4.commands.CommandType.Cheat)
-def enable_commodities(opt_sim:OptionalTargetParam=None, *stat_types, _connection=None):
+def enable_commodities(opt_sim:OptionalTargetParam=None, *stat_types:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is None:
         sims4.commands.output('No valid target for stats.enable_sim_commodities', _connection)
@@ -412,7 +414,7 @@ def _disable_commodities(sim, commodities_to_lock=[]):
         autonomy_handles[commodity][sim] = handle
 
 @sims4.commands.Command('stats.disable_commodities', command_type=sims4.commands.CommandType.Cheat)
-def disable_commodities(opt_sim:OptionalTargetParam=None, *stat_types, _connection=None):
+def disable_commodities(opt_sim:OptionalTargetParam=None, *stat_types:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is None:
         sims4.commands.output('No valid target for stats.disable_commodities', _connection)

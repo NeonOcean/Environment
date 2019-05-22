@@ -124,11 +124,12 @@ def generate_buff_data(*args, zone_id:int=None, sim_id:int=None, **kwargs):
         buff_is_on_sim = False
         for sim_info in services.sim_info_manager().values():
             sim = sim_info.get_sim_instance()
-            if sim is not None and sim.has_buff(buff_type):
-                sim_data = {'sim_id': str(sim.id), 'name': sim.full_name}
-                sim_list.append(sim_data)
-                if sim.id != sim_id:
-                    buff_is_on_sim = str(True)
+            if sim is not None:
+                if sim.has_buff(buff_type):
+                    sim_data = {'sim_id': str(sim.id), 'name': sim.full_name}
+                    sim_list.append(sim_data)
+                    if sim.id != sim_id:
+                        buff_is_on_sim = str(True)
         data['sims_with_buff'] = sim_list
         data['sim_has_buff'] = str(buff_is_on_sim)
         buff_data.append(data)
@@ -156,81 +157,80 @@ def generate_interaction_tuning_data(*args, zone_id:int=None, **kwargs):
     interaction_tuning_data = []
     for affordance in services.get_instance_manager(sims4.resources.Types.INTERACTION).types.values():
         if not affordance.is_super:
-            pass
+            continue
+        data = {}
+        data['name'] = affordance.__name__
+        canonical_animation = affordance.canonical_animation
+        if canonical_animation is not None:
+            data['canonical_animation'] = str(canonical_animation).replace('TunableAnimationReferenceWrapper.', '')
         else:
-            data = {}
-            data['name'] = affordance.__name__
-            canonical_animation = affordance.canonical_animation
-            if canonical_animation is not None:
-                data['canonical_animation'] = str(canonical_animation).replace('TunableAnimationReferenceWrapper.', '')
-            else:
-                data['canonical_animation'] = None
-            constraint_list = []
-            all_postures = set()
-            all_slots = set()
-            for participant_type in _PARTICIPANT_TYPES_THAT_GET_CONSTRAINTS:
-                try:
-                    for constraints in affordance.constraint_gen(GLOBAL_STUB_ACTOR, GLOBAL_STUB_TARGET, participant_type):
-                        for constraint in constraints:
-                            constraint_data = {}
-                            constraint_data['participant_type'] = participant_type.name
-                            constraint_data['constraint_type'] = type(constraint).__name__
-                            if constraint.posture_state_spec:
-                                postures = set(p.name for p in itertools.chain(*[e.posture_types for e in constraint.posture_state_spec.posture_manifest]))
-                                all_postures.update(postures)
-                                postures = ', '.join(sorted(postures))
-                                if postures:
-                                    data['has_posture_constraints'] = True
-                                    constraint_data['constraint_postures'] = postures
-                                slots = set(str(e) for e in constraint.posture_state_spec.slot_manifest)
-                                all_slots.update(slots)
-                                slots = ', '.join(sorted(slots))
-                                if slots:
-                                    data['has_slot_constraints'] = True
-                                    constraint_data['constraint_slots'] = slots
-                            constraint_data['constraint_info'] = str(constraint)
-                            constraint_list.append(constraint_data)
-                except Exception as exc:
-                    constraint_data = {}
-                    constraint_data['participant_type'] = participant_type.name
-                    constraint_data['constraint_type'] = 'ERROR'
-                    constraint_data['constraint_info'] = str(exc)
-                    constraint_list.append(constraint_data)
-            data['constraints'] = constraint_list
-            data['postures'] = ', '.join(sorted(all_postures))
-            data['slots'] = ', '.join(sorted(all_slots))
-            callback_list = []
-            if affordance._simoleon_delta_callbacks:
-                for (tuning_id, callbacks) in affordance._simoleon_delta_callbacks.items():
-                    callback_type = 'Simoleon' if tuning_id is DEFAULT else 'Simoleon (id: {})'.format(tuning_id)
-                    for callback in callbacks:
-                        callback_data = {}
-                        callback_data['callback_type'] = callback_type
-                        callback_data['callback_value'] = callable_repr(callback)
-                        callback_list.append(callback_data)
-            if affordance._sim_can_violate_privacy_callbacks:
-                for (tuning_id, callbacks) in affordance._sim_can_violate_privacy_callbacks.items():
-                    callback_type = 'Privacy' if tuning_id is DEFAULT else 'Privacy (id: {}'.format(tuning_id)
-                    for callback in callbacks:
-                        callback_data = {}
-                        callback_data['callback_type'] = callback_type
-                        callback_data['callback_value'] = callable_repr(callback)
-                        callback_list.append(callback_data)
-            if affordance._additional_conditional_actions:
-                for callback in affordance._additional_conditional_actions:
+            data['canonical_animation'] = None
+        constraint_list = []
+        all_postures = set()
+        all_slots = set()
+        for participant_type in _PARTICIPANT_TYPES_THAT_GET_CONSTRAINTS:
+            try:
+                for constraints in affordance.constraint_gen(GLOBAL_STUB_ACTOR, GLOBAL_STUB_TARGET, participant_type):
+                    for constraint in constraints:
+                        constraint_data = {}
+                        constraint_data['participant_type'] = participant_type.name
+                        constraint_data['constraint_type'] = type(constraint).__name__
+                        if constraint.posture_state_spec:
+                            postures = set(p.name for p in itertools.chain(*[e.posture_types for e in constraint.posture_state_spec.posture_manifest]))
+                            all_postures.update(postures)
+                            postures = ', '.join(sorted(postures))
+                            if postures:
+                                data['has_posture_constraints'] = True
+                                constraint_data['constraint_postures'] = postures
+                            slots = set(str(e) for e in constraint.posture_state_spec.slot_manifest)
+                            all_slots.update(slots)
+                            slots = ', '.join(sorted(slots))
+                            if slots:
+                                data['has_slot_constraints'] = True
+                                constraint_data['constraint_slots'] = slots
+                        constraint_data['constraint_info'] = str(constraint)
+                        constraint_list.append(constraint_data)
+            except Exception as exc:
+                constraint_data = {}
+                constraint_data['participant_type'] = participant_type.name
+                constraint_data['constraint_type'] = 'ERROR'
+                constraint_data['constraint_info'] = str(exc)
+                constraint_list.append(constraint_data)
+        data['constraints'] = constraint_list
+        data['postures'] = ', '.join(sorted(all_postures))
+        data['slots'] = ', '.join(sorted(all_slots))
+        callback_list = []
+        if affordance._simoleon_delta_callbacks:
+            for (tuning_id, callbacks) in affordance._simoleon_delta_callbacks.items():
+                callback_type = 'Simoleon' if tuning_id is DEFAULT else 'Simoleon (id: {})'.format(tuning_id)
+                for callback in callbacks:
                     callback_data = {}
-                    callback_data['callback_type'] = 'Exit Condition'
-                    callback_data['callback_value'] = str(callback)
+                    callback_data['callback_type'] = callback_type
+                    callback_data['callback_value'] = callable_repr(callback)
                     callback_list.append(callback_data)
-            if affordance._additional_tests:
-                for callback in affordance._additional_tests:
+        if affordance._sim_can_violate_privacy_callbacks:
+            for (tuning_id, callbacks) in affordance._sim_can_violate_privacy_callbacks.items():
+                callback_type = 'Privacy' if tuning_id is DEFAULT else 'Privacy (id: {}'.format(tuning_id)
+                for callback in callbacks:
                     callback_data = {}
-                    callback_data['callback_type'] = 'Test'
-                    callback_data['callback_value'] = str(callback)
+                    callback_data['callback_type'] = callback_type
+                    callback_data['callback_value'] = callable_repr(callback)
                     callback_list.append(callback_data)
-            data['callbacks'] = callback_list
-            data['has_callbacks'] = ', '.join(sorted(set(e['callback_type'] for e in callback_list))) or ''
-            interaction_tuning_data.append(data)
+        if affordance._additional_conditional_actions:
+            for callback in affordance._additional_conditional_actions:
+                callback_data = {}
+                callback_data['callback_type'] = 'Exit Condition'
+                callback_data['callback_value'] = str(callback)
+                callback_list.append(callback_data)
+        if affordance._additional_tests:
+            for callback in affordance._additional_tests:
+                callback_data = {}
+                callback_data['callback_type'] = 'Test'
+                callback_data['callback_value'] = str(callback)
+                callback_list.append(callback_data)
+        data['callbacks'] = callback_list
+        data['has_callbacks'] = ', '.join(sorted(set(e['callback_type'] for e in callback_list))) or ''
+        interaction_tuning_data.append(data)
     return interaction_tuning_data
 
 state_schema = GsiGridSchema(label='Tuning/Object States', exclude_from_dump=True)

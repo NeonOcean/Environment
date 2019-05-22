@@ -21,7 +21,8 @@ class TopicComponent(Component, component_name=types.TOPIC_COMPONENT):
             if topic.target_matches(target):
                 topic.reset_relevancy()
                 break
-        topics.append(topic_type(target))
+        else:
+            topics.append(topic_type(target))
 
     @componentmethod
     def decay_topics(self):

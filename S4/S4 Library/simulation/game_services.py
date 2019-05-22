@@ -57,7 +57,9 @@ def start_services(save_slot_data):
         from weather.weather_service import WeatherService
         from services.rabbit_hole_service import RabbitHoleService
         from lot_decoration.lot_decoration_service import LotDecorationService
-        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService()]
+        from narrative.narrative_service import NarrativeService
+        from services.object_lost_and_found_service import ObjectLostAndFoundService
+        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService()]
         for service in service_list:
             if service is not None:
                 service_manager.register_service(service)

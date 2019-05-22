@@ -56,8 +56,9 @@ except ImportError:
     def is_available_pack(pack):
         return pack in available_packs
 
-is_available_pack = _zone.is_available_pack
-available_packs = {pack for pack in Pack if is_available_pack(pack)}
+else:
+    is_available_pack = _zone.is_available_pack
+    available_packs = {pack for pack in Pack if is_available_pack(pack)}
 
 class UnavailablePackError(ValueError):
     pass

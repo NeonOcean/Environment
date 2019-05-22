@@ -65,22 +65,21 @@ def read_ac_cache_from_resource(available_packs=DEFAULT):
                 logger.exception('Unpickling the Animation Constraint cache failed. Startup will be slower as a consequence.', exc=exc)
                 return {}
             if pack == Pack.BASE_GAME:
-                pass
+                continue
+            delta_pack_key = pack_key + AC_BG_DELTA
+            delta_key = sims4.resources.Key.hash64(delta_pack_key, sims4.resources.Types.AC_CACHE)
+            loader = sims4.resources.ResourceLoader(delta_key)
+            ac_delta_cache_file = loader.load()
+            logger.info('Loading AC BG delta cache {} (key: {}) as file {}.', delta_pack_key, delta_key, ac_cache_file)
+            if not ac_delta_cache_file:
+                logger.debug('Failed to load animation constraint cache file from the resource loader (key = {})', delta_pack_key)
             else:
-                delta_pack_key = pack_key + AC_BG_DELTA
-                delta_key = sims4.resources.Key.hash64(delta_pack_key, sims4.resources.Types.AC_CACHE)
-                loader = sims4.resources.ResourceLoader(delta_key)
-                ac_delta_cache_file = loader.load()
-                logger.info('Loading AC BG delta cache {} (key: {}) as file {}.', delta_pack_key, delta_key, ac_cache_file)
-                if not ac_delta_cache_file:
-                    logger.debug('Failed to load animation constraint cache file from the resource loader (key = {})', delta_pack_key)
+                resource_version = ac_delta_cache_file.read(len(AC_CACHE_VERSION))
+                if resource_version != AC_CACHE_VERSION:
+                    _wrong_ac_cache_version = True
+                    logger.warn('The Animation Constraint Delta cache in the resource manager is from a different version. Current version is {}, resource manager version is {}.\nStartup will be slower until the versions are aligned.', AC_CACHE_VERSION, resource_version)
                 else:
-                    resource_version = ac_delta_cache_file.read(len(AC_CACHE_VERSION))
-                    if resource_version != AC_CACHE_VERSION:
-                        _wrong_ac_cache_version = True
-                        logger.warn('The Animation Constraint Delta cache in the resource manager is from a different version. Current version is {}, resource manager version is {}.\nStartup will be slower until the versions are aligned.', AC_CACHE_VERSION, resource_version)
-                    else:
-                        _merge_cached_constraints(ac_cache_combined, ac_delta_cache_file)
+                    _merge_cached_constraints(ac_cache_combined, ac_delta_cache_file)
     return ac_cache_combined
 
 def _merge_cached_constraints(ac_cache_combined, ac_delta_cache_file):
@@ -100,5 +99,7 @@ def _merge_cached_constraints(ac_cache_combined, ac_delta_cache_file):
                     cached_constraint[participant] = cached_constraint_for_participant
                 else:
                     cached_constraint[participant] = delta_constraint
+            else:
+                logger.warn('Pack cache file did not ')
         else:
             logger.warn('Pack cache file did not ')

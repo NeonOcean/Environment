@@ -162,8 +162,9 @@ def archive_FGL(fgl_id, context, result, time_s):
     obj = None
     if context.search_strategy.object_id != 0:
         obj = objects.system.find_object(context.search_strategy.object_id)
-    if context.routing_context is not None:
-        obj = objects.system.find_object(context.routing_context.agent_id)
+    if obj is None:
+        if context.routing_context is not None:
+            obj = objects.system.find_object(context.routing_context.agent_id)
     entry = {'fgl_id': fgl_id, 'object': str(obj), 'result': str(result), 'total_time_s': time_s}
     details = []
     for (name, value) in context.__dict__.items():

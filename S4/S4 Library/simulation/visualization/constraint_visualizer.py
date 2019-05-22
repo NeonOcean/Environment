@@ -75,15 +75,14 @@ def _draw_constraint(layer, constraint, color, altitude_modifier=0, anywhere_pos
                             layer.add_point(point, color=color, altitude=altitude)
 
                 if not constraint.geometry.restrictions:
-                    pass
-                else:
-                    for vertex in poly:
-                        draw_facing(vertex, color)
-                    for i in range(len(poly)):
-                        v1 = poly[i]
-                        v2 = poly[(i + 1) % len(poly)]
-                        draw_facing(v1, transparent)
-                        draw_facing(0.5*(v1 + v2), transparent)
+                    continue
+                for vertex in poly:
+                    draw_facing(vertex, color)
+                for i in range(len(poly)):
+                    v1 = poly[i]
+                    v2 = poly[(i + 1) % len(poly)]
+                    draw_facing(v1, transparent)
+                    draw_facing(0.5*(v1 + v2), transparent)
             if draw_contours:
 
                 def constraint_cost(point):
@@ -231,8 +230,10 @@ class SimConstraintVisualizer:
             direction_constraint = None
             direction_constraints = []
             for sub_constraint in constraint:
-                if sub_constraint._geometry is not None and sub_constraint._geometry.polygon is None and sub_constraint._geometry.restrictions is not None:
-                    direction_constraints.append(sub_constraint)
+                if sub_constraint._geometry is not None:
+                    if sub_constraint._geometry.polygon is None:
+                        if sub_constraint._geometry.restrictions is not None:
+                            direction_constraints.append(sub_constraint)
             if direction_constraints:
                 direction_constraint = create_constraint_set(direction_constraints)
             for si in sim.si_state:

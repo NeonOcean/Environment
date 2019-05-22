@@ -49,7 +49,7 @@ class _DiscoverSicknessThresholdAction(HasTunableSingletonFactory, AutoFactoryIn
         if patient_sim.sickness_tracker.has_discovered_sickness:
             return
         sickness = patient_sim.current_sickness
-        for treatment in itertools.chain(sickness.available_treatments, sickness.available_treatment_lists):
+        for treatment in itertools.chain(sickness.available_treatments, *sickness.available_treatment_lists):
             if treatment not in sickness.correct_treatments:
                 patient_sim.rule_out_treatment(treatment)
         patient_sim.sickness_tracker.discover_sickness()
@@ -63,7 +63,7 @@ class _RuleOutTreatmentThresholdAction(HasTunableSingletonFactory, AutoFactoryIn
         sickness = patient_sim.current_sickness
         if sickness is None:
             return
-        applicable = set(itertools.chain(sickness.available_treatments, sickness.available_treatment_lists))
+        applicable = set(itertools.chain(sickness.available_treatments, *sickness.available_treatment_lists))
         ruled_out = set(itertools.chain(patient_sim.sickness_tracker.treatments_performed, patient_sim.sickness_tracker.ruled_out_treatments))
         correct = set(sickness.correct_treatments)
         available_for_ruling_out = tuple(applicable - ruled_out - correct)
@@ -96,7 +96,7 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
 
     @classmethod
     def _can_be_applied(cls, resolver=None, sim_info=None):
-        if resolver or not sim_info:
+        if not resolver and not sim_info:
             raise ValueError('Must specify a Sim info or a resolver')
         if not resolver:
             resolver = SingleSimResolver(sim_info)
@@ -104,7 +104,7 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
 
     @classmethod
     def get_sickness_weight(cls, resolver=None, sim_info=None):
-        if resolver or not sim_info:
+        if not resolver and not sim_info:
             raise ValueError('Must specify a Sim info or a resolver')
         if not cls._can_be_applied(resolver=resolver):
             return 0
@@ -117,8 +117,9 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
         for symptom in cls.symptoms:
             symptom.apply_to_sim_info(sim_info)
         for buff in cls.associated_buffs:
-            if buff.can_add(sim_info) and not sim_info.has_buff(buff):
-                sim_info.add_buff(buff, buff_reason=cls.display_name)
+            if buff.can_add(sim_info):
+                if not sim_info.has_buff(buff):
+                    sim_info.add_buff(buff, buff_reason=cls.display_name)
         for stat in cls.associated_statistics:
             if not sim_info.get_tracker(stat).has_statistic(stat):
                 sim_info.add_statistic(stat, stat.default_value)
@@ -141,7 +142,7 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
 
     @classmethod
     def is_available_treatment(cls, affordance):
-        return affordance in itertools.chain(cls.available_treatments, cls.available_treatment_lists)
+        return affordance in itertools.chain(cls.available_treatments, *cls.available_treatment_lists)
 
     @classmethod
     def is_correct_treatment(cls, affordance):
@@ -153,8 +154,9 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
         if action_type == SicknessDiagnosticActionType.EXAM:
             if result_type in cls.examination_loots:
                 loots_to_apply = cls.examination_loots[result_type]
-        elif result_type in cls.treatment_loots:
-            loots_to_apply = cls.treatment_loots[result_type]
+        elif action_type == SicknessDiagnosticActionType.TREATMENT:
+            if result_type in cls.treatment_loots:
+                loots_to_apply = cls.treatment_loots[result_type]
         if loots_to_apply is not None:
             loots_to_apply.apply_loots(interaction.get_resolver())
         cls._handle_threshold_actions(interaction.get_resolver())
@@ -171,12 +173,11 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
             return
         for (threshold, actions) in cls._get_sorted_threshold_actions():
             if threshold <= last_progress:
-                pass
-            else:
-                if diagnostic_progress < threshold:
-                    break
-                for action in actions:
-                    action.perform(sim_info, interaction=interaction)
+                continue
+            if diagnostic_progress < threshold:
+                break
+            for action in actions:
+                action.perform(sim_info, interaction=interaction)
         sim_info.record_last_progress(diagnostic_progress)
 
     @classmethod

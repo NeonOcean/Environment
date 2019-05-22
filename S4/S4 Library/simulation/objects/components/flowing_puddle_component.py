@@ -67,7 +67,7 @@ class FlowingPuddleComponent(Component, HasTunableFactory, AutoFactoryInit, comp
         return False
 
     def save(self, persistence_master_message):
-        if self._puddle_refs or not self.flowing_puddle_enabled:
+        if not self._puddle_refs and not self.flowing_puddle_enabled:
             return
         persistable_data = protocols.PersistenceMaster.PersistableData()
         persistable_data.type = protocols.PersistenceMaster.PersistableData.FlowingPuddleComponent

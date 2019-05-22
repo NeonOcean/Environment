@@ -21,22 +21,24 @@ class ContinuousStatisticModifier(HasTunableSingletonFactory, BaseGameEffectModi
         self.statistic = statistic
         self.modifier_value = modifier_value
 
-    def apply_modifier(self, owner):
+    def apply_modifier(self, sim_info):
         if self.statistic is None:
             return
-        stat = owner.get_statistic(self.statistic)
+        stat = sim_info.get_statistic(self.statistic)
         if stat is None:
-            stat = owner.add_statistic(self.statistic)
+            stat = sim_info.add_statistic(self.statistic)
         stat.add_statistic_modifier(self.modifier_value)
         if isinstance(stat, Skill):
-            owner.current_skill_guid = stat.guid64
+            sim_info.current_skill_guid = stat.guid64
 
-    def remove_modifier(self, owner):
+    def remove_modifier(self, sim_info, handle):
         if self.statistic is None:
             return
-        stat = owner.get_statistic(self.statistic)
+        stat = sim_info.get_statistic(self.statistic)
         if stat is None:
             return
         stat.remove_statistic_modifier(self.modifier_value)
-        if owner.current_skill_guid == stat.guid64:
-            owner.current_skill_guid = 0
+        if isinstance(stat, Skill):
+            if stat._statistic_modifier <= 0:
+                if sim_info.current_skill_guid == stat.guid64:
+                    sim_info.current_skill_guid = 0

@@ -35,9 +35,10 @@ class IngredientTuning:
         bonus_selected = None
         for (quality_state_value, quality_details) in IngredientTuning.INGREDIENT_QUALITY_MAPPING.items():
             if not bonus_selected is None:
-                if quality_details.quality_boost <= bonus_selected and bonus_selected >= quality_bonus:
-                    bonus_selected = quality_details.quality_boost
-                    state_to_add = quality_state_value
+                if quality_details.quality_boost <= bonus_selected:
+                    if bonus_selected >= quality_bonus:
+                        bonus_selected = quality_details.quality_boost
+                        state_to_add = quality_state_value
             bonus_selected = quality_details.quality_boost
             state_to_add = quality_state_value
         return state_to_add
@@ -147,12 +148,13 @@ class IngredientRequirement(HasTunableFactory):
     def _attempt_use_ingredient(self, ingredient_obj, ingredients_used):
         count_using = ingredients_used.get(ingredient_obj, 0)
         count_leftover = ingredient_obj.stack_count() - count_using
-        if count_leftover:
-            count_usable = count_leftover if self.count_unsatisfied >= count_leftover else self.count_unsatisfied
-            ingredient_instance = Ingredient(ingredient_obj, count_usable)
-            self._ingredients.append(ingredient_instance)
-            self._count_using += ingredient_instance.count
-            ingredients_used[ingredient_obj] = count_using + count_usable
+        if self.count_unsatisfied:
+            if count_leftover:
+                count_usable = count_leftover if self.count_unsatisfied >= count_leftover else self.count_unsatisfied
+                ingredient_instance = Ingredient(ingredient_obj, count_usable)
+                self._ingredients.append(ingredient_instance)
+                self._count_using += ingredient_instance.count
+                ingredients_used[ingredient_obj] = count_using + count_usable
 
     def attempt_satisfy_ingredients(self, candidate_ingredients, ingredients_used):
         for ingredient_obj in candidate_ingredients:

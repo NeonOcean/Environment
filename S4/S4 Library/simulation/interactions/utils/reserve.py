@@ -35,9 +35,8 @@ class TunableReserveObject(TunableFactory, is_fragment=True):
                 for obj in interaction.get_participants(subject):
                     if not obj is None:
                         if obj.is_sim:
-                            pass
-                        else:
-                            handler.add_handler(reserve_type(sim, obj, reservation_interaction=interaction))
+                            continue
+                        handler.add_handler(reserve_type(sim, obj, reservation_interaction=interaction))
 
             if subject_list:
                 for item in subject_list:

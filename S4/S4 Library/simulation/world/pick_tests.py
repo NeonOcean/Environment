@@ -39,7 +39,7 @@ class PickTerrainTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
         current_zone_id = services.current_zone().id
         other_zone_id = pick_info.get_zone_id_from_pick_location()
         if self.terrain_location == PickTerrainType.ON_OTHER_LOT:
-            if on_lot or other_zone_id is not None and other_zone_id != current_zone_id:
+            if not on_lot and other_zone_id is not None and other_zone_id != current_zone_id:
                 return TestResult.TRUE
             return TestResult(False, 'Pick Terrain is not ON_OTHER_LOT as expected.')
         if self.terrain_location == PickTerrainType.NO_LOT:

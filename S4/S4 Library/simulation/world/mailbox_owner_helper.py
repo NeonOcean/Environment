@@ -50,22 +50,21 @@ class MailboxOwnerHelper:
             mailbox = mbox_handle.obj
             door = door_handle.obj
             if mbox_handle.assigned:
-                pass
-            elif door_handle.assigned:
-                pass
-            else:
-                mapped_household_ids = set()
-                household_id = door.household_owner_id
-                if household_id != 0 and household_id not in mapped_household_ids:
-                    mapped_household_ids.add(household_id)
-                self._apply_ownership(mailbox, household_id)
-                door_handle.assigned = True
-                mbox_handle.assigned = True
-                logger.debug('mailbox {} paired with a door {} owned by household {}', mailbox, door, household_id)
-                if not [dh for dh in door_handles if not dh.assigned]:
-                    break
-                if not [mbh for mbh in mailbox_handles if not mbh.assigned]:
-                    break
+                continue
+            if door_handle.assigned:
+                continue
+            mapped_household_ids = set()
+            household_id = door.household_owner_id
+            if household_id != 0 and household_id not in mapped_household_ids:
+                mapped_household_ids.add(household_id)
+            self._apply_ownership(mailbox, household_id)
+            door_handle.assigned = True
+            mbox_handle.assigned = True
+            logger.debug('mailbox {} paired with a door {} owned by household {}', mailbox, door, household_id)
+            if not [dh for dh in door_handles if not dh.assigned]:
+                break
+            if not [mbh for mbh in mailbox_handles if not mbh.assigned]:
+                break
 
     def _apply_ownership(self, mailbox, household_id):
         mailbox.set_household_owner_id(household_id)

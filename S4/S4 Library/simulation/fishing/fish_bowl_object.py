@@ -21,7 +21,7 @@ class FishBowl(objects.game_object.GameObject):
 
     def on_object_added_to_inventory(self, fish):
         current_fish = self.get_fish()
-        if current_fish and current_fish is not fish:
+        if not current_fish or current_fish is not fish:
             logger.error("The fish_added function was called but there is\n            either no fish in this fish bowl or the fish in it doesn't match\n            the fish making the function called.")
             return
         if current_fish.fishbowl_vfx is not None:

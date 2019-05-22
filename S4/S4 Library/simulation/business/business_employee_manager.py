@@ -97,9 +97,8 @@ class BusinessEmployeeManager:
             for payroll_entry_msg in payroll_msg.payroll_data:
                 career_level = career_level_manager.get(payroll_entry_msg.career_level_guid)
                 if career_level is None:
-                    pass
-                else:
-                    payroll_data[career_level] = payroll_entry_msg.hours_worked
+                    continue
+                payroll_data[career_level] = payroll_entry_msg.hours_worked
             if not payroll_data:
                 pass
             else:
@@ -132,9 +131,8 @@ class BusinessEmployeeManager:
         for (uniform_type, uniform_sim_info_wrapper) in employee_uniform_dict.items():
             persisted_data = persistence_service.get_mannequin_proto_buff(uniform_sim_info_wrapper.id)
             if persisted_data is None:
-                pass
-            else:
-                self._load_uniform_data(persistence_service, persisted_data, uniform_type, gender)
+                continue
+            self._load_uniform_data(persistence_service, persisted_data, uniform_type, gender)
 
     def reload_employee_uniforms(self):
         persistence_service = services.get_persistence_service()
@@ -449,7 +447,7 @@ class BusinessEmployeeManager:
             logger.error('Trying to get employee uniform data for an invalid employee type: {}.', employee_type)
             return
         if gender == Gender.MALE:
-            if self._employee_uniform_data_male and self._employee_uniform_data_male[employee_type] is None:
+            if not self._employee_uniform_data_male or self._employee_uniform_data_male[employee_type] is None:
                 self._employee_uniform_data_male[employee_type] = SimInfoBaseWrapper(sim_id=sim_id)
                 self._employee_uniform_data_male[employee_type].load_from_resource(employee_type_tuning_data.uniform_male)
                 self._employee_uniform_data_male[employee_type].set_current_outfit((OutfitCategory.CAREER, 0))
@@ -457,7 +455,7 @@ class BusinessEmployeeManager:
                     self._send_employee_uniform_data(self._employee_uniform_data_male[employee_type])
             return self._employee_uniform_data_male[employee_type]
         elif gender == Gender.FEMALE:
-            if self._employee_uniform_data_female and self._employee_uniform_data_female[employee_type] is None:
+            if not self._employee_uniform_data_female or self._employee_uniform_data_female[employee_type] is None:
                 self._employee_uniform_data_female[employee_type] = SimInfoBaseWrapper(sim_id=sim_id)
                 self._employee_uniform_data_female[employee_type].load_from_resource(employee_type_tuning_data.uniform_female)
                 self._employee_uniform_data_female[employee_type].set_current_outfit((OutfitCategory.CAREER, 0))

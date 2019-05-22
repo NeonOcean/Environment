@@ -1,4 +1,4 @@
-# (C) Copyright 2018 by Rocky Bernstein
+# (C) Copyright 2018-2019 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -38,11 +38,13 @@ from xdis.opcodes import opcode_34 as opcode_34
 from xdis.opcodes import opcode_35 as opcode_35
 from xdis.opcodes import opcode_36 as opcode_36
 from xdis.opcodes import opcode_37 as opcode_37
+from xdis.opcodes import opcode_38 as opcode_38
 
 from xdis.opcodes import opcode_26pypy as opcode_26pypy
 from xdis.opcodes import opcode_27pypy as opcode_27pypy
 from xdis.opcodes import opcode_32pypy as opcode_32pypy
 from xdis.opcodes import opcode_35pypy as opcode_35pypy
+from xdis.opcodes import opcode_36pypy as opcode_36pypy
 
 # FIXME
 op_imports = {
@@ -90,16 +92,24 @@ op_imports = {
     '3.5.4' : opcode_35,
     3.5     : opcode_35,
     '3.6rc1': opcode_36,
+    '3.6rc1': opcode_36,
     3.6     : opcode_36,
     '3.7.0beta3': opcode_37,
     '3.7.0.beta3': opcode_37,
     '3.7.0' : opcode_37,
     3.7     : opcode_37,
+    '3.8.0alpha0' : opcode_38,
+    '3.8.0a0': opcode_38,
+    '3.8.0a3+': opcode_38,
+    '3.8.0alpha3': opcode_38,
+    '3.8' : opcode_38,
 
     '2.6pypy':  opcode_26pypy,
     '2.7pypy':  opcode_27pypy,
     '3.2pypy':  opcode_32pypy,
     '3.5pypy':  opcode_35pypy,
+    '3.6pypy':  opcode_36pypy,
+    '3.6.1pypy':  opcode_36pypy,
     }
 
 for k, v in canonic_python_version.items():

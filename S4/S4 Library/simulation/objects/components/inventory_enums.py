@@ -1,4 +1,4 @@
-from sims4.tuning.dynamic_enum import DynamicEnumLocked
+from sims4.tuning.dynamic_enum import DynamicEnumLocked, DynamicEnum
 import enum
 import sims4.log
 logger = sims4.log.Logger('Inventory Enums')
@@ -32,7 +32,7 @@ class InventoryType(DynamicEnumLocked):
     VET_MEDICINE_VENDING_MACHINE = 25
     LAUNDRY_STORAGE = 26
 
-class StackScheme(enum.Int):
+class StackScheme(DynamicEnum):
     NONE = ...
     VARIANT_GROUP = ...
     DEFINITION = ...

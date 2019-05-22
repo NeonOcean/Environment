@@ -85,18 +85,19 @@ def log_interaction(phase, interaction, msg=None):
     if interaction.sim is not None and interaction.sim.interaction_logging:
         log_queue_automation(interaction.sim)
     hook_tag = TELEMETRY_HOOK_MAPPING.get((phase, interaction.is_super))
-    if interaction.visible:
-        with telemetry_helper.begin_hook(writer, hook_tag, sim=interaction.sim) as hook:
-            hook.write_guid(TELEMETRY_FIELD_INTERACTION_ID, interaction.guid64)
-            hook.write_int(TELEMETRY_FIELD_SOURCE, interaction.source)
-            hook.write_int(TELEMETRY_FIELD_GROUP_ID, interaction.group_id)
-            target = interaction.target
-            if target is not None:
-                hook.write_int(TELEMETRY_FIELD_TARGET_ID, target.id)
-                hook.write_int(TELEMETRY_FIELD_TARGET_TYPE, target.definition.id)
-            outcome_result = interaction.global_outcome_result
-            if outcome_result is not None:
-                hook.write_int(TELEMETRY_FIELD_OUTCOME, interaction.global_outcome_result)
+    if hook_tag is not None:
+        if interaction.visible:
+            with telemetry_helper.begin_hook(writer, hook_tag, sim=interaction.sim) as hook:
+                hook.write_guid(TELEMETRY_FIELD_INTERACTION_ID, interaction.guid64)
+                hook.write_int(TELEMETRY_FIELD_SOURCE, interaction.source)
+                hook.write_int(TELEMETRY_FIELD_GROUP_ID, interaction.group_id)
+                target = interaction.target
+                if target is not None:
+                    hook.write_int(TELEMETRY_FIELD_TARGET_ID, target.id)
+                    hook.write_int(TELEMETRY_FIELD_TARGET_TYPE, target.definition.id)
+                outcome_result = interaction.global_outcome_result
+                if outcome_result is not None:
+                    hook.write_int(TELEMETRY_FIELD_OUTCOME, interaction.global_outcome_result)
 
 def log_queue_automation(sim=None):
     if sim is None or sim.client is None:

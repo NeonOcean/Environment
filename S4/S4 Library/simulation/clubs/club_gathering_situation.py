@@ -132,7 +132,7 @@ class ClubGatheringSituation(SituationComplexCommon):
 
     def load_situation(self):
         result = super().load_situation()
-        if result and not (self.associated_club is None or self.is_validity_overridden() or self.associated_club.is_zone_valid_for_gathering(services.current_zone_id())):
+        if result and (self.associated_club is None or not (not self.is_validity_overridden() and not self.associated_club.is_zone_valid_for_gathering(services.current_zone_id()))):
             self._cleanup_gathering()
             return False
         return result
@@ -181,7 +181,7 @@ class ClubGatheringSituation(SituationComplexCommon):
         relationship_tracker = sim.relationship_tracker
         relationship_tracker.add_create_relationship_listener(self._relationship_added_callback)
         sim.sim_info.register_for_outfit_changed_callback(self._on_outfit_changed)
-        if self._can_disband or len(list(self.all_sims_in_situation_gen())) >= self._minimum_number_of_sims:
+        if not self._can_disband and len(list(self.all_sims_in_situation_gen())) >= self._minimum_number_of_sims:
             self._on_minimum_number_of_members_reached()
         op = UpdateClubGathering(GatheringUpdateType.ADD_MEMBER, self.associated_club.club_id, sim.id)
         Distributor.instance().add_op_with_no_owner(op)
@@ -239,9 +239,8 @@ class ClubGatheringSituation(SituationComplexCommon):
         for (perk, benefit) in ClubTunables.NEW_RELATIONSHIP_MODS.items():
             if self.associated_club.bucks_tracker.is_perk_unlocked(perk):
                 if not benefit.test_set.run_tests(resolver=resolver):
-                    pass
-                else:
-                    benefit.loot.apply_to_resolver(resolver=resolver)
+                    continue
+                benefit.loot.apply_to_resolver(resolver=resolver)
 
     def _award_club_bucks(self, handle):
         qualified_sims = [sim for sim in self._situation_sims if self._sim_satisfies_requirement_for_bucks(sim)]
@@ -342,7 +341,7 @@ class ClubGatheringSituationState(SituationState):
         super().__init__(*args, **kwargs)
         self._test_event_register(TestEvent.InteractionStart)
         self._test_event_register(TestEvent.InteractionComplete)
-        self._interaction_rule_status = defaultdict(lambda : {ClubRuleEncouragementStatus.DISCOURAGED: set(), ClubRuleEncouragementStatus.ENCOURAGED: set()})
+        self._interaction_rule_status = defaultdict(lambda : {ClubRuleEncouragementStatus.ENCOURAGED: set(), ClubRuleEncouragementStatus.DISCOURAGED: set()})
 
     def handle_event(self, _, event, resolver):
         interaction = resolver.interaction

@@ -120,12 +120,11 @@ class WeatherService(Service):
                 for test in test_set:
                     if isinstance(test, WeatherTest):
                         if test.ground_cover is None:
-                            pass
-                        else:
-                            cover_type = test.ground_cover.cover_type
-                            cover_range = test.ground_cover.range
-                            for threshold in (cover_range.lower_bound, cover_range.upper_bound):
-                                WEATHER_TYPE_THRESHOLDS[cover_type].add(threshold)
+                            continue
+                        cover_type = test.ground_cover.cover_type
+                        cover_range = test.ground_cover.range
+                        for threshold in (cover_range.lower_bound, cover_range.upper_bound):
+                            WEATHER_TYPE_THRESHOLDS[cover_type].add(threshold)
 
     class TunableWeatherAutonomyPenalties(TunableList):
 
@@ -171,6 +170,12 @@ class WeatherService(Service):
     FALLBACK_FORECAST = WeatherForecast.TunablePackSafeReference(description='\n        The weather forecast to use if no valid forecast is found.\n        ')
     COUNTS_AS_SHADE = TunableEnumSet(description='\n        A set of WeatherTypes that count as shade as far as is sun out\n        is concerned.\n        ', enum_type=WeatherType, enum_default=WeatherType.UNDEFINED, invalid_enums=(WeatherType.UNDEFINED,))
 
+    @classmethod
+    def get_weather_category_for_type(cls, weather_type):
+        if weather_type not in cls.WEATHER_TYPE_UI_INFO:
+            return
+        return cls.WEATHER_TYPE_UI_INFO[weather_type].weather_group_type
+
     class RegionWeatherInfo:
 
         def __init__(self):
@@ -181,6 +186,7 @@ class WeatherService(Service):
             self._forecast_time = DATE_AND_TIME_ZERO
             self._override_forecast = None
             self._override_forecast_season = None
+            self._cross_season_override = False
 
         def clear(self):
             self._forecasts.clear()
@@ -192,7 +198,7 @@ class WeatherService(Service):
         self._key_times = []
         self._region_id = None
         self._current_weather_types = set()
-        self._weather_option = {PrecipitationType.SNOW: None, PrecipitationType.RAIN: None}
+        self._weather_option = {PrecipitationType.RAIN: None, PrecipitationType.SNOW: None}
         self._temperature_effects_option = None
         self._weather_aware_objects = defaultdict(set)
         temperature_set = set()
@@ -273,6 +279,16 @@ class WeatherService(Service):
         logger.assert_raise(self._region_id is not None, 'Weather Service trying to use region based property when region_id is None')
         self._weather_info[self._region_id]._override_forecast_season = value
 
+    @property
+    def cross_season_override(self):
+        logger.assert_raise(self._region_id is not None, 'Weather Service trying to use region based property when region_id is None')
+        return self._weather_info[self._region_id]._cross_season_override
+
+    @cross_season_override.setter
+    def cross_season_override(self, value):
+        logger.assert_raise(self._region_id is not None, 'Weather Service trying to use region based property when region_id is None')
+        self._weather_info[self._region_id]._cross_season_override = value
+
     @classproperty
     def required_packs(cls):
         return (Pack.BASE_GAME, Pack.EP05)
@@ -344,15 +360,15 @@ class WeatherService(Service):
         if self._forecast_time != DATE_AND_TIME_ZERO:
             now_days = int(current_time.absolute_days())
             day_time_span = create_time_span(days=1)
-            while now_days > int(self._forecast_time.absolute_days()) and self._forecasts:
-                del self._forecasts[0]
-                self._forecast_time = self._forecast_time + day_time_span
+            while now_days > int(self._forecast_time.absolute_days()):
+                while self._forecasts:
+                    del self._forecasts[0]
+                    self._forecast_time = self._forecast_time + day_time_span
         if self._current_event is None:
             self._send_new_weather_event()
         else:
             self._send_existing_weather_event()
-        self.update_weather_type()
-        self._send_weather_aware_messages(timeslice=False)
+        self.update_weather_type(during_load=True)
 
     def on_zone_unload(self):
         self._current_weather_types.clear()
@@ -446,7 +462,7 @@ class WeatherService(Service):
             op = WeatherEventOp(self._last_op)
             for (message_type, data) in self._trans_info.items():
                 op.populate_op(message_type, data.start_value, data.start_time, data.end_value, data.end_time)
-                if data.start_value == data.end_value and data.end_value == 0.0:
+                if data.start_value == data.end_value == 0.0:
                     messages_to_remove.append(message_type)
             Distributor.instance().add_op_with_no_owner(op)
             for message_type in messages_to_remove:
@@ -559,8 +575,9 @@ class WeatherService(Service):
 
     def _validate_event_end_time_for_snow(self, new_trans_info, end_time):
         max_snow_accumulation_time = new_trans_info[int(GroundCoverType.SNOW_ACCUMULATION)].end_time
-        if end_time != DATE_AND_TIME_ZERO:
-            end_time = max_snow_accumulation_time
+        if max_snow_accumulation_time > end_time:
+            if end_time != DATE_AND_TIME_ZERO:
+                end_time = max_snow_accumulation_time
         return end_time
 
     def _fake_snow_accumulation_for_snow(self, new_trans_info, next_time, time, snow_value):
@@ -593,39 +610,40 @@ class WeatherService(Service):
             new_trans_info[int(GroundCoverType.RAIN_ACCUMULATION)] = static_max_weather_element
         else:
             temp_interpolate = new_trans_info.get(int(WeatherEffectType.TEMPERATURE), None)
-            if temp_interpolate.start_value == Temperature.FREEZING:
-                season_service = services.season_service()
-                if season_service is None:
-                    logger.error('Somehow creating secondary weather elements without season service in freezing temps')
-                    season = None
-                else:
-                    season = season_service.season
-                if season != SeasonType.WINTER:
-                    start_value = random.random()
-                    self._add_secondary_element_decay(new_trans_info, Temperature.FREEZING, WeatherEffectType.WATER_FROZEN, self.WATER_THAW_RATE, time, current_value=start_value)
-                    self._add_secondary_element_decay(new_trans_info, Temperature.FREEZING, WeatherEffectType.WINDOW_FROST, self.FROST_WINDOW_MELT_RATE, time, current_value=start_value)
-                else:
-                    new_trans_info[int(WeatherEffectType.WATER_FROZEN)] = static_max_weather_element
-                    new_trans_info[int(WeatherEffectType.WINDOW_FROST)] = static_max_weather_element
-                    snow = new_trans_info.get(int(PrecipitationType.SNOW), None)
-                    if snow is not None:
-                        next_time = self._fake_snow_accumulation_for_snow(new_trans_info, next_time, time, snow.end_value)
+            if temp_interpolate is not None:
+                if temp_interpolate.start_value == Temperature.FREEZING:
+                    season_service = services.season_service()
+                    if season_service is None:
+                        logger.error('Somehow creating secondary weather elements without season service in freezing temps')
+                        season = None
                     else:
-                        old_time = self._next_weather_event_time
-                        if old_time == DATE_AND_TIME_ZERO or old_time not in season_service.season_content:
-                            season_segment = season_service.season_content.get_segment(time)
-                            if self.get_forecast(season, season_segment).is_snowy() or self.get_forecast(season, season_segment).is_snowy():
-                                start_value = 1
-                            else:
-                                start_value = 0
+                        season = season_service.season
+                    if season != SeasonType.WINTER:
+                        start_value = random.random()
+                        self._add_secondary_element_decay(new_trans_info, Temperature.FREEZING, WeatherEffectType.WATER_FROZEN, self.WATER_THAW_RATE, time, current_value=start_value)
+                        self._add_secondary_element_decay(new_trans_info, Temperature.FREEZING, WeatherEffectType.WINDOW_FROST, self.FROST_WINDOW_MELT_RATE, time, current_value=start_value)
+                    else:
+                        new_trans_info[int(WeatherEffectType.WATER_FROZEN)] = static_max_weather_element
+                        new_trans_info[int(WeatherEffectType.WINDOW_FROST)] = static_max_weather_element
+                        snow = new_trans_info.get(int(PrecipitationType.SNOW), None)
+                        if snow is not None:
+                            next_time = self._fake_snow_accumulation_for_snow(new_trans_info, next_time, time, snow.end_value)
                         else:
-                            old_value = self._trans_info.get(int(GroundCoverType.SNOW_ACCUMULATION), None)
-                            if (old_value is None or old_value.end_value <= 0) and not self._forecasts[0].is_snowy():
-                                start_value = 0
+                            old_time = self._next_weather_event_time
+                            if old_time == DATE_AND_TIME_ZERO or old_time not in season_service.season_content:
+                                season_segment = season_service.season_content.get_segment(time)
+                                if self.get_forecast(season, season_segment).is_snowy() or self.get_forecast(season, season_segment).is_snowy():
+                                    start_value = 1
+                                else:
+                                    start_value = 0
                             else:
-                                start_value = 1
-                        start_value = max(start_value, self.FROST_GROUND_ACCUMULATION_MAX)
-                        new_trans_info[int(GroundCoverType.SNOW_ACCUMULATION)] = WeatherElementTuple(start_value, time, start_value, time)
+                                old_value = self._trans_info.get(int(GroundCoverType.SNOW_ACCUMULATION), None)
+                                if (old_value is None or old_value.end_value <= 0) and not self._forecasts[0].is_snowy():
+                                    start_value = 0
+                                else:
+                                    start_value = 1
+                            start_value = max(start_value, self.FROST_GROUND_ACCUMULATION_MAX)
+                            new_trans_info[int(GroundCoverType.SNOW_ACCUMULATION)] = WeatherElementTuple(start_value, time, start_value, time)
         return next_time
 
     def _update_secondary_weather_elements(self, new_trans_info, next_time):
@@ -674,8 +692,9 @@ class WeatherService(Service):
                 start_fresh_value = None
             else:
                 start_fresh_value = self.get_weather_element_value(int(WeatherEffectType.SNOW_FRESHNESS), time)
-                if time > freshness_data.end_time:
-                    start_fresh_value = None
+                if start_fresh_value == 0.0:
+                    if time > freshness_data.end_time:
+                        start_fresh_value = None
         else:
             target_fresh_value = 1.0
             start_fresh_value = self.get_weather_element_value(int(WeatherEffectType.SNOW_FRESHNESS), time)
@@ -694,16 +713,15 @@ class WeatherService(Service):
         for ground_cover_type in GroundCoverType:
             if not ground_cover_type not in self._trans_info:
                 if ground_cover_type not in WEATHER_TYPE_THRESHOLDS:
-                    pass
-                else:
-                    trans_info = self._trans_info[ground_cover_type]
-                    trans_lower_value = min(trans_info.start_value, trans_info.end_value)
-                    trans_upper_value = max(trans_info.start_value, trans_info.end_value)
-                    for threshold in WEATHER_TYPE_THRESHOLDS[ground_cover_type]:
-                        if threshold > trans_lower_value and threshold < trans_upper_value:
-                            percent_of_change = (threshold - trans_info.start_value)/(trans_info.end_value - trans_info.start_value)
-                            key_time = trans_info.start_time + TimeSpan(percent_of_change*(trans_info.end_time - trans_info.start_time).in_ticks())
-                            self._key_times.append(key_time)
+                    continue
+                trans_info = self._trans_info[ground_cover_type]
+                trans_lower_value = min(trans_info.start_value, trans_info.end_value)
+                trans_upper_value = max(trans_info.start_value, trans_info.end_value)
+                for threshold in WEATHER_TYPE_THRESHOLDS[ground_cover_type]:
+                    if threshold > trans_lower_value and threshold < trans_upper_value:
+                        percent_of_change = (threshold - trans_info.start_value)/(trans_info.end_value - trans_info.start_value)
+                        key_time = trans_info.start_time + TimeSpan(percent_of_change*(trans_info.end_time - trans_info.start_time).in_ticks())
+                        self._key_times.append(key_time)
         self._key_times.sort()
 
     def set_override_forecast(self, forecast):
@@ -718,7 +736,7 @@ class WeatherService(Service):
         override_forecast = self._override_forecast
         if season is None:
             season = services.season_service().season
-        if override_forecast is not None and self._override_forecast_season == season:
+        if override_forecast is not None and self._override_forecast_season == season or self.cross_season_override:
             return override_forecast
 
     def get_forecast(self, season, season_segment, snow_safe=True, rain_safe=True):
@@ -742,9 +760,13 @@ class WeatherService(Service):
     def _validate_override_forecasts(self):
         season = services.season_service().season
         for (_, regiondata) in self._weather_info.items():
-            if regiondata._override_forecast is not None and regiondata._override_forecast_season != season:
-                regiondata._override_forecast = None
-                regiondata._override_forecast_season = None
+            if regiondata._override_forecast is not None:
+                if regiondata._override_forecast_season != season:
+                    if regiondata._cross_season_override:
+                        regiondata._override_forecast_season = season
+                    else:
+                        regiondata._override_forecast = None
+                        regiondata._override_forecast_season = None
 
     def populate_forecasts(self, num_days):
         season_service = services.season_service()
@@ -800,10 +822,11 @@ class WeatherService(Service):
             return True
         return False
 
-    def update_weather_type(self):
+    def update_weather_type(self, during_load=False):
         time = services.time_service().sim_now
-        while self._key_times and time > self._key_times[0]:
-            del self._key_times[0]
+        while self._key_times:
+            while time > self._key_times[0]:
+                del self._key_times[0]
         if self._add_message_objects or self._remove_message_objects:
             self._weather_update_pending = True
             return
@@ -870,6 +893,8 @@ class WeatherService(Service):
             self._remove_message_objects.update(self._weather_aware_objects[weather_type])
             self._on_ending_weather_types(weather_type)
         self._send_ui_weather_message()
+        if during_load:
+            self._send_weather_aware_messages(timeslice=False)
 
     def has_weather_type(self, weather_type):
         return weather_type in self._current_weather_types
@@ -962,9 +987,10 @@ class WeatherService(Service):
         lightning_value = self._add_lightning_alarm(services.time_service().sim_now)
         if lightning_value is not None:
             for metric in self.ACTIVE_LIGHTNING.creation_metrics:
-                if lightning_value in metric.value_range and random.random() < metric.chance:
-                    LightningStrike.perform_active_lightning_strike()
-                    break
+                if lightning_value in metric.value_range:
+                    if random.random() < metric.chance:
+                        LightningStrike.perform_active_lightning_strike()
+                        break
 
     def _add_snow_drift_alarm(self, time):
         if self._snow_drift_alarm is None:
@@ -1006,7 +1032,8 @@ class WeatherService(Service):
                 if amount in autonomy_mod.value_range:
                     multiplier = autonomy_mod.modifier
                     break
-            return 1.0
+            else:
+                return 1.0
             for (trait, modifier) in reduction.items():
                 if sim.has_trait(trait):
                     multiplier *= modifier
@@ -1051,7 +1078,7 @@ class WeatherService(Service):
     def _send_weather_aware_messages(self, timeslice=True):
         start_time = time.clock()
         while True:
-            if timeslice and time.clock() - start_time < self.WEATHER_AWARE_TIME_SLICE_SECONDS:
+            if not timeslice or time.clock() - start_time < self.WEATHER_AWARE_TIME_SLICE_SECONDS:
                 if self._remove_message_objects:
                     loot_object = self._remove_message_objects.pop()
                     loot_object.give_weather_loot(self._remove_weather_types, False)
@@ -1064,7 +1091,12 @@ class WeatherService(Service):
                     return
 
     def _send_ui_weather_message(self):
-        op = WeatherUpdateOp(self._current_weather_types)
+        weather_types = self._current_weather_types
+        weather_override_map = self._forecasts[0].weather_ui_override if self._forecasts else None
+        if weather_override_map is not None:
+            weather_types = [weather_type for weather_type in weather_types if self.get_weather_category_for_type(weather_type) not in weather_override_map]
+            weather_types.extend(weather_override_map.values())
+        op = WeatherUpdateOp(weather_types)
         Distributor.instance().add_op_with_no_owner(op)
 
     def _send_ui_weather_forecast(self):

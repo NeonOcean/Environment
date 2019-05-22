@@ -1,4 +1,4 @@
-#  Copyright (c) 2016, 2018 by Rocky Bernstein
+#  Copyright (c) 2016, 2018-2019 by Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #  Copyright (c) 1999 John Aycock
@@ -39,7 +39,7 @@ from xdis.util import code2num
 # Note: these all have to be floats
 PYTHON_VERSIONS = frozenset((1.3, 1.4, 1.5,
                              2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7,
-                             3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7))
+                             3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8))
 
 CANONIC2VERSION = dict((canonic_python_version[str(v)], v) for v in PYTHON_VERSIONS)
 
@@ -271,7 +271,7 @@ class Scanner(object):
         code = self.code
         # Make sure requested positions do not go out of
         # code bounds
-        if not (start>=0 and end<=len(code)):
+        if not (start >= 0 and end <= len(code)):
             return None
 
         try:
@@ -351,9 +351,9 @@ class Scanner(object):
 
         return result
 
-
     # FIXME: this is broken on 3.6+. Replace remaining (2.x-based) calls
     # with inst_matches
+
     def all_instr(self, start, end, instr, target=None, include_beyond_target=False):
         """
         Find all `instr` in the block from start to end.
@@ -423,8 +423,8 @@ class Scanner(object):
         last_was_extarg = False
         n = len(instructions)
         for i, inst in enumerate(instructions):
-            if (inst.opname == 'EXTENDED_ARG' and
-                i+1 < n and instructions[i+1].opname != 'MAKE_FUNCTION'):
+            if (inst.opname == 'EXTENDED_ARG'
+                and i+1 < n and instructions[i+1].opname != 'MAKE_FUNCTION'):
                 last_was_extarg = True
                 starts_line = inst.starts_line
                 is_jump_target = inst.is_jump_target
@@ -435,7 +435,7 @@ class Scanner(object):
                 # j = self.stmts.index(inst.offset)
                 # self.lines[j] = offset
 
-                new_inst= inst._replace(starts_line=starts_line,
+                new_inst = inst._replace(starts_line=starts_line,
                                         is_jump_target=is_jump_target,
                                         offset=offset)
                 inst = new_inst
@@ -526,6 +526,7 @@ def get_scanner(version, is_pypy=False, show_asm=None):
     else:
         raise RuntimeError("Unsupported Python version %s" % version)
     return scanner
+
 
 if __name__ == "__main__":
     import inspect, uncompyle6

@@ -57,9 +57,8 @@ def _get_refs(obj, valid_refs):
     valid_refs.add(id(sys._getframe()))
     for ref in g_refs:
         if id(ref) in valid_refs:
-            pass
-        else:
-            ret.append(ref)
+            continue
+        ret.append(ref)
     if len(ret) == 1 and isinstance(ret[0], types.TracebackType):
         valid_refs.add(id(g_refs))
         valid_refs.add(id(ret))
@@ -109,7 +108,7 @@ def _find_leaks(referent, potential_leak, valid_refs, recursion_depth, output_re
     for ref in fl_refs:
         recursion_depth += 1
         ret |= _find_leaks(potential_leak, ref, valid_refs, recursion_depth, output_ref_chain, possible_leak_chains)
-        if _full_print or len(possible_leak_chains) > 9:
+        if not _full_print and len(possible_leak_chains) > 9:
             if _termination_string not in possible_leak_chains:
                 possible_leak_chains.append(_termination_string)
             return ret

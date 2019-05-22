@@ -80,7 +80,11 @@ class PortalLockingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
     def has_lock_data(self, lock_priority=None, lock_types=None):
         for lock_data in self.lock_datas.values():
             if not lock_priority is None:
-                pass
+                if lock_data.lock_priority == lock_priority:
+                    if not lock_types is None:
+                        if lock_data.lock_type in lock_types:
+                            return True
+                    return True
             if not lock_types is None:
                 if lock_data.lock_type in lock_types:
                     return True
@@ -94,7 +98,11 @@ class PortalLockingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
         self._clear_locks_on_all_sims()
         for lock_data in list(self.lock_datas.values()):
             if not lock_priority is None:
-                pass
+                if lock_data.lock_priority == lock_priority:
+                    if not lock_type is None:
+                        if lock_data.lock_type == lock_type:
+                            del self.lock_datas[lock_data.lock_type]
+                    del self.lock_datas[lock_data.lock_type]
             if not lock_type is None:
                 if lock_data.lock_type == lock_type:
                     del self.lock_datas[lock_data.lock_type]
@@ -118,26 +126,32 @@ class PortalLockingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
         for lock_data in self.lock_datas.values():
             lock_result = lock_data.test_lock(sim)
             if lock_result is None:
-                pass
-            elif lock_result.is_player_lock():
+                continue
+            if lock_result.is_player_lock():
                 if current_player_lock_result == LockResult.NONE:
                     current_player_lock_result = lock_result
                 elif current_player_lock_result.is_locked and not lock_result.is_locked:
                     current_player_lock_result = lock_result
-                elif lock_result.is_locking_both():
-                    current_player_lock_result = lock_result
-                    if current_system_lock_result == LockResult.NONE:
-                        current_system_lock_result = lock_result
-                    elif current_system_lock_result.is_locked or lock_result.is_locked:
-                        current_system_lock_result = lock_result
-                    elif current_system_lock_result.is_locked and lock_result.is_locked and lock_result.is_locking_both():
-                        current_system_lock_result = lock_result
+                elif current_player_lock_result.is_locked:
+                    if lock_result.is_locked:
+                        if lock_result.is_locking_both():
+                            current_player_lock_result = lock_result
+                            if current_system_lock_result == LockResult.NONE:
+                                current_system_lock_result = lock_result
+                            elif not current_system_lock_result.is_locked and lock_result.is_locked:
+                                current_system_lock_result = lock_result
+                            elif current_system_lock_result.is_locked:
+                                if lock_result.is_locked:
+                                    if lock_result.is_locking_both():
+                                        current_system_lock_result = lock_result
             elif current_system_lock_result == LockResult.NONE:
                 current_system_lock_result = lock_result
-            elif current_system_lock_result.is_locked or lock_result.is_locked:
+            elif not current_system_lock_result.is_locked and lock_result.is_locked:
                 current_system_lock_result = lock_result
-            elif current_system_lock_result.is_locked and lock_result.is_locked and lock_result.is_locking_both():
-                current_system_lock_result = lock_result
+            elif current_system_lock_result.is_locked:
+                if lock_result.is_locked:
+                    if lock_result.is_locking_both():
+                        current_system_lock_result = lock_result
         if current_system_lock_result.is_locked:
             if current_player_lock_result.is_locked and current_player_lock_result.is_locking_both():
                 return current_player_lock_result
@@ -153,8 +167,9 @@ class PortalLockingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
         self._disallowed_sims[sim][disallower] = lock_both
         for portal_pair in self.owner.get_portal_pairs():
             sim.routing_context.lock_portal(portal_pair.there)
-            if lock_both and portal_pair.back is not None:
-                sim.routing_context.lock_portal(portal_pair.back)
+            if lock_both:
+                if portal_pair.back is not None:
+                    sim.routing_context.lock_portal(portal_pair.back)
 
     def has_bidirectional_lock(self, sim):
         return any(self._disallowed_sims[sim].values())
@@ -184,8 +199,8 @@ class PortalLockingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
         portal_lock_data = persistable_data.Extensions[SimObjectAttributes_pb2.PersistablePortalLockingComponent.persistable_data]
         for lock_data in self.lock_datas.values():
             if not lock_data.should_persist:
-                pass
-            elif lock_data.lock_priority == LockPriority.PLAYER_LOCK:
+                continue
+            if lock_data.lock_priority == LockPriority.PLAYER_LOCK:
                 persist_lock_data = portal_lock_data.lock_data.add()
                 persist_lock_data.lock_type = lock_data.lock_type
                 lock_data.save(persist_lock_data)

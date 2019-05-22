@@ -101,19 +101,17 @@ class ActingStudioZoneDirector(CareerEventZoneDirector):
         for (tag, interactions) in self.stage_marks.items():
             marks = object_manager.get_objects_matching_tags((tag,))
             if not marks:
-                pass
-            else:
-                self._stage_marks.update(marks)
-                for obj in marks:
-                    obj.add_dynamic_component(types.STAGE_MARK_COMPONENT, performance_interactions=interactions)
+                continue
+            self._stage_marks.update(marks)
+            for obj in marks:
+                obj.add_dynamic_component(types.STAGE_MARK_COMPONENT, performance_interactions=interactions)
 
     def _init_performance_object_data(self, object_manager):
         for (tag, states) in self.performance_objects.items():
             performance_objects = object_manager.get_objects_matching_tags((tag,))
             if not performance_objects:
-                pass
-            else:
-                performance_object_data = PerformanceObjectData(performance_objects, states.pre_performance_states, states.performance_states, states.post_performance_states)
-                self._performance_object_data.append(performance_object_data)
-                if self._current_state == self.STATE_PRE_PERFORMANCE:
-                    performance_object_data.set_pre_performance_states()
+                continue
+            performance_object_data = PerformanceObjectData(performance_objects, states.pre_performance_states, states.performance_states, states.post_performance_states)
+            self._performance_object_data.append(performance_object_data)
+            if self._current_state == self.STATE_PRE_PERFORMANCE:
+                performance_object_data.set_pre_performance_states()

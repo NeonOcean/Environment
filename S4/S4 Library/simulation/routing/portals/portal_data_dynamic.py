@@ -56,19 +56,18 @@ class _PortalTypeDataDynamic(_PortalTypeDataVariableJump):
                 obj_id = object_data[PY_OBJ_DATA][SURFACE_OBJ_ID]
                 other_obj = services.object_manager().get(obj_id)
                 if other_obj is None:
-                    pass
-                elif other_obj.id == obj.id:
+                    continue
+                if other_obj.id == obj.id:
+                    continue
+                for (there_exit, other_obj_angle_restriction) in other_obj.get_dynamic_portal_locations_gen():
+                    self._update_portal_location(locations, there_entry, there_exit, obj, other_obj, other_obj_angle_restriction)
+                if other_obj.parts is None:
                     pass
                 else:
-                    for (there_exit, other_obj_angle_restriction) in other_obj.get_dynamic_portal_locations_gen():
-                        self._update_portal_location(locations, there_entry, there_exit, obj, other_obj, other_obj_angle_restriction)
-                    if other_obj.parts is None:
-                        pass
-                    else:
-                        for part in other_obj.parts:
-                            distance = (obj.position - part.position).magnitude_2d()
-                            if distance <= self.PORTAL_PART_SEARCH_RADIUS + self.additional_search_radius:
-                                for portal_data in part.part_definition.portal_data:
-                                    for (there_exit, other_obj_angle_restriction) in portal_data.get_dynamic_portal_locations_gen(part):
-                                        self._update_portal_location(locations, there_entry, there_exit, obj, other_obj, other_obj_angle_restriction)
+                    for part in other_obj.parts:
+                        distance = (obj.position - part.position).magnitude_2d()
+                        if distance <= self.PORTAL_PART_SEARCH_RADIUS + self.additional_search_radius:
+                            for portal_data in part.part_definition.portal_data:
+                                for (there_exit, other_obj_angle_restriction) in portal_data.get_dynamic_portal_locations_gen(part):
+                                    self._update_portal_location(locations, there_entry, there_exit, obj, other_obj, other_obj_angle_restriction)
         return locations

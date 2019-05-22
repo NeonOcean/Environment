@@ -46,13 +46,12 @@ class HeightField:
                 for i in range(3):
                     index2 = adj[i]
                     if index2 is None:
-                        pass
-                    else:
-                        cw = adj[(i + 1) % len(adj)]
-                        ccw = adj[(i + len(adj) - 1) % len(adj)]
-                        self._edge_ix[(index, index2)] = len(self._edges)
-                        self._edge_ix[(index2, index)] = len(self._edges)
-                        self._edges.append([index, index2, cw, ccw])
+                        continue
+                    cw = adj[(i + 1) % len(adj)]
+                    ccw = adj[(i + len(adj) - 1) % len(adj)]
+                    self._edge_ix[(index, index2)] = len(self._edges)
+                    self._edge_ix[(index2, index)] = len(self._edges)
+                    self._edges.append([index, index2, cw, ccw])
         self._sample_points()
 
     def isolines(self, value):

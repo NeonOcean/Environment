@@ -107,12 +107,14 @@ class CareerLootOp(BaseLootOperation):
                     sim_info.career_tracker.clear_career_history(career.guid64)
                     if op.operation_type == CareerLootOp.OP_QUIT:
                         career.quit_career()
-                    elif op.operation_type == CareerLootOp.OP_JOIN and career is None:
-                        sim_info.career_tracker.add_career(self.career.reference(sim_info), show_confirmation_dialog=op.show_confirmation_dialog, user_level_override=op.level_to_join)
+                    elif op.operation_type == CareerLootOp.OP_JOIN:
+                        if career is None:
+                            sim_info.career_tracker.add_career(self.career.reference(sim_info), show_confirmation_dialog=op.show_confirmation_dialog, user_level_override=op.level_to_join)
             elif op.operation_type == CareerLootOp.OP_QUIT:
                 career.quit_career()
-            elif op.operation_type == CareerLootOp.OP_JOIN and career is None:
-                sim_info.career_tracker.add_career(self.career.reference(sim_info), show_confirmation_dialog=op.show_confirmation_dialog, user_level_override=op.level_to_join)
+            elif op.operation_type == CareerLootOp.OP_JOIN:
+                if career is None:
+                    sim_info.career_tracker.add_career(self.career.reference(sim_info), show_confirmation_dialog=op.show_confirmation_dialog, user_level_override=op.level_to_join)
 
     def _get_careers(self, sim_info, interaction):
         careers = sim_info.careers

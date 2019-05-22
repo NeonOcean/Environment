@@ -13,16 +13,14 @@ def recursive_sizeof(roots, skip_atomic=False):
     while pending:
         (obj, root) = pending.popleft()
         if id(obj) in visited:
-            pass
-        else:
-            if skip_atomic and gc.is_tracked(obj):
-                sizes[id(root)] += sys.getsizeof(obj)
-            visited.add(id(obj))
-            for child in enumerate_children(obj, handler_cache, HANDLERS):
-                if child is None:
-                    pass
-                else:
-                    pending.append((child, root))
+            continue
+        if not skip_atomic or gc.is_tracked(obj):
+            sizes[id(root)] += sys.getsizeof(obj)
+        visited.add(id(obj))
+        for child in enumerate_children(obj, handler_cache, HANDLERS):
+            if child is None:
+                continue
+            pending.append((child, root))
     results = []
     for root in roots:
         results.append((root, sizes[id(root)]))
@@ -74,50 +72,53 @@ def calc_sizerec(node):
             first.sizerec = first.size
             pending.append((None, first))
             child = first.child
-            while child is not None:
-                pending.append((child, None))
-                child = child.sibling
-        elif second is not None and second.parent is not None:
-            second.parent.sizerec += second.sizerec
+            while True:
+                while child is not None:
+                    pending.append((child, None))
+                    child = child.sibling
+                if second is not None:
+                    if second.parent is not None:
+                        second.parent.sizerec += second.sizerec
+        elif second is not None:
+            if second.parent is not None:
+                second.parent.sizerec += second.sizerec
 
 def get_object_tree(labeled_roots, skip_atomic=False, allowed_ids=None, bfs=True, include_cycles=False):
     handler_cache = {}
     root = Node('', 'Root', None, 0)
     visited = {id(root)}
     pending = collections.deque([(obj, '', name, root) for (name, obj) in labeled_roots])
-    if pending:
+    while pending:
         if bfs:
             (obj, sep, name, parent) = pending.popleft()
         else:
             (obj, sep, name, parent) = pending.pop()
         obj_id = id(obj)
         if obj_id in visited:
+            continue
+        visited.add(obj_id)
+        if allowed_ids is not None and obj_id not in allowed_ids:
+            continue
+        if skip_atomic and not gc.is_tracked(obj):
+            continue
+        size = sys.getsizeof(obj)
+        node = Node(sep, name, obj, size)
+        parent.add_child(node)
+        try:
+            for (sep, field, child) in enumerate_children(obj, handler_cache, FIELD_HANDLERS):
+                if child is None:
+                    continue
+                if allowed_ids is not None and id(child) not in allowed_ids:
+                    continue
+                if id(child) in visited:
+                    if include_cycles:
+                        child_node = Node(sep, field + '&', child, 0)
+                        node.add_child(child_node)
+                        pending.append((child, sep, field, node))
+                else:
+                    pending.append((child, sep, field, node))
+        except:
             pass
-        else:
-            visited.add(obj_id)
-            if allowed_ids is not None and obj_id not in allowed_ids:
-                pass
-            elif skip_atomic and not gc.is_tracked(obj):
-                pass
-            else:
-                size = sys.getsizeof(obj)
-                node = Node(sep, name, obj, size)
-                parent.add_child(node)
-                try:
-                    for (sep, field, child) in enumerate_children(obj, handler_cache, FIELD_HANDLERS):
-                        if child is None:
-                            pass
-                        elif allowed_ids is not None and id(child) not in allowed_ids:
-                            pass
-                        elif id(child) in visited:
-                            if include_cycles:
-                                child_node = Node(sep, field + '&', child, 0)
-                                node.add_child(child_node)
-                                pending.append((child, sep, field, node))
-                        else:
-                            pending.append((child, sep, field, node))
-                except:
-                    pass
     calc_sizerec(root)
     return root
 
@@ -166,7 +167,8 @@ def enumerate_children(obj, handler_cache, handlers):
             if handler is not None:
                 handler_cache[t] = handler
                 break
-        handler_cache[t] = None
+        else:
+            handler_cache[t] = None
     handler = handler_cache[t]
     if handler is not None:
         return handler(obj)
@@ -182,9 +184,8 @@ def object_iter(obj):
         ref = sys.getrefcount(v)
         if not v is None:
             if ref <= 2:
-                pass
-            else:
-                children.append(v)
+                continue
+            children.append(v)
     return children
 
 def module_iter(module):
@@ -193,15 +194,14 @@ def module_iter(module):
     module_dict = vars(module)
     for value in module_dict.values():
         if isinstance(value, (type, FunctionType)) and value.__module__ != name:
-            pass
-        else:
-            members.append(value)
+            continue
+        members.append(value)
     members.append(vars(module))
     return members
 
 child_iter = iter
 dict_iter = lambda obj: itertools.chain.from_iterable(obj.items())
-HANDLERS = {ModuleType: module_iter, object: object_iter, dict: dict_iter, tuple: child_iter, set: child_iter, list: child_iter, frozenset: child_iter, collections.deque: child_iter}
+HANDLERS = {collections.deque: child_iter, frozenset: child_iter, list: child_iter, set: child_iter, tuple: child_iter, dict: dict_iter, object: object_iter, ModuleType: module_iter}
 
 def safe_str(obj):
     try:
@@ -244,9 +244,8 @@ def module_fields(module):
     module_dict = vars(module)
     for (name, value) in module_dict.items():
         if isinstance(value, (type, FunctionType)) and value.__module__ != name:
-            pass
-        else:
-            members.append(('.', name, value))
+            continue
+        members.append(('.', name, value))
     return members
 
 def object_fields(obj):
@@ -257,29 +256,27 @@ def object_fields(obj):
     ref_ids = set(id(v) for v in gc.get_referents(obj))
     for attr in dir(obj):
         if attr == '__qualname__':
-            pass
-        else:
-            try:
-                v = getattr(obj, attr, None)
-            except:
+            continue
+        try:
+            v = getattr(obj, attr, None)
+        except:
+            continue
+        vid = id(v)
+        if vid not in ref_ids:
+            continue
+        ids.add(vid)
+        ref = sys.getrefcount(v)
+        if not v is None:
+            if ref <= 2:
                 continue
-            vid = id(v)
-            if vid not in ref_ids:
-                pass
+            if attr == '__annotations__' and ref == 3 and not v:
+                delattr(obj, attr)
             else:
-                ids.add(vid)
-                ref = sys.getrefcount(v)
-                if not v is None:
-                    if ref <= 2:
-                        pass
-                    elif attr == '__annotations__' and ref == 3 and not v:
-                        delattr(obj, attr)
-                    else:
-                        children.append(('.', attr, v))
+                children.append(('.', attr, v))
     refs = gc.get_referents(obj)
     for v in refs:
         if id(v) not in ids:
             children.append(('.', '<gcref>', v))
     return children
 
-FIELD_HANDLERS = {ModuleType: module_fields, object: object_fields, dict: dict_fields, tuple: list_fields, set: list_fields, list: list_fields, frozenset: list_fields, collections.deque: list_fields}
+FIELD_HANDLERS = {collections.deque: list_fields, frozenset: list_fields, list: list_fields, set: list_fields, tuple: list_fields, dict: dict_fields, object: object_fields, ModuleType: module_fields}

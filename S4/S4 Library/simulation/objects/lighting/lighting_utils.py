@@ -12,24 +12,21 @@ def all_lights_gen(target):
     plex_service = services.get_plex_service()
     for obj in services.object_manager().get_all_objects_with_component_gen(LIGHTING_COMPONENT):
         if get_object_has_tag(obj.definition.id, LightingComponent.MANUAL_LIGHT_TAG):
-            pass
-        elif not plex_service.is_active_zone_a_plex() or plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
-            pass
-        else:
-            yield obj
+            continue
+        if not not plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
+            continue
+        yield obj
 
 def lights_in_target_room_gen(target):
     zone_id = services.current_zone_id()
     target_block_id = get_block_id(zone_id, target.position, target.level)
     for obj in services.object_manager().get_all_objects_with_component_gen(LIGHTING_COMPONENT):
         if get_object_has_tag(obj.definition.id, LightingComponent.MANUAL_LIGHT_TAG):
-            pass
-        else:
-            obj_block_id = get_block_id(zone_id, obj.position, obj.level)
-            if obj_block_id != target_block_id:
-                pass
-            else:
-                yield obj
+            continue
+        obj_block_id = get_block_id(zone_id, obj.position, obj.level)
+        if obj_block_id != target_block_id:
+            continue
+        yield obj
 
 class _LightTargetInteraction(HasTunableSingletonFactory):
 

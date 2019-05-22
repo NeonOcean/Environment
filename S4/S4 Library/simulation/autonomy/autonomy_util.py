@@ -88,9 +88,8 @@ class AutonomyCumulativePingRecord:
         for index in range(0, 2):
             count = self._count[index]
             if count == 0:
-                pass
-            else:
-                file.write('\n  {} {},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{},{}'.format(autonomy_type, '(NPC)' if index == 0 else '(PC)', self._total_time[index], self._total_time[index]/count, self._total_time_max[index], self._working_time[index], self._working_time[index]/count, self._working_time_max[index], self._total_time_slicing[index], self._total_time_slicing[index]/count, self._total_time_slicing_max[index], self._total_distance_estimation[index]/count, self._total_distance_estimation_max[index], self._percent_distance_estimation[index]/count, self._percent_distance_estimation_max[index]))
+                continue
+            file.write('\n  {} {},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{:0.03f},{},{}'.format(autonomy_type, '(NPC)' if index == 0 else '(PC)', self._total_time[index], self._total_time[index]/count, self._total_time_max[index], self._working_time[index], self._working_time[index]/count, self._working_time_max[index], self._total_time_slicing[index], self._total_time_slicing[index]/count, self._total_time_slicing_max[index], self._total_distance_estimation[index]/count, self._total_distance_estimation_max[index], self._percent_distance_estimation[index]/count, self._percent_distance_estimation_max[index]))
 
 class AutonomyProfilingData:
     MAX_RECORDS = 2000

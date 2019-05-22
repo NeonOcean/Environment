@@ -85,9 +85,8 @@ class _CloneObject(HasTunableSingletonFactory, AutoFactoryInit):
             if parent_object is not None:
                 for runtime_slot in parent_object.get_runtime_slots_gen(slot_types={self.slotted_to_participant.parent_slot_type}, bone_name_hash=None):
                     if runtime_slot.empty:
-                        pass
-                    else:
-                        return runtime_slot.children[0]
+                        continue
+                    return runtime_slot.children[0]
 
     FACTORY_TUNABLES = {'source_object': TunableVariant(description='\n            Where the object to be cloned can be found.\n            ', is_participant=_ParticipantObject.TunableFactory(), slotted_to_participant=_SlottedObject.TunableFactory(), default='slotted_to_participant'), 'definition_override': OptionalTunable(description='\n            Override to specify a different definition than that of the object\n            being cloned.\n            ', tunable=TunableReference(description='\n                The definition of the object that is created.\n                ', manager=services.definition_manager()))}
 
@@ -154,13 +153,11 @@ class _CreateObjectFromStoredObjectInfo(HasTunableSingletonFactory, AutoFactoryI
             for (state_guid, state_value_guid) in states:
                 state = state_manager.get(state_guid)
                 if state is None:
-                    pass
-                else:
-                    state_value = state_manager.get(state_value_guid)
-                    if state_value is None:
-                        pass
-                    else:
-                        created_object.set_state(state, state_value, immediate=True)
+                    continue
+                state_value = state_manager.get(state_value_guid)
+                if state_value is None:
+                    continue
+                created_object.set_state(state, state_value, immediate=True)
 
     def get_source_object(self, resolver):
         pass
@@ -229,7 +226,9 @@ class ObjectCreationMixin:
             if created_object.state_component is None:
                 created_object.add_component(StateComponent(created_object))
             if not initial_state.tests is None:
-                pass
+                if initial_state.tests.run_tests(self.resolver):
+                    if created_object.has_state(initial_state.state.state):
+                        created_object.set_state(initial_state.state.state, initial_state.state)
             if created_object.has_state(initial_state.state.state):
                 created_object.set_state(initial_state.state.state, initial_state.state)
         if self.temporary_tags is not None:
@@ -263,10 +262,11 @@ class ObjectCreationMixin:
             return True
         if not self.destroy_on_placement_failure:
             participant = self._get_fallback_location_target(created_object)
-            if isinstance(participant, sims.sim_info.SimInfo):
-                participant = participant.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if participant.is_sim:
+                if isinstance(participant, sims.sim_info.SimInfo):
+                    participant = participant.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
             location_type = getattr(self.location, 'location', None)
-            if participant.is_sim and location_type == self.INVENTORY and self.location.mark_object_as_stolen_from_career:
+            if location_type == self.INVENTORY and self.location.mark_object_as_stolen_from_career:
                 interaction = self.resolver.interaction
                 if interaction is None:
                     logger.error('Mark Object As Stolen From Career is checked on CreateObject loot {}. \n                                    This should only be check on basic extra in a CareerSuperInteraction.', self)
@@ -296,21 +296,22 @@ class ObjectCreationMixin:
                 if participant.inventory_component.player_try_add_object(created_object):
                     return True
             sim = self.resolver.get_participant(ParticipantType.Actor)
-            if not (participant.inventory_component is not None and sim is None or sim.is_sim):
+            if not (participant.inventory_component is not None and sim is None or not sim.is_sim):
                 owning_household = services.owning_household_of_active_lot()
                 if owning_household is not None:
                     for sim_info in owning_household.sim_info_gen():
                         if sim_info.is_instanced():
                             sim = sim_info.get_sim_instance()
                             break
-            if not sim.is_npc:
-                try:
-                    created_object.set_household_owner_id(sim.household.id)
-                    if build_buy.move_object_to_household_inventory(created_object):
-                        return True
-                    logger.error('Creation: Failed to place object {} in household inventory.', created_object, owner='rmccord')
-                except KeyError:
-                    pass
+            if sim is not None:
+                if not sim.is_npc:
+                    try:
+                        created_object.set_household_owner_id(sim.household.id)
+                        if build_buy.move_object_to_household_inventory(created_object):
+                            return True
+                        logger.error('Creation: Failed to place object {} in household inventory.', created_object, owner='rmccord')
+                    except KeyError:
+                        pass
         return False
 
 class ObjectCreationOp(ObjectCreationMixin, BaseLootOperation):

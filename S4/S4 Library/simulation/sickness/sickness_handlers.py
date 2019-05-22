@@ -32,13 +32,12 @@ def generate_sick_sim_view():
     sim_data = []
     for sim_info in tuple(services.sim_info_manager().values()):
         if not sim_info.has_sickness_tracking():
-            pass
-        else:
-            sickness = sim_info.current_sickness
-            exams_performed = sim_info.sickness_tracker.exams_performed
-            treatments_performed = sim_info.sickness_tracker.treatments_performed
-            ruled_out_treatments = sim_info.sickness_tracker.ruled_out_treatments
-            sim_data.append({'sim_id': str(hex(sim_info.id)), 'sim': sim_info.full_name, 'sickness': str(sickness), 'last_recorded_progress': str(sim_info.sickness_tracker.last_progress), 'discovered': str(sim_info.sickness_tracker.has_discovered_sickness), 'Symptoms': [{'symptom': str(symptom), 'is_discovered': str(sim_info.was_symptom_discovered(symptom))} for symptom in sickness.symptoms], 'Examinations Performed': [{'interaction': str(interaction)} for interaction in exams_performed], 'Treatments Performed': [{'interaction': str(interaction)} for interaction in treatments_performed], 'Treatments Ruled Out': [{'interaction': str(interaction)} for interaction in ruled_out_treatments]})
+            continue
+        sickness = sim_info.current_sickness
+        exams_performed = sim_info.sickness_tracker.exams_performed
+        treatments_performed = sim_info.sickness_tracker.treatments_performed
+        ruled_out_treatments = sim_info.sickness_tracker.ruled_out_treatments
+        sim_data.append({'sim_id': str(hex(sim_info.id)), 'sim': sim_info.full_name, 'sickness': str(sickness), 'last_recorded_progress': str(sim_info.sickness_tracker.last_progress), 'discovered': str(sim_info.sickness_tracker.has_discovered_sickness), 'Symptoms': [{'symptom': str(symptom), 'is_discovered': str(sim_info.was_symptom_discovered(symptom))} for symptom in sickness.symptoms], 'Examinations Performed': [{'interaction': str(interaction)} for interaction in exams_performed], 'Treatments Performed': [{'interaction': str(interaction)} for interaction in treatments_performed], 'Treatments Ruled Out': [{'interaction': str(interaction)} for interaction in ruled_out_treatments]})
     return sim_data
 
 non_sick_schema = GsiGridSchema(label='Sickness/Non-Sick Sims', auto_refresh=False)
@@ -62,18 +61,16 @@ def generate_non_sick_sim_view():
         resolver = SingleSimResolver(sim_info)
         if not sim_info.is_sick():
             if not sickness_service.can_become_sick(resolver):
-                pass
-            else:
-                weighted_sicknesses = tuple(all_sickness_weights_gen(resolver))
-                total_weight = float(sum(item[0] for item in weighted_sicknesses))
-                if not total_weight:
-                    pass
-                else:
-                    exams_performed = sim_info.sickness_tracker.exams_performed
-                    sickness_data = []
-                    for item in weighted_sicknesses:
-                        sickness_data.append({'sickness': str(item[1]), 'weight': item[0], 'chance': item[0]/total_weight})
-                    sim_data.append({'sim_id': str(hex(sim_info.id)), 'sim': sim_info.full_name, 'chance': sickness_service.get_sickness_chance(SingleSimResolver(sim_info)), 'Sickness Chances': sickness_data, 'Examinations Performed': [{'interaction': str(interaction)} for interaction in exams_performed]})
+                continue
+            weighted_sicknesses = tuple(all_sickness_weights_gen(resolver))
+            total_weight = float(sum(item[0] for item in weighted_sicknesses))
+            if not total_weight:
+                continue
+            exams_performed = sim_info.sickness_tracker.exams_performed
+            sickness_data = []
+            for item in weighted_sicknesses:
+                sickness_data.append({'sickness': str(item[1]), 'weight': item[0], 'chance': item[0]/total_weight})
+            sim_data.append({'sim_id': str(hex(sim_info.id)), 'sim': sim_info.full_name, 'chance': sickness_service.get_sickness_chance(SingleSimResolver(sim_info)), 'Sickness Chances': sickness_data, 'Examinations Performed': [{'interaction': str(interaction)} for interaction in exams_performed]})
     return sim_data
 
 sim_sickness_event_schema = GsiGridSchema(label='Sickness Events', sim_specific=True)

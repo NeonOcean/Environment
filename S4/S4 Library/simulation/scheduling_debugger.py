@@ -135,23 +135,26 @@ class TimelineDebugger:
             print_result = result
         indent_string = ' '*indent
         logger.debug('{}{} {}:{} -> {}', indent_string, top_element.tracing_repr(), what, e.tracing_repr(), print_result)
-        if result is self._timeline._child:
-            frames = get_generator_frames(e.generator)
-            for frame in frames:
-                for (module, line_num, func_name, _) in traceback.extract_stack(frame):
-                    logger.debug('{}{}.{}:{}', indent_string, module, func_name, line_num)
+        if getattr(e, 'generator', None):
+            if e.generator.gi_code is not None:
+                if result is self._timeline._child:
+                    frames = get_generator_frames(e.generator)
+                    for frame in frames:
+                        for (module, line_num, func_name, _) in traceback.extract_stack(frame):
+                            logger.debug('{}{}.{}:{}', indent_string, module, func_name, line_num)
 
 def get_generator_frames(gen):
     frames = []
     if HAS_CTYPES:
-        while gen is not None and gen.gi_frame is not None:
-            frames.append(gen.gi_frame)
-            if gen.gi_code.co_code[gen.gi_frame.f_lasti + 1] != 72:
-                break
-            frame_pointer = ctypes.c_void_p(id(gen.gi_frame))
-            frame_wrapper = ctypes.cast(frame_pointer, ctypes.POINTER(framewrapper.FrameWrapper))
-            sub_gen_id = frame_wrapper[0].f_stacktop[-1]
-            gen = ctypes.cast(sub_gen_id, ctypes.py_object).value
+        while gen is not None:
+            while gen.gi_frame is not None:
+                frames.append(gen.gi_frame)
+                if gen.gi_code.co_code[gen.gi_frame.f_lasti + 1] != 72:
+                    break
+                frame_pointer = ctypes.c_void_p(id(gen.gi_frame))
+                frame_wrapper = ctypes.cast(frame_pointer, ctypes.POINTER(framewrapper.FrameWrapper))
+                sub_gen_id = frame_wrapper[0].f_stacktop[-1]
+                gen = ctypes.cast(sub_gen_id, ctypes.py_object).value
     return frames
 
 def get_element_chain(element):

@@ -127,7 +127,7 @@ class HolidaySituation(SituationComplexCommon):
         self._setup_holiday_preferences()
 
     def build_situation_end_message(self):
-        if services.current_zone().is_zone_shutting_down or self._reward is not None:
+        if not services.current_zone().is_zone_shutting_down and self._reward is not None:
             medal = self.get_level()
             reward = self._reward.get(medal, None)
             if reward is not None:

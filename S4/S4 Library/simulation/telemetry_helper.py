@@ -53,10 +53,11 @@ def _write_common_data(hook, sim_info=None, household=None, session_id=None, rec
     sim_classification = 0
     household_id = 0
     if sim_info is not None:
-        if sim_info.is_npc:
-            hook.disabled_hook = True
+        if not hook.valid_for_npc:
+            if sim_info.is_npc:
+                hook.disabled_hook = True
         sim_id = sim_info.id
-        if hook.valid_for_npc or household is None:
+        if household is None:
             household = sim_info.household
         if sim_info.has_component(objects.components.types.BUFF_COMPONENT):
             mood = sim_info.get_mood()
@@ -73,12 +74,13 @@ def _write_common_data(hook, sim_info=None, household=None, session_id=None, rec
         account = household.account
         if sim_info is not None:
             sim_classification = int(_classify_sim(sim_info, household))
-        if session_id is None:
-            zone_id = services.current_zone_id()
-            if zone_id is not None:
-                client = account.get_client(zone_id)
-                if client is not None:
-                    session_id = client.id
+        if account is not None:
+            if session_id is None:
+                zone_id = services.current_zone_id()
+                if zone_id is not None:
+                    client = account.get_client(zone_id)
+                    if client is not None:
+                        session_id = client.id
     if session_id is None:
         session_id = 0
     game_clock_service = services.game_clock_service()
@@ -133,14 +135,13 @@ class HouseholdTelemetryTracker:
                 hook.write_int(TELEMETRY_EMOTION_INTENSITY, sim.get_mood_intensity())
             for buff in sim.Buffs:
                 if buff.visible == False:
-                    pass
-                else:
-                    with begin_hook(report_telemetry_writer, TELEMETRY_HOOK_BUFF_REPORT, sim=sim) as hook:
-                        hook.write_guid(TELEMETRY_BUFF_ID, buff.guid64)
-                        if buff.buff_reason is not None:
-                            hook.write_localized_string(TELEMETRY_BUFF_REASON, buff.buff_reason)
-                        else:
-                            hook.write_guid(TELEMETRY_BUFF_REASON, 0)
+                    continue
+                with begin_hook(report_telemetry_writer, TELEMETRY_HOOK_BUFF_REPORT, sim=sim) as hook:
+                    hook.write_guid(TELEMETRY_BUFF_ID, buff.guid64)
+                    if buff.buff_reason is not None:
+                        hook.write_localized_string(TELEMETRY_BUFF_REASON, buff.buff_reason)
+                    else:
+                        hook.write_guid(TELEMETRY_BUFF_REASON, 0)
 
     def emotion_relation_telemetry_report(self, handle):
         household_bit_dict = collections.defaultdict(lambda : 0)

@@ -84,9 +84,8 @@ class DaycareService(Service):
     def get_available_sims_gen(self):
         for sim in services.sim_info_manager().instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
             if sim.sim_info in self._global_unavailable_sims:
-                pass
-            else:
-                yield sim.sim_info
+                continue
+            yield sim.sim_info
 
     def _apply_daycare_effects_to_sim(self, sim_info):
         self._excluded_sims.discard(sim_info)
@@ -141,7 +140,7 @@ class DaycareService(Service):
             callback_fn()
             return
 
-        def _on_respone(dialog):
+        def _on_response(dialog):
             self._nanny_dialog_shown = False
             if dialog.accepted:
                 service_npc_service = services.current_zone().service_npc_service
@@ -153,7 +152,7 @@ class DaycareService(Service):
             return
         self._nanny_dialog_shown = True
         hire_nanny_dialog = DaycareTuning.NANNY_SERVICE_NPC_DIALOG(None)
-        hire_nanny_dialog.show_dialog(additional_tokens=(DaycareTuning.NANNY_SERVICE_NPC.cost_up_front, DaycareTuning.NANNY_SERVICE_NPC.cost_hourly), on_response=_on_respone)
+        hire_nanny_dialog.show_dialog(additional_tokens=(DaycareTuning.NANNY_SERVICE_NPC.cost_up_front, DaycareTuning.NANNY_SERVICE_NPC.cost_hourly), on_response=_on_response)
 
     def _get_running_situation_for_service(self, service_npc):
         situation_manager = services.get_zone_situation_manager()
@@ -173,18 +172,20 @@ class DaycareService(Service):
                     return True
             if DaycareTuning.BUTLER_SERVICE_NPC is not None:
                 butler_situation = self._get_running_situation_for_service(DaycareTuning.BUTLER_SERVICE_NPC)
-                if butler_situation.is_in_childcare_state:
-                    if sim_info is None:
-                        return True
-                    service_sim = butler_situation.service_sim()
-                    if service_sim.sim_info is sim_info:
-                        return True
+                if butler_situation is not None:
+                    if butler_situation.is_in_childcare_state:
+                        if sim_info is None:
+                            return True
+                        service_sim = butler_situation.service_sim()
+                        if service_sim is not None:
+                            if service_sim.sim_info is sim_info:
+                                return True
         elif sim_info is None:
             all_hired_service_npcs = household.get_all_hired_service_npcs()
             for service_npc in (DaycareTuning.NANNY_SERVICE_NPC, DaycareTuning.BUTLER_SERVICE_NPC):
                 if service_npc is None:
-                    pass
-                elif service_npc.guid64 in all_hired_service_npcs:
+                    continue
+                if service_npc.guid64 in all_hired_service_npcs:
                     return True
         return False
 
@@ -254,7 +255,7 @@ class DaycareService(Service):
         if eligible_daycare_count and self._is_any_sim_available(household):
             daycare_sim_infos = list(self.get_sim_infos_for_daycare(household))
             for sim_info in tuple(daycare_sim_infos):
-                if self._remove_daycare_effects_from_sim(sim_info) and sim_info in returning_sim_infos:
+                if not self._remove_daycare_effects_from_sim(sim_info) or sim_info in returning_sim_infos:
                     daycare_sim_infos.remove(sim_info)
                 if sim_info.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS):
                     sim_info.remove_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
@@ -273,21 +274,20 @@ class DaycareService(Service):
         current_zone_id = services.current_zone_id()
         for sim_info in household:
             if sim_info in sims_infos_to_ignore:
-                pass
-            elif not sim_info.is_toddler:
+                continue
+            if not sim_info.is_toddler:
                 if sim_info.can_live_alone:
                     caretaker_zone_ids.add(sim_info.zone_id)
                     if sim_info.zone_id == current_zone_id:
-                        pass
-                    elif sim_info.zone_id == sim_info.household.home_zone_id:
-                        pass
-                    else:
-                        offlot_toddlers.add(sim_info)
-            elif sim_info.zone_id == current_zone_id:
-                pass
-            elif sim_info.zone_id == sim_info.household.home_zone_id:
-                pass
+                        continue
+                    if sim_info.zone_id == sim_info.household.home_zone_id:
+                        continue
+                    offlot_toddlers.add(sim_info)
             else:
+                if sim_info.zone_id == current_zone_id:
+                    continue
+                if sim_info.zone_id == sim_info.household.home_zone_id:
+                    continue
                 offlot_toddlers.add(sim_info)
         for toddler in offlot_toddlers:
             if toddler.zone_id not in caretaker_zone_ids:
@@ -298,11 +298,10 @@ class DaycareService(Service):
         sim_infos_for_daycare = []
         for sim_info in household:
             if not sim_info.is_toddler_or_younger:
-                pass
-            elif sim_info.zone_id != sim_info.household.home_zone_id:
-                pass
-            else:
-                sim_infos_for_daycare.append(sim_info)
+                continue
+            if sim_info.zone_id != sim_info.household.home_zone_id:
+                continue
+            sim_infos_for_daycare.append(sim_info)
         sim_infos_for_daycare.extend(self.get_abandoned_toddlers(household))
         return sim_infos_for_daycare
 
@@ -312,11 +311,10 @@ class DaycareService(Service):
         sim_infos_for_nanny = []
         for sim_info in household:
             if not sim_info.is_child_or_younger:
-                pass
-            elif sim_info.is_in_travel_group():
-                pass
-            else:
-                sim_infos_for_nanny.append(sim_info)
+                continue
+            if sim_info.is_in_travel_group():
+                continue
+            sim_infos_for_nanny.append(sim_info)
         sim_infos_for_nanny.extend(self.get_abandoned_toddlers(household))
         return sim_infos_for_nanny
 
@@ -349,14 +347,14 @@ class DaycareService(Service):
             if returning_sim_infos:
                 for sim_info in returning_sim_infos:
                     if sim_info.is_child_or_younger:
-                        pass
-                    else:
-                        self._unavailable_sims.add(sim_info)
+                        continue
+                    self._unavailable_sims.add(sim_info)
                 for sim_info in returning_sim_infos:
                     if sim_info.is_child_or_younger:
-                        pass
-                    else:
-                        self.set_sim_available(sim_info, returning_sim_infos=returning_sim_infos)
+                        continue
+                    self.set_sim_available(sim_info, returning_sim_infos=returning_sim_infos)
+                else:
+                    self._enable_daycare_or_nanny_if_necessary(household)
             else:
                 self._enable_daycare_or_nanny_if_necessary(household)
         else:
@@ -367,7 +365,7 @@ class DaycareService(Service):
         household = services.active_household()
         if household is not None:
             try_enable = try_enable_if_selectable_toddler and (sim_info.is_toddler and sim_info.is_selectable)
-            if try_enable or self.is_anyone_with_nanny(household) or self.is_anyone_at_daycare(household):
+            if not try_enable and (self.is_anyone_with_nanny(household) or self.is_anyone_at_daycare(household)):
                 self._disable_daycare_or_nanny_if_necessary(household)
             else:
                 self._enable_daycare_or_nanny_if_necessary(household)

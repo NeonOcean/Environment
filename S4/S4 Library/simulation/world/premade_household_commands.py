@@ -46,9 +46,8 @@ def generate(template:TunableInstanceParam(sims4.resources.Types.SIM_TEMPLATE), 
 def generate_all(_connection=None):
     for template in services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE).types.values():
         if template.template_type != SimTemplateType.PREMADE_HOUSEHOLD:
-            pass
-        else:
-            generate(template, _connection=_connection)
+            continue
+        generate(template, _connection=_connection)
 
 @sims4.commands.Command('premade_household.list_premade_household_ids')
 def list_reference_ids(separator:str=' ', _connection=None):

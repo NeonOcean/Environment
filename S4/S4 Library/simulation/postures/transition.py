@@ -68,6 +68,7 @@ class PostureStateTransition(elements.SubclassableGeneratorElement):
                 transition_result = yield from element_utils.run_child(timeline, self._transition)
                 if not transition_result:
                     return transition_result
+                    yield
             new_posture_spec = sim.posture_state.get_posture_spec(self._var_map)
             self._dest_state = PostureState(sim, sim.posture_state, new_posture_spec, self._var_map)
             dest_state = self._dest_state
@@ -78,6 +79,7 @@ class PostureStateTransition(elements.SubclassableGeneratorElement):
                 self._owning_interaction_ref().acquire_posture_ownership(dest_state.body)
             yield from sim.si_state.notify_posture_change_and_remove_incompatible_gen(timeline, source_state, dest_state)
             return TestResult.TRUE
+            yield
         if self._source_interaction is not None:
             dest_aspect.source_interaction = self._source_interaction
         if self._owning_interaction_ref is not None:
@@ -85,6 +87,7 @@ class PostureStateTransition(elements.SubclassableGeneratorElement):
         self._transition = create_transition(dest_aspect)
         result = yield from element_utils.run_child(timeline, self._transition)
         return result
+        yield
 
 class PostureTransition(elements.SubclassableGeneratorElement):
 
@@ -196,7 +199,7 @@ class PostureTransition(elements.SubclassableGeneratorElement):
             portal_obj = self._transition_spec.portal_obj
             if self._transition_spec.portal_id is not None:
                 new_routing_surface = portal_obj.get_target_surface(self._transition_spec.portal_id, sim)
-        elif dest.unconstrained or dest.target is not None:
+        elif not dest.unconstrained and dest.target is not None:
             new_routing_surface = dest.target.routing_surface
         elif self._constraint is not None:
             new_routing_surface = self._constraint.routing_surface
@@ -207,6 +210,7 @@ class PostureTransition(elements.SubclassableGeneratorElement):
             dest_begin = dest.begin(None, self._dest_state, self._context, new_routing_surface)
             result = yield from element_utils.run_child(timeline, must_run(dest_begin))
             return result
+            yield
         try:
             sim.active_transition = self
             posture_idle_started = False
@@ -234,13 +238,16 @@ class PostureTransition(elements.SubclassableGeneratorElement):
                                     yield from element_utils.run_child(timeline, handle_transition_failure(sim, self._interaction.target, self._interaction, failure_reason=failure_reason, failure_object_id=failure_target))
                                 sim.transition_controller.cancel(cancel_reason_msg='Transition canceled due to successful route failure.')
                         return result
+                        yield
                 else:
                     result = self._transition_spec.do_reservation(sim)
                     if not result:
                         return result
+                        yield
             if source is dest:
                 sim.on_posture_event(PostureEvent.POSTURE_CHANGED, self._dest_state, dest.track, source, dest)
                 return TestResult.TRUE
+                yield
             self._status = self.Status.ANIMATING
             source_locked_params = frozendict()
             dest_locked_params = frozendict()
@@ -252,27 +259,28 @@ class PostureTransition(elements.SubclassableGeneratorElement):
             fire_service = services.get_fire_service()
             lot_on_fire = fire_service.fire_is_active
             distance_param = PostureTransition.calculate_distance_param(source.target, dest.target)
-            if dest.track == PostureTrack.BODY:
-                if not source.mobile:
-                    source_locked_params += {'onFire': lot_on_fire}
-                    if distance_param is not None:
-                        source_locked_params += {'distance': distance_param}
-                if not dest.mobile:
-                    dest_locked_params += {'onFire': lot_on_fire}
-                    if self._interaction is not None:
+            if self._transition_spec is not None:
+                if dest.track == PostureTrack.BODY:
+                    if not source.mobile:
+                        source_locked_params += {'onFire': lot_on_fire}
+                        if distance_param is not None:
+                            source_locked_params += {'distance': distance_param}
+                    if not dest.mobile:
+                        dest_locked_params += {'onFire': lot_on_fire}
+                        if self._interaction is not None:
+                            transition_asm_params = sim.get_transition_asm_params()
+                            dest_locked_params += transition_asm_params
+                            source_locked_params += transition_asm_params
+                        if distance_param is not None:
+                            dest_locked_params += {'distance': distance_param}
+                    elif self._transition_spec.portal_obj is not None:
                         transition_asm_params = sim.get_transition_asm_params()
                         dest_locked_params += transition_asm_params
                         source_locked_params += transition_asm_params
-                    if distance_param is not None:
-                        dest_locked_params += {'distance': distance_param}
-                elif self._transition_spec.portal_obj is not None:
-                    transition_asm_params = sim.get_transition_asm_params()
-                    dest_locked_params += transition_asm_params
-                    source_locked_params += transition_asm_params
-                dest_posture_spec = self._transition_spec.posture_spec
+                    dest_posture_spec = self._transition_spec.posture_spec
             source_locked_params += self._locked_params
             dest_locked_params += self._locked_params
-            if self._transition_spec is not None and self._transition_spec is not None and self._transition_spec.portal_obj is not None:
+            if self._transition_spec is not None and self._transition_spec.portal_obj is not None:
                 target_override = self._transition_spec.portal_obj
                 portal_overrides = self._transition_spec.portal_obj.get_portal_anim_overrides()
                 source_locked_params += portal_overrides.params
@@ -291,6 +299,7 @@ class PostureTransition(elements.SubclassableGeneratorElement):
                 dest_begin = dest.begin(arb, self._dest_state, self._context, new_routing_surface)
                 result = yield from element_utils.run_child(timeline, [do_auto_exit, dest_begin])
                 return result
+                yield
 
             sequence = (do_transition_animation,)
             from carry.carry_utils import interact_with_carried_object, holster_carried_object, maybe_holster_objects_through_sequence
@@ -319,12 +328,12 @@ class PostureTransition(elements.SubclassableGeneratorElement):
             sis.update(dest.owning_interactions)
             for si in sis:
                 if si is None:
-                    pass
-                else:
-                    with si.cancel_deferred(sis):
-                        result = yield from element_utils.run_child(timeline, must_run(sequence))
-                    break
-            result = yield from element_utils.run_child(timeline, must_run(sequence))
+                    continue
+                with si.cancel_deferred(sis):
+                    result = yield from element_utils.run_child(timeline, must_run(sequence))
+                break
+            else:
+                result = yield from element_utils.run_child(timeline, must_run(sequence))
             if result:
                 start_posture_idle()
             yield from sim.si_state.process_gen(timeline)
@@ -341,17 +350,21 @@ class PostureTransition(elements.SubclassableGeneratorElement):
             if dest.source_interaction is not None:
                 dest.source_interaction.cancel(FinishingType.TRANSITION_FAILURE, cancel_reason_msg='Transition canceled during transition.')
             return TestResult(False, "After transition Sim's posture state aspect isn't destination posture.")
-        if dest.unconstrained or not (sim.transition_controller is not None and sims4.math.vector3_almost_equal(sim.position, starting_position, epsilon=sims4.geometry.ANIMATION_SLOT_EPSILON)):
+            yield
+        if not dest.unconstrained and not not (sim.transition_controller is not None and sims4.math.vector3_almost_equal(sim.position, starting_position, epsilon=sims4.geometry.ANIMATION_SLOT_EPSILON)):
             sim.transition_controller.release_stand_slot_reservations((sim,))
         return TestResult.TRUE
+        yield
 
     def do_transition_route(self, timeline, sim, source, dest):
         self._status = self.Status.ROUTING
         if self._transition_spec is None:
             return TestResult.TRUE
+            yield
         path = self._transition_spec.path
         if path is None:
             return TestResult.TRUE
+            yield
         constraint = self._dest_state.constraint_intersection
         fade_sim_out = self._interaction.should_fade_sim_out() if self._interaction is not None else False
         lock_out_socials = isinstance(self._interaction, sims.self_interactions.TravelInteraction)
@@ -359,18 +372,21 @@ class PostureTransition(elements.SubclassableGeneratorElement):
         from carry.carry_utils import holster_objects_for_route, holster_carried_object
         if path.length() > 0:
             sequence = holster_objects_for_route(sim, sequence=sequence)
-        if self._interaction.walk_style is not None:
-            walkstyle_request = self._interaction.walk_style(sim)
-            sequence = walkstyle_request(sequence=sequence)
+        if self._interaction is not None:
+            if self._interaction.walk_style is not None:
+                walkstyle_request = self._interaction.walk_style(sim)
+                sequence = walkstyle_request(sequence=sequence)
         sequence = holster_carried_object(sim, dest.source_interaction, self._get_unholster_predicate(sim, dest.source_interaction), flush_before_sequence=True, sequence=sequence)
-        if self._interaction is not None and self._interaction is not None:
+        if self._interaction is not None:
             PassiveBalloons.request_routing_to_object_balloon(sim, self._interaction)
         result = yield from element_utils.run_child(timeline, sequence)
         sim.schedule_environment_score_update(force_run=True)
         if not result:
             logger.debug('{}: Transition canceled or failed: {}', self, result)
             return TestResult(False, 'Transition Route/Reservation Failed')
+            yield
         return TestResult.TRUE
+        yield
 
     def _run_gen(self, timeline):
         dest = self._dest
@@ -386,3 +402,4 @@ class PostureTransition(elements.SubclassableGeneratorElement):
         else:
             dest.sim.on_posture_event(PostureEvent.TRANSITION_FAIL, self._dest_state, posture_track, source, dest)
         return result
+        yield

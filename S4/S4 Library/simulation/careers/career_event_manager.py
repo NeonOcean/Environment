@@ -140,11 +140,13 @@ class CareerEventManager:
         else:
             main_zone_id = services.get_career_service().get_main_career_event_zone_id_and_unlock_save()
         services.get_career_service().last_career_event_zone_id = None
-        if main_zone_id != target_zone_id:
-            for household_sim_info in sim_info.household:
-                if household_sim_info is not sim_info and household_sim_info.zone_id == main_zone_id:
-                    sims_to_move.add(household_sim_info)
-        if main_zone_id is not None and target_zone_id == services.current_zone_id():
+        if main_zone_id is not None:
+            if main_zone_id != target_zone_id:
+                for household_sim_info in sim_info.household:
+                    if household_sim_info is not sim_info:
+                        if household_sim_info.zone_id == main_zone_id:
+                            sims_to_move.add(household_sim_info)
+        if target_zone_id == services.current_zone_id():
             for sim_to_move in sims_to_move:
                 SimSpawner.spawn_sim(sim_to_move)
             return
@@ -161,7 +163,7 @@ class CareerEventManager:
 
                 def post_save_lock_travel():
                     household_sims = {sim.sim_id: sim for sim in household.instanced_sims_gen()}
-                    sim_ids = set(sim_id for sim_id in sims_ids_to_travel if sim_id in household_sims and get_death_interaction(household_sims[sim_id]) is None)
+                    sim_ids = set(sim_id for sim_id in sims_ids_to_travel if sim_id in household_sims if get_death_interaction(household_sims[sim_id]) is None)
                     if sim_ids:
                         travel_sims_to_zone(sim_ids, target_zone_id)
 
@@ -291,11 +293,10 @@ class CareerEventManager:
         for career_event_data in proto.career_events:
             career_event_type = services.get_instance_manager(sims4.resources.Types.CAREER_EVENT).get(career_event_data.career_event_id)
             if career_event_type is None:
-                pass
-            else:
-                career_event = career_event_type(self._career)
-                career_event.load_from_career_event_data_proto(career_event_data)
-                self._career_events.append(career_event)
+                continue
+            career_event = career_event_type(self._career)
+            career_event.load_from_career_event_data_proto(career_event_data)
+            self._career_events.append(career_event)
         self._scorable_situation_seed = SituationSeed.deserialize_from_proto(proto.scorable_situation_seed)
 
     def request_career_event_zone_director(self):

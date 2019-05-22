@@ -32,7 +32,7 @@ class _TunableObjectLocalizationTokenFormatterBulletList(HasTunableSingletonFact
 
     def __call__(self, objs):
         key_fn = operator.attrgetter('definition')
-        return LocalizationHelperTuning.get_bulleted_list((None,), tuple(self.bullet_text(definition, len(tuple(group))) for (definition, group) in itertools.groupby(sorted(objs, key=key_fn), key=key_fn)))
+        return LocalizationHelperTuning.get_bulleted_list(None, *tuple(self.bullet_text(definition, len(tuple(group))) for (definition, group) in itertools.groupby(sorted(objs, key=key_fn), key=key_fn)))
 
 class TunableObjectLocalizationTokenFormatterVariant(TunableVariant):
 

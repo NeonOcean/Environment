@@ -236,12 +236,11 @@ class BowlingVenueMixin:
             return
         for bowling_lane_obj in self._bowling_lanes:
             if bowling_lane_obj.in_use:
-                pass
-            elif bowling_lane_obj in self._bowling_lanes_dict.values():
-                pass
-            else:
-                self._start_bowling_situation(bowling_lane_obj)
-                break
+                continue
+            if bowling_lane_obj in self._bowling_lanes_dict.values():
+                continue
+            self._start_bowling_situation(bowling_lane_obj)
+            break
 
     def _start_bowling_situation(self, bowling_lane_obj):
         situation_manager = services.get_zone_situation_manager()
@@ -318,7 +317,8 @@ class BowlingVenueMixin:
             if moonlight_hour > now_hour:
                 next_moonlight_hour = moonlight_hour
                 break
-        scheduled_day += 1
+        else:
+            scheduled_day += 1
         future = date_and_time.create_date_and_time(days=scheduled_day, hours=next_moonlight_hour)
         time_span_until = future - now
         return time_span_until
@@ -329,8 +329,7 @@ class BowlingVenueMixin:
         moonlight_state = affordance.state_settings.desired_state
         for bowling_lane in self._bowling_lanes:
             if moonlight_state == bowling_lane.get_state(moonlight_state.state):
-                pass
-            else:
-                affordance.target = bowling_lane
-                affordance.state_settings.execute_helper(affordance)
-                affordance.lighting_setting_operation.execute(affordance)
+                continue
+            affordance.target = bowling_lane
+            affordance.state_settings.execute_helper(affordance)
+            affordance.lighting_setting_operation.execute(affordance)

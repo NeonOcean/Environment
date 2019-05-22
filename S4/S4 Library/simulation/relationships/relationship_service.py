@@ -6,6 +6,7 @@ from event_testing.resolver import DoubleSimResolver
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
 from relationships.relationship import Relationship
 from relationships.relationship_enums import RelationshipDirection
+from relationships.relationship_track import RelationshipTrack, ObjectRelationshipTrack
 from relationships.relationship_tracker_tuning import DefaultRelationshipInHousehold, DefaultGenealogyLink
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.callback_utils import CallableList
@@ -118,7 +119,12 @@ class RelationshipService(Service):
 
     def __init__(self):
         self._relationships = {}
+        self._object_relationships = {}
         self._sim_relationships = defaultdict(list)
+        self._sim_object_relationships = defaultdict(list)
+        self._object_sim_relationships = defaultdict(list)
+        self._tag_set_to_ids_map = {}
+        self._def_id_to_tag_set_map = {}
         self._relationship_multipliers = defaultdict(dict)
         self._create_relationship_callbacks = defaultdict(CallableList)
         self._suppress_client_updates = False
@@ -151,6 +157,9 @@ class RelationshipService(Service):
         for relationship in self._relationships.values():
             with ProtocolBufferRollback(rel_service_msg.relationships) as relationship_msg:
                 relationship.save_relationship(relationship_msg)
+        for object_relationship in self._object_relationships.values():
+            with ProtocolBufferRollback(rel_service_msg.object_relationships) as relationship_msg:
+                object_relationship.save_object_relationship(relationship_msg)
         save_slot_data.gameplay_data.relationship_service = rel_service_msg
 
     def load(self, zone_data=None):
@@ -163,6 +172,14 @@ class RelationshipService(Service):
                 except:
                     logger.exception('Exception encountered when trying to load relationship between {} and {}', relationship_msg.sim_id_a, relationship_msg.sim_id_b)
                     self.destroy_relationship(relationship_msg.sim_id_a, relationship_msg.sim_id_b)
+            for relationship_msg in save_slot_data_msg.gameplay_data.relationship_service.object_relationships:
+                try:
+                    member_obj_def = relationship_msg.sim_id_b
+                    relationship = self._find_object_relationship(relationship_msg.sim_id_a, None, target_def_id=relationship_msg.sim_id_b, from_load=True, create=True)
+                    relationship.load_object_relationship(relationship_msg)
+                except:
+                    logger.exception('Exception encountered when trying to load relationship between {} and {}', relationship_msg.sim_id_a, relationship_msg.sim_id_b)
+                    self.destroy_object_relationship(relationship_msg.sim_id_a, relationship_msg.sim_id_b)
 
     def add_create_relationship_listener(self, sim_id, callback):
         if callback not in self._create_relationship_callbacks[sim_id]:
@@ -249,6 +266,10 @@ class RelationshipService(Service):
                         relationship.enable_player_sim_track_decay()
                 relationship.enable_player_sim_track_decay()
 
+    def on_sim_creation(self, sim):
+        for relationship in self._sim_relationships[sim.sim_id]:
+            relationship.on_sim_creation(sim)
+
     @caches.cached
     def get_relationship_score(self, sim_id_a:int, sim_id_b:int, track=DEFAULT):
         if track is DEFAULT:
@@ -287,6 +308,8 @@ class RelationshipService(Service):
         logger.debug('Enabling ({}) decay for player sim: {}'.format(to_enable, sim_id))
         for relationship in self._get_relationships_for_sim(sim_id):
             relationship.enable_player_sim_track_decay(to_enable)
+        for obj_relationship in self._get_object_relationships_for_sim(sim_id):
+            obj_relationship.enable_player_sim_track_decay(to_enable)
 
     def get_relationship_prevailing_short_term_context_track(self, sim_id_a:int, sim_id_b:int):
         relationship = self._find_relationship(sim_id_a, sim_id_b)
@@ -358,35 +381,38 @@ class RelationshipService(Service):
             if relationship is None:
                 return
             for roomate_entry in DefaultRelationshipInHousehold.SPECIES_TO_ROOMATE_LINK:
-                if sim_info_a.species == roomate_entry.species_actor and sim_info_b.species == roomate_entry.species_target:
-                    key = roomate_entry.genealogy_link
-                    break
-            key = DefaultGenealogyLink.Roommate
+                if sim_info_a.species == roomate_entry.species_actor:
+                    if sim_info_b.species == roomate_entry.species_target:
+                        key = roomate_entry.genealogy_link
+                        break
+            else:
+                key = DefaultGenealogyLink.Roommate
             if family_member:
                 for entry in DefaultRelationshipInHousehold.SPECIES_TO_FAMILY_MEMBER_LINK:
                     if sim_info_a.species == entry.species:
                         key = entry.genealogy_link
                         break
-                key = DefaultGenealogyLink.FamilyMember
+                else:
+                    key = DefaultGenealogyLink.FamilyMember
             if default_track_overrides is not None:
                 key = default_track_overrides.get(sim_info_b, key)
             resolver = DoubleSimResolver(sim_info_a, sim_info_b)
             default_relationships = DefaultRelationshipInHousehold.RelationshipSetupMap.get(key)
             for default_relationship in default_relationships(resolver=resolver):
                 default_relationship.apply(relationship, sim_id_a, sim_id_b, bits_only=bits_only)
-            if sim_info_a.relationship_tracker.spouse_sim_id == sim_id_b:
-                key = DefaultGenealogyLink.Spouse
-                default_relationships = DefaultRelationshipInHousehold.RelationshipSetupMap.get(key)
-                for default_relationship in default_relationships(resolver=resolver):
-                    default_relationship.apply(relationship, sim_id_a, sim_id_b, bits_only=bits_only)
-                for (gender, gender_preference_statistic) in sim_info_a.get_gender_preferences_gen():
-                    if gender == sim_info_b.gender:
-                        gender_preference_statistic.set_value(gender_preference_statistic.max_value)
+            if update_romance:
+                if sim_info_a.relationship_tracker.spouse_sim_id == sim_id_b:
+                    key = DefaultGenealogyLink.Spouse
+                    default_relationships = DefaultRelationshipInHousehold.RelationshipSetupMap.get(key)
+                    for default_relationship in default_relationships(resolver=resolver):
+                        default_relationship.apply(relationship, sim_id_a, sim_id_b, bits_only=bits_only)
+                    for (gender, gender_preference_statistic) in sim_info_a.get_gender_preferences_gen():
+                        if gender == sim_info_b.gender:
+                            gender_preference_statistic.set_value(gender_preference_statistic.max_value)
             logger.info('Set default tracks {:25} -> {:25} as {}', sim_info_a.full_name, sim_info_b.full_name, key)
 
     def add_relationship_bit(self, actor_sim_id:int, target_sim_id:int, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True):
-        if bit_to_add is None:
-            logger.error('Attempting to add None bit to relationship for {} and {}', actor_sim_id, target_sim_id)
+        if not self._validate_bit(bit_to_add, actor_sim_id, target_sim_id):
             return
         relationship = self._find_relationship(actor_sim_id, target_sim_id, True)
         if not relationship:
@@ -512,6 +538,12 @@ class RelationshipService(Service):
             return
         return relationship.get_decay_metrics()
 
+    def _validate_bit(self, bit_to_add, actor_sim_id, target_id):
+        if bit_to_add is None:
+            logger.error('Attempting to add None bit to relationship for {} and {}', actor_sim_id, target_id)
+            return False
+        return True
+
     def _get_key_tuple(self, sim_id_a:int, sim_id_b:int):
         if sim_id_a < sim_id_b:
             return (sim_id_a, sim_id_b)
@@ -575,6 +607,7 @@ class RelationshipService(Service):
             del self._relationship_multipliers[sim_id]
         if sim_id in self._create_relationship_callbacks:
             del self._create_relationship_callbacks[sim_id]
+        self.destroy_all_object_relationships(sim_id)
 
     def _process_legacy_relationship_data(self):
         bit_manager = services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT)
@@ -584,123 +617,122 @@ class RelationshipService(Service):
                 for (sim_id, legacy_relationships) in self._legacy_relationship_data_storage.items():
                     for (target_id, legacy_relationship) in legacy_relationships.items():
                         if legacy_relationship.processed:
-                            pass
+                            continue
+                        self.destroy_relationship(sim_id, target_id, notify_client=False)
+                        relationship = self._find_relationship(sim_id, target_id, create=True)
+                        if relationship is None:
+                            legacy_relationship.processed = True
+                            logger.warn('Could not create relationship to build legacy relationship.')
                         else:
-                            self.destroy_relationship(sim_id, target_id, notify_client=False)
-                            relationship = self._find_relationship(sim_id, target_id, create=True)
-                            if relationship is None:
-                                legacy_relationship.processed = True
-                                logger.warn('Could not create relationship to build legacy relationship.')
+                            target_relationships = self._legacy_relationship_data_storage.get(target_id, None)
+                            if target_relationships is not None:
+                                target_sim_relationship = target_relationships.get(sim_id, None)
                             else:
-                                target_relationships = self._legacy_relationship_data_storage.get(target_id, None)
-                                if target_relationships is not None:
-                                    target_sim_relationship = target_relationships.get(sim_id, None)
+                                target_sim_relationship = None
+                            if target_sim_relationship is not None and target_sim_relationship.processed:
+                                legacy_relationship.processed = True
+                                logger.error('Attempting to merge relationship that was already processed.')
+                            else:
+                                relationship_seed = RelationshipSeed()
+                                if sim_id < target_id:
+                                    sim_info_a = sim_info_manager.get(sim_id)
+                                    sim_info_b = sim_info_manager.get(target_id)
+                                    rel_data_a = legacy_relationship
+                                    rel_data_b = target_sim_relationship
                                 else:
-                                    target_sim_relationship = None
-                                if target_sim_relationship is not None and target_sim_relationship.processed:
+                                    sim_info_a = sim_info_manager.get(target_id)
+                                    sim_info_b = sim_info_manager.get(sim_id)
+                                    rel_data_a = target_sim_relationship
+                                    rel_data_b = legacy_relationship
+                                if sim_info_a is None or sim_info_b is None:
                                     legacy_relationship.processed = True
-                                    logger.error('Attempting to merge relationship that was already processed.')
+                                    logger.warn('Attempting to load legacy relationship for Sim who no longer exists.')
                                 else:
-                                    relationship_seed = RelationshipSeed()
-                                    if sim_id < target_id:
-                                        sim_info_a = sim_info_manager.get(sim_id)
-                                        sim_info_b = sim_info_manager.get(target_id)
-                                        rel_data_a = legacy_relationship
-                                        rel_data_b = target_sim_relationship
-                                    else:
-                                        sim_info_a = sim_info_manager.get(target_id)
-                                        sim_info_b = sim_info_manager.get(sim_id)
-                                        rel_data_a = target_sim_relationship
-                                        rel_data_b = legacy_relationship
-                                    if sim_info_a is None or sim_info_b is None:
-                                        legacy_relationship.processed = True
-                                        logger.warn('Attempting to load legacy relationship for Sim who no longer exists.')
-                                    else:
-                                        if rel_data_a is not None:
-                                            for bit_id in rel_data_a.bits:
-                                                relationship_bit = bit_manager.get(bit_id)
-                                                if relationship_bit is None:
-                                                    pass
-                                                elif relationship_bit.directionality == RelationshipDirection.UNIDIRECTIONAL:
-                                                    relationship_seed.sim_a_relationship_data.bits.append(bit_id)
-                                                    bit_timeout = rel_data_a.bit_timeout_data.get(bit_id, None)
-                                                    if bit_timeout is not None:
-                                                        relationship_seed.sim_a_relationship_data.timeouts.append(bit_timeout)
+                                    if rel_data_a is not None:
+                                        for bit_id in rel_data_a.bits:
+                                            relationship_bit = bit_manager.get(bit_id)
+                                            if relationship_bit is None:
+                                                continue
+                                            if relationship_bit.directionality == RelationshipDirection.UNIDIRECTIONAL:
+                                                relationship_seed.sim_a_relationship_data.bits.append(bit_id)
+                                                bit_timeout = rel_data_a.bit_timeout_data.get(bit_id, None)
+                                                if bit_timeout is not None:
+                                                    relationship_seed.sim_a_relationship_data.timeouts.append(bit_timeout)
+                                            else:
+                                                relationship_seed.bidirectional_relationship_data.bits.append(bit_id)
+                                                bit_timeout_a = rel_data_a.bit_timeout_data.get(bit_id, None)
+                                                if rel_data_b is not None:
+                                                    bit_timeout_b = rel_data_b.bit_timeout_data.get(bit_id, None)
                                                 else:
-                                                    relationship_seed.bidirectional_relationship_data.bits.append(bit_id)
-                                                    bit_timeout_a = rel_data_a.bit_timeout_data.get(bit_id, None)
-                                                    if rel_data_b is not None:
-                                                        bit_timeout_b = rel_data_b.bit_timeout_data.get(bit_id, None)
-                                                    else:
-                                                        bit_timeout_b = None
-                                                    if bit_timeout_a is not None and bit_timeout_b is None:
-                                                        relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_a)
-                                                    elif bit_timeout_a is None and bit_timeout_b is not None:
-                                                        relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_b)
-                                                    elif bit_timeout_a is not None and bit_timeout_b is not None:
+                                                    bit_timeout_b = None
+                                                if bit_timeout_a is not None and bit_timeout_b is None:
+                                                    relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_a)
+                                                elif bit_timeout_a is None and bit_timeout_b is not None:
+                                                    relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_b)
+                                                elif bit_timeout_a is not None:
+                                                    if bit_timeout_b is not None:
                                                         if bit_timeout_a.elapsed_time < bit_timeout_b.elapsed_time:
                                                             relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_a)
                                                         else:
                                                             relationship_seed.bidirectional_relationship_data.timeouts.append(bit_timeout_b)
-                                        if rel_data_b is not None:
-                                            for bit_id in rel_data_b.bits:
-                                                relationship_bit = bit_manager.get(bit_id)
-                                                if relationship_bit is None:
-                                                    pass
-                                                elif relationship_bit.directionality == RelationshipDirection.UNIDIRECTIONAL:
-                                                    relationship_seed.sim_b_relationship_data.bits.append(bit_id)
-                                                elif bit_id not in relationship_seed.bidirectional_relationship_data.bits:
-                                                    relationship_seed.bidirectional_relationship_data.bits.append(bit_id)
-                                        if rel_data_a is not None:
-                                            for buff_guid64 in rel_data_a.bit_added_buffs:
-                                                relationship_seed.sim_a_relationship_data.bit_added_buffs.append(buff_guid64)
-                                        if rel_data_b is not None:
-                                            for buff_guid64 in rel_data_b.bit_added_buffs:
-                                                relationship_seed.sim_b_relationship_data.bit_added_buffs.append(buff_guid64)
-                                        if rel_data_a is not None:
-                                            relationship_seed.sim_a_relationship_data.knowledge = rel_data_a.knowledge
-                                        if rel_data_b is not None:
-                                            relationship_seed.sim_b_relationship_data.knowledge = rel_data_b.knowledge
-                                        use_sim_a = sim_info_a.is_player_sim and not sim_info_b.is_player_sim
-                                        use_sim_b = not sim_info_a.is_player_sim and sim_info_b.is_player_sim
-                                        added_tracks = set()
-                                        if rel_data_a is not None:
-                                            for (track_id, track_data_a) in rel_data_a.relationship_track_data.items():
-                                                added_tracks.add(track_id)
-                                                if rel_data_b is not None:
-                                                    track_data_b = rel_data_b.relationship_track_data.get(track_id, None)
-                                                else:
-                                                    track_data_b = None
-                                                if track_data_b is None or use_sim_a:
-                                                    relationship_seed.bidirectional_relationship_data.tracks.append(track_data_a)
-                                                elif use_sim_b:
-                                                    relationship_seed.bidirectional_relationship_data.tracks.append(track_data_b)
-                                                else:
-                                                    new_seed = RelationshipTrackSeed()
-                                                    new_seed.track_id = track_id
-                                                    new_seed.value = (track_data_a.value + track_data_b.value)/2.0
-                                                    new_seed.visible = track_data_a.visible or track_data_b.visible
-                                                    new_seed.ticks_until_decay_begins = (track_data_a.ticks_until_decay_begins + track_data_b.ticks_until_decay_begins)/2.0
-                                                    relationship_seed.bidirectional_relationship_data.tracks.append(new_seed)
-                                        if rel_data_b is not None:
-                                            for (track_id, track_data_b) in rel_data_b.relationship_track_data.items():
-                                                if track_id in added_tracks:
-                                                    pass
-                                                else:
-                                                    relationship_seed.bidirectional_relationship_data.tracks.append(track_data_b)
-                                        if rel_data_a is not None and rel_data_b is None:
-                                            relationship_seed.last_update_time = rel_data_a.last_update_time
-                                        elif rel_data_a is None and rel_data_b is not None:
-                                            relationship_seed.last_update_time = rel_data_b.last_update_time
-                                        elif rel_data_a.last_update_time < rel_data_b.last_update_time:
-                                            relationship_seed.last_update_time = rel_data_a.last_update_time
-                                        else:
-                                            relationship_seed.last_update_time = rel_data_b.last_update_time
-                                        if rel_data_a is not None:
-                                            rel_data_a.processed = True
-                                        if rel_data_b is not None:
-                                            rel_data_b.processed = True
-                                        relationship.load_relationship(relationship_seed)
+                                    if rel_data_b is not None:
+                                        for bit_id in rel_data_b.bits:
+                                            relationship_bit = bit_manager.get(bit_id)
+                                            if relationship_bit is None:
+                                                continue
+                                            if relationship_bit.directionality == RelationshipDirection.UNIDIRECTIONAL:
+                                                relationship_seed.sim_b_relationship_data.bits.append(bit_id)
+                                            elif bit_id not in relationship_seed.bidirectional_relationship_data.bits:
+                                                relationship_seed.bidirectional_relationship_data.bits.append(bit_id)
+                                    if rel_data_a is not None:
+                                        for buff_guid64 in rel_data_a.bit_added_buffs:
+                                            relationship_seed.sim_a_relationship_data.bit_added_buffs.append(buff_guid64)
+                                    if rel_data_b is not None:
+                                        for buff_guid64 in rel_data_b.bit_added_buffs:
+                                            relationship_seed.sim_b_relationship_data.bit_added_buffs.append(buff_guid64)
+                                    if rel_data_a is not None:
+                                        relationship_seed.sim_a_relationship_data.knowledge = rel_data_a.knowledge
+                                    if rel_data_b is not None:
+                                        relationship_seed.sim_b_relationship_data.knowledge = rel_data_b.knowledge
+                                    use_sim_a = sim_info_a.is_player_sim and not sim_info_b.is_player_sim
+                                    use_sim_b = not sim_info_a.is_player_sim and sim_info_b.is_player_sim
+                                    added_tracks = set()
+                                    if rel_data_a is not None:
+                                        for (track_id, track_data_a) in rel_data_a.relationship_track_data.items():
+                                            added_tracks.add(track_id)
+                                            if rel_data_b is not None:
+                                                track_data_b = rel_data_b.relationship_track_data.get(track_id, None)
+                                            else:
+                                                track_data_b = None
+                                            if track_data_b is None or use_sim_a:
+                                                relationship_seed.bidirectional_relationship_data.tracks.append(track_data_a)
+                                            elif use_sim_b:
+                                                relationship_seed.bidirectional_relationship_data.tracks.append(track_data_b)
+                                            else:
+                                                new_seed = RelationshipTrackSeed()
+                                                new_seed.track_id = track_id
+                                                new_seed.value = (track_data_a.value + track_data_b.value)/2.0
+                                                new_seed.visible = track_data_a.visible or track_data_b.visible
+                                                new_seed.ticks_until_decay_begins = (track_data_a.ticks_until_decay_begins + track_data_b.ticks_until_decay_begins)/2.0
+                                                relationship_seed.bidirectional_relationship_data.tracks.append(new_seed)
+                                    if rel_data_b is not None:
+                                        for (track_id, track_data_b) in rel_data_b.relationship_track_data.items():
+                                            if track_id in added_tracks:
+                                                continue
+                                            relationship_seed.bidirectional_relationship_data.tracks.append(track_data_b)
+                                    if rel_data_a is not None and rel_data_b is None:
+                                        relationship_seed.last_update_time = rel_data_a.last_update_time
+                                    elif rel_data_a is None and rel_data_b is not None:
+                                        relationship_seed.last_update_time = rel_data_b.last_update_time
+                                    elif rel_data_a.last_update_time < rel_data_b.last_update_time:
+                                        relationship_seed.last_update_time = rel_data_a.last_update_time
+                                    else:
+                                        relationship_seed.last_update_time = rel_data_b.last_update_time
+                                    if rel_data_a is not None:
+                                        rel_data_a.processed = True
+                                    if rel_data_b is not None:
+                                        rel_data_b.processed = True
+                                    relationship.load_relationship(relationship_seed)
         finally:
             self._legacy_relationship_data_storage = None
 
@@ -717,3 +749,199 @@ class RelationshipService(Service):
         if relationship is None:
             return
         return relationship.get_relationship_bit_lock(sim_id_a, relationship_bit_lock)
+
+    def has_object_relationship_track(self, sim_id_a, obj_tag_set, relationship_track):
+        obj_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
+        if obj_relationship is None:
+            return False
+        return obj_relationship.has_track(relationship_track)
+
+    def destroy_object_relationship(self, sim_id_a, obj_tag_set, notify_client=True):
+        key = (sim_id_a, obj_tag_set)
+        obj_relationship = self._object_relationships.pop(key, None)
+        if obj_relationship is None:
+            return
+        obj_defs = self._tag_set_to_ids_map.get(obj_tag_set)
+        for obj_def in obj_defs:
+            self._def_id_to_tag_set_map.pop(obj_def, None)
+        self._tag_set_to_ids_map.pop(obj_tag_set, None)
+        self._sim_object_relationships[sim_id_a].remove(obj_relationship)
+        self._object_sim_relationships[obj_tag_set].remove(obj_relationship)
+        obj_relationship.destroy(notify_client=notify_client)
+
+    def destroy_all_object_relationships(self, sim_id:int):
+        for obj_relationship in self._get_object_relationships_for_sim(sim_id):
+            obj_tag_set = self.get_mapped_tag_set_of_id(obj_relationship.sim_id_b)
+            self.destroy_object_relationship(obj_relationship.sim_id_a, obj_tag_set)
+
+    def send_all_object_relationship_info(self):
+        for obj_relationship in self._object_relationships.values():
+            obj_relationship.send_relationship_info()
+
+    def send_object_relationship_info(self, sim_id, obj_tag_set=None):
+        if obj_tag_set is None:
+            for obj_relationship in self._get_object_relationships_for_sim(sim_id):
+                obj_relationship.send_object_relationship_info()
+        else:
+            obj_relationship = self._find_object_relationship(sim_id, obj_tag_set)
+            if obj_relationship is not None:
+                obj_relationship.send_object_relationship_info()
+
+    def get_object_relationship_score(self, sim_id_a:int, obj_tag_set, track=DEFAULT, target_def_id=None, create=False):
+        relationship = self._find_object_relationship(sim_id_a, obj_tag_set, target_def_id=target_def_id, create=create)
+        if relationship is not None:
+            return relationship.get_track_score(track)
+        else:
+            return
+
+    def add_object_relationship_score(self, sim_id_a:int, obj_tag_set, increment, track=DEFAULT, threshold=None):
+        obj_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
+        if obj_relationship is not None:
+            if threshold is None or threshold.compare(obj_relationship.get_track_score(track)):
+                obj_relationship.add_track_score(increment, track)
+                logger.debug('Adding to score to track {} for {}: += {}; new score = {}', track, obj_relationship, increment, obj_relationship.get_track_score(track))
+            else:
+                logger.debug('Attempting to add to track {} for {} but {} not within threshold {}', track, obj_relationship, obj_relationship.get_track_score(track), threshold)
+        else:
+            logger.error('relationship_tracker.add_relationship_score() could not find/create a relationship between: Sim = {} Object Tag Set = {}', sim_id_a, obj_tag_set)
+
+    def set_object_relationship_score(self, sim_id_a:int, obj_tag_set, value, track=DEFAULT, threshold=None):
+        obj_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
+        if obj_relationship is not None:
+            obj_relationship.set_relationship_score(value, track=track, threshold=threshold)
+        else:
+            logger.error('relationship_tracker.set_relationship_score() could not find/create an object relationship between: Sim = {} ObjectTagSet = {}', sim_id_a, obj_tag_set)
+
+    def get_object_relationship_track(self, sim_id_a:int, obj_tag_set, target_def_id=None, track=DEFAULT, add=False):
+        with self.suppress_client_updates_context_manager():
+            relationship = self._find_object_relationship(sim_id_a, obj_tag_set, target_def_id=target_def_id, create=add)
+            if relationship is not None:
+                return relationship.get_track(track, add=add)
+            if add:
+                logger.error('relationship_tracker.get_object_relationship_track() failed to create a relationship between Sim: {} ObjectTagSet: {}', sim_id_a, obj_tag_set)
+            return
+
+    def add_object_relationship_bit(self, actor_sim_id:int, obj_tag_set, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True):
+        if not self._validate_bit(bit_to_add, actor_sim_id, obj_tag_set):
+            return
+        relationship = self._find_object_relationship(actor_sim_id, obj_tag_set, create=False)
+        if not relationship:
+            return
+        member_obj_def_id = relationship.get_sim_id_b
+        relationship.add_relationship_bit(actor_sim_id, member_obj_def_id, bit_to_add, force_add=force_add, from_load=from_load, send_rel_change_event=send_rel_change_event)
+
+    def remove_object_relationship_bit(self, actor_sim_id, obj_tag_set, bit_to_remove, send_rel_change_event=True):
+        relationship = self._find_object_relationship(actor_sim_id, obj_tag_set)
+        if relationship is None:
+            return
+        member_obj_def_id = relationship.sim_id_b
+        relationship.remove_bit(actor_sim_id, member_obj_def_id, bit_to_remove, send_rel_change_event=send_rel_change_event)
+
+    def clean_and_send_remaining_object_relationships(self, sim_id):
+        for object_relationship in self.get_all_sim_object_relationships(sim_id):
+            object_relationship.send_object_relationship_info()
+
+    def get_all_object_bits(self, actor_sim_id, obj_tag_set=None):
+        bits = []
+        if obj_tag_set is None:
+            for relationship in self._get_object_relationships_for_sim(actor_sim_id):
+                bits.extend(relationship.get_bits(actor_sim_id))
+        else:
+            relationship = self._find_object_relationship(actor_sim_id, obj_tag_set)
+            if relationship is not None:
+                bits.extend(relationship.get_bits(actor_sim_id))
+        return bits
+
+    def has_object_bit(self, actor_sim_id, obj_tag_set, bit):
+        obj_relationship = self._find_object_relationship(actor_sim_id, obj_tag_set)
+        if obj_relationship.has_bit(actor_sim_id, bit):
+            return obj_relationship
+        return False
+
+    def get_all_sim_object_relationships(self, sim_id):
+        if sim_id in self._sim_object_relationships:
+            return list(self._sim_object_relationships[sim_id])
+        return []
+
+    def target_object_gen(self, sim_id):
+        for obj_relationship in self._get_object_relationships_for_sim(sim_id):
+            yield self._get_tag_set_of - id(obj_relationship.get_other_sim_id(sim_id))
+
+    def has_object_relationship(self, actor_sim_id, obj_tag_set):
+        return self._find_object_relationship(actor_sim_id, obj_tag_set) is not None
+
+    def get_mapped_tag_set_of_id(self, obj_def_id):
+        tag_set = self._def_id_to_tag_set_map.get(obj_def_id)
+        if tag_set is None:
+            for (_, mapped_tag_set) in ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS.items():
+                defs_in_tag_set = list(services.definition_manager().get_definitions_for_tags_gen(mapped_tag_set.tags))
+                for definition in defs_in_tag_set:
+                    if obj_def_id == definition.id:
+                        return mapped_tag_set
+        return tag_set
+
+    def get_mapped_track_of_tag_set(self, obj_tag_set):
+        track = None
+        for (mapped_track, mapped_tag_set) in ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS.items():
+            if obj_tag_set == mapped_tag_set:
+                track = mapped_track
+        return track
+
+    def get_ids_of_tag_set(self, tag_set):
+        return self._tag_set_to_ids_map.get(tag_set)
+
+    def get_object_type_rel_id(self, obj):
+        object_rel_override_id = 0
+        if len(self._object_relationships) == 0:
+            return object_rel_override_id
+        obj_tag_set = self._def_id_to_tag_set_map.get(obj.definition.id, None)
+        if obj_tag_set is None:
+            return object_rel_override_id
+        key = (services.get_active_sim().id, obj_tag_set)
+        object_relationship = self._object_relationships.get(key, None)
+        if object_relationship is not None:
+            object_rel_override_id = object_relationship._target_object_instance_id
+        return object_rel_override_id
+
+    def _create_object_relationship(self, sim_id_a, obj_tag_set, target_def_id:int, from_load=False):
+        defs_in_set = list(services.definition_manager().get_definitions_for_tags_gen(obj_tag_set.tags))
+        def_ids_in_set = list(definition.id for definition in defs_in_set)
+        if len(defs_in_set) == 0:
+            logger.error('There are no objects with tag {}. This cannot be true for Object Relationship creation.', obj_tag_set)
+        self._tag_set_to_ids_map[obj_tag_set] = def_ids_in_set
+        for def_id in def_ids_in_set:
+            self._def_id_to_tag_set_map[def_id] = obj_tag_set
+        return Relationship(sim_id_a, None, target_def_id)
+
+    def _find_object_relationship(self, sim_id_a:int, obj_tag_set, target_def_id:int=None, create=False, from_load=False):
+        if from_load:
+            obj_tag_set = None
+            for (_, value) in ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS.items():
+                defs_in_set = list(services.definition_manager().get_definitions_for_tags_gen(value.tags))
+                def_ids_in_set = list(definition.id for definition in defs_in_set)
+                if target_def_id in def_ids_in_set:
+                    obj_tag_set = value
+        key = (sim_id_a, obj_tag_set)
+        relationship = self._object_relationships.get(key)
+        if relationship is not None:
+            return relationship
+        if create:
+            if target_def_id is None:
+                logger.error('Failed to create an object relationship, no target was specified')
+                return
+            else:
+                relationship = self._create_object_relationship(sim_id_a, obj_tag_set, target_def_id, from_load=from_load)
+                self._object_relationships[key] = relationship
+                self._sim_object_relationships[sim_id_a].append(relationship)
+                self._object_sim_relationships[obj_tag_set].append(relationship)
+                if sim_id_a in self._create_relationship_callbacks:
+                    self._create_relationships_callback[sim_id_a](relationship)
+                if obj_tag_set in self._create_relationship_callbacks:
+                    self._create_relationships_callback[obj_tag_set](relationship)
+                return relationship
+
+    def _get_object_relationships_for_sim(self, sim_id):
+        obj_relationships = self._sim_object_relationships.get(sim_id, None)
+        if obj_relationships is None:
+            return tuple()
+        return tuple(obj_relationships)

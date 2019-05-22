@@ -3,7 +3,7 @@ import services
 import sims4.commands
 
 @sims4.commands.Command('ensembles.create_ensemble')
-def create_ensemble(ensemble_type:TunableInstanceParam(sims4.resources.Types.ENSEMBLE), *sims, _connection=None):
+def create_ensemble(ensemble_type:TunableInstanceParam(sims4.resources.Types.ENSEMBLE), *sims:RequiredTargetParam, _connection=None):
     ensemble_sims = [sim.get_target() for sim in sims]
     services.ensemble_service().create_ensemble(ensemble_type, ensemble_sims)
     sims4.commands.output('Created Ensemble with sims {}'.format(ensemble_sims), _connection)

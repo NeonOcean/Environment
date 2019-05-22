@@ -142,9 +142,8 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
             situation_manager = services.get_zone_situation_manager()
             for situation in situation_manager.get_situations_sim_is_in(sim):
                 if destination_household is active_household and situation.is_user_facing:
-                    pass
-                else:
-                    situation_manager.remove_sim_from_situation(sim, situation.id)
+                    continue
+                situation_manager.remove_sim_from_situation(sim, situation.id)
             services.daycare_service().on_sim_spawn(sim_info)
         return True
 

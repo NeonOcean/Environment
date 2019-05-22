@@ -1,4 +1,4 @@
-# (C) Copyright 2018 by Rocky Bernstein
+# (C) Copyright 2018-2019 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -34,6 +34,8 @@ PYTHON_MAGIC_INT: The magic integer for the current running Python interpreter
 
 import imp, re, struct, sys
 from xdis import IS_PYPY
+
+IS_PYPY3 = (48, 112, 160)
 
 def add_magic_from_int(magic_int, version):
     magicint2version[magic_int] = version
@@ -161,6 +163,7 @@ add_magic_from_int(62211,  '2.7')     # introduce MAP_ADD and SET_ADD
 # Dropbox-modified Python 2.7 used in versions 1.2-1.6 or so of
 # Dropbox
 add_magic_from_int(62215,  '2.7dropbox')
+add_magic_from_int(2657,   '2.7pyston-0.6.1')
 
 # PyPy including pypy-2.6.1, pypy-5.0.1 PyPy adds 7 to the corresponding CPython nmber
 add_magic_from_int(62211+7, '2.7pypy')
@@ -234,14 +237,16 @@ add_magic_from_int(3391,  '3.7.0alpha3')
 add_magic_from_int(3392,  '3.7.0beta2')  # PEP 552 - Additional word in header and possibly no timestamp
 add_magic_from_int(3393,  '3.7.0beta3')
 add_magic_from_int(3394,  '3.7.0')
+add_magic_from_int(3401,  '3.8.0a3+')
 
 # Weird ones
 # WTF? Python 3.2.5 - PyPy 2.3.4  this doesn't follow the rule below
 
 add_magic_from_int(48,     '3.2a2')
 add_magic_from_int(112,    '3.5pypy') # pypy3.5-c-jit-latest
+add_magic_from_int(160,    '3.6pypy') # '3.6.1 ... PyPy 7.1.0-beta0'
 add_magic_from_int(1011,   '2.7.1b3Jython') # jython
-add_magic_from_int(22138,  '2.7.7Pyston')  # 2.7.8pystem, pyston-0.6.0, pyston-0.6.1
+add_magic_from_int(22138,  '2.7.7Pyston')  # 2.7.8pyston, pyston-0.6.0
 
 
 magics = __by_version(versions)
@@ -265,14 +270,15 @@ def add_canonic_versions(versions, canonic):
 
 add_canonic_versions('1.5.1 1.5.2', '1.5')
 add_canonic_versions('2.0.1', '2.0')
-add_canonic_versions('2.1.1 2.1.2', '2.1')
+add_canonic_versions('2.1.1 2.1.2 2.1.3', '2.1')
 add_canonic_versions('2.2.3', '2.2')
 add_canonic_versions('2.3 2.3.7', '2.3a0')
-add_canonic_versions('2.4 2.4.1 2.4.2 2.4.3 2.4.5 2.4.6', '2.4b1')
-add_canonic_versions('2.5 2.5.1 2.5.2 2.5.3 2.5.4 2.5.5 2.5.6', '2.5c2')
+add_canonic_versions('2.4 2.4.0 2.4.1 2.4.2 2.4.3 2.4.5 2.4.6', '2.4b1')
+add_canonic_versions('2.5 2.5.0 2.5.1 2.5.2 2.5.3 2.5.4 2.5.5 2.5.6', '2.5c2')
 add_canonic_versions('2.6 2.6.6 2.6.7 2.6.8 2.6.9', '2.6a1')
-add_canonic_versions('2.7.1 2.7.2 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7 '
-                     '2.7.8 2.7.9 2.7.10 2.7.11 2.7.12 2.7.13 2.7.14 2.7.15',
+add_canonic_versions('2.7.0 2.7.1 2.7.2 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7 '
+                     '2.7.8 2.7.9 2.7.10 2.7.11 2.7.12 2.7.13 2.7.14 2.7.15 '
+                     '2.7.16',
                      '2.7')
 add_canonic_versions('2.7.15candidate1', '2.7')
 add_canonic_versions('3.0 3.0.0 3.0.1',
@@ -281,22 +287,23 @@ add_canonic_versions('3.1 3.1.0 3.1.1 3.1.2 3.1.3 3.1.4 3.1.5',
                      '3.1a0+')
 add_canonic_versions('3.2 3.2.0 3.2.1 3.2.2 3.2.3 3.2.4 3.2.5 3.2.6',
                      '3.2a2')
-add_canonic_versions('3.3 3.3.1 3.3.0 3.3.2 3.3.3 3.3.4 3.3.5 '
+add_canonic_versions('3.3 3.3.0 3.3.1 3.3.2 3.3.3 3.3.4 3.3.5 '
                      '3.3.6 3.3.7rc1 3.3.7', '3.3a4')
 add_canonic_versions('3.4 3.4.0 3.4.1 3.4.2 3.4.3 3.4.4 '
-                     '3.4.5 3.4.6 3.4.7 3.4.8', '3.4rc2')
+                     '3.4.5 3.4.6 3.4.7 3.4.8 3.4.9', '3.4rc2')
 add_canonic_versions('3.5.0 3.5.1 3.5.2 3.5.3', '3.5')
-add_canonic_versions('3.5.3 3.5.4 3.5.5 3.5.6', '3.5.2')
-add_canonic_versions('3.6 3.6.0 3.6.1 3.6.2 3.6.3 3.6.4 3.6.5 3.6.6 3.6.7', '3.6rc1')
+add_canonic_versions('3.5.0 3.5.1 3.5.3 3.5.4 3.5.5 3.5.6 3.5.7', '3.5.2')
+add_canonic_versions('3.6 3.6.0 3.6.1 3.6.2 3.6.3 3.6.4 3.6.5 3.6.6 3.6.7 3.6.8', '3.6rc1')
 
 add_canonic_versions('2.7.10pypy 2.7.13pypy', '2.7pypy')
 add_canonic_versions('2.7.3b0Jython', '2.7.1b3Jython')
 add_canonic_versions('3.2.5pypy', '3.2pypy')
 add_canonic_versions('3.5.3pypy', '3.5pypy')
-add_canonic_versions('3.5.3pypy', '3.5pypy')
+add_canonic_versions('3.6.1pypy', '3.6pypy')
 add_canonic_versions('2.7.8Pyston', '2.7.7Pyston')
 add_canonic_versions('3.7.0alpha3', '3.7.0alpha3')
-add_canonic_versions('3.7 3.7.0beta5 3.7.1', '3.7.0')
+add_canonic_versions('3.7 3.7.0beta5 3.7.1 3.7.2 3.7.3', '3.7.0')
+add_canonic_versions('3.8 3.8.0alpha0 3.8.0alpha3 3.8.0a0', '3.8.0a3+')
 
 # The canonic version for a canonic version is itself
 for v in versions.values():
@@ -337,7 +344,7 @@ def py_str2float(version):
                     return float(canonic_python_version[v])
                 except:
                     try:
-                        m = re.match('^(\d\.)(\d+)\.(\d+)$', v)
+                        m = re.match(r'^(\d\.)(\d+)\.(\d+)$', v)
                         if m:
                             return float(m.group(1)+m.group(2))
                     except:

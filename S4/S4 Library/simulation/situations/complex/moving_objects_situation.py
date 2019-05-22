@@ -104,8 +104,9 @@ class MovingObjectsSituation(SituationComplexCommon):
         if self._target_id is not None:
             target = services.object_manager().get(self._target_id)
             additional_participants[ParticipantType.Object] = (target,)
-            if target.is_sim:
-                additional_participants[ParticipantType.TargetSim] = (target.sim_info,)
+            if target is not None:
+                if target.is_sim:
+                    additional_participants[ParticipantType.TargetSim] = (target.sim_info,)
         return SingleSimResolver(services.active_sim_info(), additional_participants=additional_participants)
 
     def _destroy(self):

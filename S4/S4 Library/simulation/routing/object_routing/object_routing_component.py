@@ -91,7 +91,7 @@ class ObjectRoutingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
             elif not violates_privacy:
                 self._privacy_violations.discard(privacy)
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         if new_value is old_value:
             return
         if new_value not in self.routing_behavior_map:

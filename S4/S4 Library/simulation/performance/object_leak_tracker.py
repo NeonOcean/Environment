@@ -187,12 +187,11 @@ class ObjectLeakTracker:
             else:
                 node_time = node.time_stamps[NodeStatus.PENDING]
                 if now.gc_pass < node_time.gc_pass + GC_PASS_THRESHOLD:
-                    pass
-                elif node_time.time is not None and now.time is not None and (now.time - node_time.time).in_hours() < SIM_HOUR_THRESHOLD:
-                    pass
-                else:
-                    self._move_node_to_status(node, NodeStatus.LEAKED)
-                    leaked_nodes.add(node)
+                    continue
+                if node_time.time is not None and now.time is not None and (now.time - node_time.time).in_hours() < SIM_HOUR_THRESHOLD:
+                    continue
+                self._move_node_to_status(node, NodeStatus.LEAKED)
+                leaked_nodes.add(node)
         self._report_leaks(leaked_nodes)
 
     def _report_leaks(self, nodes):
@@ -209,18 +208,16 @@ class ObjectLeakTracker:
             for referent in gc.get_referents(obj):
                 if not referent is all_objects:
                     if referent is objects:
-                        pass
-                    else:
-                        referrers_map[id(referent)].append(obj)
+                        continue
+                    referrers_map[id(referent)].append(obj)
         generic_sim_proxy = None
         posture_graph_service = services.current_zone().posture_graph_service
         if posture_graph_service is not None:
             generic_sim_proxy = posture_graph_service.get_proxied_sim()
         for obj in objects:
             if obj is generic_sim_proxy:
-                pass
-            else:
-                ObjectLeakTracker._generate_referrer_graph(obj, referrers_map, max_depth=max_depth, max_hub_refs=max_hub_refs, log_error=log_error)
+                continue
+            ObjectLeakTracker._generate_referrer_graph(obj, referrers_map, max_depth=max_depth, max_hub_refs=max_hub_refs, log_error=log_error)
 
     @staticmethod
     def _generate_referrer_graph(root, referrers_map, max_depth=None, max_hub_refs=None, log_error=False):
@@ -268,16 +265,15 @@ class ObjectLeakTracker:
                     else:
                         color = 'black'
                     write_node(f, obj, color)
-                    if is_root or not depth >= max_depth:
+                    if is_root or depth >= max_depth:
                         if is_hub:
-                            pass
-                        else:
-                            for referrer in referrers_map[node_id]:
-                                referrer_id = id(referrer)
-                                edges.append((referrer, obj))
-                                if referrer_id not in visited:
-                                    next_visit.append(referrer)
-                                    visited.add(referrer_id)
+                            continue
+                        for referrer in referrers_map[node_id]:
+                            referrer_id = id(referrer)
+                            edges.append((referrer, obj))
+                            if referrer_id not in visited:
+                                next_visit.append(referrer)
+                                visited.add(referrer_id)
                 current_visit = next_visit
                 next_visit = []
                 depth += 1

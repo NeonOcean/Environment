@@ -27,12 +27,12 @@ class PushInteractionOnAllGreetedSimsInteraction(interactions.base.super_interac
             target_context = self.context.clone_for_sim(target_sim)
             target_sim.push_super_affordance(self._pushed_interaction_tunables.affordance_to_push, new_target, target_context)
         return event_testing.results.ExecuteResult.NONE
+        yield
 
     @classmethod
     def _target_sim_gen(cls, sim):
         for target_sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
             if target_sim.Buffs.is_appropriate(cls._required_appropriateness_tags):
-                if cls._pushed_interaction_tunables.push_on_actor or target_sim is sim:
-                    pass
-                else:
-                    yield target_sim
+                if not cls._pushed_interaction_tunables.push_on_actor and target_sim is sim:
+                    continue
+                yield target_sim

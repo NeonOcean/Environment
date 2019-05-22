@@ -24,20 +24,20 @@ class StatisticStaticModifier(HasTunableSingletonFactory, BaseGameEffectModifier
         self._number = modifier.number
         self.priority = modifier.priority
 
-    def apply_modifier(self, owner):
+    def apply_modifier(self, sim_info):
         if self._statistic is None:
             return
-        stat = owner.get_statistic(self._statistic, add=True)
+        stat = sim_info.get_statistic(self._statistic, add=True)
         if stat is None:
-            if owner.lod != SimInfoLODLevel.MINIMUM:
-                logger.warn('Unable to add statistic: {} to sim: {} for statistic_static_modifier.  Perhaps statistic min lod value should be lower', self._statistic, owner)
+            if sim_info.lod != SimInfoLODLevel.MINIMUM:
+                logger.warn('Unable to add statistic: {} to sim: {} for statistic_static_modifier.  Perhaps statistic min lod value should be lower', self._statistic, sim_info)
             return
         stat.add_statistic_static_modifier(self)
 
-    def remove_modifier(self, owner):
+    def remove_modifier(self, sim_info, handle):
         if self._statistic is None:
             return
-        stat = owner.get_statistic(self._statistic)
+        stat = sim_info.get_statistic(self._statistic)
         if stat is None:
             return
         stat.remove_statistic_static_modifier(self)

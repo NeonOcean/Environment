@@ -181,6 +181,7 @@ class RelbitPickerSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.target)
         return True
+        yield
 
     @classmethod
     def _bit_selection_gen(cls, target, context):
@@ -189,7 +190,7 @@ class RelbitPickerSuperInteraction(PickerSuperInteraction):
         target_sim_id = target.sim_id
         if cls.is_add:
             for bit in bit_manager.types.values():
-                if bit.is_collection or not rel_tracker.has_bit(target_sim_id, bit):
+                if not bit.is_collection and not rel_tracker.has_bit(target_sim_id, bit):
                     yield bit
         else:
             for bit in rel_tracker.get_all_bits(target_sim_id=target_sim_id):

@@ -58,33 +58,37 @@ class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_nam
 
     def _refresh_active_idle(self):
         if self._current_idle_state_value is not None and self._idle_animation_element is not None:
-            self._trigger_idle_animation(self._current_idle_state_value.state, self._current_idle_state_value)
+            self._trigger_idle_animation(self._current_idle_state_value.state, self._current_idle_state_value, False)
 
     def _stop_wakeable(self):
         if self._wakeable_element is not None:
             self._wakeable_element.trigger_soft_stop()
             self._wakeable_element = None
 
-    def on_state_changed(self, state, old_value, new_value):
-        if self._trigger_idle_animation(state, new_value) or new_value.anim_overrides is not None and old_value != new_value:
+    def on_state_changed(self, state, old_value, new_value, from_init):
+        if not self._trigger_idle_animation(state, new_value, from_init) and new_value.anim_overrides is not None and old_value != new_value:
             self._refresh_active_idle()
 
-    def _trigger_idle_animation(self, state, new_value):
+    def _trigger_idle_animation(self, state, new_value, from_init):
         if self._component_suppressed:
             return
-        elif new_value in self.idle_animation_map:
-            new_animation = self.idle_animation_map[new_value]
-            self._stop_animation_element()
-            self._current_idle_state_value = new_value
-            if new_animation is not None:
-                sequence = ()
-                if new_animation.repeat:
-                    self._wakeable_element = element_utils.soft_sleep_forever()
-                    sequence = self._wakeable_element
-                animation_element = new_animation(self.owner, sequence=sequence)
-                self._idle_animation_element = build_element((animation_element, flush_all_animations))
-                services.time_service().sim_timeline.schedule(self._idle_animation_element)
-                return True
+        if new_value in self.idle_animation_map:
+            current_zone = services.current_zone()
+            if current_zone is None or from_init and current_zone.is_zone_loading:
+                return False
+            else:
+                new_animation = self.idle_animation_map[new_value]
+                self._stop_animation_element()
+                self._current_idle_state_value = new_value
+                if new_animation is not None:
+                    sequence = ()
+                    if new_animation.repeat:
+                        self._wakeable_element = element_utils.soft_sleep_forever()
+                        sequence = self._wakeable_element
+                    animation_element = new_animation(self.owner, sequence=sequence)
+                    self._idle_animation_element = build_element((animation_element, flush_all_animations))
+                    services.time_service().sim_timeline.schedule(self._idle_animation_element)
+                    return True
         return False
 
     @componentmethod_with_fallback(lambda *_, **__: None)
@@ -107,7 +111,7 @@ class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_nam
     def post_component_reset(self):
         for current_value in self.idle_animation_map:
             if self.owner.state_value_active(current_value):
-                self._trigger_idle_animation(current_value.state, current_value)
+                self._trigger_idle_animation(current_value.state, current_value, False)
                 return
 
     def _stop_animation_element(self, hard_stop=False):
@@ -122,13 +126,14 @@ class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_nam
 
     def on_remove_from_client(self, *_, **__):
         zone = services.current_zone()
-        if zone.is_in_build_buy:
-            try:
-                reset_op = distributor.ops.ResetObject(self.owner.id)
-                dist = Distributor.instance()
-                dist.add_op(self.owner, reset_op)
-            except:
-                logger.exception('Exception thrown sending reset op for {}', self)
+        if zone is not None:
+            if zone.is_in_build_buy:
+                try:
+                    reset_op = distributor.ops.ResetObject(self.owner.id)
+                    dist = Distributor.instance()
+                    dist.add_op(self.owner, reset_op)
+                except:
+                    logger.exception('Exception thrown sending reset op for {}', self)
 
     def on_remove(self, *_, **__):
         if self._animation_context is not None:

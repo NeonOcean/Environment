@@ -109,8 +109,9 @@ class EventDataObject:
         type = data_const.DataType.TagData
         for tag in interaction.get_category_tags():
             time_update = interaction.consecutive_running_time_span
-            if tag in self._data[type].interactions[interaction.id]:
-                time_update -= self._data[type].interactions[interaction.id][tag]
+            if interaction.id in self._data[type].interactions:
+                if tag in self._data[type].interactions[interaction.id]:
+                    time_update -= self._data[type].interactions[interaction.id][tag]
             self._data[type].time_added(tag, time_update)
 
     @DataMapHandler(test_events.TestEvent.InteractionUpdate)
@@ -303,11 +304,10 @@ class ObjectiveData:
     def save(self, event_data_blob):
         for (objective_uid, objective_data) in self._stored_objective_count_data.items():
             if not objective_data.should_save():
-                pass
-            else:
-                objective_save_data = event_data_blob.objective_data.add()
-                objective_save_data.enum = objective_uid
-                objective_data.save(objective_save_data)
+                continue
+            objective_save_data = event_data_blob.objective_data.add()
+            objective_save_data.enum = objective_uid
+            objective_data.save(objective_save_data)
 
     def load(self, event_data_blob):
         objective_manager = services.get_instance_manager(sims4.resources.Types.OBJECTIVE)
@@ -323,11 +323,9 @@ class ObjectiveData:
                     elif objective.data_type == ObjectiveDataStorageType.IdData:
                         objective_data = ObjectiveData.IdData()
                     if not objective_data.should_load(objective_data_proto):
-                        pass
-                    else:
-                        objective_data.load(objective_data_proto)
-                        self._stored_objective_count_data[objective.guid64] = objective_data
-                        objective_data.load(objective_data_proto)
+                        continue
+                    objective_data.load(objective_data_proto)
+                    self._stored_objective_count_data[objective.guid64] = objective_data
                 else:
                     objective_data.load(objective_data_proto)
 
@@ -590,11 +588,10 @@ class TagData:
                     else:
                         amount = data
                     if amount == 0:
-                        pass
-                    else:
-                        with ProtocolBufferRollback(tag_data.enums) as tag_data_groups:
-                            tag_data_groups.enum = data_type
-                            tag_data_groups.amount = amount
+                        continue
+                    with ProtocolBufferRollback(tag_data.enums) as tag_data_groups:
+                        tag_data_groups.enum = data_type
+                        tag_data_groups.amount = amount
                 tag_data.tag_enum = tag
 
     def load(self, event_data_blob):
@@ -668,6 +665,5 @@ class MoodData:
         for mood_data in event_data_blob.mood_data.mood_data:
             mood = mood_manager.get(mood_data.mood)
             if mood is None:
-                pass
-            else:
-                self._last_time_in_mood[mood] = DateAndTime(mood_data.last_time_in_mood)
+                continue
+            self._last_time_in_mood[mood] = DateAndTime(mood_data.last_time_in_mood)

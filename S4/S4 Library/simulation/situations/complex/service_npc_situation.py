@@ -96,7 +96,7 @@ class ServiceNpcSituation(SituationComplexCommon):
             self._change_state(WorkingSituationState())
 
     def _on_remove_sim_from_situation(self, sim):
-        if sim is self.service_sim() and (self._is_recurring or self._is_leaving or services.current_zone().service_npc_service is not None):
+        if sim is self.service_sim() and (not self._is_recurring and not self._is_leaving) and services.current_zone().service_npc_service is not None:
             services.current_zone().service_npc_service.cancel_service(self._hiring_household, self._service_npc_type)
         super()._on_remove_sim_from_situation(sim)
 
@@ -312,4 +312,5 @@ class LeaveSituationState(SituationState):
         for finish_type in self.owner.finish_job_states.values():
             if role_state_type is finish_type.role_state:
                 break
-        services.get_zone_situation_manager().make_sim_leave(sim)
+        else:
+            services.get_zone_situation_manager().make_sim_leave(sim)

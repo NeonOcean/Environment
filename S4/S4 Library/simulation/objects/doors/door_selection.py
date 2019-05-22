@@ -27,8 +27,8 @@ class DoorSelectParticipantApartmentDoor(HasTunableSingletonFactory, AutoFactory
         state = DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled.state
         for plex_door_info in plex_door_infos:
             if plex_door_info.zone_id != home_zone_id:
-                pass
-            else:
-                door = services.object_manager().get(plex_door_info.door_id)
-                if door is not None and door.get_state(state) is DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled:
+                continue
+            door = services.object_manager().get(plex_door_info.door_id)
+            if door is not None:
+                if door.get_state(state) is DoorTuning.INACTIVE_APARTMENT_DOOR_STATE.enabled:
                     return door

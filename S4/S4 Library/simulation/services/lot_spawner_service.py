@@ -90,16 +90,15 @@ class LotSpawnerService(Service):
             for obj_def in obj_tuple:
                 obj_pos = self.verify_position_tests(obj.spawner_option.location_test)
                 if obj_pos is None:
-                    pass
-                else:
-                    obj_location = sims4.math.Location(sims4.math.Transform(obj_pos, sims4.random.random_orientation()), routing_surface)
-                    (result, _) = build_buy.test_location_for_object(None, obj_def.id, obj_location, None)
-                    if result:
-                        obj_inst = create_object(obj_def)
-                        for force_state in obj.spawner_option.force_states:
-                            obj_inst.set_state(force_state.state, force_state)
-                        obj_inst.location = obj_location
-                        self.register_spawned_object(obj_inst)
+                    continue
+                obj_location = sims4.math.Location(sims4.math.Transform(obj_pos, sims4.random.random_orientation()), routing_surface)
+                (result, _) = build_buy.test_location_for_object(None, obj_def.id, obj_location, None)
+                if result:
+                    obj_inst = create_object(obj_def)
+                    for force_state in obj.spawner_option.force_states:
+                        obj_inst.set_state(force_state.state, force_state)
+                    obj_inst.location = obj_location
+                    self.register_spawned_object(obj_inst)
 
     def calculate_spawn_point(self, active_lot):
         pos = active_lot.get_random_point()
@@ -116,11 +115,10 @@ class LotSpawnerService(Service):
         for _ in range(self.MAX_RANDOM_PLACEMENT_RETRIES):
             obj_pos = self.calculate_spawn_point(active_lot)
             if location_test.is_outside is not None and location_test.is_outside != build_buy.is_location_outside(services.current_zone().id, obj_pos, 0):
-                pass
-            elif location_test.is_natural_ground is not None and location_test.is_natural_ground != build_buy.is_location_natural_ground(services.current_zone().id, obj_pos, 0):
-                pass
-            else:
-                return obj_pos
+                continue
+            if location_test.is_natural_ground is not None and location_test.is_natural_ground != build_buy.is_location_natural_ground(services.current_zone().id, obj_pos, 0):
+                continue
+            return obj_pos
 
     def register_spawned_object(self, spawned_object):
         self._zone_spawner_data.add(spawned_object)

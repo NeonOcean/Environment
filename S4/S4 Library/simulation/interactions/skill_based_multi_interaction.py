@@ -33,10 +33,7 @@ class ObjectCriteriaAndSpecificTests(ObjectCriteriaTest):
                 if self.additional_object_tests:
                     resolver = SingleObjectResolver(obj)
                     if not self.additional_object_tests.run_tests(resolver):
-                        pass
-                    else:
-                        number_of_matches += 1
-                        total_value += obj.depreciated_value if self.use_depreciated_values else obj.catalog_value
+                        continue
                 else:
                     number_of_matches += 1
                     total_value += obj.depreciated_value if self.use_depreciated_values else obj.catalog_value
@@ -56,16 +53,14 @@ class SkillBasedMultiInteraction(SocialSuperInteraction):
         for skill_interaction in cls.skill_interactions:
             skill_tracker = target.get_tracker(skill_interaction.skill)
             if skill_tracker is None:
-                pass
-            else:
-                skill_stat = skill_tracker.get_statistic(skill_interaction.skill, add=False)
-                if skill_stat is None:
-                    pass
-                elif not skill_interaction.object_criteria is not None or not resolver(skill_interaction.object_criteria):
-                    pass
-                else:
-                    for interaction_datum in skill_interaction.interaction_data:
-                        yield AffordanceObjectPair(cls, target, cls, None, display_name_override=interaction_datum.interaction_name, outcome_override=interaction_datum.outcome, **kwargs)
+                continue
+            skill_stat = skill_tracker.get_statistic(skill_interaction.skill, add=False)
+            if skill_stat is None:
+                continue
+            if not not skill_interaction.object_criteria is not None and not not resolver(skill_interaction.object_criteria):
+                continue
+            for interaction_datum in skill_interaction.interaction_data:
+                yield AffordanceObjectPair(cls, target, cls, None, display_name_override=interaction_datum.interaction_name, outcome_override=interaction_datum.outcome, **kwargs)
 
     def _build_outcome_sequence(self):
         if self._outcome_override is not None:

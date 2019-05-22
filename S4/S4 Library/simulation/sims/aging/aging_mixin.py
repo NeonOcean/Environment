@@ -116,10 +116,11 @@ class AgingMixin:
 
     def _get_aging_disabled_tooltip(self):
         for trait in self.trait_tracker.equipped_traits:
-            if trait.disable_aging is not None and not trait.can_age_up(self.age):
-                if trait.disable_aging.tooltip is not None:
-                    return trait.disable_aging.tooltip()
-                return
+            if trait.disable_aging is not None:
+                if not trait.can_age_up(self.age):
+                    if trait.disable_aging.tooltip is not None:
+                        return trait.disable_aging.tooltip()
+                    return
 
     def get_aging_data(self):
         aging_data = AgingTuning.AGING_DATA[self.species]
@@ -428,7 +429,7 @@ class AgingMixin:
             sim_instance._update_multi_motive_buff_trackers()
             sim_instance.update_portal_locks()
         self.reset_age_progress()
-        if self.is_npc or self.whim_tracker is not None:
+        if not self.is_npc and self.whim_tracker is not None:
             self.whim_tracker.validate_goals()
         client = services.client_manager().get_client_by_household_id(self._household_id)
         if client is None:
@@ -460,9 +461,10 @@ class AgingMixin:
                 aspiration_tracker = self.aspiration_tracker
                 for aspiration_track in aspiration_track_manager.types.values():
                     track_available = not aspiration_track.is_hidden_unlockable
-                    if aspiration_tracker is not None:
-                        track_available = aspiration_tracker.is_aspiration_track_visible(aspiration_track)
-                    if track_available or track_available:
+                    if not track_available:
+                        if aspiration_tracker is not None:
+                            track_available = aspiration_tracker.is_aspiration_track_visible(aspiration_track)
+                    if track_available:
                         if aspiration_track.is_child_aspiration_track:
                             if self.is_child:
                                 available_aspirations.append(aspiration_track)
@@ -475,13 +477,14 @@ class AgingMixin:
             empty_trait_slots = trait_tracker.empty_slot_number
             if empty_trait_slots:
                 available_traits = [trait for trait in services.trait_manager().types.values() if trait.is_personality_trait]
-                while empty_trait_slots > 0 and available_traits:
-                    trait = random.choice(available_traits)
-                    available_traits.remove(trait)
-                    if not trait_tracker.can_add_trait(trait):
-                        pass
-                    elif self.add_trait(trait):
-                        empty_trait_slots -= 1
+                while empty_trait_slots > 0:
+                    while available_traits:
+                        trait = random.choice(available_traits)
+                        available_traits.remove(trait)
+                        if not trait_tracker.can_add_trait(trait):
+                            continue
+                        if self.add_trait(trait):
+                            empty_trait_slots -= 1
         age_transition = self.get_age_transition_data(next_age)
         age_transition.apply_aging_transition_loot(self)
         self._create_additional_statistics()
@@ -494,16 +497,17 @@ class AgingMixin:
         traits_to_add = []
         for statistic in self.commodity_tracker:
             if not isinstance(statistic, LifeSkillStatistic):
-                pass
-            else:
-                statistic_value = statistic.get_value()
-                for range_info in statistic.trait_on_age_up_list:
-                    age_up_info = range_info.age_up_info
-                    if age_up_info is not None and age_up_info.age_to_apply_trait == age and statistic_value in range_info.life_skill_range:
-                        traits_to_add.append(range_info.age_up_info.life_skill_trait)
-                if age == statistic.age_to_remove_stat:
-                    statistic.create_and_send_life_skill_delete_msg()
-                    stats_to_remove.append(statistic.stat_type)
+                continue
+            statistic_value = statistic.get_value()
+            for range_info in statistic.trait_on_age_up_list:
+                age_up_info = range_info.age_up_info
+                if age_up_info is not None:
+                    if age_up_info.age_to_apply_trait == age:
+                        if statistic_value in range_info.life_skill_range:
+                            traits_to_add.append(range_info.age_up_info.life_skill_trait)
+            if age == statistic.age_to_remove_stat:
+                statistic.create_and_send_life_skill_delete_msg()
+                stats_to_remove.append(statistic.stat_type)
         traits_to_return = []
         for trait in traits_to_add:
             is_successful = self.add_trait(trait)

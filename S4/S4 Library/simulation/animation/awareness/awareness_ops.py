@@ -13,26 +13,25 @@ class SetAwarenessOp(Op):
         self.op = Animation_pb2.ConfigureAwarenessActor()
         for (awareness_channel, awareness_options) in awareness_modifiers.items():
             if awareness_channel in (self.PROXIMITY_INNER_RADIUS, self.PROXIMITY_OUTER_RADIUS):
-                pass
+                continue
+            if not awareness_options:
+                awareness_options = DEFAULT
             else:
-                if not awareness_options:
-                    awareness_options = DEFAULT
-                else:
-                    awareness_options = awareness_options[0]
-                if awareness_options is UNSET:
-                    self.op.channels_to_remove.append(awareness_channel)
-                else:
-                    awareness_channel_data = AwarenessTuning.AWARENESS_CHANNEL_DATA.get(awareness_channel)
-                    with ProtocolBufferRollback(self.op.channels_to_configure) as awareness_options_msg:
-                        awareness_options_msg.name = awareness_channel
-                        awareness_options_msg.type_name = awareness_channel.get_type_name()
-                        if awareness_options is not DEFAULT:
-                            awareness_options_msg.gate = awareness_options.gate
-                            awareness_options_msg.gain = awareness_options.gain
-                            awareness_options_msg.trigger_threshold_delta = awareness_options.threshold
-                        if awareness_channel_data is not None:
-                            awareness_options_msg.eval_mode = awareness_channel_data.evaluation_type
-                            awareness_options_msg.limit = awareness_channel_data.limit
+                awareness_options = awareness_options[0]
+            if awareness_options is UNSET:
+                self.op.channels_to_remove.append(awareness_channel)
+            else:
+                awareness_channel_data = AwarenessTuning.AWARENESS_CHANNEL_DATA.get(awareness_channel)
+                with ProtocolBufferRollback(self.op.channels_to_configure) as awareness_options_msg:
+                    awareness_options_msg.name = awareness_channel
+                    awareness_options_msg.type_name = awareness_channel.get_type_name()
+                    if awareness_options is not DEFAULT:
+                        awareness_options_msg.gate = awareness_options.gate
+                        awareness_options_msg.gain = awareness_options.gain
+                        awareness_options_msg.trigger_threshold_delta = awareness_options.threshold
+                    if awareness_channel_data is not None:
+                        awareness_options_msg.eval_mode = awareness_channel_data.evaluation_type
+                        awareness_options_msg.limit = awareness_channel_data.limit
         proximity_inner_radii = awareness_modifiers.get(self.PROXIMITY_INNER_RADIUS, ())
         if proximity_inner_radii:
             self.op.proximity_inner_radius = max(proximity_inner_radii)

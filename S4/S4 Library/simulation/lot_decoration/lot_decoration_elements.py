@@ -28,9 +28,8 @@ class _ApplyDecoration(_ApplyDecorationAtLocationsBase):
         else:
             for location in self._locations_to_decorate:
                 if location not in decoration.available_locations:
-                    pass
-                else:
-                    self._decoration_service.apply_decoration_for_holiday(decoration, location, self.occasion())
+                    continue
+                self._decoration_service.apply_decoration_for_holiday(decoration, location, self.occasion())
 
 class _RemoveDecoration(_ApplyDecorationAtLocationsBase):
 

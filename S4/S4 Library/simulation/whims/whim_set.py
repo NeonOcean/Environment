@@ -39,16 +39,17 @@ class RelationTargetFactory(sims4.tuning.tunable.TunableFactory):
         relationship_match = None
         for relation in sim_info.relationship_tracker:
             relation_sim_info = services.sim_info_manager().get(relation.get_other_sim_id(sim_info.sim_id))
-            if not relation_sim_info.is_baby:
-                if relation_sim_info.is_instanced():
-                    resolver = DoubleSimResolver(sim_info, relation_sim_info)
-                    relationship_match = resolver(relationship_test)
-                    if relationship_match:
-                        return relation_sim_info
-            resolver = DoubleSimResolver(sim_info, relation_sim_info)
-            relationship_match = resolver(relationship_test)
-            if relation_sim_info is not None and relationship_match:
-                return relation_sim_info
+            if relation_sim_info is not None:
+                if not relation_sim_info.is_baby:
+                    if relation_sim_info.is_instanced():
+                        resolver = DoubleSimResolver(sim_info, relation_sim_info)
+                        relationship_match = resolver(relationship_test)
+                        if relationship_match:
+                            return relation_sim_info
+                resolver = DoubleSimResolver(sim_info, relation_sim_info)
+                relationship_match = resolver(relationship_test)
+                if relationship_match:
+                    return relation_sim_info
 
     FACTORY_TYPE = factory
 

@@ -41,8 +41,9 @@ class PaintingStyle(metaclass=TunedInstanceMetaclass, manager=services.get_insta
         for weighted_texture in cls._textures:
             weight = weighted_texture.weight
             texture = weighted_texture.texture
-            if canvas_types & texture.canvas_types and texture.tests.run_tests(resolver):
-                weights.append((weight, texture))
+            if canvas_types & texture.canvas_types:
+                if texture.tests.run_tests(resolver):
+                    weights.append((weight, texture))
         texture = sims4.random.pop_weighted(weights)
         if texture is None and cls._textures:
             for weighted_texture in cls._textures:
@@ -78,8 +79,8 @@ class PaintingRecipe(Recipe):
             object_info = phase.object_info
             if not object_info is None:
                 if object_info.definition is None:
-                    pass
-                elif object_info.definition.cls.tuned_components.canvas is not None:
+                    continue
+                if object_info.definition.cls.tuned_components.canvas is not None:
                     return True
         return False
 

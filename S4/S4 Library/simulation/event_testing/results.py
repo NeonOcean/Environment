@@ -20,8 +20,7 @@ class TestResult:
     NONE = None
 
     def __init__(self, result, *args, tooltip=None, icon=None, influence_by_active_mood=False):
-        if result is None:
-            raise AssertionError('Attempting to create a TestResult from None, some test function is missing return True/False')
+        assert not result is None
         self.result = result
         self.tooltip = tooltip
         if args:
@@ -34,9 +33,10 @@ class TestResult:
 
     @property
     def reason(self):
-        if self._reason:
-            self._reason = self._reason.format(*self._format_args)
-            self._format_args = ()
+        if self._format_args:
+            if self._reason:
+                self._reason = self._reason.format(*self._format_args)
+                self._format_args = ()
         return self._reason
 
     def __str__(self):
@@ -78,7 +78,7 @@ class TestResult:
         else:
             icon = None
             influence_by_active_mood = False
-        return TestResult(result, reason, format_args, tooltip=tooltip, icon=icon, influence_by_active_mood=influence_by_active_mood)
+        return TestResult(result, reason, *format_args, tooltip=tooltip, icon=icon, influence_by_active_mood=influence_by_active_mood)
 
 class TestResultNumeric(TestResult):
     __slots__ = ('current_value', 'goal_value', 'is_money')

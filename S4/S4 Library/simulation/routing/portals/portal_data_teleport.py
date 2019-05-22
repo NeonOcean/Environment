@@ -21,15 +21,14 @@ class _PortalTypeDataTeleport(_PortalTypeDataLocomotion):
         locations = []
         for connected_object in object_manager.get_objects_with_tags_gen(*self.destination_object_tags):
             if connected_object is obj:
-                pass
-            else:
-                for portal_entry in self.object_portals:
-                    entry_location = portal_entry.location_entry(obj)
-                    exit_location = portal_entry.location_exit(connected_object)
-                    if portal_entry.is_bidirectional:
-                        locations.append((entry_location, exit_location, exit_location, entry_location, 0))
-                    else:
-                        locations.append((entry_location, exit_location, None, None, 0))
+                continue
+            for portal_entry in self.object_portals:
+                entry_location = portal_entry.location_entry(obj)
+                exit_location = portal_entry.location_exit(connected_object)
+                if portal_entry.is_bidirectional:
+                    locations.append((entry_location, exit_location, exit_location, entry_location, 0))
+                else:
+                    locations.append((entry_location, exit_location, None, None, 0))
         return locations
 
     @cached

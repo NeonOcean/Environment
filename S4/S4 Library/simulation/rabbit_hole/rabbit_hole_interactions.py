@@ -22,3 +22,4 @@ class RabbitHoleLeaveEarlyInteraction(SimInfoInteraction):
         if rabbit_hole_service.is_in_rabbit_hole(sim_id):
             rabbit_hole_service.remove_sim_from_rabbit_hole(sim_id, canceled=True)
         return True
+        yield

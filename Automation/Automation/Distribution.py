@@ -4,7 +4,7 @@ import re
 import typing
 from json import decoder
 
-from Automation import Mods, Paths
+from Automation import Setup, Paths
 
 # noinspection SpellCheckingInspection
 ReleasesURL = "https://releases.mods.neonoceancreations.com"  # type: str
@@ -35,11 +35,8 @@ class ModVersion:
 
 			self.GameVersion = gameVersion  # type: str
 
-			releaseDate = information["Release Date"]  # type: str
-
-			datetime.date.fromisoformat(releaseDate)
-
-			self.ReleaseDate = releaseDate  # type: str
+			self.ReleaseDate = information["Release Date"]  # type: str
+			self.ReleaseDateObject = datetime.date.fromisoformat(self.ReleaseDate)  # type: datetime.date
 
 		self.ConcealerFolderName = concealerFolderName  # type: str
 
@@ -154,7 +151,7 @@ def _GetMod (namespace: str, dictionary: typing.Dict[str, typing.List[ModVersion
 	return None
 
 def _Setup () -> None:
-	validModNames = Mods.GetAllModNames()  # type: typing.List[str]
+	validModNames = Setup.GetAllModNames()  # type: typing.List[str]
 	validModNamesLower = list()  # type: typing.List[str]
 
 	for validModNameIndex in range(len(validModNames)):

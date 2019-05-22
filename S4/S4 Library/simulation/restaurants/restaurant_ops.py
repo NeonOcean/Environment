@@ -36,11 +36,12 @@ class ClaimRestaurantSeat(BaseTargetedLootOperation):
             return
         old_seat = object_manager.get(subjects_seat_id)
         use_old_table_as_seat = zone_director.is_picnic_table(old_seat)
-        if not old_seat.is_part:
-            old_seat = old_seat.get_part_by_part_group_index(subjects_chair_part_id)
+        if use_old_table_as_seat:
+            if not old_seat.is_part:
+                old_seat = old_seat.get_part_by_part_group_index(subjects_chair_part_id)
         old_dining_spot = zone_director.get_dining_spot_by_seat(subjects_seat_id, chair_part_index=subjects_chair_part_id, use_table_as_seat=use_old_table_as_seat)
         use_new_table_as_seat = zone_director.is_picnic_table(target_part)
-        target_dining_spot = zone_director.get_dining_spot_by_seat(target_part.id, chair_part_index=target_part.part_group_index if use_old_table_as_seat and target_part.is_part else None, use_table_as_seat=use_new_table_as_seat)
+        target_dining_spot = zone_director.get_dining_spot_by_seat(target_part.id, chair_part_index=target_part.part_group_index if target_part.is_part else None, use_table_as_seat=use_new_table_as_seat)
         if target_dining_spot is not None:
             previous_owner = zone_director.reassign_dining_spot(subject.id, target_dining_spot)
             zone_director.reassign_dining_spot(previous_owner, old_dining_spot)

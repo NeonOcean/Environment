@@ -124,10 +124,9 @@ def travel_sims_to_zone(opt_sim_id:OptionalTargetParam, zone_id:int, *traveling_
             sim_id = int(sim_id)
             sim_info = sim_info_manager.get(sim_id)
             if sim_info is None:
-                pass
-            else:
-                guest_info = SituationGuestInfo.construct_from_purpose(sim_id, default_job, SituationInvitationPurpose.INVITED)
-                guest_list.add_guest_info(guest_info)
+                continue
+            guest_info = SituationGuestInfo.construct_from_purpose(sim_id, default_job, SituationInvitationPurpose.INVITED)
+            guest_list.add_guest_info(guest_info)
         guest_info = SituationGuestInfo.construct_from_purpose(sim_or_sim_info.id, default_job, SituationInvitationPurpose.INVITED)
         guest_list.add_guest_info(guest_info)
     situation_manager.create_situation(situation, guest_list=guest_list, user_facing=False, zone_id=zone_id)

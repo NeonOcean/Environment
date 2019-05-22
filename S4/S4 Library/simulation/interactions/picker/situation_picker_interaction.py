@@ -19,9 +19,9 @@ class SituationSimsPickerMixin:
         inst_or_cls = inst if inst is not None else cls
         for situation in cls.valid_situations.get_all_matching_situations():
             for sim in situation.all_sims_in_situation_gen():
-                if not cls.job_filter or situation.get_current_job_for_sim(sim) not in cls.job_filter:
-                    pass
-                elif inst_or_cls.sim_tests:
+                if not not cls.job_filter and situation.get_current_job_for_sim(sim) not in cls.job_filter:
+                    continue
+                if inst_or_cls.sim_tests:
                     if inst:
                         interaction_parameters = inst.interaction_parameters.copy()
                     else:

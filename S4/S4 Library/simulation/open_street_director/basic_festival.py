@@ -67,7 +67,7 @@ class BasicFestivalOpenStreetDirector(BaseFestivalOpenStreetDirector):
 
     def on_startup(self):
         super().on_startup()
-        if self.was_loaded or not self.did_preroll:
+        if not self.was_loaded and not self.did_preroll:
             self.change_state(self._get_starting_state())
 
     def _clean_up(self):

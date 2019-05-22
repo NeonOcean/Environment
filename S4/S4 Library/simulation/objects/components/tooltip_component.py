@@ -119,14 +119,15 @@ class TooltipComponent(Component, TooltipProvidingComponentMixin, HasTunableFact
             if self.tooltip_tests.run_tests(resolver):
                 for (name, value, tooltip_override_data) in tooltip_component._ui_metadata_gen():
                     external_field_data_tuple = tooltip_component._external_field_to_data.get(name)
-                    if tooltip_override_data is not None:
-                        if tooltip_override_data.concatenation_type == TooltipFieldConcatenationType.CONCATENATE_BEFORE:
-                            value = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, value, external_field_data_tuple.field_data)
-                        else:
-                            value = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, external_field_data_tuple.field_data, value)
+                    if external_field_data_tuple:
+                        if tooltip_override_data is not None:
+                            if tooltip_override_data.concatenation_type == TooltipFieldConcatenationType.CONCATENATE_BEFORE:
+                                value = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, value, external_field_data_tuple.field_data)
+                            else:
+                                value = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, external_field_data_tuple.field_data, value)
                     handle = self.owner.add_ui_metadata(name, value)
                     self._ui_metadata_handles[name] = handle
-                    if external_field_data_tuple and name == self.SUBTEXT_HANDLE:
+                    if name == self.SUBTEXT_HANDLE:
                         subtext_field = value
                 if tooltip_component._ui_metadata_handles:
                     subtext = tooltip_component.get_state_strings(subtext_field)
@@ -151,17 +152,18 @@ class TooltipComponent(Component, TooltipProvidingComponentMixin, HasTunableFact
         for state_int_data in self.state_value_numbers:
             state_value = state_int_data.state_value
             if state_value is None:
-                pass
-            elif obj.has_state(state_value.state) and obj.get_state(state_value.state) is state_value:
-                int_token = state_int_data.number
-                break
+                continue
+            if obj.has_state(state_value.state):
+                if obj.get_state(state_value.state) is state_value:
+                    int_token = state_int_data.number
+                    break
         bullet_points = [] if first_string is None else [first_string]
         for state_string_datas in self.state_value_strings:
             for state_string_data in state_string_datas:
                 state_value = state_string_data.state_value
                 if state_value is None:
-                    pass
-                elif obj.has_state(state_value.state) and obj.get_state(state_value.state) is state_value:
+                    continue
+                if obj.has_state(state_value.state) and obj.get_state(state_value.state) is state_value:
                     bullet_point = state_string_data.text(int_token)
                     bullet_points.append(bullet_point)
                     break
@@ -169,28 +171,32 @@ class TooltipComponent(Component, TooltipProvidingComponentMixin, HasTunableFact
             if len(bullet_points) == 1:
                 return LocalizationHelperTuning.get_raw_text(bullet_points[0])
             else:
-                return LocalizationHelperTuning.get_bulleted_list((None,), bullet_points)
+                return LocalizationHelperTuning.get_bulleted_list(None, *bullet_points)
 
-    def on_state_changed(self, state, old_value, new_value):
+    def on_state_changed(self, state, old_value, new_value, from_init):
         self.update_object_tooltip()
 
     def _ui_metadata_gen(self):
         resolver = SingleObjectResolver(self.owner)
         for tooltip_data in self.custom_tooltips:
             object_tests = tooltip_data.object_tests
-            if not object_tests or not object_tests.run_tests(resolver):
-                pass
-            else:
-                self.owner.hover_tip = tooltip_data.tooltip_style
-                for (tooltip_key, tooltip_text) in tooltip_data.tooltip_fields.items():
-                    if tooltip_text.text_tokens is not None:
-                        tokens = tooltip_text.text_tokens.get_tokens(resolver)
-                    else:
-                        tokens = ()
+            if not not object_tests and not not object_tests.run_tests(resolver):
+                continue
+            self.owner.hover_tip = tooltip_data.tooltip_style
+            for (tooltip_key, tooltip_text) in tooltip_data.tooltip_fields.items():
+                if tooltip_text.text_tokens is not None:
+                    tokens = tooltip_text.text_tokens.get_tokens(resolver)
+                else:
+                    tokens = ()
+                if tooltip_key == TooltipFields.rel_override_id:
+                    logger.error('Attempting to set rel_override_id without a required token of type Game Object Property, Object Type Rel Id. Tooltip Field not created on object')
+                    break
+                    yield (TooltipFieldsComplete(tooltip_key).name, tokens[0], tooltip_text.override_component_information)
+                else:
                     yield (TooltipFieldsComplete(tooltip_key).name, tooltip_text.text(*tokens), tooltip_text.override_component_information)
-                if tooltip_data.tooltip_main_icon is not None:
-                    icon_data = sims4.resources.get_protobuff_for_key(tooltip_data.tooltip_main_icon)
-                    yield (TooltipFieldsComplete.main_icon.name, icon_data, None)
+            if tooltip_data.tooltip_main_icon is not None:
+                icon_data = sims4.resources.get_protobuff_for_key(tooltip_data.tooltip_main_icon)
+                yield (TooltipFieldsComplete.main_icon.name, icon_data, None)
 
     @componentmethod_with_fallback(lambda *args, **kwargs: False)
     def update_tooltip_field(self, field_id, field_data, priority=0, should_update=False):
@@ -223,9 +229,8 @@ class TooltipComponent(Component, TooltipProvidingComponentMixin, HasTunableFact
         for tooltip_data in tooltip_component.custom_tooltips:
             object_tests = tooltip_data.object_tests
             if object_tests and not object_tests.run_tests(resolver):
-                pass
-            else:
-                tooltip_text = tooltip_data.tooltip_fields.get(field, tooltip_text)
+                continue
+            tooltip_text = tooltip_data.tooltip_fields.get(field, tooltip_text)
         if tooltip_text is not None:
             if tooltip_text.text_tokens is not None:
                 tokens = tooltip_text.text_tokens.get_tokens(resolver)
@@ -242,10 +247,11 @@ class TooltipComponent(Component, TooltipProvidingComponentMixin, HasTunableFact
                         text = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, text, external_field_data_tuple.field_data)
                     else:
                         text = LocalizationHelperTuning.get_separated_string_by_style(tooltip_override_data.concatenation_style, external_field_data_tuple.field_data, text)
-            if tooltip_component._ui_metadata_handles:
-                subtext = tooltip_component.get_state_strings(text)
-                if subtext is not None:
-                    text = subtext
+            if name == self.SUBTEXT_HANDLE:
+                if tooltip_component._ui_metadata_handles:
+                    subtext = tooltip_component.get_state_strings(text)
+                    if subtext is not None:
+                        text = subtext
             handle = self.owner.add_ui_metadata(name, text)
             self._ui_metadata_handles[name] = handle
             return text

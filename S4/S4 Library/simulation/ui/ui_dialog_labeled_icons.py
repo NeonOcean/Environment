@@ -16,7 +16,7 @@ class UiDialogLabeledIcons(UiDialogOk):
         msg = super().build_msg(additional_tokens=additional_tokens, **kwargs)
         msg.dialog_type = Dialog_pb2.UiDialogMessage.ICONS_LABELS
         for labeled_icon in self.labeled_icons:
-            msg.icon_infos.append(create_icon_info_msg(IconInfoData(labeled_icon.icon), name=self._build_localized_string_msg(labeled_icon.label, additional_tokens)))
+            msg.icon_infos.append(create_icon_info_msg(IconInfoData(labeled_icon.icon), name=self._build_localized_string_msg(labeled_icon.label, *additional_tokens)))
         if additional_icons:
             msg.icon_infos.extend(additional_icons)
         return msg
@@ -63,10 +63,11 @@ class UiDialogAspirationProgress(UiDialogOk):
             elif aspiration.display_description is not None:
                 desc = aspiration.display_description(sim_info)
             tooltip = None
-            if self.use_description_for_tooltip or aspiration.display_tooltip is not None:
+            if not self.use_description_for_tooltip and aspiration.display_tooltip is not None:
                 tooltip = aspiration.display_tooltip(sim_info)
-            elif aspiration.display_description is not None:
-                tooltip = aspiration.display_description(sim_info)
+            elif self.use_description_for_tooltip:
+                if aspiration.display_description is not None:
+                    tooltip = aspiration.display_description(sim_info)
             icon_data = IconInfoData(icon_resource=icon_resource)
             msg.icon_infos.append(create_icon_info_msg(icon_data, name=name, desc=desc, tooltip=tooltip))
         return msg

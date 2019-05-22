@@ -62,7 +62,7 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
                 return TestResult(False, 'Social Mixer is locked out.')
         else:
             return TestResult(False, 'Social Mixer {} has no Social Group.', inst)
-        return super(SocialMixerInteraction, inst if inst is not None and inst.social_group is not None and inst is not None else cls).test(*args, **kwargs)
+        return super(SocialMixerInteraction, inst if not inst is not None or not inst.social_group is not None or inst is not None else cls).test(*args, **kwargs)
 
     @classmethod
     def filter_mixer_targets(cls, super_interaction, *args, **kwargs):
@@ -104,13 +104,15 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
     def prepare_gen(self, timeline, **kwargs):
         if self.super_interaction is not None and self.super_interaction.is_finishing:
             return InteractionQueuePreparationStatus.FAILURE
+            yield
         return super().prepare_gen(timeline, **kwargs)
+        yield
 
     def perform_gen(self, timeline):
-        if self.social_group is None:
-            raise AssertionError('Social mixer interaction {} has no social group. [bhill]'.format(self))
+        assert not self.social_group is None
         result = yield from super().perform_gen(timeline)
         return result
+        yield
 
     def _build_outcome_sequence(self, *args, **kwargs):
         sequence = super()._build_outcome_sequence(*args, **kwargs)
@@ -141,24 +143,24 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
         if listen_animation_factory is not None:
             for sim in self.required_sims():
                 if sim is self.sim:
-                    pass
-                else:
-                    sequence = listen_animation_factory(sim.animation_interaction, sequence=sequence)
-                    sequence = with_skippable_animation_time((sim,), sequence=sequence)
+                    continue
+                sequence = listen_animation_factory(sim.animation_interaction, sequence=sequence)
+                sequence = with_skippable_animation_time((sim,), sequence=sequence)
 
         def defer_cancel_around_sequence_gen(s, timeline):
             deferred_sis = []
             for sim in self.required_sims():
-                if sim is self.sim or not self.social_group is None:
-                    if sim not in self.social_group:
-                        pass
-                    else:
+                if not sim is self.sim:
+                    if not self.social_group is None:
+                        if sim not in self.social_group:
+                            continue
                         sis = self.social_group.get_sis_registered_for_sim(sim)
                         if sis:
                             deferred_sis.extend(sis)
             with self.super_interaction.cancel_deferred(deferred_sis):
                 result = yield from element_utils.run_child(timeline, s)
                 return result
+                yield
 
         sequence = functools.partial(defer_cancel_around_sequence_gen, sequence)
         if self.target_type & TargetType.ACTOR:
@@ -184,12 +186,13 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
         group_tag = self.super_interaction.visual_type_override_data.group_tag
         if group_tag != Tag.INVALID:
             for si in self.sim.si_state:
-                if si is not self.super_interaction and si.visual_type_override_data.group_tag == group_tag:
-                    social_group = si.social_group
-                    if social_group is not None:
-                        for sim in participants:
-                            if sim in social_group:
-                                social_group.remove(sim)
+                if si is not self.super_interaction:
+                    if si.visual_type_override_data.group_tag == group_tag:
+                        social_group = si.social_group
+                        if social_group is not None:
+                            for sim in participants:
+                                if sim in social_group:
+                                    social_group.remove(sim)
 
     @flexmethod
     def get_participants(cls, inst, participant_type:ParticipantType, sim=DEFAULT, **kwargs) -> set:
@@ -197,14 +200,17 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
         result = super(MixerInteraction, inst_or_cls).get_participants(participant_type, sim=sim, **kwargs)
         result = set(result)
         sim = inst.sim if sim is DEFAULT else sim
-        if inst.target_type & TargetType.GROUP:
-            for other_sim in itertools.chain(*list(sim.get_groups_for_sim_gen())):
-                if other_sim is sim:
-                    pass
-                elif other_sim.ignore_group_socials(excluded_group=inst.social_group):
-                    pass
-                else:
-                    result.add(other_sim)
+        if inst is not None:
+            if inst.social_group is None:
+                if participant_type & ParticipantType.AllSims or participant_type & ParticipantType.Listeners:
+                    if inst is not None:
+                        if inst.target_type & TargetType.GROUP:
+                            for other_sim in itertools.chain(*list(sim.get_groups_for_sim_gen())):
+                                if other_sim is sim:
+                                    continue
+                                if other_sim.ignore_group_socials(excluded_group=inst.social_group):
+                                    continue
+                                result.add(other_sim)
         return tuple(result)
 
     def _trigger_interaction_start_event(self):

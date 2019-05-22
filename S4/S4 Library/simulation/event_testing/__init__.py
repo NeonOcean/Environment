@@ -5,3 +5,4 @@ class TargetIdTypes(enum.Int):
     INSTANCE = 1
     DEFINITION = 2
     HOUSEHOLD = 3
+    PICKED_ITEM_ID = 4

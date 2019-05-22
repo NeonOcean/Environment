@@ -16,4 +16,5 @@ class GoDancingZoneDirector(SchedulingZoneDirector):
             if type(situation) is self.go_dancing_background_situation:
                 self._background_situation_id = situation.id
                 break
-        self._background_situation_id = situation_manager.create_situation(self.go_dancing_background_situation, user_facing=False, creation_source=self.instance_name)
+        else:
+            self._background_situation_id = situation_manager.create_situation(self.go_dancing_background_situation, user_facing=False, creation_source=self.instance_name)

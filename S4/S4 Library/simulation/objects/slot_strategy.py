@@ -58,11 +58,10 @@ class SelectInventoryObjects(HasTunableFactory, AutoFactoryInit, SelectObjectBas
             else:
                 resolver = DoubleObjectResolver(obj, self.slot_target)
             if not self.object_tests.run_tests(resolver):
-                pass
-            elif preferred_slots is not None and not any([slot_type in obj.all_valid_slot_types for slot_type in preferred_slots]):
-                pass
-            else:
-                valid_objects.add(obj)
+                continue
+            if preferred_slots is not None and not any([slot_type in obj.all_valid_slot_types for slot_type in preferred_slots]):
+                continue
+            valid_objects.add(obj)
         if is_interaction_resolver:
             self.resolver.interaction_parameters = interaction_params
         return valid_objects
@@ -92,7 +91,7 @@ class SlotStrategyTargetSlotType(SlotStrategyBase):
             for runtime_slot in self.target.get_runtime_slots_gen(slot_types={self.target_slot_type}):
                 result = runtime_slot.is_valid_for_placement(obj=obj)
                 if result:
-                    if not (inventory is None or inventory.try_remove_object_by_id(obj.id)):
+                    if not (inventory is None or not inventory.try_remove_object_by_id(obj.id)):
                         logger.error('Failed to remove object {} from inventory', obj, inventory, owner='rmccord')
                         break
                     runtime_slot.add_child(obj)
@@ -109,14 +108,14 @@ class SlotStrategyAutoSlot(SlotStrategyBase):
         num_slotted = 0
         continue_slotting = True
         slotted_objects = set()
-        while num_slotted < self.max_number_of_objects and continue_slotting:
-            continue_slotting = False
-            for slot_type in desired_slot_types:
-                available_slots = [runtime_slot for runtime_slot in self.target.get_runtime_slots_gen(slot_types={slot_type}) if not runtime_slot.children]
-                shuffle(available_slots)
-                if not available_slots:
-                    pass
-                else:
+        while num_slotted < self.max_number_of_objects:
+            while continue_slotting:
+                continue_slotting = False
+                for slot_type in desired_slot_types:
+                    available_slots = [runtime_slot for runtime_slot in self.target.get_runtime_slots_gen(slot_types={slot_type}) if not runtime_slot.children]
+                    shuffle(available_slots)
+                    if not available_slots:
+                        continue
                     objects_to_slot = self.source.get_objects(preferred_slots=(slot_type,))
                     objects_to_slot.difference_update(slotted_objects)
                     for obj in objects_to_slot:

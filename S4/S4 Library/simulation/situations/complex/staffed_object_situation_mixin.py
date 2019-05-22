@@ -74,7 +74,7 @@ class StaffedObjectSituationMixin:
 
     def claim_object_to_staff(self):
         filter_item_set = self._object_to_staff_filter.get_item_set()
-        if self._staffed_object is not None and (filter_item_set and self._object_to_staff_filter.matches(self._staffed_object)) and self._attempt_to_claim_object(self._staffed_object):
+        if self._staffed_object is not None and (not filter_item_set or self._object_to_staff_filter.matches(self._staffed_object)) and self._attempt_to_claim_object(self._staffed_object):
             return True
         if not filter_item_set:
             return True

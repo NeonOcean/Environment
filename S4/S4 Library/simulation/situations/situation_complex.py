@@ -41,6 +41,10 @@ class SituationStateData:
         else:
             return self._state_type()
 
+    @classmethod
+    def from_auto_factory(cls, uid, auto_factory):
+        return SituationStateData(uid, auto_factory.factory, factory=auto_factory)
+
 class SituationComplex(RegisterTestEventMixin, Situation):
 
     def test_interaction_complete_by_job_holder(self, sim_info, resolver, job_type, test):
@@ -126,8 +130,9 @@ class SituationState:
         return (role_state_type, role_affordance_target)
 
     def _create_or_load_alarm(self, alarm_name, minutes, callback, repeating=False, use_sleep_time=False, should_persist=True, reader=None):
-        if should_persist:
-            minutes = reader.read_float(alarm_name, minutes)
+        if reader is not None:
+            if should_persist:
+                minutes = reader.read_float(alarm_name, minutes)
         alarm_handle = alarms.add_alarm(self, clock.interval_in_sim_minutes(minutes), callback, repeating=repeating, use_sleep_time=use_sleep_time)
         self._alarms[alarm_name] = _StateAlarm(alarm_handle, should_persist)
 
@@ -377,8 +382,7 @@ class SituationComplexCommon(SituationComplex):
 
     def _save_custom_state(self, writer):
         uid = self._state_to_uid(self._cur_state)
-        if uid == SituationComplexCommon.INVALID_STATE_UID:
-            raise AssertionError('SituationState: {} in Situation: {} has no unique id'.format(self._cur_state, self))
+        assert not uid == SituationComplexCommon.INVALID_STATE_UID
         writer.write_uint32(SituationComplexCommon.STATE_ID_KEY, uid)
         self._cur_state.save_state(writer)
 

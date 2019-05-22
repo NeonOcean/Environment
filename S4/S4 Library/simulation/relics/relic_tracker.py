@@ -1,6 +1,9 @@
 from protocolbuffers import SimObjectAttributes_pb2
 from relics.relic_tuning import RelicTuning
+from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_tracker import SimInfoTracker
+from sims4.utils import classproperty
+import services
 import sims4.log
 logger = sims4.log.Logger('RelicTracker', default_owner='trevor')
 
@@ -53,3 +56,15 @@ class RelicTracker(SimInfoTracker):
         if data.known_relics:
             self._known_relic_combos = set()
             self._known_relic_combos.update(data.known_relics)
+
+    @classproperty
+    def _tracker_lod_threshold(cls):
+        return SimInfoLODLevel.FULL
+
+    def on_lod_update(self, old_lod, new_lod):
+        if new_lod < self._tracker_lod_threshold:
+            self._known_relic_combos = None
+        elif old_lod < self._tracker_lod_threshold:
+            sim_msg = services.get_persistence_service().get_sim_proto_buff(self._sim_info.id)
+            if sim_msg is not None:
+                self.load(sim_msg.attributes.relic_tracker)

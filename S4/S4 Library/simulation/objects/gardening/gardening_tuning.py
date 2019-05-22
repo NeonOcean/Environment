@@ -2,7 +2,7 @@ from objects.collection_manager import ObjectCollectionRarity
 from objects.components.state import ObjectState, ObjectStateValue
 from seasons.seasons_tuning import SeasonsTuning
 from sims4.localization import TunableLocalizedString, TunableLocalizedStringFactory, LocalizationHelperTuning
-from sims4.tuning.tunable import TunableList, TunableRange, TunableInterval, TunableMapping, TunableReference, TunableEnumEntry, TunableTuple, TunableVariant, TunablePercent, Tunable
+from sims4.tuning.tunable import TunableList, TunableRange, TunableInterval, TunableMapping, TunableReference, TunableEnumEntry, TunableTuple, TunableVariant, TunablePercent, Tunable, TunableSet
 from statistics.commodity import Commodity
 from ui.ui_dialog_notification import UiDialogNotification
 import services
@@ -32,6 +32,7 @@ class GardeningTuning:
     FRUIT_DECAY_COMMODITY = TunableReference(description='\n        The commodity that defines fruit decay (e.g. rotten/ripe).\n        ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC))
     FRUIT_DECAY_COMMODITY_DROPPED_VALUE = Tunable(description='\n        Value to set the Fruit Decay Commodity on a harvestable that has\n        been dropped from a plant during a seasonal transition.\n        ', tunable_type=int, default=10)
     SPAWN_WEIGHTS = TunableMapping(description="\n        A fruit's chance to be spawned in a multi-fruit plant (e.g. via\n        splicing/grafting) is determined by its rarity.\n        \n        The weight is meant to curb the chance of spawning rarer fruits growing\n        on more common plants. It would never reduce the chance of the root\n        stock from spawning on its original plant.\n        \n        e.g.\n         A common Apple on a rare Pomegranate tree spawns at a 1:1 ratio.\n         A rare Pomegranate on a common Apple tree spawns at a 1:5 ratio.\n        ", key_type=TunableEnumEntry(tunable_type=ObjectCollectionRarity, default=ObjectCollectionRarity.COMMON), value_type=TunableRange(tunable_type=int, default=1, minimum=0))
+    EXCLUSIVE_FRUITS = TunableSet(description='\n        A set of fruits, which, when added onto a plant, can restrict\n        what other fruits the plant produces to this set of fruits. \n        This is done by adjusting spawn weight of non-exclusive fruits \n        on the plant to zero. \n        ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT), pack_safe=True))
 
     @classmethod
     def is_spliced(cls, obj):

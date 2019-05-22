@@ -214,6 +214,8 @@ class HolidayTracker:
                 tradition = tradition_type()
                 self._traditions[holiday_id].append(tradition)
                 tradition.activate_pre_holiday()
+            else:
+                self.send_active_holiday_info_message(DistributorOps_pb2.SendActiveHolidayInfo.UPDATE)
         elif self._active_holiday_id == holiday_id:
             if removed_traditions:
                 for tradition in tuple(self._traditions[self._active_holiday_id]):
@@ -235,11 +237,10 @@ class HolidayTracker:
         calendar_service = services.calendar_service()
         for drama_node in itertools.chain(drama_scheduler.active_nodes_gen(), drama_scheduler.scheduled_nodes_gen()):
             if drama_node.drama_node_type != DramaNodeType.HOLIDAY:
-                pass
-            elif drama_node.holiday_id != holiday_id:
-                pass
-            else:
-                calendar_service.update_on_calendar(drama_node, advance_notice_time=HolidayTuning.HOLIDAY_DURATION())
+                continue
+            if drama_node.holiday_id != holiday_id:
+                continue
+            calendar_service.update_on_calendar(drama_node, advance_notice_time=HolidayTuning.HOLIDAY_DURATION())
 
     def on_sim_added(self, sim_info):
         if self._active_holiday_id is None:
@@ -247,8 +248,7 @@ class HolidayTracker:
         drama_scheduler = services.drama_scheduler_service()
         for drama_node in drama_scheduler.active_nodes_gen():
             if drama_node.drama_node_type != DramaNodeType.HOLIDAY:
-                pass
-            elif drama_node.holiday_id != self._active_holiday_id:
-                pass
-            else:
-                drama_node.on_sim_added(sim_info)
+                continue
+            if drama_node.holiday_id != self._active_holiday_id:
+                continue
+            drama_node.on_sim_added(sim_info)

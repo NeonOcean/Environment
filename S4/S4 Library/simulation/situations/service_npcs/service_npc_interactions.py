@@ -18,6 +18,7 @@ class PickServiceNpcSuperInteraction(PickerSuperInteraction):
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.sim)
         return True
+        yield
 
     class _ServiceNpcRecurringPair:
 
@@ -44,7 +45,7 @@ class PickServiceNpcSuperInteraction(PickerSuperInteraction):
             tag = PickServiceNpcSuperInteraction._ServiceNpcRecurringPair(service_npc_type, recurring=False)
             if any(sim.trait_tracker.has_any_trait(service_npc_type.free_service_traits) for sim in household.sim_info_gen()):
                 display_description = inst_or_cls.display_price_free
-            elif not service_npc_type.cost_up_front > 0 or service_npc_type.cost_hourly > 0:
+            elif not not service_npc_type.cost_up_front > 0 and service_npc_type.cost_hourly > 0:
                 display_description = inst_or_cls.display_price_fee_and_hourly_cost(service_npc_type.cost_up_front, service_npc_type.cost_hourly)
             elif service_npc_type.cost_up_front > 0:
                 display_description = inst_or_cls.display_price_flat_rate(service_npc_type.cost_up_front)
@@ -56,15 +57,14 @@ class PickServiceNpcSuperInteraction(PickerSuperInteraction):
             result = service_npc_data.tests.run_tests(resolver, search_for_tooltip=True)
             is_enabled = result == TestResult.TRUE
             tooltip = result.tooltip
-            if not is_enabled or is_enabled or tooltip is None:
-                pass
-            else:
-                row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=is_enabled, name=display_name, icon=service_npc_type.icon, row_description=display_description, tag=tag, row_tooltip=tooltip)
+            if not (not is_enabled or not is_enabled) and tooltip is None:
+                continue
+            row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=is_enabled, name=display_name, icon=service_npc_type.icon, row_description=display_description, tag=tag, row_tooltip=tooltip)
+            yield row
+            if allows_recurring:
+                tag = PickServiceNpcSuperInteraction._ServiceNpcRecurringPair(service_npc_type, recurring=True)
+                row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=is_enabled, name=service_npc_type._recurring.recurring_name, icon=service_npc_type.icon, row_description=display_description, tag=tag)
                 yield row
-                if allows_recurring:
-                    tag = PickServiceNpcSuperInteraction._ServiceNpcRecurringPair(service_npc_type, recurring=True)
-                    row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=is_enabled, name=service_npc_type._recurring.recurring_name, icon=service_npc_type.icon, row_description=display_description, tag=tag)
-                    yield row
         for entry in cls.non_service_npcs:
             if any(sim.trait_tracker.has_any_trait(entry.free_service_traits) for sim in household.sim_info_gen()):
                 cost_string = inst_or_cls.display_price_free
@@ -72,11 +72,10 @@ class PickServiceNpcSuperInteraction(PickerSuperInteraction):
                 cost_string = inst_or_cls._get_cost_string(entry)
             resolver = inst_or_cls.get_resolver(target, context, inst_or_cls, search_for_tooltip=True)
             result = entry.tests.run_tests(resolver, search_for_tooltip=True)
-            if result or result.tooltip is None:
-                pass
-            else:
-                row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=result == TestResult.TRUE, name=entry.name(), icon=entry.icon, row_description=cost_string, tag=entry, row_tooltip=result.tooltip)
-                yield row
+            if not result and result.tooltip is None:
+                continue
+            row = ui.ui_dialog_picker.ObjectPickerRow(is_enable=result == TestResult.TRUE, name=entry.name(), icon=entry.icon, row_description=cost_string, tag=entry, row_tooltip=result.tooltip)
+            yield row
 
     @flexmethod
     def _get_cost_string(cls, inst, entry):

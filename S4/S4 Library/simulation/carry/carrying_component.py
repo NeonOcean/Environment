@@ -27,7 +27,8 @@ class CarryingComponent(Component, HasTunableFactory, AutoFactoryInit, component
                     if self._sim.has_trait(handedness_trait):
                         self._handedness = handedness
                         break
-                self.set_preferred_hand(Hand.RIGHT if self._sim.sim_id % 4 else Hand.LEFT)
+                else:
+                    self.set_preferred_hand(Hand.RIGHT if self._sim.sim_id % 4 else Hand.LEFT)
             return self._handedness
 
         def set_preferred_hand(self, hand):
@@ -99,15 +100,13 @@ class CarryingComponent(Component, HasTunableFactory, AutoFactoryInit, component
         result = 1
         for (trait, override) in self.put_down_strategy_multipliers.items():
             if not self.owner.has_trait(trait):
-                pass
-            else:
-                cost_override = getattr(override, override_name, DEFAULT)
-                if cost_override is DEFAULT:
-                    pass
-                else:
-                    if cost_override is None:
-                        return
-                    result *= cost_override
+                continue
+            cost_override = getattr(override, override_name, DEFAULT)
+            if cost_override is DEFAULT:
+                continue
+            if cost_override is None:
+                return
+            result *= cost_override
         return result
 
     @componentmethod

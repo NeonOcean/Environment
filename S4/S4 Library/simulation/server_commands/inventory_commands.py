@@ -49,7 +49,7 @@ def purge_sim_inventory(opt_target:OptionalTargetParam=None, _connection=None):
     return False
 
 @sims4.commands.Command('inventory.purchase_picker_response', command_type=sims4.commands.CommandType.Live)
-def purchase_picker_response(inventory_target:RequiredTargetParam, mailman_purchase:bool=False, *def_ids_and_amounts, _connection=None):
+def purchase_picker_response(inventory_target:RequiredTargetParam, mailman_purchase:bool=False, *def_ids_and_amounts:int, _connection=None):
     total_price = 0
     current_purchased = 0
     objects_to_buy = []
@@ -97,7 +97,7 @@ def purchase_picker_response(inventory_target:RequiredTargetParam, mailman_purch
 USE_DEFINITION_PRICE = -1
 
 @sims4.commands.Command('inventory.purchase_picker_response_by_ids', command_type=sims4.commands.CommandType.Live)
-def purchase_picker_response_by_ids(inventory_target:RequiredTargetParam, inventory_source:RequiredTargetParam, mailman_purchase:bool=False, object_ids_or_definition_ids:bool=False, *ids_and_amounts_and_price, _connection=None):
+def purchase_picker_response_by_ids(inventory_target:RequiredTargetParam, inventory_source:RequiredTargetParam, mailman_purchase:bool=False, object_ids_or_definition_ids:bool=False, *ids_and_amounts_and_price:int, _connection=None):
     total_price = 0
     current_purchased = 0
     objects_to_buy = []
@@ -144,42 +144,43 @@ def purchase_picker_response_by_ids(inventory_target:RequiredTargetParam, invent
     inventory_manager = services.inventory_manager()
     for (obj_or_def, price, amount) in objects_to_buy:
         amount_left = amount
-        if object_ids_or_definition_ids:
-            from_inventory.try_remove_object_by_id(obj_or_def.id, obj_or_def.stack_count())
-            obj = obj_or_def.clone()
-            from_inventory.system_add_object(obj_or_def)
-        else:
-            obj = create_object(obj_or_def)
-            if obj is None:
-                sims4.commands.output('inventory.purchase_picker_response: Failed to create object with definition {}.'.format(obj_or_def), _connection)
-                amount_left = 0
+        while amount_left > 0:
+            if object_ids_or_definition_ids:
+                from_inventory.try_remove_object_by_id(obj_or_def.id, obj_or_def.stack_count())
+                obj = obj_or_def.clone()
+                from_inventory.system_add_object(obj_or_def)
             else:
-                if obj.inventoryitem_component.stack_scheme == StackScheme.NONE:
-                    amount_left = amount_left - 1
-                else:
-                    obj.set_stack_count(amount)
+                obj = create_object(obj_or_def)
+                if obj is None:
+                    sims4.commands.output('inventory.purchase_picker_response: Failed to create object with definition {}.'.format(obj_or_def), _connection)
                     amount_left = 0
-                obj.set_household_owner_id(household.id)
-                if not to_inventory.player_try_add_object(obj):
-                    sims4.commands.output('inventory.purchase_picker_response: Failed to add object into inventory: {}'.format(obj), _connection)
-                    obj.destroy(source=to_inventory, cause='inventory.purchase_picker_response: Failed to add object into inventory.')
                 else:
-                    obj.try_post_bb_fixup(force_fixup=True, active_household_id=services.active_household_id())
-                    purchase_price = price if obj.inventoryitem_component.stack_scheme == StackScheme.NONE else price*amount
-                    current_purchased += purchase_price
-        if obj.inventoryitem_component.stack_scheme == StackScheme.NONE:
-            amount_left = amount_left - 1
-        else:
-            obj.set_stack_count(amount)
-            amount_left = 0
-        obj.set_household_owner_id(household.id)
-        if not to_inventory.player_try_add_object(obj):
-            sims4.commands.output('inventory.purchase_picker_response: Failed to add object into inventory: {}'.format(obj), _connection)
-            obj.destroy(source=to_inventory, cause='inventory.purchase_picker_response: Failed to add object into inventory.')
-        else:
-            obj.try_post_bb_fixup(force_fixup=True, active_household_id=services.active_household_id())
-            purchase_price = price if obj.inventoryitem_component.stack_scheme == StackScheme.NONE else price*amount
-            current_purchased += purchase_price
+                    if obj.inventoryitem_component.stack_scheme == StackScheme.NONE:
+                        amount_left = amount_left - 1
+                    else:
+                        obj.set_stack_count(amount)
+                        amount_left = 0
+                    obj.set_household_owner_id(household.id)
+                    if not to_inventory.player_try_add_object(obj):
+                        sims4.commands.output('inventory.purchase_picker_response: Failed to add object into inventory: {}'.format(obj), _connection)
+                        obj.destroy(source=to_inventory, cause='inventory.purchase_picker_response: Failed to add object into inventory.')
+                    else:
+                        obj.try_post_bb_fixup(force_fixup=True, active_household_id=services.active_household_id())
+                        purchase_price = price if obj.inventoryitem_component.stack_scheme == StackScheme.NONE else price*amount
+                        current_purchased += purchase_price
+            if obj.inventoryitem_component.stack_scheme == StackScheme.NONE:
+                amount_left = amount_left - 1
+            else:
+                obj.set_stack_count(amount)
+                amount_left = 0
+            obj.set_household_owner_id(household.id)
+            if not to_inventory.player_try_add_object(obj):
+                sims4.commands.output('inventory.purchase_picker_response: Failed to add object into inventory: {}'.format(obj), _connection)
+                obj.destroy(source=to_inventory, cause='inventory.purchase_picker_response: Failed to add object into inventory.')
+            else:
+                obj.try_post_bb_fixup(force_fixup=True, active_household_id=services.active_household_id())
+                purchase_price = price if obj.inventoryitem_component.stack_scheme == StackScheme.NONE else price*amount
+                current_purchased += purchase_price
     return household.funds.try_remove(current_purchased, Consts_pb2.TELEMETRY_OBJECT_BUY)
 
 @sims4.commands.Command('inventory.open_ui', command_type=sims4.commands.CommandType.Live)

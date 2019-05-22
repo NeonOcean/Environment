@@ -85,7 +85,7 @@ class Statistic(HasTunableReference, BaseStatistic, metaclass=HashedTunedInstanc
             self._notify_change(old_value)
 
     def remove_statistic_static_modifier(self, modifier):
-        if self._static_modifiers is not None:
+        if self._static_modifiers is not None and modifier in self._static_modifiers:
             self._static_modifiers.remove(modifier)
             if not self._static_modifiers:
                 self._static_modifiers = None

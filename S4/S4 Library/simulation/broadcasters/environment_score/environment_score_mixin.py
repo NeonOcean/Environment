@@ -69,15 +69,16 @@ class EnvironmentScoreMixin:
     def schedule_environment_score_update(self, force_run=False):
 
         def _update_environment_score_callback(timeline):
-            if force_run or self.queue is not None and self.transition_controller is not None:
+            if not force_run and self.queue is not None and self.transition_controller is not None:
                 self._environment_score_alarm_handle = None
                 return
             self._update_environment_score()
 
-        if force_run:
-            alarms.cancel_alarm(self._environment_score_alarm_handle)
-            self._environment_score_alarm_handle = None
-        if self._environment_score_alarm_handle is not None and self._environment_score_alarm_handle is None:
+        if self._environment_score_alarm_handle is not None:
+            if force_run:
+                alarms.cancel_alarm(self._environment_score_alarm_handle)
+                self._environment_score_alarm_handle = None
+        if self._environment_score_alarm_handle is None:
             self._environment_score_alarm_handle = alarms.add_alarm(self, clock.interval_in_real_seconds(1.0), _update_environment_score_callback, repeating=False)
 
     def _update_mood_commodities(self, total_mood_scores):
@@ -124,7 +125,7 @@ class EnvironmentScoreMixin:
         try:
             if not self._dirty:
                 return
-            if environment_score_enabled and self.is_hidden():
+            if not environment_score_enabled or self.is_hidden():
                 self._clear_environment_score()
                 return
             total_mood_scores = Counter()
@@ -139,12 +140,14 @@ class EnvironmentScoreMixin:
                 total_negative_score += negative_score
                 total_positive_score += positive_score
                 total_mood_scores.update(mood_scores)
-                if not negative_score != 0:
-                    if positive_score != 0:
-                        contributing_objects.append((obj, mood_scores, negative_score, positive_score))
-                        object_contributions.extend(contributions)
-                contributing_objects.append((obj, mood_scores, negative_score, positive_score))
-                object_contributions.extend(contributions)
+                if gsi_handlers.sim_handlers_log.environment_score_archiver.enabled:
+                    if not sum(mood_scores.values()) != 0:
+                        if not negative_score != 0:
+                            if positive_score != 0:
+                                contributing_objects.append((obj, mood_scores, negative_score, positive_score))
+                                object_contributions.extend(contributions)
+                    contributing_objects.append((obj, mood_scores, negative_score, positive_score))
+                    object_contributions.extend(contributions)
             self._update_positive_and_negative_commodities(total_negative_score, total_positive_score)
             largest_mood = self._update_mood_commodities(total_mood_scores)
             if gsi_handlers.sim_handlers_log.environment_score_archiver.enabled and (contributing_objects or total_negative_score != 0 or total_positive_score != 0):

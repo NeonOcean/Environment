@@ -47,9 +47,10 @@ class SocialPickerSuperInteraction(SocialCompatibilityMixin, interactions.base.s
             for constraint in sim_constraint:
                 if constraint.geometry is not None:
                     break
-            if not target_sim.is_connected(self.sim):
-                return (None, False, included_sis)
-            return (0, False, included_sis)
+            else:
+                if not target_sim.is_connected(self.sim):
+                    return (None, False, included_sis)
+                return (0, False, included_sis)
             if not target_sim.can_see(self.sim):
                 return (None, False, included_sis)
         return (0, False, included_sis)
@@ -65,15 +66,18 @@ class SocialPickerSuperInteraction(SocialCompatibilityMixin, interactions.base.s
         context = self.context.clone_for_sim(self.sim, bucket=InteractionBucketType.BASED_ON_SOURCE)
         autonomy_request = AutonomyRequest(self.sim, autonomy_mode=autonomy.autonomy_modes.SocialAutonomy, static_commodity_list=[self.SOCIAL_STATIC_COMMODITY], object_list=[target_sim], context=context, push_super_on_prepare=True, consider_scores_of_zero=True)
         social_mixer = services.autonomy_service().find_best_action(autonomy_request)
-        if not social_mixer.super_interaction.running:
-            social_mixer.super_interaction = None
+        if social_mixer:
+            if not social_mixer.super_interaction.running:
+                social_mixer.super_interaction = None
         for si in autonomy_request.interactions_to_invalidate:
             si.invalidate()
         autonomy_request.interactions_to_invalidate.clear()
-        if social_mixer and social_mixer:
+        if social_mixer:
             social_mixer.push_super_affordance_target = target_sim
             return AffordanceObjectPair.execute_interaction(social_mixer)
+            yield
         else:
             return event_testing.results.EnqueueResult.NONE
+            yield
 
 sims4.tuning.instances.lock_instance_tunables(SocialPickerSuperInteraction, allow_autonomous=True, allow_user_directed=False)

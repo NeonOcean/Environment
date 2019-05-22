@@ -63,12 +63,12 @@ class DistancePlacementMixin:
             loc_b = loc_a.duplicate()
             lot = services.current_zone().lot
             for (transform_a, transform_b, routing_surface, _) in self.minimum_requirement_jig.get_transforms_gen(self.sim, self.carry_target, actor_loc=loc_a, target_loc=loc_b, fgl_kwargs=fgl_kwargs):
-                if check_on_lot and lot.is_position_on_lot(transform_a.translation):
+                if not check_on_lot or lot.is_position_on_lot(transform_a.translation):
                     if not lot.is_position_on_lot(transform_b.translation):
-                        pass
-                    else:
-                        return sims4.math.Location(transform_a, routing_surface)
-            return
+                        continue
+                    return sims4.math.Location(transform_a, routing_surface)
+            else:
+                return
         return self.sim.location.duplicate()
 
     def setup_final_transforms(self, start_location, **fgl_kwargs):
@@ -172,20 +172,21 @@ class FetchObjectSocialSuperInteraction(DistancePlacementMixin, SocialSuperInter
                 facing = interactions.constraints.Facing(target_position=self._distance_placement_transform.translation, inner_radius=self.facing_radius)
                 fetch_constraint = fetch_constraint.intersect(facing)
                 if not fetch_constraint.valid:
+                    continue
+                goals = []
+                handles = fetch_constraint.get_connectivity_handles(self.sim)
+                for handle in handles:
+                    goals.extend(handle.get_goals())
+                if not goals:
                     pass
                 else:
-                    goals = []
-                    handles = fetch_constraint.get_connectivity_handles(self.sim)
-                    for handle in handles:
-                        goals.extend(handle.get_goals())
-                    if not goals:
-                        pass
-                    else:
-                        route = routing.Route(target_sim.routing_location, goals, routing_context=target_sim.routing_context)
-                        plan_primitive = PlanRoute(route, target_sim)
-                        result = yield from element_utils.run_child(timeline, plan_primitive)
-                        if result and plan_primitive.path.nodes and plan_primitive.path.nodes.plan_success:
-                            self._plan_primitives.append(plan_primitive)
+                    route = routing.Route(target_sim.routing_location, goals, routing_context=target_sim.routing_context)
+                    plan_primitive = PlanRoute(route, target_sim)
+                    result = yield from element_utils.run_child(timeline, plan_primitive)
+                    if result:
+                        if plan_primitive.path.nodes:
+                            if plan_primitive.path.nodes.plan_success:
+                                self._plan_primitives.append(plan_primitive)
             yield from element_utils.run_child(timeline, sequence)
 
         return build_element(plan_fetch_paths)

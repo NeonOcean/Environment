@@ -51,6 +51,7 @@ class AutonomyService(Service):
     def find_best_action_gen(self, timeline, autonomy_request, consider_all_options=False, randomization_override=DEFAULT, archive_if_enabled=True):
         result_scores = yield from self.score_all_interactions_gen(timeline, autonomy_request)
         return self._select_best_result(result_scores, autonomy_request, consider_all_options=consider_all_options, randomization_override=randomization_override, archive_if_enabled=archive_if_enabled)
+        yield
 
     def _select_best_result(self, result_scores, autonomy_request, consider_all_options=False, randomization_override=DEFAULT, archive_if_enabled=True):
         if result_scores is None:
@@ -66,9 +67,10 @@ class AutonomyService(Service):
                 selected_interaction = self.choose_best_interaction(similar_scored_interactions, autonomy_request, consider_all_options=consider_all_options, randomization_override=randomization_override, interaction_prefix='**')
             else:
                 logger.warn('Failed to find selected interaction {} in similar aop cache.  This is bad, but the original SI should queue.', selected_interaction)
-        if gsi_handlers.autonomy_handlers.archiver.enabled:
-            gsi_handlers.autonomy_handlers.archive_autonomy_data(autonomy_request.sim, selected_interaction, autonomy_request.autonomy_mode_label, autonomy_request.gsi_data)
-            autonomy_request.gsi_data = None
+        if archive_if_enabled:
+            if gsi_handlers.autonomy_handlers.archiver.enabled:
+                gsi_handlers.autonomy_handlers.archive_autonomy_data(autonomy_request.sim, selected_interaction, autonomy_request.autonomy_mode_label, autonomy_request.gsi_data)
+                autonomy_request.gsi_data = None
         autonomy_request.invalidate_created_interactions(excluded_si=selected_interaction)
         return selected_interaction
 
@@ -97,6 +99,7 @@ class AutonomyService(Service):
         if self.should_log(autonomy_request.sim):
             logger.info('{} chose {} for {}', type(autonomy_request.autonomy_mode).__name__, result_scores, autonomy_request.sim)
         return result_scores
+        yield
 
     def choose_best_interaction(self, scored_interactions, autonomy_request, consider_all_options=False, randomization_override=DEFAULT, interaction_prefix=''):
         chosen_scored_interaction_data = None
@@ -106,23 +109,26 @@ class AutonomyService(Service):
             return
         valid_scored_interactions = [scored_interaction_data for scored_interaction_data in scored_interactions if not scored_interaction_data.interaction.is_super or scored_interaction_data.interaction.aop.target is not None]
         top_options = sorted(valid_scored_interactions, key=lambda scored_interaction_data: scored_interaction_data.score)
-        if top_options[-1].score <= 0:
-            top_options = self._recalculate_scores_based_on_route_time(top_options)
-        if not (autonomy_request.consider_scores_of_zero and autonomy_request.autonomy_mode.allows_routing() and consider_all_options):
+        if autonomy_request.consider_scores_of_zero:
+            if autonomy_request.autonomy_mode.allows_routing():
+                if top_options[-1].score <= 0:
+                    top_options = self._recalculate_scores_based_on_route_time(top_options)
+        if not consider_all_options:
             top_options = top_options[-self.NUM_INTERACTIONS:]
         if not top_options:
             return
         multitasking_roll = autonomy_request.sim.get_multitasking_roll()
         randomization = autonomy_request.context.sim.get_autonomy_randomization_setting() if randomization_override is DEFAULT else randomization_override
         if randomization == autonomy.settings.AutonomyRandomization.ENABLED:
-            if top_options[0].score <= 0:
-                slice_index = 0
-                for scored_interaction_data in top_options:
-                    if scored_interaction_data.score > 0:
-                        break
-                    slice_index += 1
-                top_options = top_options[slice_index:]
-            if autonomy_request.consider_scores_of_zero or not top_options:
+            if not autonomy_request.consider_scores_of_zero:
+                if top_options[0].score <= 0:
+                    slice_index = 0
+                    for scored_interaction_data in top_options:
+                        if scored_interaction_data.score > 0:
+                            break
+                        slice_index += 1
+                    top_options = top_options[slice_index:]
+            if not top_options:
                 return
             chosen_index = None
             randomization_type_str = None
@@ -136,22 +142,23 @@ class AutonomyService(Service):
                 logger.error('Somehow, chosen_index became None in choose_best_interaction()')
                 return
             chosen_scored_interaction_data = top_options[chosen_index]
-            if autonomy_request.gsi_data is not None:
-                if top_options[-1].score > 0:
-                    summed_scores = sum([scored_interaction_data.score for scored_interaction_data in top_options])
-                    _get_probability = lambda score: score/summed_scores
-                else:
-                    _get_probability = lambda _: 1/len(top_options)
-                for scored_interaction_data in top_options:
-                    probability = _get_probability(scored_interaction_data.score)
-                    autonomy_request.gsi_data[GSIDataKeys.PROBABILITY_KEY].append(AutonomyProbabilityData(scored_interaction_data.interaction, scored_interaction_data.score, probability, multitasking_roll, randomization_type_str, interaction_prefix))
+            if gsi_handlers.autonomy_handlers.archiver.enabled:
+                if autonomy_request.gsi_data is not None:
+                    if top_options[-1].score > 0:
+                        summed_scores = sum([scored_interaction_data.score for scored_interaction_data in top_options])
+                        _get_probability = lambda score: score/summed_scores
+                    else:
+                        _get_probability = lambda _: 1/len(top_options)
+                    for scored_interaction_data in top_options:
+                        probability = _get_probability(scored_interaction_data.score)
+                        autonomy_request.gsi_data[GSIDataKeys.PROBABILITY_KEY].append(AutonomyProbabilityData(scored_interaction_data.interaction, scored_interaction_data.score, probability, multitasking_roll, randomization_type_str, interaction_prefix))
         elif autonomy_request.consider_scores_of_zero and top_options[-1].score <= 0 or top_options[-1].score > 0:
             chosen_scored_interaction_data = top_options[-1]
             if gsi_handlers.autonomy_handlers.archiver.enabled:
                 autonomy_request.gsi_data[GSIDataKeys.PROBABILITY_KEY] = [AutonomyProbabilityData(chosen_scored_interaction_data.interaction, chosen_scored_interaction_data.score, 1, multitasking_roll, 'Best', interaction_prefix)]
         if chosen_scored_interaction_data is None:
             return
-        if autonomy_request.is_script_request or autonomy_request.context.source == interactions.context.InteractionContext.SOURCE_AUTONOMY and chosen_scored_interaction_data.interaction.is_super and multitasking_roll > chosen_scored_interaction_data.multitasking_percentage:
+        if not autonomy_request.is_script_request and (autonomy_request.context.source == interactions.context.InteractionContext.SOURCE_AUTONOMY and chosen_scored_interaction_data.interaction.is_super) and multitasking_roll > chosen_scored_interaction_data.multitasking_percentage:
             if autonomy_request.gsi_data is not None:
                 autonomy_request.gsi_data[GSIDataKeys.ADDITIONAL_RESULT_INFO] = ' - {} was chosen, but multitasking roll was to low to run.'.format(chosen_scored_interaction_data.interaction)
             return

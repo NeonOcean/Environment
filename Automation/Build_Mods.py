@@ -1,8 +1,8 @@
 from Automation import Mods
 
 def Run () -> bool:
-	for mod in Mods.GetAllModNames():  # type: str
-		Mods.BuildMod(mod)
+	for modNamespace in Mods.GetAllModNames():  # type: str
+		Mods.BuildMod(modNamespace)
 
 	return True
 

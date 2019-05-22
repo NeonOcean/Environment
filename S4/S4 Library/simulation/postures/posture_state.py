@@ -40,8 +40,10 @@ class PostureState:
         self.body_target = spec_body[body_target_index]
         if current_posture_state is None or spec_body[body_posture_type_index] != current_posture_state.body.posture_type or spec_body[body_target_index] != current_posture_state.body.target:
             animation_context = None
-            if not spec_body[body_posture_type_index].mobile:
-                animation_context = current_posture_state.body.animation_context
+            if current_posture_state is not None:
+                if not current_posture_state.body.mobile:
+                    if not spec_body[body_posture_type_index].mobile:
+                        animation_context = current_posture_state.body.animation_context
             self._aspect_body = postures.create_posture(spec_body[body_posture_type_index], self.sim, self.body_target, animation_context=animation_context, is_throwaway=is_throwaway)
         else:
             self._aspect_body = current_posture_state.body
@@ -93,7 +95,8 @@ class PostureState:
                     for hand in sim.posture_state.get_free_hands():
                         if hand in carry_target.get_allowed_hands(sim):
                             break
-                    raise RuntimeError('No allowable free hand was empty.')
+                    else:
+                        raise RuntimeError('No allowable free hand was empty.')
                 new_carry_aspect = postures.create_posture(carry_posture_type, self.sim, carry_target, track=hand_to_track(hand), is_throwaway=is_throwaway)
                 if hand == Hand.LEFT:
                     self._aspect_carry_left = new_carry_aspect
@@ -138,7 +141,7 @@ class PostureState:
             self._aspect_carry_right = _get_default_carry_aspect(PostureTrack.RIGHT)
 
     def __repr__(self):
-        return standard_repr(self, self.aspects)
+        return standard_repr(self, *self.aspects)
 
     @property
     def valid(self):
@@ -178,7 +181,7 @@ class PostureState:
                 if interaction_target is not None:
                     surface_spec = PostureAspectSurface((surface_target, PostureSpecVariable.SLOT, PostureSpecVariable.SLOT_TARGET))
                     spec = self._spec.clone(carry=source_carry, surface=surface_spec)
-                    if spec._validate_surface(var_map) and (isinstance(interaction_target, PostureSpecVariable) or interaction_target.parent is surface_target):
+                    if spec._validate_surface(var_map) and not isinstance(interaction_target, PostureSpecVariable) and interaction_target.parent is surface_target:
                         return spec
                 surface_spec = PostureAspectSurface((surface_target, PostureSpecVariable.SLOT, None))
                 spec = self._spec.clone(carry=source_carry, surface=surface_spec)
@@ -202,12 +205,13 @@ class PostureState:
     def _get_posture_constraint(self, strict=False):
         posture_state_constraint = self.body_posture_state_constraint
         posture_state_constraint = posture_state_constraint.get_holster_version()
-        if not self.body_state_spec_only:
-            carry_left_constraint = create_carry_constraint(self.left.target, Hand.LEFT, strict=strict)
-            posture_state_constraint = posture_state_constraint.intersect(carry_left_constraint)
-            if posture_state_constraint.valid:
-                carry_right_constraint = create_carry_constraint(self.right.target, Hand.RIGHT, strict=strict)
-                posture_state_constraint = posture_state_constraint.intersect(carry_right_constraint)
+        if posture_state_constraint.valid:
+            if not self.body_state_spec_only:
+                carry_left_constraint = create_carry_constraint(self.left.target, Hand.LEFT, strict=strict)
+                posture_state_constraint = posture_state_constraint.intersect(carry_left_constraint)
+                if posture_state_constraint.valid:
+                    carry_right_constraint = create_carry_constraint(self.right.target, Hand.RIGHT, strict=strict)
+                    posture_state_constraint = posture_state_constraint.intersect(carry_right_constraint)
         return posture_state_constraint
 
     @property
@@ -303,11 +307,12 @@ class PostureState:
             intersection = Anywhere()
             for constraint in set(self._constraints.values()):
                 new_intersection = intersection.intersect(constraint)
-                if not new_intersection.valid:
-                    indent_text = '                '
-                    logger.error('Invalid constraint intersection for PostureState: {}.\n    A: {} \n    A Geometry: {}    B: {} \n    B Geometry: {}', self, intersection, intersection.get_geometry_text(indent_text), constraint, constraint.get_geometry_text(indent_text))
-                    intersection = new_intersection
-                    break
+                if not self._invalid_expected:
+                    if not new_intersection.valid:
+                        indent_text = '                '
+                        logger.error('Invalid constraint intersection for PostureState: {}.\n    A: {} \n    A Geometry: {}    B: {} \n    B Geometry: {}', self, intersection, intersection.get_geometry_text(indent_text), constraint, constraint.get_geometry_text(indent_text))
+                        intersection = new_intersection
+                        break
                 intersection = new_intersection
             self._constraint_intersection_dirty = False
             self._constraint_intersection = intersection
@@ -393,7 +398,7 @@ class PostureState:
                         return target.definition is other
                     return target is other
 
-                if ignore_target is None or target_is(ignore_target) or only_target is None or target_is(only_target):
+                if not (ignore_target is None or not target_is(ignore_target)) and (only_target is None or target_is(only_target)):
                     return True
         return False
 
@@ -428,8 +433,9 @@ class PostureState:
 
     def get_posture_for_si(self, si):
         for posture in self.aspects:
-            if posture is not None and posture.source_interaction == si:
-                return posture
+            if posture is not None:
+                if posture.source_interaction == si:
+                    return posture
 
     def get_other_carry_posture(self, target):
         track = self.get_carry_track(target)

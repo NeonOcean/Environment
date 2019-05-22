@@ -58,8 +58,9 @@ class _DoStuffState(CommonSituationState):
 
     def _set_job_role_state(self):
         for (job, role_state) in self._job_and_role_gym_stuff.items():
-            if job is not None and role_state is not None:
-                self.owner._set_job_role_state(job, role_state)
+            if job is not None:
+                if role_state is not None:
+                    self.owner._set_job_role_state(job, role_state)
 
     def _get_remaining_time_for_gsi(self):
         return self._get_remaining_alarm_time(DO_STUFF_TIMEOUT)

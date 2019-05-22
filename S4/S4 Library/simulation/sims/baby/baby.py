@@ -77,12 +77,13 @@ class Baby(GameObject, HasSimInfoBasicMixin):
     def get_baby_skin_tone_state(cls, sim_info):
         skin_tone_state_value = None
         baby_skin_enum = BabyTuning.get_baby_skin_tone_enum(sim_info)
-        if baby_skin_enum in cls.BABY_SKIN_TONE_STATE_MAPPING:
-            skin_state_tuple = cls.BABY_SKIN_TONE_STATE_MAPPING[baby_skin_enum]
-            if sim_info.gender == Gender.FEMALE:
-                skin_tone_state_value = skin_state_tuple.girl
-            elif sim_info.gender == Gender.MALE:
-                skin_tone_state_value = skin_state_tuple.boy
+        if baby_skin_enum is not None:
+            if baby_skin_enum in cls.BABY_SKIN_TONE_STATE_MAPPING:
+                skin_state_tuple = cls.BABY_SKIN_TONE_STATE_MAPPING[baby_skin_enum]
+                if sim_info.gender == Gender.FEMALE:
+                    skin_tone_state_value = skin_state_tuple.girl
+                elif sim_info.gender == Gender.MALE:
+                    skin_tone_state_value = skin_state_tuple.boy
         return skin_tone_state_value
 
     def __init__(self, *args, **kwargs):
@@ -197,8 +198,8 @@ class Baby(GameObject, HasSimInfoBasicMixin):
     def empty_baby_state(self):
         self.set_state(self.BASSINET_EMPTY_STATE.state, self.BASSINET_EMPTY_STATE)
 
-    def on_state_changed(self, state, old_value, new_value):
-        super().on_state_changed(state, old_value, new_value)
+    def on_state_changed(self, state, old_value, new_value, from_init):
+        super().on_state_changed(state, old_value, new_value, from_init)
         removal_moment = self.REMOVAL_MOMENT_STATES.get(new_value)
         if removal_moment is not None:
             if self._sim_info is not None:

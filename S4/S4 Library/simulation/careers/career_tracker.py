@@ -91,7 +91,7 @@ class CareerTracker(SimInfoTracker):
         if send_update:
             self.resend_career_data()
 
-    def add_career(self, new_career, show_confirmation_dialog=False, user_level_override=None, career_level_override=None, give_skipped_rewards=True, defer_rewards=False):
+    def add_career(self, new_career, show_confirmation_dialog=False, user_level_override=None, career_level_override=None, give_skipped_rewards=True, defer_rewards=False, post_quit_msg=True):
         if show_confirmation_dialog:
             (level, _, track) = new_career.get_career_entry_data(career_history=self._career_history, user_level_override=user_level_override, career_level_override=career_level_override)
             career_level_tuning = track.career_levels[level]
@@ -110,7 +110,7 @@ class CareerTracker(SimInfoTracker):
             logger.callstack('Attempting to add career {} sim {} is already in.', new_career, self._sim_info)
             return
         if new_career.can_quit:
-            self.quit_quittable_careers()
+            self.quit_quittable_careers(post_quit_msg=post_quit_msg)
         self._careers[new_career.guid64] = new_career
         new_career.join_career(career_history=self._career_history, user_level_override=user_level_override, career_level_override=career_level_override, give_skipped_rewards=give_skipped_rewards, defer_rewards=defer_rewards)
         self.resend_career_data()
@@ -151,9 +151,9 @@ class CareerTracker(SimInfoTracker):
         quittable_careers = dict((uid, career) for (uid, career) in self._careers.items() if career.can_quit)
         return quittable_careers
 
-    def quit_quittable_careers(self):
+    def quit_quittable_careers(self, post_quit_msg=True):
         for career_uid in self.get_quittable_careers():
-            self.remove_career(career_uid)
+            self.remove_career(career_uid, post_quit_msg=post_quit_msg)
 
     def get_at_work_career(self):
         for career in self._careers.values():
@@ -240,17 +240,19 @@ class CareerTracker(SimInfoTracker):
             self._retirement.start()
 
     def set_gig(self, gig, gig_time):
-        for career in self._careers.values():
-            if career.current_level_tuning.agents_available is not None:
-                career.set_gig(gig, gig_time)
-                break
+        gig_career = self.get_career_by_uid(gig.career.guid64)
+        if gig_career is None:
+            logger.error("Tried to set gig {} for career {} on sim {} but sim doesn't have career.", gig, career, self._sim_info)
+            return
+        gig_career.set_gig(gig, gig_time)
         self.resend_career_data()
 
     def on_sim_added_to_skewer(self):
         for career in self._careers.values():
             career_history = self._career_history.get(career.guid64, None)
-            if career_history is not None and career_history.deferred_rewards:
-                career.award_deferred_promotion_rewards()
+            if career_history is not None:
+                if career_history.deferred_rewards:
+                    career.award_deferred_promotion_rewards()
         self.resend_career_data()
         self.resend_at_work_infos()
 
@@ -325,12 +327,13 @@ class CareerTracker(SimInfoTracker):
         self._career_history.clear()
         for history_entry in save_data.career_history:
             if skip_load and history_entry.career_uid not in self._careers:
-                pass
-            else:
-                career_history = CareerHistory.load_career_history(self._sim_info, history_entry)
+                continue
+            career_history = CareerHistory.load_career_history(self._sim_info, history_entry)
+            if career_history is not None:
                 self._career_history[history_entry.career_uid] = career_history
-                if career_history is not None and career_history.deferred_rewards and history_entry.career_uid in self._careers:
-                    self._careers[history_entry.career_uid].defer_player_rewards()
+                if career_history.deferred_rewards:
+                    if history_entry.career_uid in self._careers:
+                        self._careers[history_entry.career_uid].defer_player_rewards()
         self._retirement = None
         retired_career_uid = save_data.retirement_career_uid
         if retired_career_uid in self._career_history:

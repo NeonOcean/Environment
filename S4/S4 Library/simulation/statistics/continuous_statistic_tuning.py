@@ -103,12 +103,13 @@ class TunedContinuousStatistic(statistics.continuous_statistic.ContinuousStatist
         self._decay_override_calllback_handles = []
         value = self.get_value()
         for override in override_data:
-            if value >= override.lower_bound and value < override.upper_bound:
-                threshold = Threshold(override.lower_bound, operator.lt)
-                self._decay_override_calllback_handles.append(self.create_and_add_callback_listener(threshold, callback))
-                threshold = Threshold(override.upper_bound, operator.ge)
-                self._decay_override_calllback_handles.append(self.create_and_add_callback_listener(threshold, callback))
-                break
+            if value >= override.lower_bound:
+                if value < override.upper_bound:
+                    threshold = Threshold(override.lower_bound, operator.lt)
+                    self._decay_override_calllback_handles.append(self.create_and_add_callback_listener(threshold, callback))
+                    threshold = Threshold(override.upper_bound, operator.ge)
+                    self._decay_override_calllback_handles.append(self.create_and_add_callback_listener(threshold, callback))
+                    break
 
     def _remove_decay_override_callbacks(self):
         if not self._decay_override_calllback_handles:
@@ -121,22 +122,24 @@ class TunedContinuousStatistic(statistics.continuous_statistic.ContinuousStatist
         value = self.get_value()
         self._remove_decay_override_callbacks()
         for override in self._decay_override_list:
-            if value >= override.lower_bound and value < override.upper_bound:
-                self._decay_rate_override = override.decay_override
-                self._create_new_override_callbacks()
-                return
+            if value >= override.lower_bound:
+                if value < override.upper_bound:
+                    self._decay_rate_override = override.decay_override
+                    self._create_new_override_callbacks()
+                    return
         logger.error('No node found for stat value of {} on {}', value, self)
 
     def _on_delayed_decay_rate_override_changed(self, _):
         value = self.get_value()
         self._remove_decay_override_callbacks()
         for override in self._delayed_decay_override_list:
-            if value >= override.lower_bound and value < override.upper_bound:
-                self._delayed_decay_rate_override = override.decay_override
-                self._initial_delay_override = override.initial_delay_override
-                self._final_delay_override = override.final_delay_override
-                self._create_new_override_callbacks()
-                return
+            if value >= override.lower_bound:
+                if value < override.upper_bound:
+                    self._delayed_decay_rate_override = override.decay_override
+                    self._initial_delay_override = override.initial_delay_override
+                    self._final_delay_override = override.final_delay_override
+                    self._create_new_override_callbacks()
+                    return
         logger.error('No node found for stat value of {} on {}', value, self)
 
     def _create_new_override_callbacks(self):

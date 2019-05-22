@@ -185,7 +185,7 @@ class ZoneDirectorResidentialPlayer(ZoneDirectorResidentialBase):
         current_zone = services.current_zone()
         travel_group = sim_info.travel_group
         sim_info_in_played_travel_group = travel_group.played if travel_group is not None else False
-        if current_zone.is_first_visit_to_zone or not (sim_info.household.is_first_time_playing() and sim_info_in_played_travel_group):
+        if current_zone.is_first_visit_to_zone or not not (sim_info.household.is_first_time_playing() and sim_info_in_played_travel_group):
             self._request_spawning_of_sim_at_spawn_point(sim_info, sims.sim_spawner_service.SimSpawnReason.LOT_OWNER)
             return
         super()._process_resident_sim(sim_info)
@@ -237,7 +237,7 @@ class ZoneDirectorRentablePlayer(ZoneDirectorResidentialBase):
         if self.situation_to_create_on_travel_group_changed is None:
             return
         current_zone = services.current_zone()
-        if current_zone.is_first_visit_to_zone or not current_zone.travel_group_changed_between_save_and_load():
+        if not current_zone.is_first_visit_to_zone and not current_zone.travel_group_changed_between_save_and_load():
             return
         services.get_zone_situation_manager().create_situation(self.situation_to_create_on_travel_group_changed, user_facing=False, creation_source=self.instance_name)
 

@@ -29,8 +29,10 @@ class PickChannelAutonomouslySuperInteraction(AutonomousPickerSuperInteraction):
         if chosen_state is None:
             logger.error('{} fail to find a valid chosen state value for state {}'.format(self.__class__.__name__, self.state))
             return False
+            yield
         chosen_state.activate_channel(interaction=self, push_affordances=self.push_additional_affordances)
         return True
+        yield
 
 class WatchCurrentChannelAutonomouslySuperInteraction(SuperInteraction):
     INSTANCE_TUNABLES = {'state': TunableStateTypeReference(description='\n            The state to use to determine what to autonomously watch.\n            ')}
@@ -39,5 +41,6 @@ class WatchCurrentChannelAutonomouslySuperInteraction(SuperInteraction):
         current_state = self.target.get_state(self.state)
         current_state.activate_channel(interaction=self, push_affordances=True)
         return True
+        yield
 
 lock_instance_tunables(AutonomousPickerSuperInteraction, allow_user_directed=False, basic_reserve_object=None, disable_transitions=True)

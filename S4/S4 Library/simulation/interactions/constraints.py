@@ -1,4 +1,3 @@
-from _geometry import CompoundPolygon
 from _math import Quaternion, Vector3
 import _resourceman
 import collections
@@ -23,7 +22,7 @@ from postures.posture_specs import PostureSpec, PostureSpecVariable, PostureAspe
 from postures.posture_state_spec import create_body_posture_state_spec
 from routing import SurfaceType, SurfaceIdentifier
 from routing.portals import PY_OBJ_DATA, SURFACE_POLYGON, SURFACE_OBJ_ID
-from sims.sim_info_types import SimInfoSpawnerTags, Species, SpeciesExtended
+from sims.sim_info_types import SimInfoSpawnerTags, SpeciesExtended
 from sims4.collections import frozendict
 from sims4.log import StackVar
 from sims4.repr_utils import standard_repr
@@ -59,13 +58,13 @@ with sims4.reload.protected(globals()):
 
     GLOBAL_STUB_ACTOR = _create_stub_actor(AnimationParticipant.ACTOR)
     for species in SpeciesExtended:
-        if species == Species.HUMAN:
-            pass
-        else:
+        if not species == SpeciesExtended.HUMAN:
+            if species == SpeciesExtended.INVALID:
+                continue
             _global_stub_actors[species] = _create_stub_actor(AnimationParticipant.ACTOR, species=species)
 
     def get_global_stub_actor(species):
-        if species == Species.HUMAN:
+        if species == SpeciesExtended.HUMAN:
             return GLOBAL_STUB_ACTOR
         return _global_stub_actors[species]
 
@@ -205,10 +204,11 @@ class Constraint(ImmutableType, InternMixin):
         if not multi_surface:
             if self._routing_surface is None:
                 multi_surface = True
-        elif self._geometry.polygon is not None:
-            area = self._geometry.polygon.area()
-            if area < self.MINIMUM_VALID_AREA:
-                multi_surface = False
+        elif self._geometry is not None:
+            if self._geometry.polygon is not None:
+                area = self._geometry.polygon.area()
+                if area < self.MINIMUM_VALID_AREA:
+                    multi_surface = False
         self._multi_surface = multi_surface
         self._enables_height_scoring = enables_height_scoring
         if routing_surface is None and geometry is not None and geometry.polygon is not None:
@@ -285,8 +285,8 @@ class Constraint(ImmutableType, InternMixin):
         for constraint in self:
             if not constraint.routing_surface is None:
                 if constraint.routing_surface.type == routing.SurfaceType.SURFACETYPE_UNKNOWN:
-                    pass
-                elif not constraint.multi_surface:
+                    continue
+                if not constraint.multi_surface:
                     constraints.append(constraint)
                 else:
                     world_routing_surface = constraint.get_world_routing_surface()
@@ -302,10 +302,12 @@ class Constraint(ImmutableType, InternMixin):
                             intersect_polygon = compound_polygon.intersect(geometry.polygon)
                             geometry = sims4.geometry.RestrictedPolygon(intersect_polygon, constraint._geometry.restrictions)
                         constraints.append(constraint.get_single_surface_version(obj_surface, _geometry=geometry, _objects_to_ignore=temp_objects_to_ignore))
-                    if constraint.geometry is not None and constraint.geometry.polygon is not None and constraint.supports_swim:
-                        pool_routing_surface = constraint._get_pool_routing_surface()
-                        if pool_routing_surface is not None:
-                            constraints.append(constraint.get_single_surface_version(pool_routing_surface))
+                    if constraint.geometry is not None:
+                        if constraint.geometry.polygon is not None:
+                            if constraint.supports_swim:
+                                pool_routing_surface = constraint._get_pool_routing_surface()
+                                if pool_routing_surface is not None:
+                                    constraints.append(constraint.get_single_surface_version(pool_routing_surface))
         return create_constraint_set(constraints)
 
     def get_provided_points_for_goals(self):
@@ -357,9 +359,9 @@ class Constraint(ImmutableType, InternMixin):
         for constraint in self:
             if constraint == Anywhere():
                 posture_constraints.append(constraint)
-            elif constraint.posture_state_spec is None:
-                pass
             else:
+                if constraint.posture_state_spec is None:
+                    continue
                 posture_constraints.append(Constraint(posture_state_spec=constraint.posture_state_spec))
         if not posture_constraints:
             return Anywhere()
@@ -370,9 +372,9 @@ class Constraint(ImmutableType, InternMixin):
         for constraint in self:
             if constraint == Anywhere():
                 body_posture_constraints.append(constraint)
-            elif constraint.posture_state_spec is None:
-                pass
             else:
+                if constraint.posture_state_spec is None:
+                    continue
                 override = PostureManifestOverrideValue(MATCH_ANY, MATCH_ANY, None)
                 posture_manifest_entries = []
                 for posture_manifest_entry in constraint.posture_state_spec.posture_manifest:
@@ -486,14 +488,14 @@ class Constraint(ImmutableType, InternMixin):
             if empty_set_for_invalid:
                 return set()
             return {None}
-        if force_multi_surface or not self.multi_surface:
+        if not force_multi_surface and not self.multi_surface:
             return {self.routing_surface}
         world_routing_surface = self.get_world_routing_surface()
         self_surfaces = {world_routing_surface}
         (obj_surface, _) = self._get_object_routing_surface_and_data()
         if obj_surface is not None:
             self_surfaces.add(obj_surface)
-        if ignore_posture_compatibility or not self.supports_swim:
+        if not ignore_posture_compatibility and not self.supports_swim:
             return self_surfaces
         if self.geometry is None or self.geometry.polygon is None:
             return self_surfaces
@@ -509,8 +511,9 @@ class Constraint(ImmutableType, InternMixin):
         for bounding_box in self._get_bounding_boxes_2D():
             object_surfaces = services.sim_quadtree().query(bounds=bounding_box, surface_id=world_routing_surface, filter=ItemType.ROUTABLE_OBJECT_SURFACE, flags=sims4.geometry.ObjectQuadTreeQueryFlag.IGNORE_SURFACE_TYPE)
             object_surface_data.update({object_data[PY_OBJ_DATA][SURFACE_OBJ_ID]: object_data[PY_OBJ_DATA][SURFACE_POLYGON] for object_data in object_surfaces})
-            if object_surface_data and early_out:
-                break
+            if object_surface_data:
+                if early_out:
+                    break
         if not object_surface_data:
             return (None, {})
         return (object_default_surface, object_surface_data)
@@ -522,13 +525,14 @@ class Constraint(ImmutableType, InternMixin):
         for pool in pool_utils.get_main_pool_objects_gen():
             pool_routing_surface = pool.provided_routing_surface
             pool_level_id = pool_routing_surface.secondary_id
-            if pool_level_id == level_id and build_buy.is_location_pool(zone_id, pool.position, pool_level_id):
-                if pool.bounding_polygon is None:
-                    logger.error('Pool {} does not have a bounding polygon. Location: {}', pool, pool._location)
-                else:
-                    pool_polygon = sims4.geometry.CompoundPolygon(pool.bounding_polygon)
-                    if polygon.intersects(pool_polygon):
-                        return pool_routing_surface
+            if pool_level_id == level_id:
+                if build_buy.is_location_pool(zone_id, pool.position, pool_level_id):
+                    if pool.bounding_polygon is None:
+                        logger.error('Pool {} does not have a bounding polygon. Location: {}', pool, pool._location)
+                    else:
+                        pool_polygon = sims4.geometry.CompoundPolygon(pool.bounding_polygon)
+                        if polygon.intersects(pool_polygon):
+                            return pool_routing_surface
 
     @property
     def polygons(self):
@@ -567,7 +571,7 @@ class Constraint(ImmutableType, InternMixin):
                 return (None, None)
             test_point = constraint.geometry.polygon[0][0]
             test_routing_surface = constraint.routing_surface
-            if point is not None and sims4.math.vector3_almost_equal_2d(point, test_point) and test_routing_surface != routing_surface:
+            if point is not None and (not sims4.math.vector3_almost_equal_2d(point, test_point) or test_routing_surface != routing_surface):
                 return (None, None)
             point = test_point
             routing_surface = test_routing_surface
@@ -727,7 +731,8 @@ class Constraint(ImmutableType, InternMixin):
             for posture_manifest in posture_state_spec.supported_postures:
                 if any((surface_type in all_surface_types for surface_type in posture.surface_types) for posture in posture_manifest.compatible_posture_types):
                     break
-            return (Nowhere('Posture State Spec: {} does not support any valid surfaces: {}', posture_state_spec, tuple(all_surfaces)), None)
+            else:
+                return (Nowhere('Posture State Spec: {} does not support any valid surfaces: {}', posture_state_spec, tuple(all_surfaces)), None)
         kwargs = {'_geometry': geometry, '_routing_surface': routing_surface, '_scoring_functions': scoring_functions, '_goal_functions': goal_functions, '_posture_state_spec': posture_state_spec, '_age': age, '_allow_small_intersections': allow_small_intersections, '_allow_geometry_intersections': allow_geometry_intersections, '_los_reference_point': los_reference_point, '_cost': cost, '_objects_to_ignore': objects_to_ignore, '_flush_planner': flush_planner, '_ignore_outer_penalty_threshold': outer_penalty_threshold, '_create_jig_fn': create_jig_fn, '_multi_surface': multi_surface, '_enables_height_scoring': enables_height_scoring}
         return (None, kwargs)
 
@@ -764,8 +769,7 @@ class Constraint(ImmutableType, InternMixin):
         return False
 
     def _get_posture_state_constraint(self, posture_state, target_resolver):
-        if self.tentative and posture_state is not None:
-            raise AssertionError('Tentative constraints must provide an implementation of apply_posture_state().')
+        assert not (self.tentative and posture_state is not None)
         if self.age is not None:
             participant = AnimationParticipant.ACTOR
             actor = target_resolver(participant, participant)
@@ -803,49 +807,49 @@ class Constraint(ImmutableType, InternMixin):
         new_constraints = [sub_constraint for sub_constraint in self]
         for sub_constraint in self:
             if sub_constraint.posture_state_spec is None:
-                pass
-            else:
-                body_target = sub_constraint.posture_state_spec.body_target
-                if not body_target is None:
-                    if isinstance(body_target, PostureSpecVariable):
+                continue
+            body_target = sub_constraint.posture_state_spec.body_target
+            if not body_target is None:
+                if isinstance(body_target, PostureSpecVariable):
+                    continue
+                posture_type = None
+                is_specific = None
+                for posture_manifest_entry in sub_constraint.posture_state_spec.posture_manifest:
+                    if posture_manifest_entry.posture_type_specific:
+                        is_specific = True
+                        posture_type_entry = posture_manifest_entry.posture_type_specific
+                    else:
+                        is_specific = False
+                        posture_type_entry = posture_manifest_entry.posture_type_family
+                    if posture_type is not None and posture_type is not posture_type_entry:
+                        raise RuntimeError('Mismatched posture types within a single posture state spec! [maxr]')
+                    posture_type = posture_type_entry
+                if not posture_type is None:
+                    if posture_type.unconstrained:
                         pass
                     else:
-                        posture_type = None
-                        is_specific = None
-                        for posture_manifest_entry in sub_constraint.posture_state_spec.posture_manifest:
-                            if posture_manifest_entry.posture_type_specific:
-                                is_specific = True
-                                posture_type_entry = posture_manifest_entry.posture_type_specific
-                            else:
-                                is_specific = False
-                                posture_type_entry = posture_manifest_entry.posture_type_family
-                            if posture_type is not None and posture_type is not posture_type_entry:
-                                raise RuntimeError('Mismatched posture types within a single posture state spec! [maxr]')
-                            posture_type = posture_type_entry
-                        if not posture_type is None:
-                            if posture_type.unconstrained:
-                                pass
-                            else:
-                                new_constraints.remove(sub_constraint)
-                                if body_target.parts:
-                                    targets = (part for part in body_target.parts if part.supports_posture_type(posture_type, is_specific=is_specific))
-                                else:
-                                    targets = (body_target,)
-                                slot_constraints = []
-                                for target in targets:
-                                    target_body_posture = postures.create_posture(posture_type, sim, target, is_throwaway=True)
-                                    resolver = {body_target: target}.get
-                                    posture_state_spec = sub_constraint.posture_state_spec.get_concrete_version(resolver)
-                                    if posture_state_spec.body_target is not sub_constraint.posture_state_spec.body_target:
-                                        for entry in posture_state_spec.posture_manifest:
-                                            if entry.surface_target is not None and entry.surface_target.parts is not None and posture_state_spec.body_target.parent in entry.surface_target.parts:
+                        new_constraints.remove(sub_constraint)
+                        if body_target.parts:
+                            targets = (part for part in body_target.parts if part.supports_posture_type(posture_type, is_specific=is_specific))
+                        else:
+                            targets = (body_target,)
+                        slot_constraints = []
+                        for target in targets:
+                            target_body_posture = postures.create_posture(posture_type, sim, target, is_throwaway=True)
+                            resolver = {body_target: target}.get
+                            posture_state_spec = sub_constraint.posture_state_spec.get_concrete_version(resolver)
+                            if posture_state_spec.body_target is not sub_constraint.posture_state_spec.body_target:
+                                for entry in posture_state_spec.posture_manifest:
+                                    if entry.surface_target is not None:
+                                        if entry.surface_target.parts is not None:
+                                            if posture_state_spec.body_target.parent in entry.surface_target.parts:
                                                 surface_resolver = {entry.surface_target: posture_state_spec.body_target.parent}.get
                                                 posture_state_spec = posture_state_spec.get_concrete_version(surface_resolver)
-                                    slot_constraint = target_body_posture.build_slot_constraint(posture_state_spec=posture_state_spec)
-                                    slot_constraints.append(slot_constraint)
-                                slot_constraint_set = create_constraint_set(slot_constraints)
-                                new_constraint = sub_constraint.intersect(slot_constraint_set)
-                                new_constraints.append(new_constraint)
+                            slot_constraint = target_body_posture.build_slot_constraint(posture_state_spec=posture_state_spec)
+                            slot_constraints.append(slot_constraint)
+                        slot_constraint_set = create_constraint_set(slot_constraints)
+                        new_constraint = sub_constraint.intersect(slot_constraint_set)
+                        new_constraints.append(new_constraint)
         constraint = create_constraint_set(new_constraints)
         return constraint
 
@@ -1064,14 +1068,15 @@ class ResolvePostureContext(ImmutableType, InternMixin):
             else:
                 bodies = (body,)
             final_posture_state_spec = posture_state_spec if posture_state_spec is not None else somewhere.posture_state_spec
-            if target_or_part.is_same_object_or_part(surface_target):
-                surface_target = target_or_part
+            if target_or_part is not None:
+                if target_or_part.is_same_object_or_part(surface_target):
+                    surface_target = target_or_part
             for body_posture in bodies:
                 constraint = RequiredSlot.create_required_slot_set(actor, target_or_part, carry_target, self._asm_key, self._state_name, self._actor_name, self._target_name, self._carry_target_name, self._create_target_name, self._override_manifests, self._required_slots, body_posture, surface_target, final_posture_state_spec, initial_state_name=self._initial_state, age=somewhere.age, invalid_expected=invalid_expected, base_object=base_object, base_object_name=self._base_object_name)
-                if constraint.valid or posture_state is None:
+                if not constraint.valid and posture_state is None:
                     return somewhere
                 constraints.append(constraint)
-        if constraints or not invalid_expected:
+        if not constraints and not invalid_expected:
             logger.error("Tentative constraint resolution failure:\n            This is not expected and indicates a disagreement between\n            the information we have from Swing and tuning and what we\n            encountered when actually running the game, perhaps one of\n            the following:\n              * The ASM uses parameterized animation (string parameters determine\n                animation names) and the different possible Maya files\n                don't all have exactly the same namespaces and\n                constraints.\n              * One or more actors aren't set to valid objects.\n            ASM: {}".format(sims4.resources.get_debug_name(self._asm_key)))
         return create_constraint_set(constraints)
 
@@ -1085,12 +1090,11 @@ def get_constraints_excluding_unset_specific_postures(constraint_list):
             for manifest_entry in constraint.posture_state_spec.posture_manifest:
                 entry_posture_str = manifest_entry.specific
                 if entry_posture_str is None:
-                    pass
-                else:
-                    entry_posture = _get_posture_type_for_posture_name(entry_posture_str)
-                    if entry_posture is UNSET:
-                        valid_constraint = False
-                        break
+                    continue
+                entry_posture = _get_posture_type_for_posture_name(entry_posture_str)
+                if entry_posture is UNSET:
+                    valid_constraint = False
+                    break
             if valid_constraint:
                 constraints.append(constraint)
     return constraints
@@ -1374,7 +1378,8 @@ class _ConstraintSet(Constraint):
                         valid_constraints.remove(self_constraint)
                         valid_constraints.append(merged_constraint)
                     break
-            valid_constraints.append(constraint)
+            else:
+                valid_constraints.append(constraint)
         return create_constraint_set(valid_constraints, debug_name=self._debug_name)
 
     def get_holster_version(self):
@@ -1735,14 +1740,15 @@ def create_animation_constraint(asm_key, actor_name, target_name, carry_target_n
                     if create_target is not None:
                         asm.set_actor(create_target_name, create_target)
                     body_target_var = PostureSpecVariable.ANYTHING
-                    if target_name == posture.get_target_name():
-                        body_target_var = PostureSpecVariable.INTERACTION_TARGET
+                    if target_name is not None:
+                        if target_name == posture.get_target_name():
+                            body_target_var = PostureSpecVariable.INTERACTION_TARGET
                     try:
                         actor.posture = posture
                         containment_slot_to_slot_data = asm.get_boundary_conditions_list(actor, state_name, from_state_name=initial_state)
                     finally:
                         actor.posture = None
-                    if not (target_name is not None and containment_slot_to_slot_data):
+                    if not containment_slot_to_slot_data:
                         bound_posture_manifest_entry = posture_manifest_entry.apply_actor_map(actor_name_to_animation_participant_map.get)
                         bound_posture_manifest_entry = bound_posture_manifest_entry.intern()
                         if animation_overrides is not None and animation_overrides.required_slots:
@@ -1774,8 +1780,10 @@ def create_animation_constraint(asm_key, actor_name, target_name, carry_target_n
                                 relative_object_name = boundary_condition.pre_condition_reference_object_name or boundary_condition.post_condition_reference_object_name
                                 if relative_object_name is not None:
                                     tentative = posture_type.unconstrained
-                                    if relative_object_name == target_name:
-                                        bc_body_target_var = PostureSpecVariable.INTERACTION_TARGET
+                                    if posture.get_target_name() is None:
+                                        if bc_body_target_var == PostureSpecVariable.ANYTHING:
+                                            if relative_object_name == target_name:
+                                                bc_body_target_var = PostureSpecVariable.INTERACTION_TARGET
                             required_slots = None
                             if animation_overrides is not None:
                                 required_slots = animation_overrides.required_slots
@@ -1852,10 +1860,11 @@ class RequiredSlot:
     def _build_relative_slot_data(asm, sim, target, actor_name, target_name, posture, state_name, exit_slot_start_state=None, exit_slot_end_state='exit', locked_params=frozendict(), initial_state_name=DEFAULT, base_object_name=None):
         locked_params += posture.default_animation_params
         anim_overrides_target = target.get_anim_overrides(target_name)
-        if anim_overrides_target.params:
-            locked_params += anim_overrides_target.params
+        if anim_overrides_target is not None:
+            if anim_overrides_target.params:
+                locked_params += anim_overrides_target.params
         containment_slot_to_slot_data_entry = asm.get_boundary_conditions_list(sim, state_name, locked_params=locked_params, from_state_name=initial_state_name, posture=posture, base_object_name=base_object_name)
-        if anim_overrides_target is not None and exit_slot_start_state is not None:
+        if exit_slot_start_state is not None:
             containment_slot_to_slot_data_exit = asm.get_boundary_conditions_list(sim, exit_slot_end_state, locked_params=locked_params, from_state_name=exit_slot_start_state, entry=False, posture=posture, base_object_name=base_object_name)
         else:
             containment_slot_to_slot_data_exit = ()
@@ -1935,13 +1944,15 @@ class RequiredSlot:
                             logger.callstack('Unexpected relative object in required slot for {}: {}', asm, boundary_condition_entry.pre_condition_reference_object_name or boundary_condition_entry.post_condition_reference_object_name, level=sims4.log.LEVEL_ERROR)
                             (routing_transform_entry, containment_transform, _, reference_joint_exit) = boundary_condition_entry.get_transforms(asm, target)
                             slots_to_params_entry_absolute.append((routing_transform_entry, reference_joint_exit, param_sequences_entry))
-                            if posture_state_spec is None and get_posture_state_spec_fn is not None:
-                                posture_state_spec = get_posture_state_spec_fn(boundary_condition_entry)
+                            if posture_state_spec is None:
+                                if get_posture_state_spec_fn is not None:
+                                    posture_state_spec = get_posture_state_spec_fn(boundary_condition_entry)
                     else:
                         (routing_transform_entry, containment_transform, _, reference_joint_exit) = boundary_condition_entry.get_transforms(asm, target)
                         slots_to_params_entry_absolute.append((routing_transform_entry, reference_joint_exit, param_sequences_entry))
-                        if posture_state_spec is None and get_posture_state_spec_fn is not None:
-                            posture_state_spec = get_posture_state_spec_fn(boundary_condition_entry)
+                        if posture_state_spec is None:
+                            if get_posture_state_spec_fn is not None:
+                                posture_state_spec = get_posture_state_spec_fn(boundary_condition_entry)
             if containment_transform is None:
                 pass
             else:
@@ -2029,9 +2040,13 @@ class RequiredSlot:
 
     @staticmethod
     def create_required_slot_set(sim, target, carry_target, asm_key, state_name, actor_name, target_name, carry_target_name, create_target_name, posture_manifest_overrides, required_slots, posture, surface_target, posture_state_spec, age=None, initial_state_name=DEFAULT, invalid_expected=False, base_object=None, base_object_name=None):
-        if target.carryable_component is not None:
-            target = surface_target
-        if carry_target is not None and (target_name is not None and (target_name != carry_target_name and surface_target is not None)) and target is None:
+        if carry_target is not None:
+            if target_name is not None:
+                if target_name != carry_target_name:
+                    if surface_target is not None:
+                        if target.carryable_component is not None:
+                            target = surface_target
+        if target is None:
             raise RuntimeError('Posture transition failed due to invalid tuning: Trying to create a required slot set with no target. \n  Sim: {}\n  Asm_Key: {}\n  State Name: {}\n  Actor Name: {}\n  Target Name: {}'.format(sim, asm_key, state_name, actor_name, target_name))
         if target.is_sim:
             return Constraint(posture_state_spec=posture_state_spec)
@@ -2043,11 +2058,13 @@ class RequiredSlot:
         def get_posture_state_spec(boundary_condition):
             return RequiredSlot._build_posture_state_spec_for_boundary_condition(boundary_condition, asm, sim, posture_state_spec_target, carry_target, surface_target, actor_name, target_name, carry_target_name, create_target_name, posture, state_name, posture_state_spec, required_slots)
 
-        if posture is not None:
-            target = posture.target
+        if target_name is None:
+            if target is None:
+                if posture is not None:
+                    target = posture.target
         (route_type, route_target) = target.route_target
         (containment_slot_to_slot_data_entry, _) = RequiredSlot._build_relative_slot_data(asm, sim, target, actor_name, target_name, posture, state_name, initial_state_name=initial_state_name, base_object_name=base_object_name)
-        if not (target_name is None and target is None and containment_slot_to_slot_data_entry):
+        if not containment_slot_to_slot_data_entry:
             return Nowhere('create_required_slot_set, failed to build entry locations for asm, ASM: {}, Sim: {}, Target: {}', asm, sim, target)
         if surface_target is DEFAULT:
             surface_target = posture.surface_target
@@ -2099,12 +2116,13 @@ class RequiredSlotSingle(SmallAreaConstraint):
                 if transform is None:
                     routing_surface = target.routing_surface
                 else:
+                    world_surface = routing.SurfaceIdentifier(services.current_zone_id() or 0, target.routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
                     bounds = sims4.geometry.QtCircle(sims4.math.Vector2(transform.translation.x, transform.translation.z), 0.05)
-                    object_surfaces = services.sim_quadtree().query(bounds=bounds, surface_id=target.routing_surface, filter=ItemType.ROUTABLE_OBJECT_SURFACE)
+                    object_surfaces = services.sim_quadtree().query(bounds=bounds, surface_id=world_surface, filter=ItemType.ROUTABLE_OBJECT_SURFACE)
                     if object_surfaces:
                         routing_surface = target.routing_surface
                     else:
-                        routing_surface = routing.SurfaceIdentifier(services.current_zone_id() or 0, target.routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
+                        routing_surface = world_surface
             else:
                 routing_surface = target.routing_surface
         geometry = create_transform_geometry(containment_transform)
@@ -2175,30 +2193,29 @@ class RequiredSlotSingle(SmallAreaConstraint):
         for (routing_transform, reference_joint, my_locked_params_list) in slots_to_params:
             for my_locked_params in my_locked_params_list:
                 if not do_params_match(my_locked_params, locked_params):
-                    pass
+                    continue
+                transition_posture = my_locked_params.get('transitionPosture')
+                _routing_surface_override = self._target.get_surface_override_for_posture(transition_posture)
+                if _routing_surface_override is not None:
+                    routing_surface_override = _routing_surface_override
+                if routing_transform is not None:
+                    geometry = create_transform_geometry(routing_transform)
+                    connectivity_handle = routing.connectivity.SlotRoutingHandle(*args, constraint=self, geometry=geometry, locked_params=my_locked_params, routing_surface_override=routing_surface_override, los_reference_point=los_reference_point, **kwargs)
                 else:
-                    transition_posture = my_locked_params.get('transitionPosture')
-                    _routing_surface_override = self._target.get_surface_override_for_posture(transition_posture)
-                    if _routing_surface_override is not None:
-                        routing_surface_override = _routing_surface_override
-                    if routing_transform is not None:
-                        geometry = create_transform_geometry(routing_transform)
-                        connectivity_handle = routing.connectivity.SlotRoutingHandle(*args, constraint=self, geometry=geometry, locked_params=my_locked_params, routing_surface_override=routing_surface_override, los_reference_point=los_reference_point, **kwargs)
-                    else:
-                        universal_constraint = self.get_universal_constraint(reference_joint=reference_joint)
-                        geometry = universal_constraint.geometry
-                        if not entry:
-                            for restriction in geometry.restrictions:
-                                if isinstance(restriction, sims4.geometry.RelativeFacingRange):
-                                    restriction.invert = True
-                        reference_transform = None
-                        if reference_joint:
-                            reference_transform = self._target.get_joint_transform_for_joint(reference_joint)
-                            root_transform = self.containment_transform if entry else self.containment_transform_exit
-                            reference_transform = sims4.math.Transform(sims4.math.Vector3(root_transform.translation.x, reference_transform.translation.y, root_transform.translation.z), root_transform.orientation)
-                        connectivity_handle = routing.connectivity.UniversalSlotRoutingHandle(*args, constraint=self, geometry=geometry, locked_params=my_locked_params, routing_surface_override=routing_surface_override, los_reference_point=los_reference_point, reference_transform=reference_transform, entry=entry, cost_functions_override=universal_constraint._scoring_functions, posture=self._posture, **kwargs)
-                    handles.append(connectivity_handle)
-                    break
+                    universal_constraint = self.get_universal_constraint(reference_joint=reference_joint)
+                    geometry = universal_constraint.geometry
+                    if not entry:
+                        for restriction in geometry.restrictions:
+                            if isinstance(restriction, sims4.geometry.RelativeFacingRange):
+                                restriction.invert = True
+                    reference_transform = None
+                    if reference_joint:
+                        reference_transform = self._target.get_joint_transform_for_joint(reference_joint)
+                        root_transform = self.containment_transform if entry else self.containment_transform_exit
+                        reference_transform = sims4.math.Transform(sims4.math.Vector3(root_transform.translation.x, reference_transform.translation.y, root_transform.translation.z), root_transform.orientation)
+                    connectivity_handle = routing.connectivity.UniversalSlotRoutingHandle(*args, constraint=self, geometry=geometry, locked_params=my_locked_params, routing_surface_override=routing_surface_override, los_reference_point=los_reference_point, reference_transform=reference_transform, entry=entry, cost_functions_override=universal_constraint._scoring_functions, posture=self._posture, **kwargs)
+                handles.append(connectivity_handle)
+                break
         return handles
 
     def constraint_cost(self, *args, **kwargs):
@@ -2343,7 +2360,7 @@ def Cone(pos, forward, min_radius, max_radius, angle, routing_surface, rotation_
 
 class TunedCone:
 
-    def __init__(self, min_radius, max_radius, angle, offset, ideal_radius_min, ideal_radius_max, ideal_angle, radial_cost_weight, angular_cost_weight, multi_surface, enables_height_scoring):
+    def __init__(self, min_radius, max_radius, angle, offset, ideal_radius_min, ideal_radius_max, ideal_angle, radial_cost_weight, angular_cost_weight, multi_surface, enables_height_scoring, require_los):
         self._min_radius = min_radius
         self._max_radius = max_radius
         self._angle = angle
@@ -2355,6 +2372,7 @@ class TunedCone:
         self._angular_cost_weight = angular_cost_weight
         self._multi_surface = multi_surface
         self._enables_height_scoring = enables_height_scoring
+        self._require_los = require_los
 
     def create_constraint(self, sim, target, target_position=DEFAULT, target_forward=DEFAULT, target_routing_surface=DEFAULT, **kwargs):
         if target is None and (target_position is DEFAULT or target_forward is DEFAULT or target_routing_surface is DEFAULT):
@@ -2373,13 +2391,14 @@ class TunedCone:
         if self._angular_cost_weight != 0 and target_forward.z == 0 and target_forward.x == 0:
             logger.error('Sim: () attempt to create a tuned Cone constraint with angular cost weight on a target: {} with invalid forward vector', sim, target)
             return Nowhere('Attempt to create a tuned Cone constraint with angular cost weight on a target: {} with invalid forward vector', target)
-        return Cone(target_position, target_forward, self._min_radius, self._max_radius, self._angle, target_routing_surface, self._offset, self._ideal_radius_min, self._ideal_radius_max, self._ideal_angle, self._radial_cost_weight, self._angular_cost_weight, multi_surface=self._multi_surface, **kwargs)
+        los_reference_point = DEFAULT if self._require_los else None
+        return Cone(target_position, target_forward, self._min_radius, self._max_radius, self._angle, target_routing_surface, self._offset, self._ideal_radius_min, self._ideal_radius_max, self._ideal_angle, self._radial_cost_weight, self._angular_cost_weight, multi_surface=self._multi_surface, los_reference_point=los_reference_point, **kwargs)
 
 class TunableCone(TunableSingletonFactory):
     FACTORY_TYPE = TunedCone
 
     def __init__(self, min_radius, max_radius, angle, description='A tunable type for creating cone constraints.', callback=None, **kwargs):
-        super().__init__(min_radius=Tunable(description='\n                                            The minimum cone radius.\n                                            ', tunable_type=float, default=min_radius), max_radius=Tunable(description='\n                                            The maximum cone radius.\n                                            ', tunable_type=float, default=max_radius), angle=TunableAngle(description='\n                                            The cone angle in degrees.\n                                            ', default=angle), offset=TunableAngle(description='\n                                            An offset (rotation) in degrees.\n                                            \n                                            By default the cone will face the \n                                            forward vector of the object.  Use\n                                            an offset to rotate the cone to \n                                            face a different direction. \n                                            ', default=_DEFAULT_CONE_ROTATION_OFFSET), ideal_radius_min=TunableRange(description='\n                                            The radial lower bound of an ideal \n                                            region as a fraction of the \n                                            difference between max_radius and \n                                            min_radius.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_RADIUS_MIN, minimum=0, maximum=1), ideal_radius_max=TunableRange(description='\n                                            The radial upper bound of an ideal \n                                            region as a fraction of the \n                                            difference between max_radius and \n                                            min_radius.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_RADIUS_MAX, minimum=0, maximum=1), ideal_angle=TunableRange(description='\n                                            The angular extents of an ideal \n                                            region as a fraction of angle.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_IDEAL_ANGLE, minimum=0, maximum=1), radial_cost_weight=TunableRange(description='\n                                            The importance of the radial cost \n                                            function.\n                                             = 0: Not used\n                                             > 1: Important on surfaces\n                                             > 2: Important on grass\n                                            ', tunable_type=float, default=_DEFAULT_COST_WEIGHT, minimum=0), angular_cost_weight=TunableRange(description='\n                                            The importance of the angular cost \n                                            function.\n                                             = 0: Not used\n                                             > 1: Important on surfaces\n                                             > 2: Important on grass\n                                            ', tunable_type=float, default=_DEFAULT_COST_WEIGHT, minimum=0), multi_surface=Tunable(description='\n                                            If enabled, this constraint will be\n                                            considered for multiple surfaces.\n                                            \n                                            Example: You want a circle\n                                            constraint that can be both inside\n                                            and outside of a pool.\n                                            ', tunable_type=bool, default=False), enables_height_scoring=Tunable(description='\n                                            If enabled, this constraint will \n                                            score goals using the height of\n                                            the surface.  The higher the goal\n                                            the cheaper it is.\n                                            ', tunable_type=bool, default=False), description=description, **kwargs)
+        super().__init__(min_radius=Tunable(description='\n                                            The minimum cone radius.\n                                            ', tunable_type=float, default=min_radius), max_radius=Tunable(description='\n                                            The maximum cone radius.\n                                            ', tunable_type=float, default=max_radius), angle=TunableAngle(description='\n                                            The cone angle in degrees.\n                                            ', default=angle), offset=TunableAngle(description='\n                                            An offset (rotation) in degrees.\n                                            \n                                            By default the cone will face the \n                                            forward vector of the object.  Use\n                                            an offset to rotate the cone to \n                                            face a different direction. \n                                            ', default=_DEFAULT_CONE_ROTATION_OFFSET), ideal_radius_min=TunableRange(description='\n                                            The radial lower bound of an ideal \n                                            region as a fraction of the \n                                            difference between max_radius and \n                                            min_radius.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_RADIUS_MIN, minimum=0, maximum=1), ideal_radius_max=TunableRange(description='\n                                            The radial upper bound of an ideal \n                                            region as a fraction of the \n                                            difference between max_radius and \n                                            min_radius.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_RADIUS_MAX, minimum=0, maximum=1), ideal_angle=TunableRange(description='\n                                            The angular extents of an ideal \n                                            region as a fraction of angle.\n                                            ', tunable_type=float, default=_DEFAULT_CONE_IDEAL_ANGLE, minimum=0, maximum=1), radial_cost_weight=TunableRange(description='\n                                            The importance of the radial cost \n                                            function.\n                                             = 0: Not used\n                                             > 1: Important on surfaces\n                                             > 2: Important on grass\n                                            ', tunable_type=float, default=_DEFAULT_COST_WEIGHT, minimum=0), angular_cost_weight=TunableRange(description='\n                                            The importance of the angular cost \n                                            function.\n                                             = 0: Not used\n                                             > 1: Important on surfaces\n                                             > 2: Important on grass\n                                            ', tunable_type=float, default=_DEFAULT_COST_WEIGHT, minimum=0), multi_surface=Tunable(description='\n                                            If enabled, this constraint will be\n                                            considered for multiple surfaces.\n                                            \n                                            Example: You want a circle\n                                            constraint that can be both inside\n                                            and outside of a pool.\n                                            ', tunable_type=bool, default=False), enables_height_scoring=Tunable(description='\n                                            If enabled, this constraint will \n                                            score goals using the height of\n                                            the surface.  The higher the goal\n                                            the cheaper it is.\n                                            ', tunable_type=bool, default=False), require_los=Tunable(description="\n                                            If checked, the Sim will require line of sight to the actor.  Positions where a Sim\n                                            can't see the actor (e.g. there's a wall in the way) won't be valid.\n                                            \n                                            NOTE: This will NOT work on a\n                                            constraint that is not used to\n                                            generate routing goals such as\n                                            broadcasters and reactions, use a\n                                            Line Of Sight Constraint instead.\n                                            This will work on constraints used\n                                            to keep Sims in an interaction.\n                                            ", tunable_type=bool, default=True), description=description, **kwargs)
 
 class Circle(Constraint):
     NUM_SIDES = Tunable(int, 8, description='The number of polygon sides to use when approximating a circle constraint.')

@@ -4,7 +4,7 @@ from distributor.ops import Op
 from distributor.rollback import ProtocolBufferRollback
 from seasons.seasons_enums import SeasonType
 import date_and_time
-START_SEASON_VALUES = frozendict({SeasonType.SPRING: 2.5, SeasonType.WINTER: 1.5, SeasonType.FALL: 0.5, SeasonType.SUMMER: 3.5})
+START_SEASON_VALUES = frozendict({SeasonType.SUMMER: 3.5, SeasonType.FALL: 0.5, SeasonType.WINTER: 1.5, SeasonType.SPRING: 2.5})
 MAX_SEASON_INTERPOLATE_VALUE = 4.0
 
 class SeasonInterpolationOp(Op):

@@ -119,8 +119,8 @@ class Royalty:
 def _verify_tunable_callback(instance_class, tunable_name, source, value, **kwargs):
     for royalty_type in RoyaltyType:
         if royalty_type == RoyaltyType.INVALID:
-            pass
-        elif royalty_type not in RoyaltyTracker.ROYALTY_TYPE_DATA:
+            continue
+        if royalty_type not in RoyaltyTracker.ROYALTY_TYPE_DATA:
             logger.error('Tuning: Royalty Type {} is tuned in the dynamic enum\n                but is missing a mapping in ROYALTY_TYPE_DATA for instance {}\n                ', royalty_type, instance_class)
 
 class RoyaltyTracker(SimInfoTracker):
@@ -196,7 +196,7 @@ class RoyaltyTracker(SimInfoTracker):
             self.show_royalty_notification(royalty_payment_dict)
 
     def show_royalty_notification(self, royalty_payment_dict):
-        notification_text = LocalizationHelperTuning.get_new_line_separated_strings(*(LocalizationHelperTuning.get_bulleted_list(RoyaltyTracker.get_name_for_type(royalty_type), (RoyaltyTracker.get_line_item_string(r.entry_name, royalty_payment_dict[r]) for r in royalty_list)) for (royalty_type, royalty_list) in self._royalties.items() if royalty_list))
+        notification_text = LocalizationHelperTuning.get_new_line_separated_strings(*(LocalizationHelperTuning.get_bulleted_list(RoyaltyTracker.get_name_for_type(royalty_type), *(RoyaltyTracker.get_line_item_string(r.entry_name, royalty_payment_dict[r]) for r in royalty_list)) for (royalty_type, royalty_list) in self._royalties.items() if royalty_list))
         sim_info = self.sim_info
         resolver = SingleSimResolver(sim_info)
         dialog = self.ROYALTY_NOTIFICATION(sim_info, resolver, text=lambda *_: notification_text)
@@ -267,9 +267,8 @@ class RoyaltyAlarmManager:
         for sim_info in household.sim_info_gen():
             tracker = sim_info.royalty_tracker
             if tracker is None:
-                pass
-            else:
-                tracker.update_royalties_and_get_paid()
+                continue
+            tracker.update_royalties_and_get_paid()
 
     def _lifestyle_brand_alarm_tick(self, *_):
         household = services.active_household()
@@ -278,6 +277,5 @@ class RoyaltyAlarmManager:
         for sim_info in household.sim_info_gen():
             tracker = sim_info.lifestyle_brand_tracker
             if tracker is None:
-                pass
-            else:
-                tracker.payout_lifestyle_brand()
+                continue
+            tracker.payout_lifestyle_brand()

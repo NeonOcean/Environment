@@ -74,7 +74,10 @@ class BaseRelationshipTrackInstanceData:
             relationship.add_relationship_bit(relationship.sim_id_a, relationship.sim_id_b, bit_to_add, notify_client=False)
             notify_client = True
         if notify_client and not relationship.suppress_client_updates:
-            relationship.send_relationship_info()
+            if relationship._is_object_rel:
+                relationship.send_object_relationship_info()
+            else:
+                relationship.send_relationship_info()
 
     @staticmethod
     def _setup_callback_listeners_for_track(bit_set_index, bit_set_list, track, track_update_add_callback, track_update_remove_callback):
@@ -89,11 +92,12 @@ class BaseRelationshipTrackInstanceData:
         remove_callback_listener_data = track.tracker.create_and_add_listener(track.stat_type, threshold, track_update_remove_callback)
         add_callback_listener_data = None
         next_node_index = bit_set_index + 1 if node.remove_value >= 0 else bit_set_index - 1
-        if next_node_index < len(bit_set_list):
-            next_node = bit_set_list[next_node_index]
-            alarm_op = operator.ge if next_node.add_value >= 0 else operator.lt
-            threshold = Threshold(next_node.add_value, alarm_op)
-            add_callback_listener_data = track.tracker.create_and_add_listener(track.stat_type, threshold, track_update_add_callback)
+        if next_node_index >= 0:
+            if next_node_index < len(bit_set_list):
+                next_node = bit_set_list[next_node_index]
+                alarm_op = operator.ge if next_node.add_value >= 0 else operator.lt
+                threshold = Threshold(next_node.add_value, alarm_op)
+                add_callback_listener_data = track.tracker.create_and_add_listener(track.stat_type, threshold, track_update_add_callback)
         return (add_callback_listener_data, remove_callback_listener_data)
 
 class BitTrackNode:
@@ -372,8 +376,9 @@ class RelationshipTrackData2dLink(BaseRelationshipTrackData):
             for x_content in y_content.bit_set:
                 if x_content.bit is bit:
                     x_track = x_content.bit.triggered_track
-        if not hasattr(y_content, 'average_value'):
-            pass
+        if hasattr(x_content, 'average_value'):
+            if not hasattr(y_content, 'average_value'):
+                pass
         track_mean_list = [TrackMean(x_track, x_content.average_value), TrackMean(y_track, y_content.average_value)]
         return track_mean_list
 

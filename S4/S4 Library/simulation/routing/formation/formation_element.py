@@ -18,5 +18,6 @@ class RoutingFormationElement(XevtTriggeredElement):
                 if formation.test_formation(master, slave):
                     formation(master, slave, interaction=self.interaction)
                     break
-            return False
+            else:
+                return False
         return True

@@ -239,5 +239,6 @@ def set_purchase_intents_to_almost_max(_connection=None):
     almost_max_value = stat_type.max_value - 1
     for sim in services.sim_info_manager().instanced_sims_gen():
         stat = sim.get_statistic(stat_type, add=False)
-        if stat is not None and stat.get_value() < almost_max_value:
-            stat.set_value(almost_max_value)
+        if stat is not None:
+            if stat.get_value() < almost_max_value:
+                stat.set_value(almost_max_value)

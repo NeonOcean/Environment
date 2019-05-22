@@ -47,12 +47,11 @@ class TunableBalloon(TunableFactory):
                     else:
                         used_sim_set.add(sim)
                         if icon_info[0] is None and icon_info[1] is None:
-                            pass
-                        else:
-                            (balloon_type, priority) = BALLOON_TYPE_LOOKUP[balloon_icon.balloon_type]
-                            balloon_overlay = balloon_icon.overlay
-                            request = BalloonRequest(sim, icon_info[0], icon_info[1], balloon_overlay, balloon_type, priority, TunableBalloon.BALLOON_DURATION, balloon_delay, balloon_delay_random_offset, category_icon)
-                            balloon_requests.append(request)
+                            continue
+                        (balloon_type, priority) = BALLOON_TYPE_LOOKUP[balloon_icon.balloon_type]
+                        balloon_overlay = balloon_icon.overlay
+                        request = BalloonRequest(sim, icon_info[0], icon_info[1], balloon_overlay, balloon_type, priority, TunableBalloon.BALLOON_DURATION, balloon_delay, balloon_delay_random_offset, category_icon)
+                        balloon_requests.append(request)
             if sequence is not None:
                 return (balloon_requests, sequence)
         return balloon_requests

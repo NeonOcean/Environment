@@ -19,7 +19,7 @@ class GenericChooseBetweenTwoAffordancesSuperInteraction(ImmediateSuperInteracti
         if self.accept_affordance is None or self.reject_affordance is None:
             affordance = self.accept_affordance or self.reject_affordance
             self.sim.push_super_affordance(affordance, target=self.target, context=context)
-            return
+            yield
 
         def _on_response(dialog):
             affordance = self.accept_affordance if dialog.accepted else self.reject_affordance

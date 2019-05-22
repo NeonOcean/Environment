@@ -26,10 +26,10 @@ class _WaypointGeneratorMultipleObjectByTag(_WaypointGeneratorBase):
         self._valid_objects = []
         for obj in services.object_manager().get_objects_matching_tags(self.object_tags, match_any=True):
             if self.placement_restriction is not None and self.placement_restriction == obj.is_outside:
-                pass
-            else:
-                distance_from_sim = obj.position - self._sim.position
-                if distance_from_sim.magnitude_squared() <= self.object_max_distance and obj.is_connected(self._sim):
+                continue
+            distance_from_sim = obj.position - self._sim.position
+            if distance_from_sim.magnitude_squared() <= self.object_max_distance:
+                if obj.is_connected(self._sim):
                     self._valid_objects.append(obj)
         self._valid_objects = self.object_search_strategy.get_waypoint_objects(self._valid_objects)
         if not self._valid_objects:

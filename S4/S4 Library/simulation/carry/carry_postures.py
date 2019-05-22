@@ -74,15 +74,15 @@ class CarrySystemTerrainTarget(CarrySystemTarget):
     def __init__(self, sim, obj, put, transform, routing_surface=None, custom_event_callback=None):
         super().__init__(obj, put)
         self._sim = sim
+        self._transform = sims4.math.Transform(translation=transform.translation, orientation=transform.orientation)
         if put:
             put_down_strategy = obj.get_put_down_strategy(parent=sim)
             if put_down_strategy.put_down_on_terrain_facing_sim:
                 angle = sims4.math.yaw_quaternion_to_angle(transform.orientation) + sims4.math.PI
-                transform.orientation = sims4.math.angle_to_yaw_quaternion(angle)
+                self._transform.orientation = sims4.math.angle_to_yaw_quaternion(angle)
             else:
                 angle = vector3_angle(transform.orientation.transform_vector(sims4.math.Vector3.X_AXIS()))
-                transform.orientation = sims4.math.angle_to_yaw_quaternion(angle)
-        self._transform = transform
+                self._transform.orientation = sims4.math.angle_to_yaw_quaternion(angle)
         self._routing_surface = routing_surface
         self._custom_event_callback = custom_event_callback
 
@@ -253,8 +253,9 @@ class CarryingNothing(CarryPosture):
         objects_to_find = []
         for object_id in arb.actor_ids:
             object_found = services.object_manager().get(object_id)
-            if object_found is not None and object_found.carryable_component is not None:
-                objects_to_find.append(object_found)
+            if object_found is not None:
+                if object_found.carryable_component is not None:
+                    objects_to_find.append(object_found)
         for object_found in objects_to_find:
             if in_xevt_handler:
                 object_found.carryable_component.on_object_uncarry(self.sim)
@@ -377,8 +378,9 @@ class CarryingObject(CarryPosture):
                 carry_system_target = CarrySystemRuntimeSlotTarget(self.sim, self.target, False, runtime_slot)
             else:
                 target_routing_surface = self.target.routing_surface
-                if target_routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
-                    locked_params += {'surfaceHeight': carry_system_target.surface_height}
+                if target_routing_surface is not None:
+                    if target_routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
+                        locked_params += {'surfaceHeight': carry_system_target.surface_height}
             if self.target.parent is not None:
                 self.asm.set_actor('surface', self.target.parent)
         call_super = True

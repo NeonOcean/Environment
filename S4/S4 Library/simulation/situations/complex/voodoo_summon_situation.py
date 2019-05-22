@@ -70,7 +70,7 @@ class _ComeHereState(SituationState):
             return False
         context = interactions.context.InteractionContext(self.owner._summoned_sim, interactions.context.InteractionContext.SOURCE_SCRIPT, interactions.priority.Priority.High, insert_strategy=QueueInsertStrategy.NEXT)
         enqueue_result = self.owner._summoned_sim.push_super_affordance(self.owner.come_here_affordance, target_sim, context)
-        if enqueue_result and enqueue_result.interaction.is_finishing:
+        if not enqueue_result or enqueue_result.interaction.is_finishing:
             return False
         self._interaction = enqueue_result.interaction
         self._interaction.register_on_finishing_callback(self._on_finishing_callback)

@@ -1,3 +1,4 @@
+import random
 from autonomy.autonomy_request import AutonomyDistanceEstimationBehavior
 from crafting.crafting_interactions import DebugCreateCraftableInteraction
 from distributor.shared_messages import IconInfoData
@@ -169,9 +170,16 @@ class _RingDoorBellState(SituationState):
         if self.owner._crafted_object_id != 0:
             target = services.current_zone().inventory_manager.get(self.owner._crafted_object_id)
         else:
-            recipe = services.recipe_manager().get(self.owner._object_definition_to_craft)
-            if recipe is None:
-                raise ValueError('No recipe for {}'.format(self))
+            obj_def_to_craft = self.owner._object_definition_to_craft
+            if obj_def_to_craft == 0:
+                possible_recipes = self.owner._service_npc_type.recipe_picker_on_hire.recipes
+                if possible_recipes is None:
+                    raise ValueError('No recipe for {}'.format(self))
+                recipe = random.choice(possible_recipes)
+            else:
+                recipe = services.recipe_manager().get(obj_def_to_craft)
+                if recipe is None:
+                    raise ValueError('No recipe for {}'.format(self))
             target = DebugCreateCraftableInteraction.create_craftable(recipe, self.owner._service_npc, owning_household_id_override=self.owner._hiring_household.id, place_in_crafter_inventory=True)
             if target is None:
                 raise ValueError('No craftable created for {} on {}'.format(recipe, self))

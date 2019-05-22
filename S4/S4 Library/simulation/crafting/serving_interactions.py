@@ -23,17 +23,16 @@ SERVING_TUNING_GROUP = 'Serving Tunings'
 
 def find_serve_target(target, object_info, deliver_part=None):
     object_or_part = deliver_part or target
-    if object_or_part.is_part or not object_or_part.parts:
+    if not object_or_part.is_part and not object_or_part.parts:
         return object_or_part
     part_owner = object_or_part.part_owner if object_or_part.is_part else object_or_part
     for part in part_owner.parts:
         for runtime_slot in part.get_runtime_slots_gen():
             if runtime_slot.decorative:
-                pass
-            elif not runtime_slot.is_valid_for_placement(definition=object_info.definition, objects_to_ignore=runtime_slot.children):
-                pass
-            else:
-                return part
+                continue
+            if not runtime_slot.is_valid_for_placement(definition=object_info.definition, objects_to_ignore=runtime_slot.children):
+                continue
+            return part
     if part_owner.parts:
         logger.error('Could not find a Part on {} with valid slots for {}. Are you sure both objects have the correct slot type set?', part_owner, object_info.definition, owner='rmccord')
     return part_owner
@@ -42,7 +41,7 @@ def push_object_pick_up_and_consume(parent_crafting_interaction, order_sim, obje
     if order_sim is None or order_sim.si_state is None or order_sim.is_being_destroyed:
         object_to_serve.destroy(source=parent_crafting_interaction, cause='Destroying crafted object because ordering Sim no longer exists.')
         return TestResult(False, 'Ordering Sim is None or being destroyed.')
-    if not (parent_crafting_interaction.sim is order_sim and (parent_crafting_interaction.process.orders or parent_crafting_interaction.should_push_consume(check_phase=False))):
+    if not (parent_crafting_interaction.sim is order_sim and (parent_crafting_interaction.process.orders or not parent_crafting_interaction.should_push_consume(check_phase=False))):
         return TestResult(False, 'Ordering Sim is not supposed to pick up the object if they are not thirsty.')
     context = InteractionContext(order_sim, parent_crafting_interaction.source, parent_crafting_interaction.priority, insert_strategy=QueueInsertStrategy.NEXT, preferred_carrying_sim=parent_crafting_interaction.sim)
     if context.sim is None:
@@ -108,10 +107,10 @@ class ServeObjectToSlotMixin(ServeObjectMixin):
             self.dest_slot = None
             for runtime_slot in object_or_part.get_runtime_slots_gen():
                 if runtime_slot.decorative:
-                    pass
-                elif not runtime_slot.is_valid_for_placement(obj=self.object_to_serve, objects_to_ignore=runtime_slot.children):
-                    pass
-                elif runtime_slot.empty:
+                    continue
+                if not runtime_slot.is_valid_for_placement(obj=self.object_to_serve, objects_to_ignore=runtime_slot.children):
+                    continue
+                if runtime_slot.empty:
                     self.dest_slot = runtime_slot
                     break
                 else:
@@ -238,17 +237,19 @@ class CraftingPhaseServeObjectSuperInteraction(CraftingPhaseSuperInteractionMixi
             sequence = self._build_sequence_with_callback(callback, sequence=sequence)
             result = yield from element_utils.run_child(timeline, sequence)
             return result
+            yield
 
         return (build_element(crafting_sequence),)
 
     def _run_interaction_gen(self, timeline):
         cancel_interactions_liability = self.get_liability(CANCEL_INTERACTION_ON_EXIT_LIABILITY)
-        if self.order_sim is not None:
-            cancel_entries = cancel_interactions_liability.get_cancel_entries_for_sim(self.order_sim)
-            if cancel_entries is not None:
-                self.order_sim_cancel_entries = WeakSet(cancel_entries)
-                for entry in tuple(self.order_sim_cancel_entries):
-                    cancel_interactions_liability.remove_cancel_entry(self.order_sim, entry)
+        if cancel_interactions_liability is not None:
+            if self.order_sim is not None:
+                cancel_entries = cancel_interactions_liability.get_cancel_entries_for_sim(self.order_sim)
+                if cancel_entries is not None:
+                    self.order_sim_cancel_entries = WeakSet(cancel_entries)
+                    for entry in tuple(self.order_sim_cancel_entries):
+                        cancel_interactions_liability.remove_cancel_entry(self.order_sim, entry)
 
 class ServeToSlotSuperInteraction(ServeObjectToSlotMixin, CraftingPhaseServeObjectSuperInteraction):
     pass
@@ -286,7 +287,7 @@ class ChooseDeliverySuperInteraction(CraftingPhaseSuperInteractionMixin, SuperIn
 
     @classmethod
     def _verify_tuning_callback(cls):
-        if cls.skip_serve_if_crafter_is_orderer or cls.serve_to_slot_affordance is None and cls.serve_to_sit_slot_affordance is None:
+        if not cls.skip_serve_if_crafter_is_orderer and cls.serve_to_slot_affordance is None and cls.serve_to_sit_slot_affordance is None:
             logger.error('{} has no serve affordances tuned and does not skip the serve interaction. This will never serve a final product correctly.', cls.__name__, owner='rmccord')
 
     @property
@@ -345,9 +346,10 @@ class ChooseDeliverySuperInteraction(CraftingPhaseSuperInteractionMixin, SuperIn
             return TestResult(False, 'Ordering Sim cannot push consume affordance but skip_serve_if_crafter_is_orderer is True.')
         serve_object = None
         current_ico = self.process.current_ico
-        if current_ico.definition is recipe.final_product.definition:
-            serve_object = current_ico
-        if current_ico is not None and serve_object is None:
+        if current_ico is not None:
+            if current_ico.definition is recipe.final_product.definition:
+                serve_object = current_ico
+        if serve_object is None:
             logger.error("{} couldn't find serve or consume target override for participant {}", self, self.serve_target_override, owner='rmccord')
             serve_object = self.target
         return push_object_pick_up_and_consume(self, order_sim, serve_object, consume_affordance_override=self.consume_affordance_override)
@@ -359,5 +361,6 @@ class ChooseDeliverySuperInteraction(CraftingPhaseSuperInteractionMixin, SuperIn
         else:
             result = self._push_serve_affordance(order_sim, recipe)
         return result
+        yield
 
 lock_instance_tunables(ChooseDeliverySuperInteraction, basic_content=None)

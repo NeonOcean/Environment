@@ -26,11 +26,12 @@ class SimPersonalityAssignmentDialog(UiDialogTextInput):
         super().__init__(*args, assign_participant=None, **kwargs)
         if assignment_sim_info is None:
             self._assignment_sim_info = None
-            if self._resolver is not None:
-                sim = self._resolver.get_participant(assign_participant)
-                if sim is not None:
-                    self._assignment_sim_info = sim.sim_info
-            if assign_participant is not None and self._assignment_sim_info is None:
+            if assign_participant is not None:
+                if self._resolver is not None:
+                    sim = self._resolver.get_participant(assign_participant)
+                    if sim is not None:
+                        self._assignment_sim_info = sim.sim_info
+            if self._assignment_sim_info is None:
                 self._assignment_sim_info = self.owner.sim_info
         else:
             self._assignment_sim_info = assignment_sim_info
@@ -43,10 +44,10 @@ class SimPersonalityAssignmentDialog(UiDialogTextInput):
         msg.sim_id = self._assignment_sim_info.id
         dialog_msg = super().build_msg(additional_tokens=additional_tokens, **kwargs)
         msg.dialog = dialog_msg
-        msg.secondary_title = self._build_localized_string_msg(self.secondary_title, additional_tokens)
-        msg.age_description = self._build_localized_string_msg(self.text, additional_tokens)
+        msg.secondary_title = self._build_localized_string_msg(self.secondary_title, *additional_tokens)
+        msg.age_description = self._build_localized_string_msg(self.text, *additional_tokens)
         if self.naming_title_text is not None:
-            msg.naming_title_text = self._build_localized_string_msg(self.naming_title_text, additional_tokens)
+            msg.naming_title_text = self._build_localized_string_msg(self.naming_title_text, *additional_tokens)
         if gender_overrides_for_baby is None:
             gender = self._assignment_sim_info.gender
         else:
@@ -67,7 +68,7 @@ class SimPersonalityAssignmentDialog(UiDialogTextInput):
                         msg.previous_skill_ids.append(previous_skill.guid64)
                         msg.previous_skill_levels.append(previous_skill_level)
         if self.aspirations_and_trait_assignment is not None:
-            msg.aspirations_and_trait_assignment_text = self._build_localized_string_msg(self.aspirations_and_trait_assignment, additional_tokens)
+            msg.aspirations_and_trait_assignment_text = self._build_localized_string_msg(self.aspirations_and_trait_assignment, *additional_tokens)
             if trait_overrides_for_baby is None:
                 empty_slots = self._assignment_sim_info.trait_tracker.empty_slot_number
                 current_personality_traits = self._assignment_sim_info.trait_tracker.personality_traits
@@ -88,8 +89,8 @@ class SimPersonalityAssignmentDialog(UiDialogTextInput):
                 aspiration_tracker = self._assignment_sim_info.aspiration_tracker
                 for aspiration_track in aspiration_track_manager.types.values():
                     if not aspiration_tracker.is_aspiration_track_visible(aspiration_track):
-                        pass
-                    elif aspiration_track.is_child_aspiration_track:
+                        continue
+                    if aspiration_track.is_child_aspiration_track:
                         if self._assignment_sim_info.is_child:
                             msg.available_aspiration_ids.append(aspiration_track.guid64)
                     elif self._assignment_sim_info.is_teen:
@@ -111,10 +112,10 @@ class SimPersonalityAssignmentDialog(UiDialogTextInput):
     def _populate_valid_personality_traits(self, msg, traits_to_test_for_conflict):
         for trait in services.get_instance_manager(Types.TRAIT).types.values():
             if not trait.is_personality_trait:
-                pass
-            elif not trait.is_valid_trait(self._assignment_sim_info):
-                pass
-            elif not any(t.guid64 == trait.guid64 or t.is_conflicting(trait) for t in traits_to_test_for_conflict):
+                continue
+            if not trait.is_valid_trait(self._assignment_sim_info):
+                continue
+            if not any(t.guid64 == trait.guid64 or t.is_conflicting(trait) for t in traits_to_test_for_conflict):
                 msg.available_personality_trait_ids.append(trait.guid64)
 
     def distribute_dialog(self, dialog_type, dialog_msg, **kwargs):

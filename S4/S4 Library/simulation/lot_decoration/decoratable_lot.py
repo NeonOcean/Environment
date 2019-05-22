@@ -55,7 +55,7 @@ class DecoratableLot:
             self._decoration_states[state_proto.decoration_type_id] = decoration_state
 
     def save_deco_states_to_proto(self, lot_decorations_proto):
-        if self._decoration_states or self.deco_type_id == DEFAULT_DECORATION_PROVIDER.decoration_type_id:
+        if not self._decoration_states and self.deco_type_id == DEFAULT_DECORATION_PROVIDER.decoration_type_id:
             return
         with ProtocolBufferRollback(lot_decorations_proto) as lot_setting_proto:
             lot_setting_proto.zone_id = self.zone_id

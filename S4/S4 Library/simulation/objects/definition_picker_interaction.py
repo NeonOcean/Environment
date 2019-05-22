@@ -51,10 +51,9 @@ class TraitToDefinitionPickerInteraction(ObjectDefinitionPickerInteraction):
         traits_to_find = self.trait_to_definition_id.keys()
         for trait in traits_to_find:
             if not owner.has_trait(trait):
-                pass
-            else:
-                self._selected_definition_id = self.trait_to_definition_id[trait]
-                break
+                continue
+            self._selected_definition_id = self.trait_to_definition_id[trait]
+            break
         return super()._create_dialog(owner, target_sim=target_sim, target=target, **kwargs)
 
     @flexmethod

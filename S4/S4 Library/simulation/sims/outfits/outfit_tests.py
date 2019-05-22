@@ -82,7 +82,7 @@ class OutfitTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                 if outfit_addition_test.test_type == self.TEST_CAN_ADD:
                     if outfits_in_category is not None and len(outfits_in_category) >= get_maximum_outfits_for_category(outfit_category):
                         return TestResult(False, '{} cannot add a new {} outfit, but is required to be able to', target, outfit_category, tooltip=self.tooltip)
-                else:
+                elif outfit_addition_test.test_type == self.TEST_CANNOT_ADD:
                     if not outfits_in_category is None:
                         if len(outfits_in_category) < get_maximum_outfits_for_category(outfit_category):
                             return TestResult(False, '{} can add a new {} outfit, but is required not to not be able to', target, outfit_category, tooltip=self.tooltip)

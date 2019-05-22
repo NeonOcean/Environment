@@ -136,7 +136,7 @@ def _create_si_state_entry(interaction, bucket_name):
     entry = {'interactionId': interaction.id, 'interactionName': interaction_name, 'target': str(interaction.target), 'bucket_name': bucket_name, 'group_id': interaction.group_id, 'running': bool_to_str(interaction.running), 'priority': interaction.priority.name, 'isSuper': bool_to_str(interaction.is_super), 'isFinishing': bool_to_str(interaction.is_finishing), 'allowAuto': bool_to_str(interaction.allow_autonomous), 'allowUser': bool_to_str(interaction.allow_user_directed), 'visible': bool_to_str(interaction.visible), 'is_guaranteed': bool_to_str(interaction.is_guaranteed())}
     return entry
 
-EMPTY_ARCHIVE = {GSIDataKeys.REQUEST_KEY: (), GSIDataKeys.MIXERS_KEY: (), GSIDataKeys.MIXER_PROVIDER_KEY: None, GSIDataKeys.OBJECTS_KEY: (), GSIDataKeys.PROBABILITY_KEY: (), GSIDataKeys.AFFORDANCE_KEY: (), GSIDataKeys.COMMODITIES_KEY: ()}
+EMPTY_ARCHIVE = {GSIDataKeys.COMMODITIES_KEY: (), GSIDataKeys.AFFORDANCE_KEY: (), GSIDataKeys.PROBABILITY_KEY: (), GSIDataKeys.OBJECTS_KEY: (), GSIDataKeys.MIXER_PROVIDER_KEY: None, GSIDataKeys.MIXERS_KEY: (), GSIDataKeys.REQUEST_KEY: ()}
 autonomy_queue_schema = GsiGridSchema(label='Autonomy Queue')
 autonomy_queue_schema.add_field('position', label='#')
 autonomy_queue_schema.add_field('sim', label='Sim')

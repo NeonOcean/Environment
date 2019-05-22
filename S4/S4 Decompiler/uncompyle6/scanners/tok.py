@@ -93,7 +93,7 @@ class Token():
                     if not self.pattr.startswith('to '):
                         pattr = "to " + self.pattr
                 elif self.op in self.opc.JABS_OPS:
-                    self.pattr= str(self.pattr)
+                    self.pattr = str(self.pattr)
                     if not self.pattr.startswith('to '):
                         pattr = "to " + str(self.pattr)
                     pass
@@ -107,7 +107,7 @@ class Token():
                         pattr = self.opc.cmp_op[self.attr]
                 # And so on. See xdis/bytecode.py get_instructions_bytes
                 pass
-        elif re.search('_\d+$', self.kind):
+        elif re.search(r'_\d+$', self.kind):
             return "%s%s%s" % (prefix, offset_opname,  argstr)
         else:
             pattr = ''

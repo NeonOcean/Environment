@@ -41,6 +41,12 @@ S4ModsPath = os.path.join(S4UserDataPath, "Mods")  # type: str
 
 AutomationPath = os.path.dirname(os.path.dirname(os.path.normpath(__file__)))  # type: str
 STBLCollisionsPath = os.path.join(AutomationPath, "STBL Collisions")  # type: str
+
+StrippingPath = os.path.join(AutomationPath, "Stripping")  # type: str
+StrippingEnvironmentFilePath = os.path.join(StrippingPath, "Environment.json")  # type: str
+StrippingModsFilePath = os.path.join(StrippingPath, "Mods.json")  # type: str
+StrippingSitesFilePath = os.path.join(StrippingPath, "Sites.json")  # type: str
+
 RootPath = os.path.dirname(AutomationPath)  # type: str
 
 ApplicationPath = os.path.join(RootPath, "Applications")  # type: str

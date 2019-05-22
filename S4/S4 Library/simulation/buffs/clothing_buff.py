@@ -59,7 +59,7 @@ class ClothingBuff(Buff):
             self._autonomy_handle = None
 
     def get_timeout_time(self):
-        commodity_instance = self._get_commodity_instance()
+        commodity_instance = self.get_commodity_instance()
         if commodity_instance is None:
             return NO_TIMEOUT
         threshold = sims4.math.Threshold(commodity_instance.max_value, operator.ge)

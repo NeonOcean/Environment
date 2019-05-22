@@ -129,19 +129,17 @@ class WhimsTracker(SimInfoTracker):
         for whim_data in self._active_whims:
             whim = whim_data.whim
             if whim is None:
-                pass
-            else:
-                required_sim_info = whim.get_required_target_sim_info()
-                if not whim.can_be_given_as_goal(sim, None, inherited_target_sim_info=required_sim_info):
-                    self._remove_whim(whim, TelemetryWhimEvents.NO_LONGER_AVAILABLE)
+                continue
+            required_sim_info = whim.get_required_target_sim_info()
+            if not whim.can_be_given_as_goal(sim, None, inherited_target_sim_info=required_sim_info):
+                self._remove_whim(whim, TelemetryWhimEvents.NO_LONGER_AVAILABLE)
         self._offer_whims()
 
     def whims_and_parents_gen(self):
         for whim_data in self._active_whims:
             if whim_data.whim is None:
-                pass
-            else:
-                yield (whim_data.whim, whim_data.whimset)
+                continue
+            yield (whim_data.whim, whim_data.whimset)
 
     def get_active_whimsets(self):
         whim_sets = set(self._active_whimsets_data.keys())
@@ -241,10 +239,9 @@ class WhimsTracker(SimInfoTracker):
             whim = whim_data.whim
             if whim is not None:
                 if whim.locked:
-                    pass
-                else:
-                    prohibited_whims.add(type(whim))
-                    self._remove_whim(whim, TelemetryWhimEvents.CANCELED)
+                    continue
+                prohibited_whims.add(type(whim))
+                self._remove_whim(whim, TelemetryWhimEvents.CANCELED)
         self._offer_whims(prohibited_whims=prohibited_whims)
 
     def add_score_multiplier(self, multiplier):
@@ -313,77 +310,36 @@ class WhimsTracker(SimInfoTracker):
         sim_info_manager = services.sim_info_manager()
         for active_whim_msg in self._whim_goal_proto.active_whims:
             if not active_whim_msg.HasField('index'):
-                pass
+                continue
+            whimset = aspiration_manager.get(active_whim_msg.whimset_guid)
+            if whimset is None:
+                logger.info('Trying to load unavailable ASPIRATION resource: {}', active_whim_msg.whimset_guid)
             else:
-                whimset = aspiration_manager.get(active_whim_msg.whimset_guid)
-                if whimset is None:
-                    logger.info('Trying to load unavailable ASPIRATION resource: {}', active_whim_msg.whimset_guid)
+                goal_seed = GoalSeedling.deserialize_from_proto(active_whim_msg.goal_data)
+                if goal_seed is None:
+                    continue
+                target_sim_info = None
+                if goal_seed.target_id:
+                    target_sim_info = sim_info_manager.get(goal_seed.target_id)
+                    if target_sim_info is None:
+                        continue
                 else:
-                    goal_seed = GoalSeedling.deserialize_from_proto(active_whim_msg.goal_data)
-                    if goal_seed is None:
-                        pass
+                    secondary_sim_info = None
+                    if goal_seed.secondary_target_id:
+                        secondary_sim_info = sim_info_manager.get(goal_seed.secondary_target_id)
+                        if secondary_sim_info is None:
+                            continue
                     else:
-                        target_sim_info = None
-                        if goal_seed.target_id:
-                            target_sim_info = sim_info_manager.get(goal_seed.target_id)
-                            if target_sim_info is None:
-                                pass
-                            else:
-                                secondary_sim_info = None
-                                if goal_seed.secondary_target_id:
-                                    secondary_sim_info = sim_info_manager.get(goal_seed.secondary_target_id)
-                                    if secondary_sim_info is None:
-                                        pass
-                                    else:
-                                        whim_index = active_whim_msg.index
-                                        goal = goal_seed.goal_type(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=target_sim_info, secondary_sim_info=secondary_sim_info, count=goal_seed.count, reader=goal_seed.reader, locked=goal_seed.locked)
-                                        goal.setup()
-                                        goal.register_for_on_goal_completed_callback(self._on_goal_completed)
-                                        whim_data = self._active_whims[whim_index]
-                                        whim_data.whim = goal
-                                        whim_data.whimset = whimset
-                                        self._create_anti_thrashing_cooldown(whim_data)
-                                        self._goals_dirty = True
-                                        logger.info('Whim {} loaded.', goal_seed.goal_type)
-                                else:
-                                    whim_index = active_whim_msg.index
-                                    goal = goal_seed.goal_type(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=target_sim_info, secondary_sim_info=secondary_sim_info, count=goal_seed.count, reader=goal_seed.reader, locked=goal_seed.locked)
-                                    goal.setup()
-                                    goal.register_for_on_goal_completed_callback(self._on_goal_completed)
-                                    whim_data = self._active_whims[whim_index]
-                                    whim_data.whim = goal
-                                    whim_data.whimset = whimset
-                                    self._create_anti_thrashing_cooldown(whim_data)
-                                    self._goals_dirty = True
-                                    logger.info('Whim {} loaded.', goal_seed.goal_type)
-                        else:
-                            secondary_sim_info = None
-                            if goal_seed.secondary_target_id:
-                                secondary_sim_info = sim_info_manager.get(goal_seed.secondary_target_id)
-                                if secondary_sim_info is None:
-                                    pass
-                                else:
-                                    whim_index = active_whim_msg.index
-                                    goal = goal_seed.goal_type(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=target_sim_info, secondary_sim_info=secondary_sim_info, count=goal_seed.count, reader=goal_seed.reader, locked=goal_seed.locked)
-                                    goal.setup()
-                                    goal.register_for_on_goal_completed_callback(self._on_goal_completed)
-                                    whim_data = self._active_whims[whim_index]
-                                    whim_data.whim = goal
-                                    whim_data.whimset = whimset
-                                    self._create_anti_thrashing_cooldown(whim_data)
-                                    self._goals_dirty = True
-                                    logger.info('Whim {} loaded.', goal_seed.goal_type)
-                            else:
-                                whim_index = active_whim_msg.index
-                                goal = goal_seed.goal_type(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=target_sim_info, secondary_sim_info=secondary_sim_info, count=goal_seed.count, reader=goal_seed.reader, locked=goal_seed.locked)
-                                goal.setup()
-                                goal.register_for_on_goal_completed_callback(self._on_goal_completed)
-                                whim_data = self._active_whims[whim_index]
-                                whim_data.whim = goal
-                                whim_data.whimset = whimset
-                                self._create_anti_thrashing_cooldown(whim_data)
-                                self._goals_dirty = True
-                                logger.info('Whim {} loaded.', goal_seed.goal_type)
+                        whim_index = active_whim_msg.index
+                        goal = goal_seed.goal_type(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=target_sim_info, secondary_sim_info=secondary_sim_info, count=goal_seed.count, reader=goal_seed.reader, locked=goal_seed.locked)
+                        goal.setup()
+                        goal.register_for_on_goal_completed_callback(self._on_goal_completed)
+                        whim_data = self._active_whims[whim_index]
+                        whim_data.whim = goal
+                        whim_data.whimset = whimset
+                        self._create_anti_thrashing_cooldown(whim_data)
+                        self._goals_dirty = True
+                        logger.info('Whim {} loaded.', goal_seed.goal_type)
         self._whim_goal_proto = None
         self._send_goals_update()
 
@@ -396,14 +352,13 @@ class WhimsTracker(SimInfoTracker):
         for (index, active_whim_data) in enumerate(self._active_whims):
             active_whim = active_whim_data.whim
             if active_whim is None:
-                pass
-            else:
-                with ProtocolBufferRollback(whim_tracker_proto.active_whims) as active_whim_msg:
-                    active_whim_msg.whimset_guid = active_whim_data.whimset.guid64
-                    active_whim_msg.index = index
-                    goal_seed = active_whim.create_seedling()
-                    goal_seed.finalize_creation_for_save()
-                    goal_seed.serialize_to_proto(active_whim_msg.goal_data)
+                continue
+            with ProtocolBufferRollback(whim_tracker_proto.active_whims) as active_whim_msg:
+                active_whim_msg.whimset_guid = active_whim_data.whimset.guid64
+                active_whim_msg.index = index
+                goal_seed = active_whim.create_seedling()
+                goal_seed.finalize_creation_for_save()
+                goal_seed.serialize_to_proto(active_whim_msg.goal_data)
 
     def debug_activate_whimset(self, whimset, chained):
         if not whimset.update_on_load:
@@ -600,12 +555,11 @@ class WhimsTracker(SimInfoTracker):
             selected_whim = sims4.random.pop_weighted(weighted_whims)
             old_whim_instance_and_whimset = self._completed_goals.get(selected_whim)
             if old_whim_instance_and_whimset is not None and old_whim_instance_and_whimset[0].is_on_cooldown():
-                pass
-            else:
-                pretest = selected_whim.can_be_given_as_goal(sim, None, inherited_target_sim_info=potential_target)
-                if pretest:
-                    whim = selected_whim(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=potential_target, secondary_sim_info=secondary_target)
-                    return whim
+                continue
+            pretest = selected_whim.can_be_given_as_goal(sim, None, inherited_target_sim_info=potential_target)
+            if pretest:
+                whim = selected_whim(sim_info=self._sim_info, goal_id=self._goal_id_generator(), inherited_target_sim_info=potential_target, secondary_sim_info=secondary_target)
+                return whim
 
     def _create_anti_thrashing_cooldown(self, whim_data):
 
@@ -626,51 +580,24 @@ class WhimsTracker(SimInfoTracker):
         whimsets_on_cooldown = self._get_whimsets_on_cooldown()
         for (index, whim_data) in enumerate(self._active_whims):
             if whim_data.whim is not None:
-                pass
-            else:
-                if index == self.emotional_whim_index:
-                    emotional_whimset = self.get_emotional_whimset()
-                    if emotional_whimset is None:
-                        logger.info('No emotional whimset found for mood {}.', self._sim_mood)
-                    else:
-                        possible_whimsets = {emotional_whimset}
-                        possible_whimsets -= self._get_currently_used_whimsets()
-                        possible_whimsets -= prohibited_whimsets
-                        possible_whimsets -= whimsets_on_cooldown
-                        prioritized_whimsets = [(self.get_priority(whimset), whimset) for whimset in possible_whimsets]
-                        while prioritized_whimsets:
-                            whimset = sims4.random.pop_weighted(prioritized_whimsets)
-                            if whimset is None:
-                                break
-                            goal = self._create_whim(whimset, prohibited_whims)
-                            if goal is None:
-                                pass
-                            else:
-                                goal.setup()
-                                goal.register_for_on_goal_completed_callback(self._on_goal_completed)
-                                goal.show_goal_awarded_notification()
-                                whim_data.whim = goal
-                                whim_data.whimset = whimset
-                                self._create_anti_thrashing_cooldown(whim_data)
-                                with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_WHIM_EVENT, sim_info=self._sim_info) as hook:
-                                    hook.write_int(TELEMETRY_WHIM_EVENT_TYPE, TelemetryWhimEvents.ADDED)
-                                    hook.write_guid(TELEMETRY_WHIM_GUID, goal.guid64)
-                                self._goals_dirty = True
-                                break
+                continue
+            if index == self.emotional_whim_index:
+                emotional_whimset = self.get_emotional_whimset()
+                if emotional_whimset is None:
+                    logger.info('No emotional whimset found for mood {}.', self._sim_mood)
                 else:
-                    possible_whimsets = self.get_active_whimsets()
-                possible_whimsets -= self._get_currently_used_whimsets()
-                possible_whimsets -= prohibited_whimsets
-                possible_whimsets -= whimsets_on_cooldown
-                prioritized_whimsets = [(self.get_priority(whimset), whimset) for whimset in possible_whimsets]
-                while prioritized_whimsets:
-                    whimset = sims4.random.pop_weighted(prioritized_whimsets)
-                    if whimset is None:
-                        break
-                    goal = self._create_whim(whimset, prohibited_whims)
-                    if goal is None:
-                        pass
-                    else:
+                    possible_whimsets = {emotional_whimset}
+                    possible_whimsets -= self._get_currently_used_whimsets()
+                    possible_whimsets -= prohibited_whimsets
+                    possible_whimsets -= whimsets_on_cooldown
+                    prioritized_whimsets = [(self.get_priority(whimset), whimset) for whimset in possible_whimsets]
+                    while prioritized_whimsets:
+                        whimset = sims4.random.pop_weighted(prioritized_whimsets)
+                        if whimset is None:
+                            break
+                        goal = self._create_whim(whimset, prohibited_whims)
+                        if goal is None:
+                            continue
                         goal.setup()
                         goal.register_for_on_goal_completed_callback(self._on_goal_completed)
                         goal.show_goal_awarded_notification()
@@ -682,25 +609,48 @@ class WhimsTracker(SimInfoTracker):
                             hook.write_guid(TELEMETRY_WHIM_GUID, goal.guid64)
                         self._goals_dirty = True
                         break
+            else:
+                possible_whimsets = self.get_active_whimsets()
+            possible_whimsets -= self._get_currently_used_whimsets()
+            possible_whimsets -= prohibited_whimsets
+            possible_whimsets -= whimsets_on_cooldown
+            prioritized_whimsets = [(self.get_priority(whimset), whimset) for whimset in possible_whimsets]
+            while prioritized_whimsets:
+                whimset = sims4.random.pop_weighted(prioritized_whimsets)
+                if whimset is None:
+                    break
+                goal = self._create_whim(whimset, prohibited_whims)
+                if goal is None:
+                    continue
+                goal.setup()
+                goal.register_for_on_goal_completed_callback(self._on_goal_completed)
+                goal.show_goal_awarded_notification()
+                whim_data.whim = goal
+                whim_data.whimset = whimset
+                self._create_anti_thrashing_cooldown(whim_data)
+                with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_WHIM_EVENT, sim_info=self._sim_info) as hook:
+                    hook.write_int(TELEMETRY_WHIM_EVENT_TYPE, TelemetryWhimEvents.ADDED)
+                    hook.write_guid(TELEMETRY_WHIM_GUID, goal.guid64)
+                self._goals_dirty = True
+                break
         self._send_goals_update()
 
     def _try_and_thrash_whims(self, priority, extra_prohibited_whims=EMPTY_SET):
         whims_thrashed = set()
         for (index, whim_data) in enumerate(self._active_whims):
             if index == self.emotional_whim_index:
-                pass
-            elif whim_data.whim is None:
-                pass
-            elif not whim_data.anti_thrashing_alarm_handle is not None:
+                continue
+            if whim_data.whim is None:
+                continue
+            if not whim_data.anti_thrashing_alarm_handle is not None:
                 if whim_data.whim.locked:
-                    pass
-                elif self.get_priority(whim_data.whimset) >= priority:
-                    pass
-                elif not sims4.random.random_chance(WhimsTracker.WHIM_THRASHING_CHANCE*100):
-                    pass
-                else:
-                    whims_thrashed.add(type(whim_data.whim))
-                    self._remove_whim(whim_data.whim, TelemetryWhimEvents.CANCELED)
+                    continue
+                if self.get_priority(whim_data.whimset) >= priority:
+                    continue
+                if not sims4.random.random_chance(WhimsTracker.WHIM_THRASHING_CHANCE*100):
+                    continue
+                whims_thrashed.add(type(whim_data.whim))
+                self._remove_whim(whim_data.whim, TelemetryWhimEvents.CANCELED)
         if not whims_thrashed:
             return False
         prohibited_whims = whims_thrashed | extra_prohibited_whims
@@ -753,7 +703,7 @@ class WhimsTracker(SimInfoTracker):
 
     @classproperty
     def _tracker_lod_threshold(cls):
-        return SimInfoLODLevel.ACTIVE
+        return SimInfoLODLevel.FULL
 
     def on_lod_update(self, old_lod, new_lod):
         if new_lod < self._tracker_lod_threshold:

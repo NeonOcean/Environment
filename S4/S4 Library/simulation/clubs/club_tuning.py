@@ -151,9 +151,9 @@ class ClubTravelHereWithGatheringSuperInteraction(ClubSuperInteraction, TravelSu
         to_zone_id = self.context.pick.get_zone_id_from_pick_location()
         if to_zone_id is None:
             logger.error('Could not resolve lot id: {} into a valid zone id when traveling to adjacent lot.', self.context.pick.lot_id, owner='rmccord')
-            return
+            yield
         if services.get_persistence_service().is_save_locked():
-            return
+            yield
         club_service = services.get_club_service()
         situation_manager = services.get_zone_situation_manager()
         gathering = club_service.clubs_to_gatherings_map.get(self.associated_club)
@@ -166,8 +166,9 @@ class ClubSocialMixerInteraction(ClubInteractionMixin, SocialMixerInteraction):
     @classmethod
     def get_base_content_set_score(cls, associated_club=None, **kwargs):
         base_score = super().get_base_content_set_score(**kwargs)
-        if associated_club.get_gathering() is not None:
-            base_score += ClubTunables.FRONT_PAGE_SCORE_BONUS_FOR_CLUB_MIXERS
+        if associated_club is not None:
+            if associated_club.get_gathering() is not None:
+                base_score += ClubTunables.FRONT_PAGE_SCORE_BONUS_FOR_CLUB_MIXERS
         return base_score
 
     @property
@@ -333,12 +334,11 @@ class ClubRuleCriteriaSkill(ClubRuleCriteriaMultiSelect):
         skill_manager = services.get_instance_manager(sims4.resources.Types.STATISTIC)
         for skill in skill_manager.get_ordered_types(only_subclasses_of=Skill):
             if skill.hidden:
-                pass
-            elif not any(age >= Age.CHILD for age in skill.ages):
-                pass
-            else:
-                with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
-                    cls._populate_criteria_info(criteria_info, skill)
+                continue
+            if not any(age >= Age.CHILD for age in skill.ages):
+                continue
+            with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
+                cls._populate_criteria_info(criteria_info, skill)
         return super().populate_possibilities(criteria_proto)
 
     def save(self, club_criteria):
@@ -461,10 +461,9 @@ class ClubRuleCriteriaCareer(ClubRuleCriteriaMultiSelect):
         career_service = services.get_career_service()
         for career in career_service.get_career_list():
             if not career.available_for_club_criteria:
-                pass
-            else:
-                with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
-                    cls._populate_criteria_info(criteria_info, career)
+                continue
+            with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
+                cls._populate_criteria_info(criteria_info, career)
         return super().populate_possibilities(criteria_proto)
 
     def save(self, club_criteria):
@@ -536,10 +535,9 @@ class ClubRuleCriteriaAge(ClubRuleCriteriaMultiSelect):
     def populate_possibilities(cls, criteria_proto):
         for age in Age:
             if age <= Age.TODDLER:
-                pass
-            else:
-                with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
-                    cls._populate_criteria_info(criteria_info, age)
+                continue
+            with ProtocolBufferRollback(criteria_proto.criteria_infos) as criteria_info:
+                cls._populate_criteria_info(criteria_info, age)
         return super().populate_possibilities(criteria_proto)
 
     def save(self, club_criteria):
@@ -587,11 +585,12 @@ class ClubRuleCriteriaClubMembership(ClubRuleCriteriaMultiSelect):
 
     def save(self, club_criteria):
         club_service = services.get_club_service()
-        if not self._required_club_ids:
-            for required_club_seed in self.required_club_seeds:
-                required_club = club_service.get_club_by_seed(required_club_seed)
-                if required_club is not None:
-                    self._required_club_ids.append(required_club.club_id)
+        if club_service is not None:
+            if not self._required_club_ids:
+                for required_club_seed in self.required_club_seeds:
+                    required_club = club_service.get_club_by_seed(required_club_seed)
+                    if required_club is not None:
+                        self._required_club_ids.append(required_club.club_id)
         for required_club in self._required_club_ids:
             required_club = club_service.get_club_by_id(required_club)
             if required_club is not None:
@@ -613,8 +612,9 @@ class ClubRuleCriteriaClubMembership(ClubRuleCriteriaMultiSelect):
             return False
         for required_club_id in self._required_club_ids:
             club = club_service.get_club_by_id(required_club_id)
-            if club is not None and sim_info in club.members:
-                return True
+            if club is not None:
+                if sim_info in club.members:
+                    return True
         return False
 
 class ClubRuleCriteriaFameRank(ClubRuleCriteriaMultiSelect):
@@ -655,7 +655,7 @@ class ClubRuleCriteriaFameRank(ClubRuleCriteriaMultiSelect):
         fame_rank = fame_stat.rank_level
         return fame_rank in self.fame_rank_requirements
 
-CATEGORY_TO_CRITERIA_MAPPING = {ClubCriteriaCategory.FAME_RANK: ClubRuleCriteriaFameRank, ClubCriteriaCategory.CLUB_MEMBERSHIP: ClubRuleCriteriaClubMembership, ClubCriteriaCategory.AGE: ClubRuleCriteriaAge, ClubCriteriaCategory.HOUSEHOLD_VALUE: ClubRuleCriteriaHouseholdValue, ClubCriteriaCategory.CAREER: ClubRuleCriteriaCareer, ClubCriteriaCategory.RELATIONSHIP: ClubRuleCriteriaRelationship, ClubCriteriaCategory.TRAIT: ClubRuleCriteriaTrait, ClubCriteriaCategory.SKILL: ClubRuleCriteriaSkill}
+CATEGORY_TO_CRITERIA_MAPPING = {ClubCriteriaCategory.SKILL: ClubRuleCriteriaSkill, ClubCriteriaCategory.TRAIT: ClubRuleCriteriaTrait, ClubCriteriaCategory.RELATIONSHIP: ClubRuleCriteriaRelationship, ClubCriteriaCategory.CAREER: ClubRuleCriteriaCareer, ClubCriteriaCategory.HOUSEHOLD_VALUE: ClubRuleCriteriaHouseholdValue, ClubCriteriaCategory.AGE: ClubRuleCriteriaAge, ClubCriteriaCategory.CLUB_MEMBERSHIP: ClubRuleCriteriaClubMembership, ClubCriteriaCategory.FAME_RANK: ClubRuleCriteriaFameRank}
 
 class TunableClubAdmissionCriteriaVariant(TunableVariant):
 

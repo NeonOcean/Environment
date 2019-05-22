@@ -58,7 +58,7 @@ class Phase(HasTunableReferenceFactory, HasTunableFactory, metaclass=TunedInstan
     TURN_BASED = 'turn_based'
     PROGRESS_BASED = 'progress_based'
     INSTANCE_SUBCLASSES_ONLY = True
-    INSTANCE_TUNABLES = {'super_affordance': SuperInteraction.TunableReference(description='\n            Super-affordance that manages this phase of the recipe.\n            ', allow_none=True), 'phase_interaction_name_override': OptionalTunable(description="\n            The localized name that will display in the UI instead of the\n            recipe's Phase Interaction Name property.\n            ", tunable=sims4.localization.TunableLocalizedStringFactory()), 'target_ico': Tunable(description="\n            This phase targets the last object created by the recipe, so don't\n            run autonomy to find it.\n            ", tunable_type=bool, default=False), '_object_info': TunableVariant(description='\n            If this phase creates an object, use this definition.\n            ', locked_args={'none': None, 'use_final_product': DEFAULT}, literal=TunableRecipeObjectInfo(description='\n                If this phase creates an object, use this definition.\n                '), default='none'), '_anim_overrides': OptionalTunable(description='\n            Animation overrides that get passed to the Super Affordance tied to\n            this phase. Example: Each recipe may need to use a different prop\n            in a generic SI, such as roasting food on the campfire. This allows\n            us to tune the props, etc. on the recipe instead of the SI.\n            ', tunable=TunableAnimationOverrides()), '_cancel_phase_name': TunableEnumEntry(description='\n            The name of the phase to run if the crafting process is canceled\n            during this phase.  May be None.\n            ', tunable_type=PhaseName, default=None), 'loop_by_orders': Tunable(description='\n            Should loop in the phase if multiple orders?\n            ', tunable_type=bool, default=False), 'point_of_no_return': Tunable(description='\n            When crafting get to this phase, the final product will be created\n            no matter cancel SI or not\n            ', tunable_type=bool, default=False), 'phase_display_name': OptionalTunable(description="\n            If enabled, display the phase's name in the interaction queue.\n            ", tunable=TunableLocalizedString(description="\n                The phase's display name in the interaction queue.\n                ")), 'is_visible': Tunable(description='\n            If this phase will show on crafting quality UI\n            ', tunable_type=bool, default=False), 'completion': TunableVariant(description="\n            Controls how the phase completes, either when turns have elapsed or\n            based on the crafting progress statistic maxing out.  If the super\n            interaction for the phase isn't looping or staging, this value is\n            ignored.\n            ", locked_args={PROGRESS_BASED: PROGRESS_BASED, TURN_BASED: TURN_BASED}, default=TURN_BASED)}
+    INSTANCE_TUNABLES = {'super_affordance': SuperInteraction.TunableReference(description='\n            Super-affordance that manages this phase of the recipe.\n            ', allow_none=True), 'phase_interaction_name_override': OptionalTunable(description="\n            The localized name that will display in the UI instead of the\n            recipe's Phase Interaction Name property.\n            ", tunable=sims4.localization.TunableLocalizedStringFactory()), 'target_ico': Tunable(description="\n            This phase targets the last object created by the recipe, so don't\n            run autonomy to find it.\n            ", tunable_type=bool, default=False), '_object_info': TunableVariant(description='\n            If this phase creates an object, use this definition.\n            ', locked_args={'none': None, 'use_final_product': DEFAULT}, literal=TunableRecipeObjectInfo(description='\n                If this phase creates an object, use this definition.\n                '), default='none'), '_anim_overrides': OptionalTunable(description='\n            Animation overrides that get passed to the Super Affordance tied to\n            this phase. Example: Each recipe may need to use a different prop\n            in a generic SI, such as roasting food on the campfire. This allows\n            us to tune the props, etc. on the recipe instead of the SI.\n            ', tunable=TunableAnimationOverrides()), '_cancel_phase_name': TunableEnumEntry(description='\n            The name of the phase to run if the crafting process is canceled\n            during this phase.  May be None.\n            ', tunable_type=PhaseName, default=None), 'loop_by_orders': Tunable(description='\n            Should loop in the phase if multiple orders?\n            ', tunable_type=bool, default=False), 'point_of_no_return': Tunable(description='\n            When crafting get to this phase, the final product will be created\n            no matter cancel SI or not\n            ', tunable_type=bool, default=False), 'phase_display_name': OptionalTunable(description="\n            If enabled, display the phase's name in the interaction queue.\n            ", tunable=TunableLocalizedString(description="\n                The phase's display name in the interaction queue.\n                ")), 'is_visible': Tunable(description='\n            If this phase will show on crafting quality UI\n            ', tunable_type=bool, default=False), 'completion': TunableVariant(description="\n            Controls how the phase completes, either when turns have elapsed or\n            based on the crafting progress statistic maxing out.  If the super\n            interaction for the phase isn't looping or staging, this value is\n            ignored.\n            ", locked_args={TURN_BASED: TURN_BASED, PROGRESS_BASED: PROGRESS_BASED}, default=TURN_BASED)}
     FACTORY_TUNABLES = {'next_phases': TunableList(description='\n            The names of the phases that can come next.  If empty, this will be the\n            final phase.\n            ', tunable=TunableEnumEntry(PhaseName, None))}
     FACTORY_TUNABLES.update(INSTANCE_TUNABLES)
 
@@ -198,13 +198,15 @@ class Recipe(metaclass=HashedTunedInstanceMetaclass, manager=services.get_instan
         cls.serve_affordance = None
         for phase in cls.phases.values():
             phase.recipe_tuning_loaded()
-            if phase.super_affordance is not None and issubclass(phase.super_affordance, ChooseDeliverySuperInteraction):
-                cls.serve_affordance = phase.super_affordance
+            if phase.super_affordance is not None:
+                if issubclass(phase.super_affordance, ChooseDeliverySuperInteraction):
+                    cls.serve_affordance = phase.super_affordance
         if cls.first_phases:
             cls._build_visible_phase_sequence(cls.first_phases[0])
-        if not cls.use_ingredients.ingredient_list:
-            cls.use_ingredients = None
-        if cls.use_ingredients and cls.use_ingredients:
+        if cls.use_ingredients:
+            if not cls.use_ingredients.ingredient_list:
+                cls.use_ingredients = None
+        if cls.use_ingredients:
             cls.sorted_ingredient_requirements = sorted(cls.use_ingredients.ingredient_list, key=lambda x: x.factory.get_sort_index())
 
     @classmethod
@@ -459,13 +461,14 @@ def destroy_unentitled_craftables():
             recipe = crafting_component.get_recipe()
             if recipe is None:
                 objects_to_destroy.append(obj)
-            else:
-                if recipe.entitlement in entitlement_map:
-                    entitled = entitlement_map[recipe.entitlement]
-                else:
-                    entitled = mtx.has_entitlement(recipe.entitlement)
-                    entitlement_map[recipe.entitlement] = entitled
-                if not (recipe is not None and recipe.entitlement and entitled):
-                    objects_to_destroy.append(obj)
+            elif recipe is not None:
+                if recipe.entitlement:
+                    if recipe.entitlement in entitlement_map:
+                        entitled = entitlement_map[recipe.entitlement]
+                    else:
+                        entitled = mtx.has_entitlement(recipe.entitlement)
+                        entitlement_map[recipe.entitlement] = entitled
+                    if not entitled:
+                        objects_to_destroy.append(obj)
     for obj in objects_to_destroy:
         obj.destroy(source=obj, cause='Destroying unentitled craftables.')

@@ -48,8 +48,9 @@ class ApplyAudioEffect(HasTunableFactory, AutoFactoryInit):
         self._audio_effect_data = AudioEffectData(self.effect_name)
         if target.inventoryitem_component is not None:
             forward_to_owner_list = target.inventoryitem_component.forward_client_state_change_to_inventory_owner
-            if StateChange.AUDIO_EFFECT_STATE in forward_to_owner_list:
-                self.target = target.inventoryitem_component.inventory_owner
+            if forward_to_owner_list:
+                if StateChange.AUDIO_EFFECT_STATE in forward_to_owner_list:
+                    self.target = target.inventoryitem_component.inventory_owner
         self._running = False
 
     def _run(self):
@@ -65,14 +66,16 @@ class ApplyAudioEffect(HasTunableFactory, AutoFactoryInit):
         return self._running
 
     def start(self):
-        if self.target is not None:
-            self.target.append_audio_effect(self.tag_name, self._audio_effect_data)
-            self._running = True
+        if not self.running:
+            if self.target is not None:
+                self.target.append_audio_effect(self.tag_name, self._audio_effect_data)
+                self._running = True
 
     def stop(self, *_, **__):
-        if self.target is not None:
-            self.target.remove_audio_effect(self.tag_name)
-            self._running = False
+        if self.running:
+            if self.target is not None:
+                self.target.remove_audio_effect(self.tag_name)
+                self._running = False
 
 class TunableAudioSting(XevtTriggeredElement, HasTunableFactory, AutoFactoryInit):
 

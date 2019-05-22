@@ -538,3 +538,9 @@ def get_rabbit_hole_service():
 
 def holiday_service():
     return getattr(game_services.service_manager, 'holiday_service', None)
+
+def narrative_service():
+    return getattr(game_services.service_manager, 'narrative_service', None)
+
+def get_object_lost_and_found_service():
+    return game_services.service_manager.object_lost_and_found_service

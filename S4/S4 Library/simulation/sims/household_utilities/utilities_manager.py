@@ -23,7 +23,7 @@ class UtilityInfo:
         return self._active
 
     def get_priority_shutoff_tooltip(self):
-        reason = max(UtilityShutoffReasonPriority.NO_REASON, [reason for reason in self._shutoff_reasons if reason is not None])
+        reason = max(UtilityShutoffReasonPriority.NO_REASON, *[reason for reason in self._shutoff_reasons if reason is not None])
         tooltip = self._shutoff_reasons[reason] if reason != UtilityShutoffReasonPriority.NO_REASON else None
         return tooltip
 
@@ -64,8 +64,9 @@ class HouseholdUtilitiesManager:
             return TestResult.TRUE
         for utility in utilities:
             utility_info = self.get_utility_info(utility)
-            if utility_info is not None and not utility_info.active:
-                return TestResult(False, 'Bills: Interaction requires a utility that is shut off.', tooltip=utility_info.get_priority_shutoff_tooltip())
+            if utility_info is not None:
+                if not utility_info.active:
+                    return TestResult(False, 'Bills: Interaction requires a utility that is shut off.', tooltip=utility_info.get_priority_shutoff_tooltip())
         return TestResult.TRUE
 
     def shut_off_utility(self, utility, reason, tooltip=None, from_load=False):
@@ -89,15 +90,14 @@ class HouseholdUtilitiesManager:
             for interaction in sim.si_state:
                 utility_info = interaction.utility_info
                 if utility_info is None:
-                    pass
-                elif delinquent_utility in utility_info:
+                    continue
+                if delinquent_utility in utility_info:
                     interaction.cancel(FinishingType.FAILED_TESTS, 'Household Utilities. Interaction violates current delinquency state of household.')
         for obj in services.object_manager().valid_objects():
             state_component = obj.state_component
             if state_component is None:
-                pass
-            else:
-                state_component.apply_delinquent_states(utility=delinquent_utility)
+                continue
+            state_component.apply_delinquent_states(utility=delinquent_utility)
 
     def _startup_power_utilities(self):
         self._exec_on_objects_with_component(objects.components.types.LIGHTING_COMPONENT, lambda component: component.on_power_on())
@@ -110,8 +110,7 @@ class HouseholdUtilitiesManager:
         plex_service = services.get_plex_service()
         for obj in object_manager.get_all_objects_with_component_gen(component_type):
             if obj.get_household_owner_id() != self._household_id:
-                pass
-            elif plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
-                pass
-            else:
-                func(obj.get_component(component_type))
+                continue
+            if plex_service.is_active_zone_a_plex() and plex_service.get_plex_zone_at_position(obj.position, obj.level) is None:
+                continue
+            func(obj.get_component(component_type))
