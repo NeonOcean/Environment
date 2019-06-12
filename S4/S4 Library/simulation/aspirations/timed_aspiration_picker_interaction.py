@@ -1,15 +1,14 @@
+import services
+import sims4.resources
 from event_testing.resolver import SingleSimResolver
-from event_testing.tests import TunableTestSetWithTooltip
 from interactions import ParticipantType
 from interactions.base.picker_interaction import PickerSuperInteraction
 from interactions.utils.loot import LootActions
 from interactions.utils.tunable import TunableContinuation
-from sims4.tuning.tunable import TunableList, TunableTuple, TunableReference
+from sims4.tuning.tunable import TunableList, TunableReference
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
-from ui.ui_dialog_picker import UiItemPicker, BasePickerRow
-import services
-import sims4.resources
+from ui.ui_dialog_picker import BasePickerRow, UiItemPicker
 
 class TimedAspirationPickerInteraction(PickerSuperInteraction):
     INSTANCE_TUNABLES = {'picker_dialog': UiItemPicker.TunableFactory(description='\n            The timed aspiration picker dialog.\n            ', tuning_group=GroupNames.PICKERTUNING), 'timed_aspirations': TunableList(description='\n            The list of timed aspirations available to select.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ASPIRATION), class_restrictions='TimedAspiration', pack_safe=True), unique_entries=True, tuning_group=GroupNames.PICKERTUNING), 'actor_continuation': TunableContinuation(description='\n            If specified, a continuation to push on the actor when a picker \n            selection has been made.\n            ', locked_args={'actor': ParticipantType.Actor}, tuning_group=GroupNames.PICKERTUNING), 'loot_on_picker_selection': TunableList(description="\n            Loot that will be applied to the Sim if an aspiration is selected.\n            It will not be applied if the user doesn't select an aspiration.\n            ", tunable=LootActions.TunableReference(), tuning_group=GroupNames.PICKERTUNING)}

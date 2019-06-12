@@ -240,7 +240,7 @@ class ResourceKeyWrapper:
             return Key.hash64(data_tuple[1], type=Types(data_tuple[0]), group=0)
         if len(data_tuple) == 3:
             return Key(int(data_tuple[0], 16), int(data_tuple[2], 16), int(data_tuple[1], 16))
-        raise ValueError('Invalid string passed into TunableResource. Expected Type:Instance or Type:Instance:Group.')
+        raise ValueError('Invalid string passed into TunableResource. Expected Type:Instance or Type:Instance:Group.')#This is a lie it actually goes Type:Group:Instance
 
 class ResourceLoader:
 
