@@ -171,14 +171,13 @@ class LoadLayerFestivalState(BaseFestivalState):
         self._layers_to_load.remove(conditional_layer)
         if self._layers_to_load:
             return
-        next_state = self._get_next_state()
-        if next_state is not None:
-            self._owner.change_state(next_state)
-        else:
-            self._owner.self_destruct()
+        self._preroll_end_of_state()
 
     def on_state_activated(self, reader=None, preroll_time_override=None):
         super().on_state_activated(reader=reader, preroll_time_override=preroll_time_override)
+        if len(self._conditional_layers) == 0:
+            self._preroll_end_of_state()
+            return
         self._load_layers()
 
     def _run_preroll(self):

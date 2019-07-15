@@ -177,6 +177,10 @@ class InstanceManager:
     def require_reference(self):
         return self._require_reference
 
+    @property
+    def remapped_keys(self):
+        return self._remapped_keys
+
     def register_class_template(self, template):
         self._class_templates.append(template)
 

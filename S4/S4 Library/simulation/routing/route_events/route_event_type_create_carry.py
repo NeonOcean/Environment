@@ -23,7 +23,7 @@ class _RouteEventTypeCarry(RouteEventTypeAnimation):
     def _execute_internal(self, actor):
         raise NotImplementedError
 
-    def execute(self, actor):
+    def execute(self, actor, **kwargs):
         if actor.routing_component.route_interaction is None:
             return
         return self._execute_internal(actor)

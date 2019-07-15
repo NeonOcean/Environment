@@ -18,6 +18,7 @@ import statistics.static_commodity
 import statistics.statistic
 import statistics.statistic_tracker
 import uid
+from date_and_time import DateAndTime
 logger = sims4.log.Logger('StatisticComponent')
 
 class HasStatisticComponent:
@@ -721,6 +722,7 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             ranked_statistic_data = persistable_data.Extensions[persistence_protocols.PersistableRankedStatisticTracker.persistable_data]
             (commodities, skill_statistics, ranked_statistics) = self._commodity_tracker.save()
             commodity_data.commodities.extend(commodities)
+            commodity_data.time_of_last_save = services.time_service().sim_now.absolute_ticks()
             skill_data.skills.extend(skill_statistics)
             ranked_statistic_data.ranked_statistics.extend(ranked_statistics)
             if commodities or skill_statistics or ranked_statistics:
@@ -740,6 +742,12 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             self._commodity_tracker.load(skill_component_data.skills)
             ranked_statistic_data = statistic_component_message.Extensions[persistence_protocols.PersistableRankedStatisticTracker.persistable_data]
             self._commodity_tracker.load(ranked_statistic_data.ranked_statistics)
+            if not self.owner.is_sim:
+                if commodity_data.time_of_last_save > 0:
+                    time_of_last_save = DateAndTime(commodity_data.time_of_last_save)
+                    for commodity in tuple(self._commodity_tracker):
+                        if commodity.needs_fixup_on_load_for_objects():
+                            commodity.fixup_for_time(time_of_last_save, self.is_locked(commodity), decay_enabled=True)
 
     @componentmethod
     def is_in_distress(self):

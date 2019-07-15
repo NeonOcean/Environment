@@ -1,3 +1,5 @@
+from sims4.tuning.instances import HashedTunedInstanceMetaclass
+from sims4.tuning.tunable import HasTunableReference, OptionalTunable, TunableList, TunableVariant, TunableSet, Tunable
 from animation.animation_utils import flush_all_animations
 from animation.object_animation import ObjectAnimationElement
 from element_utils import build_element
@@ -8,13 +10,11 @@ from interactions.utils.routing import PlanRoute, FollowPath
 from routing.object_routing.object_route_variants import ObjectRoutingBehaviorFromWaypointGenerator, ObjectRoutingBehaviorFromRoutingSlotConstraint, ObjectRouteFromRoutingFormation, ObjectRouteFromFGL
 from routing.object_routing.object_routing_behavior_actions import ObjectRoutingBehaviorActionDestroyObjects, ObjectRoutingBehaviorActionAnimation
 from routing.walkstyle.walkstyle_request import WalkStyleRequest
-from sims4.tuning.instances import HashedTunedInstanceMetaclass
-from sims4.tuning.tunable import HasTunableReference, OptionalTunable, TunableList, TunableVariant, TunableSet
 import element_utils
 import services
 
 class ObjectRoutingBehavior(HasTunableReference, SubclassableGeneratorElement, metaclass=HashedTunedInstanceMetaclass, manager=services.snippet_manager()):
-    INSTANCE_TUNABLES = {'route': TunableVariant(description='\n            Define how this object routes when this behavior is active.\n            ', from_waypoints=ObjectRoutingBehaviorFromWaypointGenerator.TunableFactory(), from_slot_constraint=ObjectRoutingBehaviorFromRoutingSlotConstraint.TunableFactory(), from_routing_formation=ObjectRouteFromRoutingFormation.TunableFactory(), from_fgl=ObjectRouteFromFGL.TunableFactory(), default='from_waypoints'), 'pre_route_animation': OptionalTunable(description='\n            If enabled, the routing object will play this animation before any\n            route planning/following happens.\n            ', tunable=ObjectAnimationElement.TunableReference()), 'actions': TunableList(description='\n            A list of things the routing object can do once they have reached a\n            routing destination.\n            ', tunable=TunableVariant(play_animation=ObjectRoutingBehaviorActionAnimation.TunableFactory(), destroy_objects=ObjectRoutingBehaviorActionDestroyObjects.TunableFactory(), default='play_animation')), 'completion_loot': TunableSet(description='\n            Upon completion, this loot is applied to the routing object. This\n            loot is not executed if the behavior was canceled.\n            ', tunable=LootActions.TunableReference()), 'walkstyle_override': OptionalTunable(description='\n            If enabled, we will override the default walkstyle for any routes\n            in this routing behavior.\n            ', tunable=WalkStyleRequest.TunableFactory(description='\n                The walkstyle request we want to make.\n                '))}
+    INSTANCE_TUNABLES = {'route': TunableVariant(description='\n            Define how this object routes when this behavior is active.\n            ', from_waypoints=ObjectRoutingBehaviorFromWaypointGenerator.TunableFactory(), from_slot_constraint=ObjectRoutingBehaviorFromRoutingSlotConstraint.TunableFactory(), from_routing_formation=ObjectRouteFromRoutingFormation.TunableFactory(), from_fgl=ObjectRouteFromFGL.TunableFactory(), default='from_waypoints'), 'pre_route_animation': OptionalTunable(description='\n            If enabled, the routing object will play this animation before any\n            route planning/following happens.\n            ', tunable=ObjectAnimationElement.TunableReference()), 'actions': TunableList(description='\n            A list of things the routing object can do once they have reached a\n            routing destination.\n            ', tunable=TunableVariant(play_animation=ObjectRoutingBehaviorActionAnimation.TunableFactory(), destroy_objects=ObjectRoutingBehaviorActionDestroyObjects.TunableFactory(), default='play_animation')), 'completion_loot': TunableSet(description='\n            Upon completion, this loot is applied to the routing object. This\n            loot is not executed if the behavior was canceled.\n            ', tunable=LootActions.TunableReference()), 'walkstyle_override': OptionalTunable(description='\n            If enabled, we will override the default walkstyle for any routes\n            in this routing behavior.\n            ', tunable=WalkStyleRequest.TunableFactory(description='\n                The walkstyle request we want to make.\n                ')), 'clear_locomotion_mask': Tunable(description='\n            If enabled, override the locomotion queue mask.  This mask controls\n            which Animation Requests and XEvents get blocked during locomotion.\n            By default, the mask blocks everything.  If cleared, it blocks\n            nothing.  It also lowers the animation track used by locomotion to \n            9,999 from the default of 10,000.  Use with care, ask your GPE.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, obj, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,7 +41,13 @@ class ObjectRoutingBehavior(HasTunableReference, SubclassableGeneratorElement, m
         if self._canceled:
             return False
             yield
-        self._element = follow_path_element = FollowPath(self._obj, plan_primitive.path)
+        plan_primitive.path.blended_orientation = self._route_data.get_randomize_orientation()
+        mask_override = None
+        track_override = None
+        if self.clear_locomotion_mask:
+            mask_override = 0
+            track_override = 9999
+        self._element = follow_path_element = FollowPath(self._obj, plan_primitive.path, track_override=track_override, mask_override=mask_override)
         result = yield from element_utils.run_child(timeline, follow_path_element)
         if not result:
             return result

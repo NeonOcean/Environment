@@ -31,7 +31,7 @@ class NodeSelectionOption(enum.Int):
 class DramaScheduleService(Service):
     VENUE_BUCKET_DAYS = TunableDayAvailability()
     STARTUP_BUCKETS = TunableSet(description="\n        PLEASE CHECK WITH YOUR GPE PARTNER BEFORE ADDING TO THIS SET!\n        \n        A set of buckets that we want to schedule on initial startup.  We will\n        run an initial scoring of nodes within these buckets the first time\n        a game is loaded.  This should mainly be used if there is a need to\n        have nodes schedule immediately when the player begins playing and they\n        cannot wait until the next scheduling ping.\n        \n        Ex. Auditions for the acting career are represented as Drama Nodes that\n        the player can sign up for.  When the player begins playing the game\n        they shouldn't have to wait until the next day for auditions to be\n        available for them to sign up for.\n        ", tunable=TunableEnumEntry(description='\n            The bucket that we are going to score this node in.\n            ', tunable_type=DramaNodeScoringBucket, default=DramaNodeScoringBucket.DEFAULT))
-    BUCKET_SCORING_RULES = TunableMapping(description='\n        A mapping between the different possible scoring buckets, and rules\n        about scheduling nodes in that bucket.\n        ', key_type=TunableEnumEntry(description='\n            The bucket that we are going to score on startup.\n            ', tunable_type=DramaNodeScoringBucket, default=DramaNodeScoringBucket.DEFAULT), value_type=TunableTuple(description='\n            Rules about scheduling this drama node.\n            ', days=TunableDayAvailability(), score_if_no_nodes_are_scheduled=Tunable(description='\n                If checked then if no drama nodes are scheduled from this\n                bucket then we will try and score and schedule this bucket\n                even if we are not expected to score nodes on this day.\n                ', tunable_type=bool, default=False), number_to_schedule=TunableVariant(description='\n                How many actual nodes should we schedule from this bucket.\n                ', based_on_household=TunableTuple(description='\n                    Select the number of nodes based on the number of Sims in\n                    the active household.\n                    ', locked_args={'option': NodeSelectionOption.BASED_ON_HOUSEHOLD}), fixed_amount=TunableTuple(description='\n                    Select the number of nodes based on a static number.\n                    ', number_of_nodes=TunableRange(description='\n                        The number of nodes that we will always try and\n                        schedule from this bucket.\n                        ', tunable_type=int, default=1, minimum=0), locked_args={'option': NodeSelectionOption.STATIC_AMOUNT}))))
+    BUCKET_SCORING_RULES = TunableMapping(description='\n        A mapping between the different possible scoring buckets, and rules\n        about scheduling nodes in that bucket.\n        ', key_type=TunableEnumEntry(description='\n            The bucket that we are going to score on startup.\n            ', tunable_type=DramaNodeScoringBucket, default=DramaNodeScoringBucket.DEFAULT), value_type=TunableTuple(description='\n            Rules about scheduling this drama node.\n            ', days=TunableDayAvailability(), score_if_no_nodes_are_scheduled=Tunable(description='\n                If checked then if no drama nodes are scheduled from this\n                bucket then we will try and score and schedule this bucket\n                even if we are not expected to score nodes on this day.\n                ', tunable_type=bool, default=False), number_to_schedule=TunableVariant(description='\n                How many actual nodes should we schedule from this bucket.\n                ', based_on_household=TunableTuple(description='\n                    Select the number of nodes based on the number of Sims in\n                    the active household.\n                    ', locked_args={'option': NodeSelectionOption.BASED_ON_HOUSEHOLD}), fixed_amount=TunableTuple(description='\n                    Select the number of nodes based on a static number.\n                    ', number_of_nodes=TunableRange(description='\n                        The number of nodes that we will always try and\n                        schedule from this bucket.\n                        ', tunable_type=int, default=1, minimum=0), locked_args={'option': NodeSelectionOption.STATIC_AMOUNT})), refresh_nodes_on_scheduling=Tunable(description='\n                If checked, any existing scheduled nodes for this \n                particular scoring bucket will be canceled before scheduling\n                new nodes.\n                ', tunable_type=bool, default=False)))
     SCORING_TIME = 3
 
     def __init__(self):
@@ -163,6 +163,7 @@ class DramaScheduleService(Service):
         node_inst = self._active_nodes[uid]
         if is_drama_node_log_enabled():
             log_drama_node_scoring(node_inst, DramaNodeLogActions.COMPLETED)
+        node_inst.complete()
         node_inst.cleanup()
         del self._active_nodes[uid]
 
@@ -406,30 +407,42 @@ class DramaScheduleService(Service):
                     if nodes_to_schedule == 0:
                         if gsi_data is not None:
                             archive_drama_scheduler_scoring(gsi_data)
+                            for node in list(self._scheduled_nodes.values()):
+                                if not not node.scoring is not None and node.scoring.bucket == bucket_type:
+                                    self.cancel_scheduled_node(node.uid)
                             yield from self.score_and_schedule_nodes_gen(bucketted_nodes[bucket_type], nodes_to_schedule, time_modifier=time_modifier, timeline=timeline, gsi_data=gsi_data)
-                            if gsi_data is not None:
+                            if not rules.refresh_nodes_on_scheduling or gsi_data is not None:
                                 archive_drama_scheduler_scoring(gsi_data)
                             if timeline is not None:
                                 yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
                     else:
                         gsi_data.nodes_to_schedule = nodes_to_schedule
+                    for node in list(self._scheduled_nodes.values()):
+                        if not not node.scoring is not None and node.scoring.bucket == bucket_type:
+                            self.cancel_scheduled_node(node.uid)
                     yield from self.score_and_schedule_nodes_gen(bucketted_nodes[bucket_type], nodes_to_schedule, time_modifier=time_modifier, timeline=timeline, gsi_data=gsi_data)
-                    if gsi_data is not None:
+                    if not rules.refresh_nodes_on_scheduling or gsi_data is not None:
                         archive_drama_scheduler_scoring(gsi_data)
                     if timeline is not None:
                         yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
             if nodes_to_schedule == 0:
                 if gsi_data is not None:
                     archive_drama_scheduler_scoring(gsi_data)
+                    for node in list(self._scheduled_nodes.values()):
+                        if not not node.scoring is not None and node.scoring.bucket == bucket_type:
+                            self.cancel_scheduled_node(node.uid)
                     yield from self.score_and_schedule_nodes_gen(bucketted_nodes[bucket_type], nodes_to_schedule, time_modifier=time_modifier, timeline=timeline, gsi_data=gsi_data)
-                    if gsi_data is not None:
+                    if not rules.refresh_nodes_on_scheduling or gsi_data is not None:
                         archive_drama_scheduler_scoring(gsi_data)
                     if timeline is not None:
                         yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))
             else:
                 gsi_data.nodes_to_schedule = nodes_to_schedule
+            for node in list(self._scheduled_nodes.values()):
+                if not not node.scoring is not None and node.scoring.bucket == bucket_type:
+                    self.cancel_scheduled_node(node.uid)
             yield from self.score_and_schedule_nodes_gen(bucketted_nodes[bucket_type], nodes_to_schedule, time_modifier=time_modifier, timeline=timeline, gsi_data=gsi_data)
-            if gsi_data is not None:
+            if not rules.refresh_nodes_on_scheduling or gsi_data is not None:
                 archive_drama_scheduler_scoring(gsi_data)
             if timeline is not None:
                 yield timeline.run_child(elements.SleepElement(date_and_time.TimeSpan(0)))

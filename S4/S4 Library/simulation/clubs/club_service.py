@@ -92,6 +92,7 @@ class ClubService(Service):
         with self.defer_club_distribution():
             for club in tuple(self.clubs):
                 club.on_all_households_and_sim_infos_loaded(client)
+            self.remove_invalid_clubs()
             self.distribute_club_add(self.clubs)
 
     def on_zone_load(self):
@@ -685,10 +686,11 @@ class ClubService(Service):
         criterias = []
         for category in club_tuning.ClubCriteriaCategory:
             criteria_cls = club_tuning.CATEGORY_TO_CRITERIA_MAPPING[category]
-            criteria_proto = Clubs_pb2.ClubCriteria()
-            criteria_proto.category = category
-            criteria_cls.populate_possibilities(criteria_proto)
-            criterias.append(criteria_proto)
+            if criteria_cls.test():
+                criteria_proto = Clubs_pb2.ClubCriteria()
+                criteria_proto.category = category
+                criteria_cls.populate_possibilities(criteria_proto)
+                criterias.append(criteria_proto)
         active_household = services.active_household()
         if active_household is None:
             return
@@ -706,7 +708,7 @@ class ClubService(Service):
                 region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(neighborhood_data.region_id)
                 if not home_region.is_region_compatible(region_instance) and not current_region.is_region_compatible(region_instance):
                     continue
-                if venue_type.residential:
+                if venue_type.is_residential:
                     lot_data = persistence_service.get_lot_data_from_zone_data(zone_data)
                     if lot_data is None:
                         continue
@@ -880,3 +882,11 @@ class ClubService(Service):
         for club_data in club_service_data.clubs:
             self.create_club(club_data=club_data, from_load=True, refresh_cache=False)
         self.update_affordance_cache()
+
+    def remove_invalid_clubs(self):
+        clubs_to_remove = list()
+        for club in self._clubs:
+            if not club.has_members():
+                clubs_to_remove.append(club)
+        for club in clubs_to_remove:
+            self.remove_club(club)

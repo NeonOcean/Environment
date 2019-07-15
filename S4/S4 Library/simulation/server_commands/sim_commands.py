@@ -17,6 +17,7 @@ from interactions.utils.satisfy_constraint_interaction import SatisfyConstraintS
 from objects import ALL_HIDDEN_REASONS, ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED
 from objects.object_enums import ResetReason
 from objects.terrain import TravelSuperInteraction
+from routing import FootprintType
 from server.pick_info import PickInfo, PickType
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam, OptionalSimInfoParam
 from sims.genealogy_tracker import FamilyRelationshipIndex
@@ -37,7 +38,6 @@ import interactions.priority
 import interactions.utils.sim_focus
 import objects
 import objects.system
-import paths
 import placement
 import routing
 import server_commands
@@ -57,6 +57,7 @@ with sims4.reload.protected(globals()):
 class CommandTuning:
     TERRAIN_TELEPORT_AFFORDANCE = TunableReference(description='\n        The affordance used by the command sims.teleport to teleport the sim. This\n        command is used during GUI Smoke as well. \n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
     TERRAIN_GOHERE_AFFORDANCE = TunableReference(description='\n        The affordance used by the command sims.gohere to make the sim go to a\n        specific position.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
+    TERRAIN_SWIMHERE_AFFORDANCE = TunableReference(description='\n        The affordance used by the command sims.swimhere to make the sim swim to a\n        specific position.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
 
 @sims4.commands.Command('sims.get_all_instanced_sims', command_type=sims4.commands.CommandType.Automation)
 def get_all_instanced_sims(_connection=None):
@@ -651,6 +652,25 @@ def interrupt(opt_sim:OptionalTargetParam=None, _connection=None):
         return True
     return False
 
+def _build_terrain_interaction_target_and_context(sim, pos, routing_surface, pick_type, target_cls):
+    location = sims4.math.Location(sims4.math.Transform(pos), routing_surface)
+    target = target_cls(location)
+    pick = PickInfo(pick_type=pick_type, target=target, location=pos, routing_surface=routing_surface)
+    return (target, InteractionContext(sim, InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, pick=pick, group_id=1))
+
+@sims4.commands.Command('sims.swimhere')
+def swimhere(x:float=0.0, y:float=0.0, z:float=0.0, level:int=0, start_x:float=0.0, start_y:float=0.0, start_z:float=0.0, start_level:int=0, opt_sim:OptionalTargetParam=None, _connection=None):
+    if x == 0 and y == 0 and z == 0:
+        sims4.commands.output('swimhere: no destination set.', _connection)
+        return False
+    sim = get_optional_target(opt_sim, _connection)
+    if start_x != 0 and start_z != 0:
+        teleport(start_x, start_y, start_z, start_level, opt_sim, _connection=_connection)
+    pos = sims4.math.Vector3(x, y, z)
+    routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), level, routing.SurfaceType.SURFACETYPE_POOL)
+    (target, context) = _build_terrain_interaction_target_and_context(sim, pos, routing_surface, PickType.PICK_POOL_SURFACE, objects.terrain.OceanPoint)
+    sim.push_super_affordance(CommandTuning.TERRAIN_SWIMHERE_AFFORDANCE, target, context)
+
 @sims4.commands.Command('sims.gohere')
 def gohere(x:float=0.0, y:float=0.0, z:float=0.0, level:int=0, start_x:float=0.0, start_y:float=0.0, start_z:float=0.0, start_level:int=0, opt_sim:OptionalTargetParam=None, _connection=None):
     if x == 0 and y == 0 and z == 0:
@@ -660,13 +680,8 @@ def gohere(x:float=0.0, y:float=0.0, z:float=0.0, level:int=0, start_x:float=0.0
     if start_x != 0 and start_z != 0:
         teleport(start_x, start_y, start_z, start_level, opt_sim, _connection=_connection)
     pos = sims4.math.Vector3(x, y, z)
-    zone_id = services.current_zone_id()
-    routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_WORLD)
-    location = sims4.math.Location(sims4.math.Transform(pos), routing_surface)
-    target = objects.terrain.TerrainPoint(location)
-    target.create_for_position_and_orientation(pos, routing_surface)
-    pick = PickInfo(pick_type=PickType.PICK_TERRAIN, target=target, location=pos, routing_surface=routing_surface)
-    context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, pick=pick, group_id=1)
+    routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), level, routing.SurfaceType.SURFACETYPE_WORLD)
+    (target, context) = _build_terrain_interaction_target_and_context(sim, pos, routing_surface, PickType.PICK_TERRAIN, objects.terrain.TerrainPoint)
     sim.push_super_affordance(CommandTuning.TERRAIN_GOHERE_AFFORDANCE, target, context)
 
 @sims4.commands.Command('sims.allgohere')
@@ -839,7 +854,7 @@ def test_ignore_footprint(footprint_cost:int=100000, opt_sim:OptionalTargetParam
     sim = get_optional_target(opt_sim, _connection)
     if sim is not None:
         poly = build_rectangle_from_two_points_and_radius(sims4.math.Vector3.Z_AXIS() + sim.location.transform.translation, sim.location.transform.translation, 1.0)
-        sim.test_footprint = PolygonFootprint(poly, routing_surface=sim.routing_surface, cost=footprint_cost, footprint_type=6, enabled=True)
+        sim.test_footprint = PolygonFootprint(poly, routing_surface=sim.routing_surface, cost=footprint_cost, footprint_type=FootprintType.FOOTPRINT_TYPE_OBJECT, enabled=True)
         sim.routing_context.ignore_footprint_contour(sim.test_footprint.footprint_id)
         return True
     return False
@@ -1251,7 +1266,7 @@ def test_jig(opt_sim:OptionalTargetParam=None, _connection=None):
         vertices.append(new_translation + fwd*offset - b_width*cross + b_length*fwd)
         vertices.append(new_translation + fwd*offset - b_width*cross)
         poly = sims4.geometry.Polygon(vertices)
-        sim_a.test_footprint = PolygonFootprint(poly, routing_surface=routing_surface, cost=25, footprint_type=6, enabled=True)
+        sim_a.test_footprint = PolygonFootprint(poly, routing_surface=routing_surface, cost=25, footprint_type=FootprintType.FOOTPRINT_TYPE_OBJECT, enabled=True)
         return True
     return False
 

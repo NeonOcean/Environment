@@ -213,10 +213,21 @@ def client_object_managers():
 def sim_info_manager():
     return game_services.service_manager.sim_info_manager
 
+def posture_graph_service(zone_id=None):
+    if zone_id is None:
+        zone = current_zone()
+        if zone is not None:
+            return zone.posture_graph_service
+        return
+    return _zone_manager.get(zone_id).posture_graph_service
+
 def sim_spawner_service(zone_id=None):
     if zone_id is None:
         return current_zone().sim_spawner_service
     return _zone_manager.get(zone_id).sim_spawner_service
+
+def locator_manager():
+    return current_zone().locator_manager
 
 def object_manager(zone_id=None):
     if zone_id is None:
@@ -316,9 +327,6 @@ def venue_service():
 
 def zone_spin_up_service():
     return current_zone().zone_spin_up_service
-
-def lot_spawner_service_instance():
-    return current_zone().lot_spawner_service
 
 def household_manager():
     return game_services.service_manager.household_manager
@@ -465,9 +473,7 @@ def get_laundry_service():
         return zone.laundry_service
 
 def get_landlord_service():
-    zone = current_zone()
-    if zone is not None and hasattr(zone, 'landlord_service'):
-        return zone.landlord_service
+    return getattr(game_services.service_manager, 'landlord_service', None)
 
 def get_club_service():
     return getattr(game_services.service_manager, 'club_service', None)
@@ -539,8 +545,15 @@ def get_rabbit_hole_service():
 def holiday_service():
     return getattr(game_services.service_manager, 'holiday_service', None)
 
+def global_policy_service():
+    return getattr(game_services.service_manager, 'global_policy_service', None)
+
 def narrative_service():
     return getattr(game_services.service_manager, 'narrative_service', None)
 
 def get_object_lost_and_found_service():
     return game_services.service_manager.object_lost_and_found_service
+
+def c_api_gsi_dump():
+    import server_commands.developer_commands
+    server_commands.developer_commands.gsi_dump()

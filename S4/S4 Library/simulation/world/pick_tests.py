@@ -4,10 +4,12 @@ from event_testing.test_base import BaseTest
 from event_testing.test_events import cached_test
 from interactions import ParticipantType
 from server.pick_info import PickTerrainType, PICK_TRAVEL, PickType
-from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableEnumEntry, OptionalTunable, Tunable, TunableSet, TunableVariant
+from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableEnumEntry, OptionalTunable, Tunable, TunableSet, TunableVariant, TunableEnumSet
 from terrain import is_position_in_street
+from world.terrain_enums import TerrainTag
 import build_buy
 import services
+import terrain
 
 class PickTerrainTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     FACTORY_TUNABLES = {'terrain_location': TunableEnumEntry(description='\n             Terrain type to find.\n             ', tunable_type=PickTerrainType, default=PickTerrainType.ANYWHERE), 'terrain_feature': OptionalTunable(description='\n            Tune this if you want to require a floor feature to be present\n            ', tunable=TunableEnumEntry(tunable_type=FloorFeatureType, default=FloorFeatureType.BURNT)), 'terrain_feature_radius': Tunable(description='\n            The radius to look for the floor feature, if one is tuned in terrain_feature\n            ', tunable_type=float, default=2.0)}
@@ -63,7 +65,7 @@ class PickTerrainTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
         return TestResult.TRUE
 
 class PickTypeTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
-    FACTORY_TUNABLES = {'whitelist': TunableSet(description='\n            A set of pick types that will pass the test if the pick type\n            matches any of them.\n            ', tunable=TunableEnumEntry(description='\n                A pick type.\n                ', tunable_type=PickType, default=PickType.PICK_NONE)), 'blacklist': TunableSet(description='\n            A set of pick types that will fail the test if the pick type\n            matches any of them.\n            ', tunable=TunableEnumEntry(description='\n                A pick type.\n                ', tunable_type=PickType, default=PickType.PICK_NONE))}
+    FACTORY_TUNABLES = {'whitelist': TunableSet(description='\n            A set of pick types that will pass the test if the pick type\n            matches any of them.\n            ', tunable=TunableEnumEntry(description='\n                A pick type.\n                ', tunable_type=PickType, default=PickType.PICK_NONE)), 'blacklist': TunableSet(description='\n            A set of pick types that will fail the test if the pick type\n            matches any of them.\n            ', tunable=TunableEnumEntry(description='\n                A pick type.\n                ', tunable_type=PickType, default=PickType.PICK_NONE)), 'terrain_tags': OptionalTunable(description='\n            If checked, will verify the location of the test is currently on\n            one of the tuned terrain tags.\n            ', disabled_name="Don't_Test", tunable=TunableEnumSet(description='\n                A set of terrain tags. Only one of these tags needs to be\n                present at this location. Although it is not tunable, there\n                is a threshold weight underneath which a terrain tag will\n                not appear to be present.\n                ', enum_type=TerrainTag, enum_default=TerrainTag.INVALID))}
 
     @cached_test
     def __call__(self, context=None):
@@ -77,6 +79,10 @@ class PickTypeTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
             return TestResult(False, 'Pick type {} not in whitelist {}'.format(pick_type, self.whitelist))
         if pick_type in self.blacklist:
             return TestResult(False, 'Pick type {} in blacklist {}'.format(pick_type, self.blacklist))
+        if self.terrain_tags is not None:
+            position = pick_info.location
+            if not terrain.is_terrain_tag_at_position(position.x, position.z, self.terrain_tags, level=pick_info.routing_surface.secondary_id):
+                return TestResult(False, 'Pick does not have required terrain tag.', tooltip=self.tooltip)
         return TestResult.TRUE
 
 class PickInfoTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):

@@ -6,6 +6,7 @@ from filters.tunable import TunableSimFilter
 from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingleSim
 from interactions.interaction_finisher import FinishingType
 from interactions.utils.interaction_elements import XevtTriggeredElement
+from objects import VisibilityState
 from objects.object_creation import ObjectCreationMixin
 from objects.slots import RuntimeSlot
 from sims.genealogy_tracker import genealogy_caching, FamilyRelationshipIndex
@@ -22,7 +23,9 @@ import id_generator
 import interactions
 import services
 import sims.ghost
+import sims4.log
 import sims4.math
+import sims4.telemetry
 import telemetry_helper
 logger = sims4.log.Logger('Creation')
 TELEMETRY_GROUP_OBJECT = 'OBJC'
@@ -32,7 +35,7 @@ TELEMETRY_FIELD_OBJECT_DEFINITION = 'objc'
 writer = sims4.telemetry.TelemetryWriter(TELEMETRY_GROUP_OBJECT)
 
 class ObjectCreationElement(XevtTriggeredElement, ObjectCreationMixin):
-    FACTORY_TUNABLES = {'cancel_on_destroy': Tunable(description='\n            If checked, the interaction will be canceled if object is destroyed\n            due to placement failure or if destroy on placement failure is\n            unchecked and the fallback fails.\n            ', tunable_type=bool, default=True), 'transient': Tunable(description='\n            If checked, the created object will be destroyed when the interaction ends.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'cancel_on_destroy': Tunable(description='\n            If checked, the interaction will be canceled if object is destroyed\n            due to placement failure or if destroy on placement failure is\n            unchecked and the fallback fails.\n            ', tunable_type=bool, default=True), 'transient': Tunable(description='\n            If checked, the created object will be destroyed when the interaction ends.\n            ', tunable_type=bool, default=False), 'set_to_invisible': Tunable(description='\n            If checked, the created object will be set to invisible when the \n            interaction ends.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, interaction, *args, sequence=(), **kwargs):
         super().__init__(interaction, *args, sequence=sequence, **kwargs)
@@ -59,6 +62,8 @@ class ObjectCreationElement(XevtTriggeredElement, ObjectCreationMixin):
             return True
         if not self.transient:
             self._object_helper.claim()
+        if self.set_to_invisible:
+            self._object_helper.object.visibility = VisibilityState(False)
         with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_OBJECT_CREATE_BSCEXTRA) as hook:
             hook.write_enum(TELEMETRY_FIELD_OBJECT_INTERACTION, self.interaction.guid64)
             hook.write_guid(TELEMETRY_FIELD_OBJECT_DEFINITION, self.definition.id)

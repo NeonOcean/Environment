@@ -1,4 +1,4 @@
-from sims4.tuning.dynamic_enum import DynamicEnum
+from sims4.tuning.dynamic_enum import DynamicEnum, DynamicEnumLocked
 from weather.weather_enums import WeatherEffectType, CloudType
 import enum
 
@@ -6,6 +6,9 @@ class NarrativeGroup(DynamicEnum, partitioned=True):
     INVALID = 0
 
 class NarrativeEvent(DynamicEnum, partitioned=True):
+    INVALID = 0
+
+class NarrativeProgressionEvent(DynamicEnumLocked, partitioned=True):
     INVALID = 0
 
 class NarrativeSituationShiftType(DynamicEnum, partitioned=True):

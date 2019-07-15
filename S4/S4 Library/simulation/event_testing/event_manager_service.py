@@ -40,7 +40,7 @@ class EventManagerService(Service):
     def start(self):
         self._enabled = True
         for aspiration in services.get_instance_manager(sims4.resources.Types.ASPIRATION).types.values():
-            if not aspiration.complete_only_in_sequence:
+            if not aspiration.do_not_register_events_on_load:
                 aspiration.register_callbacks()
         for achievement in services.get_instance_manager(sims4.resources.Types.ACHIEVEMENT).types.values():
             achievement.register_callbacks()

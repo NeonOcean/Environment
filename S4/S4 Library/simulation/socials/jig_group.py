@@ -1,19 +1,22 @@
 from _collections import defaultdict
-from interactions import ParticipantType
-from interactions.constraints import Anywhere, create_constraint_set, Nowhere
-from interactions.interaction_finisher import FinishingType
-from interactions.utils.routing import get_two_person_transforms_for_jig
-from objects.pools import pool_utils
+from _math import Location, Transform
 from sims4.geometry import PolygonFootprint
 from sims4.math import transform_almost_equal_2d
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, Tunable, TunableSimMinute
+import sims4.log
+from interactions import ParticipantType
+from interactions.constraints import Anywhere, create_constraint_set, Nowhere, WaterDepthIntervals
+from interactions.interaction_finisher import FinishingType
+from interactions.utils.routing import get_two_person_transforms_for_jig
+from objects.pools import pool_utils
+from routing import SurfaceType, SurfaceIdentifier
 from socials.jigs.jig_variant import TunableJigVariant
 from socials.side_group import SideGroup
+from world.ocean_tuning import OceanTuning
 import interactions.constraints
 import routing
 import services
-import sims4.log
 import socials.group
 logger = sims4.log.Logger('Social Group')
 
@@ -56,11 +59,35 @@ class JigGroup(SideGroup):
                 fallback_routing_surface = initiating_sim.routing_surface
             else:
                 fallback_routing_surface = target_sim.routing_surface
+        fallback_starting_position = None
+        stay_in_connectivity_group = True
+        ignore_restrictions = False
         if target_sim is not None:
-            if target_sim.in_pool:
-                sim_pool = pool_utils.get_pool_by_block_id(target_sim.block_id)
-                fallback_routing_surface = sim_pool.world_routing_surface
-        yield from cls.jig.get_transforms_gen(initiating_sim, target_sim, actor_slot_index=actor_slot_index, target_slot_index=target_slot_index, stay_outside=cls.stay_outside, fallback_routing_surface=fallback_routing_surface)
+            if target_sim.routing_surface.type == SurfaceType.SURFACETYPE_POOL:
+                fallback_routing_surface = SurfaceIdentifier(target_sim.routing_surface.primary_id, target_sim.routing_surface.secondary_id, SurfaceType.SURFACETYPE_WORLD)
+                ocean = services.terrain_service.ocean_object()
+                if not ocean is None:
+                    if not target_sim.in_pool:
+                        if not services.active_lot().is_position_on_lot(target_sim.position):
+                            extended_species = target_sim.extended_species
+                            age = target_sim.age
+                            start_location = ocean.get_nearest_constraint_start_location(extended_species, age, target_sim.position, WaterDepthIntervals.WET)
+                            if start_location is not None:
+                                fallback_starting_position = start_location.transform.translation
+                stay_in_connectivity_group = False
+                ignore_restrictions = True
+        reference_routing_surface = initiating_sim.routing_surface if target_sim is None else target_sim.routing_surface
+        (min_water_depth, max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(reference_routing_surface, initiating_sim)
+        if target_sim is not None:
+            (min_water_depth, max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(reference_routing_surface, target_sim, min_water_depth, max_water_depth)
+        if fallback_routing_surface is not None:
+            (fallback_min_water_depth, fallback_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(fallback_routing_surface, initiating_sim)
+            if target_sim is not None:
+                (fallback_min_water_depth, fallback_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(fallback_routing_surface, target_sim, fallback_min_water_depth, fallback_max_water_depth)
+        else:
+            fallback_min_water_depth = None
+            fallback_max_water_depth = None
+        yield from cls.jig.get_transforms_gen(initiating_sim, target_sim, actor_slot_index=actor_slot_index, target_slot_index=target_slot_index, stay_outside=cls.stay_outside, fallback_routing_surface=fallback_routing_surface, fallback_min_water_depth=fallback_min_water_depth, fallback_max_water_depth=fallback_max_water_depth, fallback_starting_position=fallback_starting_position, stay_in_connectivity_group=stay_in_connectivity_group, ignore_restrictions=ignore_restrictions, min_water_depth=min_water_depth, max_water_depth=max_water_depth)
 
     @classmethod
     def make_constraint_default(cls, actor, target_sim, position, routing_surface, participant_type=ParticipantType.Actor, picked_object=None, participant_slot_overrides=None):

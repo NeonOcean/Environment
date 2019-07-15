@@ -129,7 +129,7 @@ class WaitInLineSuperInteraction(SitOrStandSuperInteraction):
             constraint_list.append(inst._stored_aop.target.lineofsight_component.constraint)
             facing_constraint = interactions.constraints.Facing(inst._stored_aop.target)
             constraint_list.append(facing_constraint)
-            cone_constraint = inst._waiting_line._line_cone.create_constraint(sim, None, target_position=destination_vector, target_forward=tuned_forward_vector, target_routing_surface=inst._stored_aop.target.routing_surface)
+            cone_constraint = inst._waiting_line._line_cone.create_constraint(sim, None, target_position=destination_vector, target_forward=tuned_forward_vector, routing_surface=inst._stored_aop.target.routing_surface)
             constraint_list.append(cone_constraint)
         else:
             if sim_in_front_of_me is None:
@@ -146,7 +146,7 @@ class WaitInLineSuperInteraction(SitOrStandSuperInteraction):
                     sim_2_in_front_of_me = interaction_2_in_front_of_me.sim
                     sim_2_in_front_to_sim_in_front_vector = sim_in_front_of_me.intended_position - sim_2_in_front_of_me.intended_position
             combined_vector = sims4.math.vector_normalize(sim_2_in_front_to_sim_in_front_vector + tuned_forward_vector)
-            line_cone_constraint = inst._waiting_line._line_cone.create_constraint(sim, None, target_position=desired_position, target_forward=combined_vector, target_routing_surface=inst._stored_aop.target.routing_surface)
+            line_cone_constraint = inst._waiting_line._line_cone.create_constraint(sim, None, target_position=desired_position, target_forward=combined_vector, routing_surface=inst._stored_aop.target.routing_surface)
             constraint_list.append(line_cone_constraint)
         if not constraint_list:
             logger.error('The production of waiting-line adjustment constraints yielded no constraints.')

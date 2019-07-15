@@ -209,10 +209,10 @@ class LotDecorationService(Service):
             self._handle_highest_priority_request()
 
     def cancel_decoration_requests_for(self, requester):
-        if services.current_zone().is_zone_shutting_down:
-            return
         if requester in self._active_requests:
             del self._active_requests[requester]
+        if services.current_zone().is_zone_shutting_down:
+            return
         self._handle_highest_priority_request()
 
     def _get_highest_priority_request(self):

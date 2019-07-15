@@ -185,6 +185,15 @@ class CarrySystemInventoryTarget(CarrySystemCustomAnimationTarget):
         if self._put:
             self._inventory_owner.inventory_component.system_add_object(self._obj)
 
+class CarrySystemDestroyTarget(CarrySystemCustomAnimationTarget):
+
+    @property
+    def surface_height(self) -> str:
+        return 'high'
+
+    def carry_event_callback(self, *_, **__):
+        self._obj.remove_from_client()
+
 class CarryPosture(postures.posture.Posture):
     INSTANCE_SUBCLASSES_ONLY = True
     _XEVT_ID = None

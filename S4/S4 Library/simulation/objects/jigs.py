@@ -9,11 +9,11 @@ class Jig(objects.game_object.GameObject):
     def persistence_group(self):
         return objects.persistence_groups.PersistenceGroups.NONE
 
-    def save_object(self, object_list, item_location=objects.object_enums.ItemLocation.ON_LOT, container_id=0):
+    def save_object(self, object_list, *args, item_location=objects.object_enums.ItemLocation.ON_LOT, container_id=0, **kwargs):
         pass
 
     @property
     def is_valid_posture_graph_object(self):
         return False
 
-sims4.tuning.instances.lock_instance_tunables(Jig, _persists=False, _world_file_object_persists=False)
+sims4.tuning.instances.lock_instance_tunables(Jig, _persistence=objects.object_enums.PersistenceType.NONE, _world_file_object_persists=False)

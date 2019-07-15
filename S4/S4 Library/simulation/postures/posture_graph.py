@@ -1,47 +1,14 @@
 from collections import OrderedDict, namedtuple, defaultdict
 from contextlib import contextmanager
+from platform import node
 import collections
 import functools
 import itertools
 import operator
+import time
 import weakref
 import xml.etree
-from animation.posture_manifest import SlotManifestEntry, AnimationParticipant
-from animation.posture_manifest_constants import SWIM_AT_NONE_CONSTRAINT, STAND_AT_NONE_CONSTRAINT
-from balloon.passive_balloons import PassiveBalloons
 from caches import BarebonesCache
-from element_utils import build_element, maybe
-from event_testing.results import TestResult
-from indexed_manager import CallbackTypes
-from interactions import ParticipantType, constraints
-from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import ReservationLiability, RESERVATION_LIABILITY
-from interactions.constraints import create_transform_geometry, Anywhere, ANYWHERE, RequiredSlotSingle, create_constraint_set, Constraint, Nowhere
-from interactions.context import InteractionContext, QueueInsertStrategy, InteractionSource
-from interactions.interaction_finisher import FinishingType
-from interactions.priority import Priority
-from interactions.utils import routing_constants
-from interactions.utils.routing import FollowPath, get_route_element_for_path, SlotGoal
-from interactions.utils.routing_constants import TransitionFailureReasons
-from objects import ALL_HIDDEN_REASONS
-from objects.definition import Definition
-from objects.helpers.user_footprint_helper import push_route_away
-from objects.object_enums import ResetReason
-from objects.pools import pool_utils
-from postures import DerailReason
-from postures.base_postures import create_puppet_postures
-from postures.generic_posture_node import SimPostureNode
-from postures.posture import Posture
-from postures.posture_errors import PostureGraphError, PostureGraphMiddlePathError
-from postures.posture_scoring import PostureScoring, may_reserve_posture_target
-from postures.posture_specs import PostureSpecVariable, PostureSpec, PostureOperation, get_origin_spec, get_origin_spec_carry, with_caches, SURFACE_INDEX, BODY_INDEX, SURFACE_TARGET_INDEX, BODY_TARGET_INDEX, BODY_POSTURE_TYPE_INDEX, CARRY_INDEX, CARRY_TARGET_INDEX, SURFACE_SLOT_TYPE_INDEX, SURFACE_SLOT_TARGET_INDEX, get_pick_up_spec_sequence, get_put_down_spec_sequence, destination_test, PostureAspectBody, PostureAspectSurface, _object_addition
-from postures.posture_state_spec import create_body_posture_state_spec
-from postures.posture_tuning import PostureTuning
-from relationships.global_relationship_tuning import RelationshipGlobalTuning
-from reservation.reservation_handler_multi import ReservationHandlerMulti
-from routing import SurfaceType
-from routing.formation.formation_tuning import FormationTuning
-from sims.sim_info_types import Species
 from sims4 import reload
 from sims4.callback_utils import CallableTestList
 from sims4.collections import frozendict, enumdict
@@ -55,22 +22,63 @@ from sims4.tuning.tunable import Tunable, TunableReference, TunableList, Tunable
 from sims4.utils import enumerate_reversed
 from singletons import DEFAULT
 import algos
-import build_buy
 import caches
+import enum
+import sims4.geometry
+import sims4.math
+import sims4.reload
+from animation.posture_manifest import SlotManifestEntry, AnimationParticipant
+from animation.posture_manifest_constants import SWIM_AT_NONE_CONSTRAINT, STAND_AT_NONE_CONSTRAINT
+from balloon.passive_balloons import PassiveBalloons
+from element_utils import build_element, maybe
+from event_testing.results import TestResult
+from indexed_manager import CallbackTypes
+from interactions import ParticipantType, constraints
+from interactions.aop import AffordanceObjectPair
+from interactions.constraints import create_transform_geometry, Anywhere, ANYWHERE, RequiredSlotSingle, create_constraint_set, Constraint, Nowhere
+from interactions.context import InteractionContext, QueueInsertStrategy, InteractionSource
+from interactions.interaction_finisher import FinishingType
+from interactions.priority import Priority
+from interactions.utils import routing_constants
+from interactions.utils.interaction_liabilities import RESERVATION_LIABILITY, ReservationLiability
+from interactions.utils.routing import FollowPath, get_route_element_for_path, SlotGoal
+from interactions.utils.routing_constants import TransitionFailureReasons
+from objects import ALL_HIDDEN_REASONS
+from objects.definition import Definition
+from objects.helpers.user_footprint_helper import push_route_away
+from objects.object_enums import ResetReason
+from objects.pools import pool_utils
+from objects.proxy import ProxyObject
+from postures import DerailReason
+from postures.base_postures import create_puppet_postures
+from postures.generic_posture_node import SimPostureNode
+from postures.posture import Posture
+from postures.posture_errors import PostureGraphError, PostureGraphMiddlePathError
+from postures.posture_scoring import PostureScoring, may_reserve_posture_target
+from postures.posture_specs import PostureSpecVariable, PostureSpec, PostureOperation, get_origin_spec, get_origin_spec_carry, with_caches, SURFACE_INDEX, BODY_INDEX, SURFACE_TARGET_INDEX, BODY_TARGET_INDEX, BODY_POSTURE_TYPE_INDEX, CARRY_INDEX, CARRY_TARGET_INDEX, SURFACE_SLOT_TYPE_INDEX, SURFACE_SLOT_TARGET_INDEX, get_pick_up_spec_sequence, get_put_down_spec_sequence, destination_test, PostureAspectBody, PostureAspectSurface, _object_addition
+from postures.posture_state_spec import create_body_posture_state_spec
+from postures.posture_tuning import PostureTuning
+from relationships.global_relationship_tuning import RelationshipGlobalTuning
+from reservation.reservation_handler_multi import ReservationHandlerMulti
+from routing import SurfaceType
+from routing.connectivity import RoutingHandle
+from routing.formation.formation_tuning import FormationTuning
+from routing.formation.formation_type_base import FormationRoutingType
+from sims.sim_info_types import Species
+from world.ocean_tuning import OceanTuning
+import build_buy
 import debugvis
 import element_utils
 import elements
-import enum
 import event_testing.test_utils
 import gsi_handlers.posture_graph_handlers
+import indexed_manager
 import interactions.utils.routing
 import postures
 import primitives.routing_utils
 import routing
 import services
-import sims4.geometry
-import sims4.math
-import sims4.reload
+import terrain
 MAX_RIGHT_PATHS = 30
 NON_OPTIMAL_PATH_DESTINATION = 1000
 PLACEMENT_FOOTPRINT_HASH_SET = frozenset({sims4.hash_util.hash32('_ftp_placementShape')})
@@ -88,10 +96,9 @@ with sims4.reload.protected(globals()):
     SWIM_AT_NONE = None
     SWIM_AT_NONE_CARRY = None
     SWIM_AT_NONE_NODES = None
-    MOBILE_POSTURE_TYPES = None
-    MOBILE_NODES_AT_NONE = None
-    MOBILE_NODES_AT_NONE_CARRY = None
-    ALL_MOBILE_NODES = None
+    _MOBILE_NODES_AT_NONE = None
+    _MOBILE_NODES_AT_NONE_CARRY = None
+    _DEFAULT_MOBILE_NODES = None
     enable_debug_goals_visualization = False
     on_transition_destinations_changed = sims4.callback_utils.CallableList()
 InsertionIndexAndSpec = namedtuple('InsertionIndexAndSpec', ['index', 'spec'])
@@ -304,8 +311,8 @@ class SegmentedPath:
                 else:
                     carry = None
                 if carry is not None and path_left[-1].carry_target is None and carry is None or isinstance(carry, Definition):
-                    left_destinations = MOBILE_NODES_AT_NONE
-                elif carry.get_inventory() is None and carry.parent not in (None, self.sim):
+                    left_destinations = services.posture_graph_service().all_mobile_nodes_at_none_no_carry
+                elif not carry.is_in_inventory() and carry.parent not in (None, self.sim):
                     left_destinations = STAND_AT_NONE_NODES
                 else:
                     left_destinations = (STAND_AT_NONE_CARRY,)
@@ -392,7 +399,7 @@ def set_transition_failure_reason(sim, reason, target_id=None, transition_contro
         transition_controller.set_failure_target(sim, reason, target_id=target_id)
 
 def _cache_global_sim_default_values():
-    global SIM_DEFAULT_POSTURE_TYPE, STAND_AT_NONE, STAND_AT_NONE_CARRY, STAND_AT_NONE_NODES, SIM_DEFAULT_AOPS, SIM_DEFAULT_OPERATION, SIM_SWIM_POSTURE_TYPE, SWIM_AT_NONE, SWIM_AT_NONE_CARRY, SWIM_AT_NONE_NODES, SIM_SWIM_AOPS, SIM_SWIM_OPERATION, MOBILE_POSTURE_TYPES, MOBILE_NODES_AT_NONE, MOBILE_NODES_AT_NONE_CARRY, ALL_MOBILE_NODES
+    global SIM_DEFAULT_POSTURE_TYPE, STAND_AT_NONE, STAND_AT_NONE_CARRY, STAND_AT_NONE_NODES, SIM_DEFAULT_AOPS, SIM_DEFAULT_OPERATION, SIM_SWIM_POSTURE_TYPE, SWIM_AT_NONE, SWIM_AT_NONE_CARRY, SWIM_AT_NONE_NODES, SIM_SWIM_AOPS, SIM_SWIM_OPERATION, _MOBILE_NODES_AT_NONE, _MOBILE_NODES_AT_NONE_CARRY, _DEFAULT_MOBILE_NODES
     SIM_DEFAULT_POSTURE_TYPE = PostureGraphService.get_default_affordance(Species.HUMAN).provided_posture_type
     STAND_AT_NONE = get_origin_spec(SIM_DEFAULT_POSTURE_TYPE)
     STAND_AT_NONE_CARRY = get_origin_spec_carry(SIM_DEFAULT_POSTURE_TYPE)
@@ -405,22 +412,25 @@ def _cache_global_sim_default_values():
     SWIM_AT_NONE_NODES = (SWIM_AT_NONE, SWIM_AT_NONE_CARRY)
     SIM_SWIM_AOPS = enumdict(Species, {species: AffordanceObjectPair(affordance, None, affordance, None, force_inertial=True) for (species, affordance) in PostureGraphService.SWIM_DEFAULT_AFFORDANCES.items()})
     SIM_SWIM_OPERATION = PostureOperation.BodyTransition(SIM_SWIM_POSTURE_TYPE, SIM_SWIM_AOPS)
-    MOBILE_POSTURE_TYPES = {SIM_DEFAULT_POSTURE_TYPE}
-    MOBILE_NODES_AT_NONE = {STAND_AT_NONE}
-    MOBILE_NODES_AT_NONE_CARRY = {STAND_AT_NONE_CARRY}
-    ALL_MOBILE_NODES = {STAND_AT_NONE, STAND_AT_NONE_CARRY}
+    _MOBILE_NODES_AT_NONE = {STAND_AT_NONE}
+    _MOBILE_NODES_AT_NONE_CARRY = {STAND_AT_NONE_CARRY}
+    _DEFAULT_MOBILE_NODES = {STAND_AT_NONE, STAND_AT_NONE_CARRY}
     for affordance in PostureGraphService.POSTURE_PROVIDING_AFFORDANCES:
         if affordance.provided_posture_type is not None:
             if affordance.provided_posture_type.mobile:
-                MOBILE_POSTURE_TYPES.add(affordance.provided_posture_type)
-                mobile_node_at_none = get_origin_spec(affordance.provided_posture_type)
-                MOBILE_NODES_AT_NONE.add(mobile_node_at_none)
-                mobile_node_at_none_carry = get_origin_spec_carry(affordance.provided_posture_type)
-                MOBILE_NODES_AT_NONE_CARRY.add(mobile_node_at_none_carry)
-                ALL_MOBILE_NODES.update({mobile_node_at_none, mobile_node_at_none_carry})
+                if not affordance.provided_posture_type.skip_route:
+                    posture_type = affordance.provided_posture_type
+                    mobile_node_at_none = get_origin_spec(posture_type)
+                    _MOBILE_NODES_AT_NONE.add(mobile_node_at_none)
+                    _DEFAULT_MOBILE_NODES.add(mobile_node_at_none)
+                    if posture_type._supports_carry:
+                        mobile_node_at_none_carry = get_origin_spec_carry(posture_type)
+                        _MOBILE_NODES_AT_NONE_CARRY.add(mobile_node_at_none_carry)
+                        _DEFAULT_MOBILE_NODES.add(mobile_node_at_none_carry)
 
 def get_mobile_posture_constraint(posture=None, target=None):
     posture_manifests = []
+    body_target = target
     if posture is not None:
         if posture is SIM_DEFAULT_POSTURE_TYPE:
             return STAND_AT_NONE_CONSTRAINT
@@ -431,39 +441,42 @@ def get_mobile_posture_constraint(posture=None, target=None):
             return Nowhere('Mobile posture override {} is not actually mobile.', posture)
         else:
             posture_manifests = [posture.get_provided_postures()]
-            if not posture_manifests:
+            if not posture_manifests and target is not None:
+                for mobile_posture in target.provided_mobile_posture_types:
+                    posture_manifests.append(mobile_posture.get_provided_postures())
+                    body_target = None
+                    break
+            elif posture_manifests:
                 if target is not None:
-                    mobile_postures = get_mobile_posture_types_for_object(target)
-                    for mobile_posture in mobile_postures:
-                        posture_manifests.append(mobile_posture.get_provided_postures())
-                        break
+                    if target.routing_component is None:
+                        body_target = PostureSpecVariable.ANYTHING
             constraints = []
             for manifest in posture_manifests:
-                posture_state_spec = create_body_posture_state_spec(manifest, body_target=None)
+                posture_state_spec = create_body_posture_state_spec(manifest, body_target=body_target)
                 constraint = Constraint(debug_name='MobilePosture@None', posture_state_spec=posture_state_spec)
                 constraints.append(constraint)
             if constraints:
                 return create_constraint_set(constraints, debug_name='MobilePostureConstraints')
-    if not posture_manifests:
+    if not posture_manifests and target is not None:
+        for mobile_posture in target.provided_mobile_posture_types:
+            posture_manifests.append(mobile_posture.get_provided_postures())
+            body_target = None
+            break
+    elif posture_manifests:
         if target is not None:
-            mobile_postures = get_mobile_posture_types_for_object(target)
-            for mobile_posture in mobile_postures:
-                posture_manifests.append(mobile_posture.get_provided_postures())
-                break
+            if target.routing_component is None:
+                body_target = PostureSpecVariable.ANYTHING
     constraints = []
     for manifest in posture_manifests:
-        posture_state_spec = create_body_posture_state_spec(manifest, body_target=None)
+        posture_state_spec = create_body_posture_state_spec(manifest, body_target=body_target)
         constraint = Constraint(debug_name='MobilePosture@None', posture_state_spec=posture_state_spec)
         constraints.append(constraint)
     if constraints:
         return create_constraint_set(constraints, debug_name='MobilePostureConstraints')
     return STAND_AT_NONE_CONSTRAINT
 
-def get_mobile_posture_types_for_object(obj):
-    return frozenset({mobile_posture_type for mobile_posture_type in MOBILE_POSTURE_TYPES if mobile_posture_type.is_object_related(obj)})
-
 def is_object_mobile_posture_compatible(obj):
-    return any(mobile_posture_type.is_object_related(obj) for mobile_posture_type in MOBILE_POSTURE_TYPES)
+    return any(posture_type.posture_objects is not None for posture_type in obj.provided_mobile_posture_types)
 
 @contextmanager
 def supress_posture_graph_build(rebuild=True):
@@ -513,7 +526,7 @@ class TransitionSpec:
         self.locked_params = frozendict()
         self._additional_reservation_handlers = []
         self.handle_slot_reservations = False
-        self._portal_ref = weakref.ref(portal_obj) if portal_obj is not None else None
+        self._portal_ref = portal_obj.ref() if portal_obj is not None else None
         self.portal_id = portal_id
         self.created_posture_state = None
 
@@ -547,7 +560,12 @@ class TransitionSpec:
 
     @portal_obj.setter
     def portal_obj(self, value):
-        self._portal_ref = weakref.ref(value) if value is not None else None
+        if value is None:
+            self._portal_ref = None
+        elif issubclass(value.__class__, ProxyObject):
+            self._portal_ref = value.ref()
+        else:
+            self._portal_ref = weakref.ref(value)
 
     def transition_interactions(self, sim):
         if sim in self._transition_interactions:
@@ -789,7 +807,8 @@ class TransitionSpec:
                         if transition_controller is not None:
                             transition_controller.derail(DerailReason.WAIT_FOR_BLOCKING_SIMS, sim)
                         return FollowPath.Action.CANCEL
-                    portal_obj.set_portal_cost_override(portal_id, routing.PORTAL_USE_LOCK, sim=sim)
+                    if portal_obj.lock_portal_on_use(portal_id):
+                        portal_obj.set_portal_cost_override(portal_id, routing.PORTAL_USE_LOCK, sim=sim)
                 if not self.do_reservation(sim, is_failure_path=self.is_failure_path):
                     return FollowPath.Action.CANCEL
             if not self.is_failure_path:
@@ -917,6 +936,13 @@ class PathSpec:
         return self._path[previous_progress].posture_spec
 
     @property
+    def previous_transition_spec(self):
+        previous_progress = self._path_progress - 1
+        if previous_progress < 0 or previous_progress >= len(self._path):
+            return
+        return self._path[previous_progress]
+
+    @property
     def final_constraint(self):
         if self._final_constraint is not None:
             return self._final_constraint
@@ -968,6 +994,7 @@ class PathSpec:
         transition_specs = self.transition_specs
         if transition_specs is None:
             return
+        cleanup_portal_costs = not services.current_zone().is_zone_shutting_down
         for transition_spec in transition_specs:
             if transition_spec.created_posture_state is not None:
                 for aspect in transition_spec.created_posture_state.aspects:
@@ -977,7 +1004,7 @@ class PathSpec:
             if transition_spec.path is not None:
                 transition_spec.path.remove_intended_location_from_quadtree()
             portal_obj = transition_spec.portal_obj
-            if portal_obj is not None and sim not in portal_obj.get_users():
+            if cleanup_portal_costs and portal_obj is not None and sim not in portal_obj.get_users():
                 portal_obj.clear_portal_cost_override(transition_spec.portal_id, sim=sim)
             for (interaction, _) in transition_spec.transition_interactions(sim):
                 if interaction is not None and interaction not in sim.queue and interaction not in sim.si_state:
@@ -1085,10 +1112,15 @@ class PathSpec:
         else:
             new_transition_spec = TransitionSpec(self, posture_specs[0], final_node.var_map)
         new_transition_spec.set_path(path, None)
+        prev_posture_type = self._path[-1].posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
+        next_posture_type = new_transition_spec.posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
+        if not prev_posture_type.is_available_transition(next_posture_type):
+            return False
         self._path.append(new_transition_spec)
         for posture_spec in posture_specs[1:]:
             new_transition_spec = TransitionSpec(self, posture_spec, final_node.var_map, portal_obj=portal_obj, portal_id=portal_id)
             self._path.append(new_transition_spec)
+        return True
 
     def attach_route_and_params(self, path, locked_params, final_constraint, reverse=False):
         if reverse:
@@ -1276,6 +1308,7 @@ class PathSpec:
         exit_change = sim.posture_state.body.saved_exit_clothing_change
         if exit_change is not None:
             preload_outfit_set.add(exit_change)
+        posture_graph_service = services.posture_graph_service()
         for (i, cur_transition_spec) in enumerate(self._path[1:], start=1):
             cur_posture_spec = cur_transition_spec.posture_spec
             outfit_change = cur_transition_spec.posture_spec.body.posture_type.outfit_change
@@ -1300,7 +1333,7 @@ class PathSpec:
                 prev_posture_spec = None
             aop_list = []
             var_map = cur_transition_spec.var_map
-            edge_info = services.current_zone().posture_graph_service.get_edge(prev_posture_spec, cur_posture_spec, return_none_on_failure=True)
+            edge_info = posture_graph_service.get_edge(prev_posture_spec, cur_posture_spec, return_none_on_failure=True)
             aop = None
             if edge_info is not None:
                 for operation in edge_info.operations:
@@ -1361,6 +1394,11 @@ class PostureGraph(collections.MutableMapping):
         self._objects_pending_deletion = set()
         self.proxy_sim = None
         self.cached_sim_nodes = weakref.WeakKeyDictionary()
+        self.cached_vehicle_nodes = set()
+        self.cached_postures_to_object_ids = defaultdict(set)
+        self._mobile_nodes_at_none = set()
+        self._mobile_nodes_at_none_no_carry = set()
+        self._mobile_nodes_at_none_carry = set()
 
     def __len__(self):
         return len(self._nodes)
@@ -1405,6 +1443,40 @@ class PostureGraph(collections.MutableMapping):
     def nodes(self):
         return self.keys()
 
+    @property
+    def vehicle_nodes(self):
+        return self.cached_vehicle_nodes
+
+    def cache_global_mobile_nodes(self):
+        self._mobile_nodes_at_none.update(_DEFAULT_MOBILE_NODES)
+        self._mobile_nodes_at_none_no_carry.update(_MOBILE_NODES_AT_NONE)
+        self._mobile_nodes_at_none_carry.update(_MOBILE_NODES_AT_NONE_CARRY)
+
+    def setup_provided_mobile_nodes(self):
+        object_manager = services.object_manager()
+        for obj in object_manager.get_posture_providing_objects():
+            self.add_mobile_posture_provider_nodes(obj)
+
+    @property
+    def all_mobile_nodes_at_none(self):
+        return self._mobile_nodes_at_none
+
+    @property
+    def all_mobile_nodes_at_none_no_carry(self):
+        return self._mobile_nodes_at_none_no_carry
+
+    @property
+    def all_mobile_nodes_at_none_carry(self):
+        return self._mobile_nodes_at_none_carry
+
+    @property
+    def mobile_posture_providing_affordances(self):
+        object_manager = services.object_manager()
+        affordances = set()
+        for obj in object_manager.get_posture_providing_objects():
+            affordances.update(obj.provided_mobile_posture_affordances)
+        return affordances
+
     def get_canonical_node(self, node):
         node_data = self.get(node)
         if node_data is None:
@@ -1415,6 +1487,9 @@ class PostureGraph(collections.MutableMapping):
         target = node.body_target or node.surface_target
         if target is not None and target != PostureSpecVariable.ANYTHING:
             self.remove_from_quadtree(target, node)
+            body_type = node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
+            if body_type.is_vehicle:
+                self.cached_vehicle_nodes.remove(node)
         for key in self._get_subset_keys(node):
             if key in self._subsets:
                 self._subsets[key].remove(node)
@@ -1464,6 +1539,9 @@ class PostureGraph(collections.MutableMapping):
                 target = surface[SURFACE_TARGET_INDEX]
         if target is not None and target != PostureSpecVariable.ANYTHING and not target.is_sim:
             self.add_to_quadtree(target, node)
+            body_type = node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
+            if body_type.is_vehicle:
+                self.cached_vehicle_nodes.add(node)
         for key in self._get_subset_keys(node):
             self._subsets[key].add(node)
 
@@ -1601,11 +1679,50 @@ class PostureGraph(collections.MutableMapping):
             self.cached_sim_nodes[sim] = sim_node
             yield sim_node
 
+    def vehicle_nodes_gen(self):
+        for node in self.cached_vehicle_nodes:
+            yield node
+
+    def add_mobile_posture_provider_nodes(self, new_obj):
+        for mobile_posture in new_obj.provided_mobile_posture_types:
+            add_nodes = False if self.cached_postures_to_object_ids[mobile_posture] else True
+            if new_obj.id not in self.cached_postures_to_object_ids[mobile_posture]:
+                self.cached_postures_to_object_ids[mobile_posture].add(new_obj.id)
+            if add_nodes:
+                if not mobile_posture.skip_route:
+                    mobile_node_at_none = get_origin_spec(mobile_posture)
+                    self._mobile_nodes_at_none.add(mobile_node_at_none)
+                    self._mobile_nodes_at_none_no_carry.add(mobile_node_at_none)
+                    if mobile_posture._supports_carry:
+                        mobile_node_at_none_carry = get_origin_spec_carry(mobile_posture)
+                        self._mobile_nodes_at_none.add(mobile_node_at_none_carry)
+                        self._mobile_nodes_at_none_carry.add(mobile_node_at_none_carry)
+
+    def remove_mobile_posture_provider_nodes(self, old_obj):
+        for mobile_posture in old_obj.provided_mobile_posture_types:
+            if old_obj.id in self.cached_postures_to_object_ids[mobile_posture]:
+                self.cached_postures_to_object_ids[mobile_posture].remove(old_obj.id)
+            remove_nodes = False if self.cached_postures_to_object_ids[mobile_posture] else True
+            if remove_nodes:
+                if not mobile_posture.skip_route:
+                    mobile_node_at_none = get_origin_spec(mobile_posture)
+                    self._mobile_nodes_at_none.remove(mobile_node_at_none)
+                    self._mobile_nodes_at_none_no_carry.remove(mobile_node_at_none)
+                    if mobile_posture._supports_carry:
+                        mobile_node_at_none_carry = get_origin_spec_carry(mobile_posture)
+                        self._mobile_nodes_at_none.remove(mobile_node_at_none_carry)
+                        self._mobile_nodes_at_none_carry.remove(mobile_node_at_none_carry)
+
     def clear(self):
         super().clear()
         self._subsets.clear()
         self._quadtrees.clear()
         self._objects_pending_deletion.clear()
+        self.cached_vehicle_nodes.clear()
+        self.cached_postures_to_object_ids.clear()
+        self._mobile_nodes_at_none.clear()
+        self._mobile_nodes_at_none_carry.clear()
+        self._mobile_nodes_at_none_no_carry.clear()
         self.proxy_sim = None
 
 class EdgeInfo(namedtuple('_EdgeInfo', ['operations', 'validate', 'species_to_cost_dict'])):
@@ -1620,10 +1737,20 @@ def _get_species_to_aop_tunable_mapping(*, description):
     return TunableMapping(description=description, key_type=TunableEnumEntry(description='\n            The species that this affordance is intended for.\n            ', tunable_type=Species, default=Species.HUMAN, invalid_enums=(Species.INVALID,)), value_type=TunableReference(description='\n            The default interaction to push for Sims of this species.\n            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True))
 
 class PostureGraphService(Service):
+
+    @staticmethod
+    def _verify_tunable_callback(instance_class, tunable_name, source, value):
+        for affordance in PostureGraphService.POSTURE_PROVIDING_AFFORDANCES:
+            posture_type = affordance.provided_posture_type
+            if posture_type.mobile:
+                if posture_type.unconstrained:
+                    if affordance not in PostureGraphService.SIM_DEFAULT_AFFORDANCES:
+                        logger.error(' Posture Providing Affordance {} provides a\n                mobile, unconstrained, posture but is not tied to an object.\n                You likely want to add this to the Provided Mobile Posture\n                Affordances on the object this posture requires. For example,\n                Oceans and Pools provide swim and float postures.\n                ', affordance, owner='rmccord')
+
     SIM_DEFAULT_AFFORDANCES = _get_species_to_aop_tunable_mapping(description="\n        The interactions for Sims' default postures. These interactions are used\n        to kickstart Sims; are pushed on them after resets, and are used as the\n        default cancel replacement interaction.\n        ")
     SWIM_DEFAULT_AFFORDANCES = _get_species_to_aop_tunable_mapping(description="\n        The interactions for Sims' default swimming postures. These interactions\n        are used as a Sim's default affordance while in a pool.\n        ")
     CARRIED_DEFAULT_AFFORDANCES = _get_species_to_aop_tunable_mapping(description='\n        The interactions for Sims\' default "Be Carried" postures. These\n        interactions are used whenever Sims are transitioning into such\n        postures.\n        ')
-    POSTURE_PROVIDING_AFFORDANCES = TunableList(description='\n        Additional posture providing interactions that are not tuned on any\n        object. This allows us to add additional postures for sims to use.\n        Example: Kneel on floor.\n        ', tunable=TunableReference(description='\n            Interaction that provides a posture.\n            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True))
+    POSTURE_PROVIDING_AFFORDANCES = TunableList(description='\n        Additional posture providing interactions that are not tuned on any\n        object. This allows us to add additional postures for sims to use.\n        Example: Kneel on floor.\n        ', tunable=TunableReference(description='\n            Interaction that provides a posture.\n            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True), verify_tunable_callback=_verify_tunable_callback)
     INCREMENTAL_REBUILD_THRESHOLD = Tunable(description='\n        The posture graph will do a full rebuild when exiting build/buy if\n        there have been more than this number of modifications to the posture\n        graph. Otherwise, an incremental rebuild will be done, which is much\n        faster for small numbers of operations, but slower for large numbers.\n        Talk to a gameplay engineer before changing this value.\n        ', tunable_type=int, default=10)
 
     def __init__(self):
@@ -1635,14 +1762,23 @@ class PostureGraphService(Service):
         self._incremental_update_count = None
         self._mobile_posture_objects_quadtree = sims4.geometry.QuadTree()
 
+    @property
+    def has_built_for_zone_spin_up(self):
+        return self._zone_loaded
+
     def _clear(self):
         self._graph.clear()
         self._edge_info.clear()
 
     def rebuild(self):
+        if indexed_manager.capture_load_times:
+            time_stamp = time.time()
         if self._disable_graph_update_count == 0:
             self._clear()
             self.build()
+        if indexed_manager.capture_load_times:
+            time_spent_rebuilding = time.time() - time_stamp
+            indexed_manager.object_load_times['posture_graph'] = time_spent_rebuilding
 
     def disable_graph_building(self):
         self._disable_graph_update_count += 1
@@ -1713,6 +1849,7 @@ class PostureGraphService(Service):
         finally:
             if isinstance(oldobj, PostureGraphService):
                 _cache_global_sim_default_values()
+                newobj._graph.cache_global_mobile_nodes()
 
     def on_teardown(self):
         self._zone_loaded = False
@@ -1786,6 +1923,9 @@ class PostureGraphService(Service):
             return True
         return True
 
+    def on_mobile_posture_object_added_during_zone_spinup(self, new_obj):
+        self._on_object_added(new_obj)
+
     @with_caches
     def _on_object_added(self, new_obj):
         if new_obj.is_part or not self._obj_triggers_posture_graph_update(new_obj):
@@ -1826,7 +1966,27 @@ class PostureGraphService(Service):
             for closed_node in tuple(closed_set):
                 if closed_node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX] is PostureTuning.SIM_CARRIED_POSTURE:
                     closed_set.discard(closed_node)
-        for (node, obj) in itertools.product(STAND_AT_NONE_NODES, objects):
+        provided_posture_aops = []
+        mobile_affordances_and_postures = [(affordance, affordance.provided_posture_type) for affordance in new_obj.provided_mobile_posture_affordances]
+        for (affordance, mobile_posture) in mobile_affordances_and_postures:
+            if len(self._graph.cached_postures_to_object_ids[mobile_posture]) == 1:
+                provided_posture_aops.append(AffordanceObjectPair(affordance, None, affordance, None))
+        if provided_posture_aops:
+            body_operations_dict = PostureGraphService.get_body_operation_dict(provided_posture_aops)
+            for (source_posture_type, destination_posture_type) in Posture._posture_transitions:
+                body_operation = body_operations_dict.get(destination_posture_type)
+                if body_operation is None:
+                    continue
+                if source_posture_type is not SIM_DEFAULT_POSTURE_TYPE and source_posture_type not in body_operations_dict:
+                    continue
+                new_node = self.add_node(get_origin_spec(source_posture_type), (body_operation,))
+                if new_node is not None:
+                    open_set.add(new_node)
+                if source_posture_type._supports_carry:
+                    new_node = self.add_node(get_origin_spec_carry(source_posture_type), (body_operation,))
+                    if new_node is not None:
+                        open_set.add(new_node)
+        for (node, obj) in itertools.product(self._graph.all_mobile_nodes_at_none, objects):
             ops = []
             self._expand_and_append_node_object(node, obj, ops)
             for operations in ops:
@@ -1866,20 +2026,35 @@ class PostureGraphService(Service):
             for predecessor in self._graph.get_predecessors(node, ()):
                 self._edge_info.pop((predecessor, node), None)
             self._graph.remove_node(node)
+        for mobile_posture in obj.provided_mobile_posture_types:
+            if len(self._graph.cached_postures_to_object_ids[mobile_posture]) == 1:
+                mobile_node_at_none = get_origin_spec(mobile_posture)
+                self._graph.remove_node(mobile_node_at_none)
+                if mobile_posture._supports_carry:
+                    mobile_node_at_none_carry = get_origin_spec_carry(mobile_posture)
+                    self._graph.remove_node(mobile_node_at_none_carry)
         self._graph._objects_pending_deletion.discard(obj)
 
     @contextmanager
     @with_caches
     def object_moving(self, obj):
-        if not self._zone_loaded:
+        if not self._zone_loaded or obj.is_sim:
             yield None
             return
-        if not obj.is_sim and obj.is_valid_posture_graph_object:
+        if obj.routing_component is not None and obj.routing_component.is_moving:
+            sims = obj.get_users(sims_only=True)
+            for sim in sims:
+                posture_state = sim.posture_state
+                if not not posture_state is not None and posture_state.body.target is obj:
+                    posture_state.body.invalidate_slot_constraints()
+            yield None
+            return
+        if obj.is_valid_posture_graph_object:
             self._on_object_deleted(obj)
         try:
             yield None
         finally:
-            if not obj.is_sim and obj.is_valid_posture_graph_object:
+            if obj.is_valid_posture_graph_object:
                 self._on_object_added(obj)
 
     def _expand_node(self, node):
@@ -1892,7 +2067,7 @@ class PostureGraphService(Service):
             else:
                 self._expand_and_append_node_object(node, obj, ops)
         ops.append((SIM_DEFAULT_OPERATION,))
-        if node.body_posture in Posture._swim_supported_postures:
+        if node.body_posture.supports_swim:
             ops.append((SIM_SWIM_OPERATION,))
         if node[SURFACE_INDEX] is not None:
             ops.append((PostureOperation.FORGET_SURFACE_OP, SIM_DEFAULT_OPERATION))
@@ -2030,8 +2205,13 @@ class PostureGraphService(Service):
     def build(self):
         open_set = set(STAND_AT_NONE_NODES)
         closed_set = set()
+        self._graph.cache_global_mobile_nodes()
+        self._graph.setup_provided_mobile_nodes()
         self._edge_info[(STAND_AT_NONE, STAND_AT_NONE)] = EdgeInfo((SIM_DEFAULT_OPERATION,), lambda *_, **__: True, 0)
-        body_operations_dict = PostureGraphService.get_body_operation_dict([AffordanceObjectPair(affordance, None, affordance, None) for affordance in self.POSTURE_PROVIDING_AFFORDANCES])
+        provided_posture_aops = [AffordanceObjectPair(affordance, None, affordance, None) for affordance in self.POSTURE_PROVIDING_AFFORDANCES]
+        mobile_affordances = self._graph.mobile_posture_providing_affordances
+        provided_posture_aops.extend([AffordanceObjectPair(affordance, None, affordance, None) for affordance in mobile_affordances])
+        body_operations_dict = PostureGraphService.get_body_operation_dict(provided_posture_aops)
         for (source_posture_type, destination_posture_type) in Posture._posture_transitions:
             body_operation = body_operations_dict.get(destination_posture_type)
             if body_operation is None:
@@ -2049,6 +2229,28 @@ class PostureGraphService(Service):
 
     def nodes_matching_constraint_geometry(self, constraint):
         return self._graph.nodes_matching_constraint_geometry(constraint)
+
+    @property
+    def all_mobile_nodes_at_none_no_carry(self):
+        return self._graph.all_mobile_nodes_at_none_no_carry
+
+    @property
+    def all_mobile_nodes_at_none_carry(self):
+        return self._graph.all_mobile_nodes_at_none_carry
+
+    @property
+    def all_mobile_nodes_at_none(self):
+        return self._graph.all_mobile_nodes_at_none
+
+    @property
+    def mobile_posture_providing_affordances(self):
+        return self._graph.mobile_posture_providing_affordances
+
+    def add_mobile_posture_provider(self, obj):
+        self._graph.add_mobile_posture_provider_nodes(obj)
+
+    def remove_mobile_posture_provider(self, obj):
+        self._graph.remove_mobile_posture_provider_nodes(obj)
 
     def distance_fn(self, sim, var_map, interaction, curr_node, next_node):
         if isinstance(curr_node, _MobileNode):
@@ -2114,10 +2316,21 @@ class PostureGraphService(Service):
                 operation.set_target(original_successor_body_target)
         return (edge_info, original_node_body_target)
 
-    def _adjacent_nodes_gen(self, sim, get_successors_fn, valid_edge_test, var_map, node, *, allow_pickups, allow_putdowns, allow_carried, reverse_path):
+    def _adjacent_nodes_gen(self, sim, get_successors_fn, valid_edge_test, constraint, var_map, node, *, allow_pickups, allow_putdowns, allow_carried, reverse_path):
         node = node.graph_node
         is_mobile_at_none = isinstance(node, _MobileNode) and node.body_posture.mobile and (node.body_target is None and node.surface_target is None)
-        if not allow_carried and is_mobile_at_none:
+        is_routing_vehicle = False
+        for sub_constraint in constraint:
+            if sub_constraint.posture_state_spec is None:
+                continue
+            posture_specs = [posture_spec for (posture_spec, var_map) in sub_constraint.posture_state_spec.get_posture_specs_gen() if posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX] == node[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]]
+            for spec in posture_specs:
+                if spec[BODY_INDEX][BODY_TARGET_INDEX] in PostureSpecVariable or node[BODY_INDEX][BODY_TARGET_INDEX] is spec[BODY_INDEX][BODY_TARGET_INDEX]:
+                    is_routing_vehicle = True
+                    break
+        skip_adjacent = reverse_path or not (node.body_posture.is_vehicle and is_mobile_at_none) or is_routing_vehicle
+        skip_adjacent = False
+        if not (node.body_posture.mobile and node.body_posture.skip_route and allow_carried) and skip_adjacent:
             return
 
         def _edge_validation(forward_nodes, successor_node):
@@ -2134,7 +2347,7 @@ class PostureGraphService(Service):
 
         for successor in get_successors_fn(node):
             body_target = successor.body_target
-            if not is_mobile_at_none or not body_target is None:
+            if not skip_adjacent or not body_target is None:
                 if not body_target.is_sim:
                     continue
                 forward_nodes = (successor, node) if reverse_path else (node, successor)
@@ -2170,14 +2383,30 @@ class PostureGraphService(Service):
         locations = route_target.get_position_and_routing_surface_for_posture(mobile_node)
         return locations
 
+    def get_vehicle_destination_target(self, source, destinations):
+        if source.body_target is None:
+            return
+        destination_body_target = None
+        for dest in destinations:
+            if not dest.body_posture.is_vehicle:
+                return
+            if destination_body_target is not None and destination_body_target != dest.body_target:
+                return
+            else:
+                destination_body_target = dest.body_target
+                if destination_body_target is not None and source.body_target.id == destination_body_target.id:
+                    return destination_body_target
+        if destination_body_target is not None and source.body_target.id == destination_body_target.id:
+            return destination_body_target
+
     def _left_path_gen(self, sim, source, destinations, interaction, constraint, var_map, valid_edge_test, is_complete):
         carry_target = var_map.get(PostureSpecVariable.CARRY_TARGET)
         allow_carried = False
         sim_routing_context = sim.get_routing_context()
         if is_complete:
-            if source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and source[SURFACE_INDEX][SURFACE_TARGET_INDEX] is None:
+            if source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and source[SURFACE_INDEX][SURFACE_TARGET_INDEX] is None and not source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].is_vehicle:
                 return
-            search_destinations = set(destinations) - ALL_MOBILE_NODES
+            search_destinations = set(destinations) - self._graph.all_mobile_nodes_at_none
             if not search_destinations:
                 return
         elif carry_target is sim:
@@ -2188,9 +2417,15 @@ class PostureGraphService(Service):
         else:
             search_destinations = set(STAND_AT_NONE_NODES)
             if sim.is_human:
-                search_destinations.update(MOBILE_NODES_AT_NONE)
+                search_destinations.update(self._graph.all_mobile_nodes_at_none_no_carry)
+                if source.body_posture.is_vehicle and source in destinations:
+                    search_destinations.update(self._graph.vehicle_nodes)
+                else:
+                    vehicle_destination_target = self.get_vehicle_destination_target(source, destinations)
+                    if vehicle_destination_target is not None:
+                        search_destinations.update(self._graph.nodes_for_object_gen(vehicle_destination_target))
             else:
-                search_destinations.update(ALL_MOBILE_NODES)
+                search_destinations.update(self._graph.all_mobile_nodes_at_none)
         distance_fn = functools.partial(self.distance_fn, sim, var_map, interaction)
         allow_pickups = False
         if carry_target.is_in_sim_inventory(sim=sim):
@@ -2207,7 +2442,7 @@ class PostureGraphService(Service):
             (result, _) = carry_target.check_line_of_sight(sim.intended_transform, ignored_objects=ignored_objects, for_carryable=True)
             allow_pickups = True
         allow_putdowns = allow_pickups
-        adjacent_nodes_gen = functools.partial(self._adjacent_nodes_gen, sim, self._graph.get_successors, valid_edge_test, var_map, reverse_path=False, allow_pickups=allow_pickups, allow_putdowns=allow_putdowns, allow_carried=allow_carried)
+        adjacent_nodes_gen = functools.partial(self._adjacent_nodes_gen, sim, self._graph.get_successors, valid_edge_test, constraint, var_map, reverse_path=False, allow_pickups=allow_pickups, allow_putdowns=allow_putdowns, allow_carried=allow_carried)
 
         def left_distance_fn(curr_node, next_node):
             if isinstance(curr_node, _MobileNode):
@@ -2229,7 +2464,7 @@ class PostureGraphService(Service):
             else:
                 graph_node = node
                 heuristic = postures.posture_specs.PostureOperation.COST_STANDARD
-            if node.body_target is None:
+            if node.body_target is None or node.body_posture.is_vehicle:
                 return 0
             if is_mobile_node and node.body_target.is_sim:
                 return 0
@@ -2281,7 +2516,8 @@ class PostureGraphService(Service):
         cost = self._goal_costs.get(dest, 0.0)
         node_target = dest.body_target
         if node_target is not None:
-            cost += constraint.constraint_cost(node_target.position, node_target.orientation)
+            if not dest[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].is_vehicle:
+                cost += constraint.constraint_cost(node_target.position, node_target.orientation)
         if not any(c.cost for c in constraint):
             return cost
         participant_type = interaction.get_participant_type(sim)
@@ -2296,7 +2532,7 @@ class PostureGraphService(Service):
         return cost
 
     def _right_path_gen(self, sim, interaction, distance_estimator, left_destinations, destinations, var_map, constraint, valid_edge_test, path_left, *, allow_carried):
-        adjacent_nodes_gen = functools.partial(self._adjacent_nodes_gen, sim, self._graph.get_predecessors, valid_edge_test, var_map, reverse_path=True, allow_pickups=False, allow_putdowns=True, allow_carried=allow_carried)
+        adjacent_nodes_gen = functools.partial(self._adjacent_nodes_gen, sim, self._graph.get_predecessors, valid_edge_test, constraint, var_map, reverse_path=True, allow_pickups=False, allow_putdowns=True, allow_carried=allow_carried)
 
         def reversed_distance_fn(curr_node, next_node):
             if next_node is None:
@@ -2523,16 +2759,26 @@ class PostureGraphService(Service):
                 pass
             else:
                 if source_spec.body_posture.mobile:
-                    if source_spec.body_target is not None:
-                        if not source_spec.body_target.is_part:
-                            new_body = PostureAspectBody((source_spec.body_posture, None))
-                            new_surface = PostureAspectSurface((None, None, None))
-                            source_spec = source_spec.clone(body=new_body, surface=new_surface)
-                assert not source_spec not in self._graph
+                    if source_spec.body_posture.unconstrained:
+                        if source_spec.body_target is not None:
+                            if not source_spec.body_target.is_part:
+                                new_body = PostureAspectBody((source_spec.body_posture, None))
+                                new_surface = PostureAspectSurface((None, None, None))
+                                source_spec = source_spec.clone(body=new_body, surface=new_surface)
+                if source_spec not in self._graph:
+                    if services.current_zone().is_zone_shutting_down:
+                        return []
+                    raise AssertionError('Source spec not in the posture graph: {} for interaction: {}'.format(source_spec, interaction))
                 source_node = source_spec
                 if gsi_handlers.posture_graph_handlers.archiver.enabled:
                     gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, (source_spec,), var_map_all, 'source', source_node)
                 distance_estimator = DistanceEstimator(self, sim, interaction, constraint)
+                same_mobile_body_target = source_node.body_posture.mobile
+                if same_mobile_body_target:
+                    if source_node.body_target is not None and source_node.body_target.is_part:
+                        adjacent_source_parts = source_node.body_target.adjacent_parts_gen()
+                    else:
+                        adjacent_source_parts = ()
                 for node in self._graph.get_matching_nodes_gen(destination_specs, slot_types, constraint=final_constraint):
                     if node.get_core_objects() & excluded_objects:
                         continue
@@ -2540,6 +2786,11 @@ class PostureGraphService(Service):
                         continue
                     if included_sis and node.body.target is not None and any(not node.body.target.supports_affordance(si.affordance) for si in included_sis):
                         continue
+                    if same_mobile_body_target:
+                        if node.body.target is not None:
+                            if node.body.target is not source_node.body_target:
+                                if node.body.target not in adjacent_source_parts:
+                                    same_mobile_body_target = False
                     if interaction.is_putdown:
                         obj = node.body_target
                         if obj is not None:
@@ -2588,7 +2839,7 @@ class PostureGraphService(Service):
                 else:
                     logger.debug('No destination_nodes found for destination_specs: {}', destination_specs)
                 PostureScoring.build_destination_costs(self._goal_costs, destination_nodes, sim, interaction, var_map_all, preferences, included_sis, additional_template_list, relationship_bonuses, constraint, group_constraint)
-                allow_complete = not source_node.body_posture.mobile
+                allow_complete = not source_node.body_posture.mobile or same_mobile_body_target
                 if allow_complete:
                     if source_node.body_target is None:
                         current_constraint = constraints.Transform(sim.transform, routing_surface=sim.routing_surface)
@@ -2950,7 +3201,7 @@ class PostureGraphService(Service):
         return True
 
     def get_sim_position_routing_data(self, sim):
-        if sim.parent is not None and sim.parent.is_sim:
+        if sim.parent is not None and (sim.parent.is_sim or sim.posture_state.body.is_vehicle):
             return self.get_sim_position_routing_data(sim.parent)
         sim_position_constraint = interactions.constraints.Transform(sim.intended_transform, routing_surface=sim.intended_routing_surface, debug_name='SimCurrentPosition')
         return (sim_position_constraint, None, None)
@@ -2969,7 +3220,7 @@ class PostureGraphService(Service):
                 if top_level_parent is not sim:
                     (reference_pt, top_level_parent) = (None, None)
         blocking_obj_id = None
-        if sim.routing_master is not None:
+        if sim.routing_master is not None and sim.routing_master.get_routing_slave_data_count(FormationRoutingType.FOLLOW):
             target_reference_override = sim.routing_master
             goal_height_limit = FormationTuning.GOAL_HEIGHT_LIMIT
         else:
@@ -2994,7 +3245,8 @@ class PostureGraphService(Service):
                     single_goal_only = True
                 else:
                     single_goal_only = False
-                routing_goals = connectivity_handle.get_goals(relative_object=target, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override)
+                for_source = path_type == PathType.LEFT and len(target_path) == 1
+                routing_goals = connectivity_handle.get_goals(relative_object=target, for_source=for_source, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override)
                 if not routing_goals:
                     if gsi_handlers.posture_graph_handlers.archiver.enabled:
                         gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'no goals generated', path_type)
@@ -3002,8 +3254,9 @@ class PostureGraphService(Service):
                         valid_goals = []
                         invalid_goals = []
                         invalid_los_goals = []
+                        ignore_los_for_vehicle = sim.posture.is_vehicle and sim.posture.target is target
                         for goal in routing_goals:
-                            if not single_goal_only and not not (goal.requires_los_check and target is not None and target.is_sim):
+                            if not single_goal_only and not (goal.requires_los_check and (target is not None and not target.is_sim) and not ignore_los_for_vehicle):
                                 if top_level_parent is not target and not top_level_parent.is_sim:
                                     ignored_objects = (top_level_parent,)
                                 else:
@@ -3036,8 +3289,9 @@ class PostureGraphService(Service):
                     valid_goals = []
                     invalid_goals = []
                     invalid_los_goals = []
+                    ignore_los_for_vehicle = sim.posture.is_vehicle and sim.posture.target is target
                     for goal in routing_goals:
-                        if not single_goal_only and not not (goal.requires_los_check and target is not None and target.is_sim):
+                        if not single_goal_only and not (goal.requires_los_check and (target is not None and not target.is_sim) and not ignore_los_for_vehicle):
                             if top_level_parent is not target and not top_level_parent.is_sim:
                                 ignored_objects = (top_level_parent,)
                             else:
@@ -3122,7 +3376,7 @@ class PostureGraphService(Service):
                 with create_puppet_postures(sim):
                     (use_previous_position, routing_data) = self._get_locations_from_posture(sim, exit_spec, var_map, participant_type=participant_type, transition_posture_name=transition_posture_name)
             else:
-                (use_previous_position, routing_data) = self._get_locations_from_posture(sim, exit_spec, var_map, participant_type=participant_type, transition_posture_name=transition_posture_name)
+                (use_previous_position, routing_data) = self._get_locations_from_posture(sim, exit_spec, var_map, mobile_posture_spec=left_path[-1], participant_type=participant_type, transition_posture_name=transition_posture_name, left_most_spec=left_path[0])
             if use_previous_position:
                 routing_data = sim_position_routing_data
             blocking_obj_id = self.append_handles(sim, left_handles, invalid, invalid_los, routing_data, left_path, var_map, destination_spec, unique_id, final_constraint, entry=False, path_type=PathType.LEFT)
@@ -3136,14 +3390,14 @@ class PostureGraphService(Service):
         invalid_los = {}
         blocking_obj_ids = []
         first_spec = right_path[0]
-        if first_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and first_spec[BODY_INDEX][BODY_TARGET_INDEX] is None:
+        if not (first_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and (first_spec[BODY_INDEX][BODY_TARGET_INDEX] is None or not first_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].unconstrained)):
             (entry_spec, constrained_edge, _) = self.find_entry_posture_spec(sim, right_path, var_map)
             final_spec = right_path[-1]
             relevant_interaction = interaction if entry_spec is final_spec else None
             right_var_map = self._get_resolved_var_map(right_path, right_path.segmented_path.var_map)
             right_path.segmented_path.var_map_resolved = right_var_map
             transition_posture_name = first_spec.body_posture.name
-            (use_previous_pos, routing_data) = self._get_locations_from_posture(sim, entry_spec, right_var_map, interaction=relevant_interaction, participant_type=participant_type, constrained_edge=constrained_edge, animation_resolver_fn=animation_resolver_fn, final_constraint=final_constraint, transition_posture_name=transition_posture_name)
+            (use_previous_pos, routing_data) = self._get_locations_from_posture(sim, entry_spec, right_var_map, interaction=relevant_interaction, mobile_posture_spec=first_spec, participant_type=participant_type, constrained_edge=constrained_edge, animation_resolver_fn=animation_resolver_fn, final_constraint=final_constraint, transition_posture_name=transition_posture_name)
             if use_previous_pos:
                 self.copy_handles(sim, right_handles, right_path, right_var_map)
             elif routing_data[0].valid:
@@ -3202,22 +3456,10 @@ class PostureGraphService(Service):
             if carry_transition_constraint is not None:
                 constraint_has_geometry = any(constraint.geometry is not None for constraint in carry_transition_constraint)
                 if not constraint_has_geometry:
-                    posture_object = None
-                    if sim.in_pool:
-                        posture_object = pool_utils.get_pool_by_block_id(sim.block_id)
-                    else:
-                        body_aspect = sim.posture_state.body
-                        posture_graph_service = services.current_zone().posture_graph_service
-                        compatible_postures_and_targets = posture_graph_service.get_compatible_mobile_postures_and_targets(sim)
-                        if compatible_postures_and_targets:
-                            for (target, compatible_postures) in compatible_postures_and_targets.items():
-                                if body_aspect.posture_type in compatible_postures:
-                                    posture_object = target
-                                    break
-                            else:
-                                (posture_object, _) = next(iter(compatible_postures_and_targets.items()))
+                    posture_graph_service = services.current_zone().posture_graph_service
+                    posture_object = posture_graph_service.get_compatible_mobile_posture_target(sim)
                     if posture_object is not None:
-                        edge_constraint = posture_object.get_edge_constraint()
+                        edge_constraint = posture_object.get_edge_constraint(sim=sim)
                         carry_transition_constraint = carry_transition_constraint.intersect(edge_constraint)
                         constraint_has_geometry = True
                 carry_spec_surface_spec = carry_spec[SURFACE_INDEX]
@@ -3253,25 +3495,28 @@ class PostureGraphService(Service):
         invalid_sources = {}
         invalid_los_sources = {}
         for path_left in segmented_path.generate_left_paths():
-            if path_left[-1] in searched[PathType.LEFT]:
+            final_left_node = path_left[-1]
+            if final_left_node in searched[PathType.LEFT]:
                 continue
             (source_handles, invalid_sources, invalid_los_sources, blockers) = self._generate_left_handles(sim, interaction, participant_type, path_left, segmented_path.var_map, None, segmented_path.constraint, id(segmented_path), sim_position_routing_data)
             blocking_obj_ids += blockers
             if not source_handles:
                 continue
-            searched[PathType.LEFT].add(path_left[-1])
+            searched[PathType.LEFT].add(final_left_node)
             for path_right in segmented_path.generate_right_paths(sim, path_left):
                 (entry_node, _, _) = self.find_entry_posture_spec(sim, path_right, segmented_path.var_map)
                 if entry_node is not None and entry_node.body_target in searched[PathType.RIGHT]:
                     continue
-                destination_spec = segmented_path.destination_specs[path_right[-1]]
+                final_right_node = path_right[-1]
+                destination_spec = segmented_path.destination_specs[final_right_node]
                 (destination_handles, invalid_destinations, invalid_los_destinations, blockers) = self._generate_right_handles(sim, interaction, participant_type, path_right, segmented_path.var_map, destination_spec, segmented_path.constraint, id(segmented_path), animation_resolver_fn)
                 blocking_obj_ids += blockers
                 if not destination_handles:
                     continue
-                final_body_target = path_right[-1].body_target
-                if final_body_target is not None:
-                    posture = postures.create_posture(path_right[-1].body_posture, sim, final_body_target, is_throwaway=True)
+                final_body_target = final_right_node.body_target
+                final_body_posture = final_right_node.body_posture
+                if final_body_target is not None and (not final_body_posture.is_vehicle or final_body_posture is not final_left_node.body_posture):
+                    posture = postures.create_posture(final_body_posture, sim, final_body_target, is_throwaway=True)
                     slot_constraint = posture.slot_constraint_simple
                     if slot_constraint is not None:
                         geometry_constraint = segmented_path.constraint.generate_geometry_only_constraint()
@@ -3513,6 +3758,18 @@ class PostureGraphService(Service):
             replace_var_map_for_path_spec(path_spec_left)
         return True
 
+    def _valid_vehicle_dest_handle(self, dest, cost, in_vehicle_posture):
+        if not sims4.math.almost_equal(cost, 0.0):
+            return False
+        if len(dest.path) < 1:
+            return in_vehicle_posture
+        next_posture = dest.path[0].body_posture
+        if next_posture is None:
+            return in_vehicle_posture
+        if not in_vehicle_posture:
+            return next_posture.is_vehicle
+        return next_posture.is_vehicle or not next_posture.mobile
+
     def get_best_path_between_handles(self, interaction, sim, source_destination_sets, timeline, path_type=None):
         non_suppressed_source_goals = []
         non_suppressed_goals = []
@@ -3528,8 +3785,9 @@ class PostureGraphService(Service):
         target_reference_override = None
         interaction_goal_height_limit = interaction.goal_height_limit
         if sim.routing_master is not None:
-            target_reference_override = sim.routing_master
-            interaction_goal_height_limit = FormationTuning.GOAL_HEIGHT_LIMIT
+            if sim.routing_master.get_routing_slave_data_count(FormationRoutingType.FOLLOW):
+                target_reference_override = sim.routing_master
+                interaction_goal_height_limit = FormationTuning.GOAL_HEIGHT_LIMIT
         for (source_handles, _, _, _, _, _) in source_destination_sets.values():
             for source_handle in source_handles:
                 assert not source_handle is DEFAULT
@@ -3558,23 +3816,53 @@ class PostureGraphService(Service):
                         non_suppressed_source_goals.append(source_goal)
                     else:
                         suppressed_source_goals.append(source_goal)
-        default_goals = set()
+        routing_context = sim.routing_context
+        routing_agent = sim
+        current_posture_target = sim.posture.target
+        in_vehicle = False if current_posture_target is None else current_posture_target.vehicle_component is not None
+        in_vehicle_posture = sim.posture.is_vehicle
+        force_vehicle_route = False
+        vehicle_dest_handles = []
+        vehicle = None if not in_vehicle else current_posture_target
+        if vehicle is not None:
+            if vehicle.vehicle_component is not None:
+                vehicle_pathplan_context = vehicle.routing_component.pathplan_context
+                connectivity = None
+                vehicle_source_goals = non_suppressed_source_goals
+                source_goal = non_suppressed_source_goals[0] if non_suppressed_source_goals else None
+                if source_goal is None:
+                    vehicle_source_goals = suppressed_source_goals
+                    source_goal = suppressed_source_goals[0] if suppressed_source_goals else None
+                if source_goal is not None:
+                    dest_handles = []
+                    for (_, destination_handles, _, _, _, _) in source_destination_sets.values():
+                        dest_handles.extend([dest_handle for dest_handle in destination_handles.keys() if dest_handle is not DEFAULT])
+                    if dest_handles:
+                        connectivity = routing.test_connectivity_batch((source_goal.connectivity_handle,), dest_handles, routing_context=vehicle_pathplan_context, compute_cost=True)
+                if connectivity is not None:
+                    vehicle_dest_handles = {dest for (_, dest, cost) in connectivity if self._valid_vehicle_dest_handle(dest, cost, in_vehicle_posture)}
+                    if vehicle_dest_handles:
+                        force_vehicle_route = True
+                        routing_agent = vehicle
+                        routing_context = vehicle_pathplan_context
+                        for goal in vehicle_source_goals:
+                            goal.connectivity_handle = goal.connectivity_handle.clone(sim=vehicle)
         middle_path_pickup = path_type is not None and path_type == PathType.MIDDLE_LEFT
         for (_, destination_handles, _, _, _, _) in source_destination_sets.values():
-            for dest_handle in destination_handles:
-                if dest_handle is DEFAULT:
-                    is_default = True
-                    (right_path, path_cost) = destination_handles[DEFAULT][:2]
-                    additional_dest_handles = []
+            for (destination_handle, (right_path, path_cost, var_map, dest_spec, _, _, _)) in destination_handles.items():
+                additional_dest_handles = []
+                if destination_handle is DEFAULT:
                     for (source_handles, *_) in source_destination_sets.values():
                         for source_handle in source_handles:
-                            dest_handle = source_handle.clone()
-                            dest_handle.path = right_path
-                            additional_dest_handles.append(dest_handle)
+                            destination_handle = source_handle.clone()
+                            destination_handle.path = right_path
+                            additional_dest_handles.append(destination_handle)
+                elif force_vehicle_route:
+                    if destination_handle in vehicle_dest_handles:
+                        destination_handle = destination_handle.clone(sim=routing_agent)
+                        additional_dest_handles = [destination_handle]
                 else:
-                    is_default = False
-                    path_cost = destination_handles[dest_handle][1]
-                    additional_dest_handles = [dest_handle]
+                    additional_dest_handles = [destination_handle]
                 for dest_handle in additional_dest_handles:
                     height_limit = interaction_goal_height_limit
                     if target_reference_override is None:
@@ -3587,8 +3875,6 @@ class PostureGraphService(Service):
                             continue
                         dest_is_valid = True
                         dest_goal.path_cost = path_cost
-                        if is_default:
-                            default_goals.add(dest_goal)
                         if slope_restricted and dest_goal.routing_surface_id.type == routing.SurfaceType.SURFACETYPE_WORLD and dest_goal.position.y != routing_constants.INVALID_TERRAIN_HEIGHT:
                             positional_target = dest_handle.target.get_parenting_root()
                             target_position = positional_target.part_owner.position if positional_target.is_part else positional_target.position
@@ -3600,6 +3886,29 @@ class PostureGraphService(Service):
                                 if dest_goal.requires_los_check:
                                     if dest_handle.target is not None:
                                         if not dest_handle.target.is_sim:
+                                            if not (in_vehicle and current_posture_target is dest_handle.target):
+                                                if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
+                                                    ignored_objects = (dest_handle.target.parent,)
+                                                else:
+                                                    ignored_objects = ()
+                                                if dest_handle.target is not None:
+                                                    if dest_handle.target.children:
+                                                        ignored_objects += tuple(dest_handle.target.children)
+                                                (result, blocking_obj_id) = dest_handle.target.check_line_of_sight(dest_goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
+                                                if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
+                                                    pass
+                                                elif result != routing.RAYCAST_HIT_TYPE_NONE:
+                                                    set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
+                                                    dest_is_valid = False
+                                if dest_is_valid:
+                                    non_suppressed_goals.append(dest_goal)
+                                else:
+                                    suppressed_goals.append(dest_goal)
+                        else:
+                            if dest_goal.requires_los_check:
+                                if dest_handle.target is not None:
+                                    if not dest_handle.target.is_sim:
+                                        if not (in_vehicle and current_posture_target is dest_handle.target):
                                             if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
                                                 ignored_objects = (dest_handle.target.parent,)
                                             else:
@@ -3613,27 +3922,6 @@ class PostureGraphService(Service):
                                             elif result != routing.RAYCAST_HIT_TYPE_NONE:
                                                 set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
                                                 dest_is_valid = False
-                                if dest_is_valid:
-                                    non_suppressed_goals.append(dest_goal)
-                                else:
-                                    suppressed_goals.append(dest_goal)
-                        else:
-                            if dest_goal.requires_los_check:
-                                if dest_handle.target is not None:
-                                    if not dest_handle.target.is_sim:
-                                        if dest_handle.target is not None and dest_handle.target.parent is not None and not dest_handle.target.parent.is_sim:
-                                            ignored_objects = (dest_handle.target.parent,)
-                                        else:
-                                            ignored_objects = ()
-                                        if dest_handle.target is not None:
-                                            if dest_handle.target.children:
-                                                ignored_objects += tuple(dest_handle.target.children)
-                                        (result, blocking_obj_id) = dest_handle.target.check_line_of_sight(dest_goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                                        if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE and blocking_obj_id == 0:
-                                            pass
-                                        elif result != routing.RAYCAST_HIT_TYPE_NONE:
-                                            set_transition_failure_reason(sim, TransitionFailureReasons.BLOCKING_OBJECT, target_id=blocking_obj_id)
-                                            dest_is_valid = False
                             if dest_is_valid:
                                 non_suppressed_goals.append(dest_goal)
                             else:
@@ -3655,9 +3943,9 @@ class PostureGraphService(Service):
                 gsi_handlers.posture_graph_handlers.log_possible_goal(sim, dest_goal.connectivity_handle.path, dest_goal, dest_goal.cost, 'Dest', id(source_destination_sets))
         self.normalize_goal_costs(all_source_goals)
         self.normalize_goal_costs(all_dest_goals)
-        route = routing.Route(all_source_goals[0].location, all_dest_goals, additional_origins=all_source_goals, routing_context=sim.routing_context)
+        route = routing.Route(all_source_goals[0].location, all_dest_goals, additional_origins=all_source_goals, routing_context=routing_context)
         is_failure_path = all_dest_goals is suppressed_goals
-        plan_primitive = interactions.utils.routing.PlanRoute(route, sim, is_failure_route=is_failure_path)
+        plan_primitive = interactions.utils.routing.PlanRoute(route, routing_agent, is_failure_route=is_failure_path)
         result = yield from element_utils.run_child(timeline, elements.MustRunElement(plan_primitive))
         if not result:
             raise RuntimeError('Unknown error when trying to run PlanRoute.run()')
@@ -3704,7 +3992,10 @@ class PostureGraphService(Service):
         while cur_path.next_path is not None:
             portal_obj = cur_path.portal_obj
             portal_id = cur_path.portal_id
-            left_path_spec.create_route_nodes(cur_path, portal_obj=portal_obj, portal_id=portal_id)
+            if not left_path_spec.create_route_nodes(cur_path, portal_obj=portal_obj, portal_id=portal_id):
+                failure_path = yield from self._get_failure_path_spec_gen(timeline, sim, source_destination_sets)
+                return (False, failure_path, None)
+                yield
             portal_obj.set_portal_cost_override(portal_id, routing.PORTAL_PLAN_LOCK, sim=sim)
             cur_path = cur_path.next_path
             dest = cur_path.selected_goal
@@ -3767,24 +4058,35 @@ class PostureGraphService(Service):
         if not failure_destinations:
             return EMPTY_PATH_SPEC
             yield
-        else:
-            all_destination_goals = []
-            for (_, _, _, _, dest_goals, _, _) in failure_destinations.values():
-                all_destination_goals.extend(dest_goals)
-            if all_destination_goals:
-                route = routing.Route(best_left_goal.location, all_destination_goals, routing_context=sim.routing_context)
-                plan_element = interactions.utils.routing.PlanRoute(route, sim)
-                result = yield from element_utils.run_child(timeline, plan_element)
-                if not result:
-                    raise RuntimeError('Failed to generate a failure path.')
-                if plan_element.path.nodes:
-                    fail_left_path_spec.create_route_nodes(plan_element.path)
-                    destinations = {goal.connectivity_handle.path[-1] for goal in all_destination_goals}
-                    if len(destinations) > 1:
-                        logger.warn('Too many destinations: {}', destinations, trigger_breakpoint=True)
-                    fail_left_path_spec.destination_spec = next(iter(destinations))
-                    return fail_left_path_spec
-                    yield
+        all_destination_goals = []
+        for (_, _, _, _, dest_goals, _, _) in failure_destinations.values():
+            all_destination_goals.extend(dest_goals)
+        if all_destination_goals:
+            route = routing.Route(best_left_goal.location, all_destination_goals, routing_context=sim.routing_context)
+            plan_element = interactions.utils.routing.PlanRoute(route, sim)
+            result = yield from element_utils.run_child(timeline, plan_element)
+            if not result:
+                raise RuntimeError('Failed to generate a failure path.')
+            if plan_element.path.nodes:
+                if len(plan_element.path.nodes) > 1:
+                    first_node = plan_element.path.nodes[0]
+                    (min_water_depth, max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(first_node.routing_surface_id, sim)
+                    for node in list(plan_element.path.nodes)[1:]:
+                        depth = terrain.get_water_depth(node.position[0], node.position[2], node.routing_surface_id.secondary_id)
+                        if min_water_depth is not None and depth < min_water_depth:
+                            return EMPTY_PATH_SPEC
+                            yield
+                        if max_water_depth is not None:
+                            if max_water_depth < depth:
+                                return EMPTY_PATH_SPEC
+                                yield
+                fail_left_path_spec.create_route_nodes(plan_element.path)
+                destinations = {goal.connectivity_handle.path[-1] for goal in all_destination_goals}
+                if len(destinations) > 1:
+                    logger.warn('Too many destinations: {}', destinations, trigger_breakpoint=True)
+                fail_left_path_spec.destination_spec = next(iter(destinations))
+                return fail_left_path_spec
+                yield
         return EMPTY_PATH_SPEC
         yield
 
@@ -3864,15 +4166,17 @@ class PostureGraphService(Service):
     def find_exit_posture_spec(self, sim, path, var_map):
         return self._find_first_constrained_edge(sim, path, var_map, reverse=True)
 
-    def _get_locations_from_posture(self, sim, posture_spec, var_map, interaction=None, participant_type=None, constrained_edge=None, animation_resolver_fn=None, final_constraint=None, transition_posture_name='stand'):
+    def _get_locations_from_posture(self, sim, posture_spec, var_map, interaction=None, participant_type=None, constrained_edge=None, mobile_posture_spec=None, animation_resolver_fn=None, final_constraint=None, transition_posture_name='stand', left_most_spec=None):
         body_target = posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
         body_posture_type = posture_spec[BODY_INDEX][BODY_POSTURE_TYPE_INDEX]
         body_unconstrained = body_posture_type.unconstrained
+        should_add_vehicle_slot_constraint = mobile_posture_spec is None or posture_spec != mobile_posture_spec
+        should_add_vehicle_slot_constraint |= left_most_spec is not None and left_most_spec != posture_spec
         if interaction is not None and interaction.transition is not None:
             interaction.transition.add_relevant_object(body_target)
             interaction.transition.add_relevant_object(interaction.target)
         body_posture = postures.create_posture(body_posture_type, sim, body_target, is_throwaway=True)
-        if not body_unconstrained:
+        if not body_posture.unconstrained and (not body_posture.is_vehicle or should_add_vehicle_slot_constraint):
             constraint_intersection = body_posture.slot_constraint
             if constraint_intersection is None:
                 return (True, (None, None, body_target))
@@ -3932,11 +4236,27 @@ class PostureGraphService(Service):
         posture_locked_params = locked_params + {'transitionPosture': transition_posture_name}
         return (False, (constraint_intersection, posture_locked_params, routing_target))
 
+    def get_compatible_mobile_posture_target(self, sim):
+        posture_object = None
+        compatible_postures_and_targets = self.get_compatible_mobile_postures_and_targets(sim)
+        if compatible_postures_and_targets:
+            posture_type = sim.posture_state.body.posture_type
+            for (target, compatible_postures) in compatible_postures_and_targets.items():
+                if not posture_type.is_vehicle:
+                    if posture_type in compatible_postures:
+                        posture_object = target
+                        break
+                posture_object = target
+                break
+            else:
+                (posture_object, _) = next(iter(compatible_postures_and_targets.items()))
+        return posture_object
+
     def get_compatible_mobile_postures_and_targets(self, sim):
         mobile_postures = {}
         found_objects = self._query_quadtree_for_mobile_posture_objects(sim, test_footprint=True)
         for found_obj in found_objects:
-            mobile_posture_types = get_mobile_posture_types_for_object(found_obj)
+            mobile_posture_types = found_obj.provided_mobile_posture_types
             if mobile_posture_types:
                 if found_obj.has_posture_portals():
                     (posture_entry, _) = found_obj.get_nearest_posture_change(sim)
@@ -3959,7 +4279,14 @@ class PostureGraphService(Service):
         query = sims4.geometry.SpatialQuery(quadtree_polygon, [self._mobile_posture_objects_quadtree])
         found_objs = query.run()
         found_objs = [posture_obj for posture_obj in found_objs if posture_obj.level == sim.level]
+        special_obj = None
+        if sim.in_pool:
+            special_obj = pool_utils.get_pool_by_block_id(sim.block_id)
+        elif sim.routing_surface.type == SurfaceType.SURFACETYPE_POOL:
+            special_obj = services.terrain_service.ocean_object()
         if not test_footprint:
+            if special_obj is not None:
+                found_objs.append(special_obj)
             return found_objs
         mobile_posture_objects = []
         sim_pos = sim.position
@@ -3969,6 +4296,8 @@ class PostureGraphService(Service):
                 if not test_point_in_compound_polygon(sim_pos, polygon):
                     continue
                 mobile_posture_objects.append(mobile_obj)
+        if special_obj is not None:
+            mobile_posture_objects.append(special_obj)
         return mobile_posture_objects
 
     def add_object_to_mobile_posture_quadtree(self, obj):
@@ -3980,6 +4309,8 @@ class PostureGraphService(Service):
         if self._mobile_posture_objects_quadtree is None:
             self._mobile_posture_objects_quadtree = sims4.geometry.QuadTree()
         polygon = obj.get_polygon_from_footprint_name_hashes(PLACEMENT_FOOTPRINT_HASH_SET)
+        if polygon is None:
+            return
         (lower_bound, upper_bound) = polygon.bounds()
         bounding_box = sims4.geometry.QtRect(sims4.math.Vector2(lower_bound.x, lower_bound.z), sims4.math.Vector2(upper_bound.x, upper_bound.z))
         self._mobile_posture_objects_quadtree.insert(obj, bounding_box)
@@ -4058,7 +4389,14 @@ class PostureGraphService(Service):
         object_totals['Untargeted']['instances'] = 1
         _print('Posture Graph Summary\n====================================================\nTotal node count = {}\nTotal edge count = {}\n\nObjects:\n===================================================\n'.format(num_nodes, num_edges))
         for (definition, data) in sorted(list(object_totals.items()), reverse=True, key=lambda x: x[1]['nodes']):
-            line = '{:<42} : {instances:>5} instances   {nodes:>5} nodes   {edges:>5} edges'.format(getattr(definition, 'name', definition), **data)
+            if hasattr(definition, 'name'):
+                if definition.name is None:
+                    def_display = definition.id
+                else:
+                    def_display = definition.name
+            else:
+                def_display = definition
+            line = '{:<42} : {instances:>5} instances   {nodes:>5} nodes   {edges:>5} edges'.format(def_display, **data)
             line += '   {:>3} parts/instance   {:>5.4} nodes/instance   {:>5.4} edges/instance'.format(data['parts'], data['nodes']/data['instances'], data['edges']/data['instances'])
             _print(line)
 

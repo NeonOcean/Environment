@@ -1,3 +1,4 @@
+from routing import FootprintType
 from sims4.geometry import PolygonFootprint
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableSingletonFactory, OptionalTunable, TunableEnumEntry
 from socials.jigs.jig_reserved_space import TunableReservedSpacePerSpecies
@@ -37,4 +38,4 @@ class SocialJigLegacy(AutoFactoryInit, HasTunableSingletonFactory):
     def get_footprint_polygon(self, sim_a, sim_b, sim_a_transform, sim_b_transform, routing_surface):
         (reserved_space_a, reserved_space_b) = self.get_reserved_spaces(sim_a, sim_b)
         polygon = _generate_poly_points(sim_a_transform.translation, sim_a_transform.orientation.transform_vector(sims4.math.Vector3.Z_AXIS()), sim_b_transform.translation, sim_b_transform.orientation.transform_vector(sims4.math.Vector3.Z_AXIS()), reserved_space_a.left, reserved_space_a.right, reserved_space_a.front, reserved_space_a.back, reserved_space_b.left, reserved_space_b.right, reserved_space_b.front, reserved_space_b.back)
-        return PolygonFootprint(polygon, routing_surface=sim_a.routing_surface, cost=25, footprint_type=6, enabled=True)
+        return PolygonFootprint(polygon, routing_surface=sim_a.routing_surface, cost=25, footprint_type=FootprintType.FOOTPRINT_TYPE_OBJECT, enabled=True)

@@ -129,7 +129,7 @@ class OutfitChangeSelfInteraction(OutfitGeneratorRandomizationMixin, SuperIntera
                 generate_outfit_element = None
                 generate_outfit_fn()
             new_outfit = self.outfit_change_type.get_outfit_for_clothing_change(self.sim.sim_info, self.outfit_change_category)
-            sequence = build_critical_section(sequence, self.sim.sim_info.get_change_outfit_element(new_outfit, interaction=self), flush_all_animations)
+            sequence = build_critical_section(sequence, self.sim.sim_info.get_change_outfit_element_and_archive_change_reason(new_outfit, interaction=self, change_reason=self), flush_all_animations)
             return build_critical_section(sequence, generate_outfit_element)
         else:
             outfit_change_element = _XevtOutfitChangeElement(self, sequence, self.xevt_id, self.outfit_change_category, self.outfit_tags, self.filter_flag, self.body_type_chance_overrides, self.body_type_match_not_found_policy)

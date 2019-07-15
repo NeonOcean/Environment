@@ -181,12 +181,12 @@ class FGLTuning:
 
 logger = sims4.log.Logger('Placement')
 
-def generate_routing_goals_for_polygon(sim, polygon, polygon_surface, orientation_restrictions=None, object_ids_to_ignore=None, flush_planner=False, sim_location_bonus=0.0, add_sim_location_as_goal=True, los_reference_pt=None, max_points=100, ignore_outer_penalty_amount=2, target_object=2, target_object_id=0, even_coverage_step=2, single_goal_only=False, los_routing_context=None, all_blocking_edges_block_los=False, provided_points=()):
+def generate_routing_goals_for_polygon(sim, polygon, polygon_surface, orientation_restrictions=None, object_ids_to_ignore=None, flush_planner=False, sim_location_bonus=0.0, add_sim_location_as_goal=True, los_reference_pt=None, max_points=100, ignore_outer_penalty_amount=2, target_object=2, target_object_id=0, even_coverage_step=2, single_goal_only=False, los_routing_context=None, all_blocking_edges_block_los=False, provided_points=(), min_water_depth=None, max_water_depth=None, terrain_tags=None):
     yield_to_irq()
     routing_context = sim.get_routing_context()
     if los_routing_context is None:
         los_routing_context = routing_context
-    return _placement.generate_routing_goals_for_polygon(sim.routing_location, polygon, polygon_surface, None, orientation_restrictions, object_ids_to_ignore, routing_context, flush_planner, -sim_location_bonus, add_sim_location_as_goal, los_reference_pt, 2.5, max_points, ignore_outer_penalty_amount, target_object_id, even_coverage_step, single_goal_only, los_routing_context, all_blocking_edges_block_los, provided_points)
+    return _placement.generate_routing_goals_for_polygon(sim.routing_location, polygon, polygon_surface, None, orientation_restrictions, object_ids_to_ignore, routing_context, flush_planner, -sim_location_bonus, add_sim_location_as_goal, los_reference_pt, 2.5, max_points, ignore_outer_penalty_amount, target_object_id, even_coverage_step, single_goal_only, los_routing_context, all_blocking_edges_block_los, provided_points, min_water_depth, max_water_depth, terrain_tags)
 
 class FGLSearchFlag(enum.IntFlags):
     NONE = 0
@@ -273,14 +273,21 @@ def find_good_location(context):
         logger.warn('FGL search failed: {0}.', str(search_result))
     return (None, None)
 
+FGL_DEFAULT_POSITION_INCREMENT = 0.3
+FGL_FOOTPRINT_POSITION_INCREMENT_MULTIPLIER = 0.5
+
 class FindGoodLocationContext:
 
-    def __init__(self, starting_routing_location, object_id=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, search_flags=FGLSearchFlagsDefault, **kwargs):
+    def __init__(self, starting_routing_location, object_id=None, object_def_id=None, object_def_state_index=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, terrain_tags=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, search_flags=FGLSearchFlagsDefault, min_water_depth=None, max_water_depth=None, **kwargs):
         self.search_strategy = _placement.FGLSearchStrategyRouting(start_location=starting_routing_location)
         self.result_strategy = _placement.FGLResultStrategyDefault()
         self.search = _placement.FGLSearch(self.search_strategy, self.result_strategy)
         if object_id is not None:
             self.search_strategy.object_id = object_id
+        if object_def_id is not None:
+            self.search_strategy.object_def_id = object_def_id
+        if object_def_state_index is not None:
+            self.search_strategy.object_def_state_index = object_def_state_index
         if object_polygons is not None:
             for polygon_wrapper in object_polygons:
                 if isinstance(polygon_wrapper, sims4.geometry.Polygon):
@@ -319,7 +326,7 @@ class FindGoodLocationContext:
         self.search_strategy.max_distance = FGLTuning.MAX_FGL_DISTANCE if max_distance is None else max_distance
         self.search_strategy.rotation_increment = PlacementConstants.rotation_increment
         if position_increment is None:
-            position_increment = 0.3
+            position_increment = FGL_DEFAULT_POSITION_INCREMENT
         self.search_strategy.position_increment = position_increment
         if restrictions is not None:
             for r in restrictions:
@@ -340,6 +347,8 @@ class FindGoodLocationContext:
         self.search_strategy.max_steps = max_steps
         if height_tolerance is not None:
             self.search_strategy.height_tolerance = height_tolerance
+        if terrain_tags is not None:
+            self.search_strategy.terrain_tags = terrain_tags
         if random_range_weighting is not None:
             self.search_strategy.use_random_weighting = True
             self.search_strategy.random_range_weighting = random_range_weighting
@@ -368,23 +377,40 @@ class FindGoodLocationContext:
             self.search_strategy.should_raytest = search_flags & FGLSearchFlag.SHOULD_RAYTEST
             self.search_strategy.spiral_inwards = search_flags & FGLSearchFlag.SPIRAL_INWARDS
             self.search_strategy.stay_in_lot = search_flags & FGLSearchFlag.STAY_IN_LOT
+        if min_water_depth is not None:
+            self.search_strategy.min_water_depth = min_water_depth
+        if max_water_depth is not None:
+            self.search_strategy.max_water_depth = max_water_depth
         if gsi_handlers.routing_handlers.FGL_archiver.enabled:
             self.__dict__.update(locals())
 
-def create_fgl_context_for_object(starting_location, obj_to_place, search_flags=FGLSearchFlagsDefault, **kwargs):
+def create_fgl_context_for_object(starting_location, obj_to_place, search_flags=FGLSearchFlagsDefault, test_buildbuy_allowed=True, **kwargs):
     footprint = obj_to_place.get_footprint()
-    if obj_to_place.definition is not obj_to_place:
-        search_flags |= FGLSearchFlag.SHOULD_TEST_BUILDBUY
+    if test_buildbuy_allowed:
+        if obj_to_place.definition is not obj_to_place:
+            search_flags |= FGLSearchFlag.SHOULD_TEST_BUILDBUY
     return FindGoodLocationContext(starting_location, object_id=obj_to_place.id, object_footprints=(footprint,) if footprint is not None else None, search_flags=search_flags, **kwargs)
 
 def create_fgl_context_for_sim(starting_location, sim_to_place, search_flags=FGLSearchFlagsDefaultForSim, **kwargs):
     return FindGoodLocationContext(starting_location, object_id=sim_to_place.id, search_flags=search_flags, **kwargs)
 
-def create_fgl_context_for_object_off_lot(starting_location, obj_to_place, search_flags=FGLSearchFlagsDefault, **kwargs):
+def create_fgl_context_for_object_off_lot(starting_location, obj_to_place, search_flags=FGLSearchFlagsDefault, location=None, footprint=None, **kwargs):
     try:
-        polygon = get_accurate_placement_footprint_polygon(obj_to_place.position, obj_to_place.orientation, obj_to_place.scale, obj_to_place.get_footprint())
+        if obj_to_place is None:
+            position = location.transform.translation
+            orientation = location.transform.orientation
+            scale = 1.0
+        else:
+            position = obj_to_place.position
+            orientation = obj_to_place.orientation
+            scale = obj_to_place.scale
+            footprint = obj_to_place.get_footprint()
+        polygon = get_accurate_placement_footprint_polygon(position, orientation, scale, footprint)
     except AttributeError as exc:
-        raise AttributeError('Getting footprint polygon for {} threw an error :{}'.format(obj_to_place, exc))
+        raise AttributeError('Getting footprint polygon for {} threw an error :{}'.format(obj_to_place if obj_to_place is not None else footprint, exc))
+    except Exception as e:
+        logger.error("Error getting polygon for {}'s footprint {}:{}".format(obj_to_place if obj_to_place is not None else footprint, footprint, e))
+        raise e
     return FindGoodLocationContext(starting_location, object_polygons=(polygon,), search_flags=search_flags, **kwargs)
 
 def create_starting_location(position=None, orientation=None, transform=None, routing_surface=None, location=None):

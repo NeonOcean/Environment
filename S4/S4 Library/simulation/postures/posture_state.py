@@ -55,7 +55,7 @@ class PostureState:
             self._constraints[None] = self.body_posture_state_constraint
             return
         body_slot_constraint = self._aspect_body.slot_constraint
-        if body_slot_constraint is not None:
+        if not (body_slot_constraint is not None and (self._aspect_body.is_vehicle and current_posture_state is not None) and current_posture_state.body.is_vehicle):
             body_posture_constraint = self.body_posture_state_constraint.intersect(body_slot_constraint)
         else:
             body_posture_constraint = self.body_posture_state_constraint
@@ -82,7 +82,7 @@ class PostureState:
                     carry_target = var_map[spec_carry_target]
                     aop = posture_specs.get_carry_posture_aop(sim, carry_target)
                     if aop is None:
-                        raise RuntimeError('Sim {} failed to find carry posture aop for carry target {}.', sim, carry_target)
+                        raise RuntimeError('Sim {} failed to find carry posture aop for carry target {}.'.format(sim, carry_target))
                     carry_posture_type = aop.affordance._carry_posture_type
                     if carry_posture_type is None:
                         raise KeyError

@@ -50,7 +50,7 @@ def find_globals_and_nonlocals(node, globs, nonlocals, code, version):
 #         # print("XXX", n.kind, global_ops)
 #         if isinstance(n, SyntaxTree):
 #             # FIXME: do I need a caser for n.kind="mkfunc"?
-#             if n.kind in ("conditional_lambda", "return_lambda"):
+#             if n.kind in ("if_expr_lambda", "return_lambda"):
 #                 globs = find_globals(n, globs, mklambda_globals)
 #             else:
 #                 globs = find_globals(n, globs, global_ops)
@@ -68,20 +68,53 @@ def find_none(node):
             return True
     return False
 
+def escape_string(str, quotes=('"', "'", '"""', "'''")):
+    quote = None
+    for q in quotes:
+        if str.find(q) == -1:
+            quote = q
+            break
+        pass
+    if quote is None:
+        quote = '"""'
+        str = str.replace('"""', '\\"""')
+
+    for (orig, replace) in (('\t', '\\t'),
+                            ('\n', '\\n'),
+                            ('\r', '\\r')):
+        str = str.replace(orig, replace)
+    return "%s%s%s" % (quote, str, quote)
+
+def strip_quotes(str):
+    if str.startswith("'''") and str.endswith("'''"):
+        str = str[3:-3]
+    elif str.startswith('"""') and str.endswith('"""'):
+        str = str[3:-3]
+    elif str.startswith("'") and str.endswith("'"):
+        str = str[1:-1]
+    elif str.startswith('"') and str.endswith('"'):
+        str = str[1:-1]
+        pass
+    return str
+
+
 def print_docstring(self, indent, docstring):
-    try:
-        if docstring.find('"""') == -1:
-            quote = '"""'
-        else:
+    quote = '"""'
+    if docstring.find(quote) >= 0:
+        if docstring.find("'''") == -1:
             quote = "'''"
-            docstring = docstring.replace("'''", "\\'''")
-    except:
-        return False
+
     self.write(indent)
     if not PYTHON3 and not isinstance(docstring, str):
         # Must be unicode in Python2
         self.write('u')
         docstring = repr(docstring.expandtabs())[2:-1]
+    elif PYTHON3 and 2.4 <= self.version <= 2.7:
+        try:
+            repr(docstring.expandtabs())[1:-1].encode("ascii")
+        except UnicodeEncodeError:
+            self.write('u')
+        docstring = repr(docstring.expandtabs())[1:-1]
     else:
         docstring = repr(docstring.expandtabs())[1:-1]
 
@@ -102,40 +135,42 @@ def print_docstring(self, indent, docstring):
         and (docstring[-1] != '"'
              or docstring[-2] == '\t')):
         self.write('r') # raw string
-        # restore backslashes unescaped since raw
+        # Restore backslashes unescaped since raw
         docstring = docstring.replace('\t', '\\')
     else:
-        # Escape '"' if it's the last character, so it doesn't
-        # ruin the ending triple quote
-        if len(docstring) and docstring[-1] == '"':
-            docstring = docstring[:-1] + '\\"'
-        # Restore escaped backslashes
+        # Escape the last character if it is the same as the
+        # triple quote character.
+        quote1 = quote[-1]
+        if len(docstring) and docstring[-1] == quote1:
+            docstring = docstring[:-1] + '\\' + quote1
+
+        # Escape triple quote when needed
+        if quote == '"""':
+            replace_str = '\\"""'
+        else:
+            assert quote == "'''"
+            replace_str = "\\'''"
+
+        docstring = docstring.replace(quote, replace_str)
         docstring = docstring.replace('\t', '\\\\')
-    # Escape triple quote when needed
-    if quote == '""""':
-        docstring = docstring.replace('"""', '\\"\\"\\"')
+
     lines = docstring.split('\n')
-    calculate_indent = maxint
-    for line in lines[1:]:
-        stripped = line.lstrip()
-        if len(stripped) > 0:
-            calculate_indent = min(calculate_indent, len(line) - len(stripped))
-    calculate_indent = min(calculate_indent, len(lines[-1]) - len(lines[-1].lstrip()))
-    # Remove indentation (first line is special):
-    trimmed = [lines[0]]
-    if calculate_indent < maxint:
-        trimmed += [line[calculate_indent:] for line in lines[1:]]
 
     self.write(quote)
-    if len(trimmed) == 0:
+    if len(lines) == 0:
         self.println(quote)
-    elif len(trimmed) == 1:
-        self.println(trimmed[0], quote)
+    elif len(lines) == 1:
+        self.println(lines[0], quote)
     else:
-        self.println(trimmed[0])
-        for line in trimmed[1:-1]:
-            self.println( indent, line )
-        self.println(indent, trimmed[-1], quote)
+        self.println(lines[0])
+        for line in lines[1:-1]:
+            if line:
+                self.println( line )
+            else:
+                self.println( "\n\n" )
+                pass
+            pass
+        self.println(lines[-1], quote)
     return True
 
 
@@ -160,6 +195,26 @@ def flatten_list(node):
             pass
         pass
     return flat_elems
+
+# Note: this is only used in Python > 3.0
+# Should move this somewhere more specific?
+def gen_function_parens_adjust(mapping_key, node):
+    """If we can avoid the outer parenthesis
+    of a generator function, set the node key to
+    'call_generator' and the caller will do the default
+    action on that. Otherwise we do nothing.
+    """
+    if mapping_key.kind != 'CALL_FUNCTION_1':
+        return
+
+    args_node = node[-2]
+    if args_node == 'pos_arg':
+        assert args_node[0] == 'expr'
+        n = args_node[0][0]
+        if n == 'generator_exp':
+            node.kind = 'call_generator'
+        pass
+    return
 
 
 # if __name__ == '__main__':

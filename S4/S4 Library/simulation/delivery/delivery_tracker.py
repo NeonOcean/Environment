@@ -2,6 +2,7 @@ from collections import namedtuple
 from date_and_time import DateAndTime, TimeSpan
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver
+from households.household_tracker import HouseholdTracker
 from interactions.utils import LootType
 from sims4.resources import Types
 import alarms
@@ -19,7 +20,7 @@ class _DeliveryAlarmHandler:
     def __call__(self, timeline):
         self._tracker.try_do_delivery(self._delivery)
 
-class DeliveryTracker:
+class DeliveryTracker(HouseholdTracker):
 
     def __init__(self, household):
         self._household = household
@@ -93,6 +94,9 @@ class DeliveryTracker:
                 mailbox_inventory = zone.lot.get_mailbox_inventory(sim_household.id)
                 if mailbox_inventory is not None:
                     mailbox_inventory.player_try_add_object(created_object)
+
+    def household_lod_cleanup(self):
+        self._expected_deliveries = {}
 
     def load_data(self, household_proto):
         sim_now = services.time_service().sim_now

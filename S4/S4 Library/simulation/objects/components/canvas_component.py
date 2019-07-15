@@ -57,8 +57,6 @@ class CanvasComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
                 canvas_data.time_stamp = self.time_stamp
             self.save_additional_data(canvas_data)
             persistence_master_message.data.extend([persistable_data])
-        else:
-            logger.error('Object {} has no painting_state during save of the canvas component.', self.owner, owner='jwilkinson')
 
     def load(self, persistable_data):
         canvas_data = persistable_data.Extensions[persistence_protocols.PersistableCanvasComponent.persistable_data]
@@ -210,16 +208,15 @@ class SimPortraitComponent(CanvasComponent):
             self.set_signature()
             self.update_composite_image()
 
-    def _refresh_image(self):
-        self.owner.get_inventory().try_move_hidden_object_to_inventory(self.owner)
-        self.owner.new_in_inventory = True
-        self.owner.get_inventory().visible_storage.distribute_inventory_update_message(self.owner)
-
     def set_composite_image(self, resource_key, resource_key_type, resource_key_group, no_op_version):
         res_key = sims4.resources.Key(resource_key_type, resource_key, resource_key_group)
         painting_state = PaintingState.from_key(res_key, PaintingState.REVEAL_LEVEL_MAX, False, 0)
         self.painting_state = painting_state
-        self._refresh_image()
+        inventory_owner = self.owner.inventoryitem_component.last_inventory_owner
+        if inventory_owner is not None:
+            self.owner.get_inventory().visible_storage.distribute_owned_inventory_update_message(self.owner, inventory_owner)
+        else:
+            logger.error('SimPortraitComponent image {} somehow has no inventory owner', self.owner)
 
     def update_composite_image(self, force_rebuild_thumb=False):
         thumb_url = 'img://thumbs/sims/b_0x{:016x}_x_{:d}'.format(self.sim_id, int(self.outfit_category))

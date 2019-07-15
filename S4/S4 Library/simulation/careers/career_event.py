@@ -63,7 +63,7 @@ class CareerEvent(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, m
             if loot is not None:
                 loot.apply_to_resolver(resolver)
         curr_zone = services.venue_service().get_zone_director()
-        if self.zone_director and self.zone_director.guid64 == curr_zone.guid64:
+        if curr_zone and self.zone_director and self.zone_director.guid64 == curr_zone.guid64:
             curr_zone.on_career_event_stop()
 
     def request_zone_director(self):

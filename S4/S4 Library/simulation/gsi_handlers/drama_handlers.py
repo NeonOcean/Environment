@@ -1,4 +1,5 @@
 from gsi_handlers.gameplay_archiver import GameplayArchiver
+from gsi_handlers.gsi_utils import parse_filter_to_list
 from sims4.gsi.dispatcher import GsiHandler
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
 import enum
@@ -11,17 +12,37 @@ drama_schema.add_field('status', label='Status', width=3)
 drama_schema.add_field('time_left', label='Time Left')
 drama_schema.add_field('receiver_sim', label='Receiver Sim')
 drama_schema.add_field('sender_sim', label='Sender Sim')
+NONPICKERDRAMANODES_DRAMA_NODES_FILTER = 'non-picker drama nodes'
+PICKER_DRAMA_NODE_SUBSTRING = 'pickerdramanode'
+drama_schema.add_filter(NONPICKERDRAMANODES_DRAMA_NODES_FILTER)
+drama_schema.add_filter('actorcareer')
+drama_schema.add_filter('freelancer')
+drama_schema.add_filter('oddjob')
 
 @GsiHandler('drama', drama_schema)
-def generate_drama_scheduler_data(zone_id:int=None):
+def generate_drama_scheduler_data(zone_id:int=None, filter=None):
     all_nodes = []
+    filter_list = parse_filter_to_list(filter)
     drama_scheduler = services.drama_scheduler_service()
     if drama_scheduler is None:
         return all_nodes
+
+    def drama_node_matches_filters(drama_node):
+        if filter_list is None:
+            return True
+        drama_node_string = type(drama_node).__name__.lower()
+        if NONPICKERDRAMANODES_DRAMA_NODES_FILTER in filter_list and PICKER_DRAMA_NODE_SUBSTRING not in drama_node_string:
+            return True
+        elif any(a_filter in drama_node_string for a_filter in filter_list):
+            return True
+        return False
+
     for drama_node in drama_scheduler.active_nodes_gen():
-        all_nodes.append({'drama_node_id': str(drama_node.uid), 'status': 'Active', 'drama_node': str(drama_node), 'receiver_sim': str(drama_node.get_receiver_sim_info()), 'sender_sim': str(drama_node.get_sender_sim_info())})
+        if drama_node_matches_filters(drama_node):
+            all_nodes.append({'drama_node_id': str(drama_node.uid), 'status': 'Active', 'drama_node': str(drama_node), 'receiver_sim': str(drama_node.get_receiver_sim_info()), 'sender_sim': str(drama_node.get_sender_sim_info())})
     for drama_node in drama_scheduler.scheduled_nodes_gen():
-        all_nodes.append({'drama_node_id': str(drama_node.uid), 'drama_node': str(drama_node), 'status': 'Scheduled', 'time_left': str(drama_node.get_time_remaining()), 'receiver_sim': str(drama_node.get_receiver_sim_info()), 'sender_sim': str(drama_node.get_sender_sim_info())})
+        if drama_node_matches_filters(drama_node):
+            all_nodes.append({'drama_node_id': str(drama_node.uid), 'drama_node': str(drama_node), 'status': 'Scheduled', 'time_left': str(drama_node.get_time_remaining()), 'receiver_sim': str(drama_node.get_receiver_sim_info()), 'sender_sim': str(drama_node.get_sender_sim_info())})
     return all_nodes
 
 drama_tuning_data_schema = GsiGridSchema(label='Drama Nodes/Drama Tuning Data')

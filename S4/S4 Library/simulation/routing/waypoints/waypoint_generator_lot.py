@@ -20,7 +20,7 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
         self._sim = self._context.sim
 
     def get_start_constraint(self):
-        return Anywhere()
+        return self.get_water_constraint()
 
     def _get_polygons_for_lot(self):
         lot = services.active_lot()
@@ -56,12 +56,12 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
         final_constraints.extend(itertools.chain.from_iterable(object_constraints.values()))
         return final_constraints
 
-    def get_waypoint_constraints_gen(self, sim, waypoint_count):
+    def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
         zone_id = services.current_zone_id()
         object_constraints = defaultdict(list)
         if self.object_tag_generator is not None:
             object_tag_generator = self.object_tag_generator(WaypointContext(self._sim), None)
-            for constraint in itertools.chain((object_tag_generator.get_start_constraint(),), object_tag_generator.get_waypoint_constraints_gen(sim, MAX_INT32)):
+            for constraint in itertools.chain((object_tag_generator.get_start_constraint(),), object_tag_generator.get_waypoint_constraints_gen(routing_agent, MAX_INT32)):
                 level = constraint.routing_surface.secondary_id
                 block_id = get_block_id(zone_id, constraint.average_position, level)
                 object_constraints[block_id].append(constraint)
@@ -81,4 +81,5 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
             return False
             yield
         final_constraints = self._get_waypoint_constraints_from_polygons(polygons, object_constraints, waypoint_count)
+        final_constraints = self.apply_water_constraint(final_constraints)
         yield from final_constraints

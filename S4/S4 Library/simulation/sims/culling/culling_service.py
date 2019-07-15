@@ -60,6 +60,7 @@ class CullingService(Service):
     def on_household_culled(self, household):
         if not household.home_zone_id:
             return
+        household.cleanup_trackers()
 
         def is_valid(sim_info):
             if sim_info.age < Age.CHILD:

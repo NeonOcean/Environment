@@ -3,6 +3,8 @@ from date_and_time import TimeSpan
 from event_testing.register_test_event_mixin import RegisterTestEventMixin
 from event_testing.results import TestResult
 from event_testing.test_events import TestEvent
+from objects import components
+from objects.components.object_claim_component import ObjectClaimComponent
 from objects.system import create_object
 from sims4.tuning.tunable import TunableReference, TunableSingletonFactory, TunableSet, TunableEnumEntry, TunableList, AutoFactoryInit, HasTunableFactory, TunableMapping, Tunable, OptionalTunable, TunableSimMinute
 from situations.situation import Situation
@@ -333,23 +335,43 @@ class SituationComplexCommon(SituationComplex):
         if obj_id is None:
             return
         if claim:
-            services.inventory_manager().set_claimed_item(obj_id)
+            cls._claim_object(obj_id)
         return obj_id
 
-    def _create_object_for_situation(self, sim, obj_to_create):
+    @classmethod
+    def _claim_object(cls, obj_id):
+        obj_man = services.object_manager()
+        inv_man = services.inventory_manager()
+        obj = obj_man.get(obj_id)
+        if obj is None:
+            obj = obj_man.get(obj_id)
+            if obj is None:
+                obj = inv_man.get(obj_id)
+        if obj is not None:
+            if not obj.has_component(components.types.OBJECT_CLAIM_COMPONENT):
+                obj.add_dynamic_component(components.types.OBJECT_CLAIM_COMPONENT)
+            obj.object_claim_component.claim()
+            obj_man.set_claimed_item(obj.id)
+        inv_man.set_claimed_item(obj_id)
+
+    def _create_object_for_situation(self, sim, obj_to_create, add_to_inventory=True):
 
         def setup_object(obj):
             obj.set_household_owner_id(sim.household_id)
 
         target = create_object(obj_to_create.id, init=setup_object)
         try:
-            sim.inventory_component.system_add_object(target)
-            target.inventoryitem_component.set_item_as_claimed()
+            if add_to_inventory:
+                sim.inventory_component.system_add_object(target)
+            if target.object_claim_component is None:
+                target.add_dynamic_component(components.types.OBJECT_CLAIM_COMPONENT)
+            target.object_claim_component.claim()
+            services.object_manager().set_claimed_item(target.id)
         except:
-            target.destroy(source=sim, cause='Exception during creation of trash for neighbor situation.')
+            target.destroy(source=sim, cause='Exception during creation of object for situation.')
             raise
         if target is None:
-            raise ValueError('No trash created for {} during {}'.format(self, self))
+            raise ValueError('No object created for {} during {}'.format(self, self))
         return target
 
     @classmethod

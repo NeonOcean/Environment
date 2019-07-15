@@ -1,9 +1,10 @@
 from scheduler import WeeklySchedule
+from careers.career_enums import CareerShiftType
 from sims4.tuning.tunable import HasTunableFactory, TunableVariant, TunableReference, TunableList
 import services
 import sims4.resources
 
-def get_career_schedule_for_level(career_level, join_time=None):
+def get_career_schedule_for_level(career_level, join_time=None, schedule_shift_type=CareerShiftType.ALL_DAY):
 
     class _CareerScheduleHelper:
 
@@ -15,7 +16,7 @@ def get_career_schedule_for_level(career_level, join_time=None):
         def join_time(self):
             return join_time or services.time_service().sim_now
 
-    return career_level.schedule(_CareerScheduleHelper(), init_only=True)
+    return career_level.schedule(_CareerScheduleHelper(), init_only=True, schedule_shift_type=schedule_shift_type)
 
 class CareerScheduleBackwardsCompatible(HasTunableFactory):
 
@@ -52,7 +53,14 @@ class CareerScheduleNoSchedule(HasTunableFactory):
     def __new__(self, career, *args, **kwargs):
         pass
 
+class CareerScheduleShiftsPlayer(HasTunableFactory):
+    FACTORY_TUNABLES = {'career_player_shifts': TunableList(description='\n            The available shifts for the career. The game validates that each\n            shift falls under the valid hours.\n            ', tunable=WeeklySchedule.TunableFactory())}
+
+    def __new__(self, career, *args, career_player_shifts, **kwargs):
+        for career_player_shift in career_player_shifts:
+            return career_player_shift(*args, **kwargs)
+
 class TunableCareerScheduleVariant(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, backwards_compatible=CareerScheduleBackwardsCompatible.TunableFactory(), fixed=CareerScheduleFixed.TunableFactory(), service_npc=CareerScheduleFromServiceNpc.TunableFactory(), shifts=CareerScheduleShifts.TunableFactory(), no_schedule=CareerScheduleNoSchedule.TunableFactory(), default='backwards_compatible', **kwargs)
+        super().__init__(*args, backwards_compatible=CareerScheduleBackwardsCompatible.TunableFactory(), fixed=CareerScheduleFixed.TunableFactory(), service_npc=CareerScheduleFromServiceNpc.TunableFactory(), shifts=CareerScheduleShifts.TunableFactory(), shifts_player=CareerScheduleShiftsPlayer.TunableFactory(), no_schedule=CareerScheduleNoSchedule.TunableFactory(), default='backwards_compatible', **kwargs)

@@ -1,5 +1,5 @@
 from protocolbuffers import UI_pb2
-from careers.career_enums import CareerCategory
+from careers.career_enums import CareerCategory, WORK_CAREER_CATEGORIES
 from careers.career_ops import CareerTimeOffReason
 from date_and_time import TimeSpan, DateAndTime
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
@@ -71,7 +71,7 @@ class HolidayDramaNode(BaseDramaNode):
         take_time_off = False
         if career_category == CareerCategory.School:
             take_time_off = holiday_service.get_holiday_time_off_school(self.holiday_id)
-        elif career_category == CareerCategory.Work or career_category == CareerCategory.TeenPartTime:
+        elif career_category in WORK_CAREER_CATEGORIES:
             take_time_off = holiday_service.get_holiday_time_off_work(self.holiday_id)
         elif career_category == CareerCategory.Volunteer:
             take_time_off = False

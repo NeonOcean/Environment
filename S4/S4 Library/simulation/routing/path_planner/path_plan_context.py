@@ -2,7 +2,7 @@ from _math import Vector2, Vector3
 from routing import PathPlanContext
 from routing.path_planner.path_plan_enums import FootprintKeyMaskBits
 from routing.portals.portal_tuning import PortalFlags
-from sims.sim_info_types import SpeciesExtended
+from sims.sim_info_types import SpeciesExtended, Age
 from sims4.geometry import QtCircle, build_rectangle_from_two_points_and_radius
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, TunableRange, OptionalTunable, TunableEnumFlags, HasTunableSingletonFactory, TunableVariant, TunableEnumEntry, TunableMapping
 from singletons import DEFAULT
@@ -39,8 +39,11 @@ class PathPlanContextWrapper(HasTunableFactory, AutoFactoryInit, PathPlanContext
         if self._allowed_heights is not None:
             full_keymask |= self._allowed_heights
         self.set_key_mask(full_keymask)
+        full_portal_keymask = PortalFlags.DEFAULT
         species = getattr(self._agent, 'extended_species', DEFAULT)
-        full_portal_keymask = SpeciesExtended.get_portal_flag(species)
+        full_portal_keymask |= SpeciesExtended.get_portal_flag(species)
+        age = getattr(self._agent, 'age', DEFAULT)
+        full_portal_keymask |= Age.get_portal_flag(age)
         if self._allowed_portal_flags is not None:
             full_portal_keymask |= self._allowed_portal_flags
         self.set_portal_key_mask(full_portal_keymask)

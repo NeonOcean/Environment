@@ -323,9 +323,9 @@ class SimInfoManager(DistributableObjectManager):
             if sim is not None:
                 yield sim
 
-    def instanced_sims_on_active_lot_gen(self, allow_hidden_flags=0):
+    def instanced_sims_on_active_lot_gen(self, allow_hidden_flags=0, include_spawn_point=False):
         for sim in self.instanced_sims_gen(allow_hidden_flags=allow_hidden_flags):
-            if sim.is_on_active_lot():
+            if sim.is_on_active_lot(include_spawn_point=include_spawn_point):
                 yield sim
 
     def instanced_sim_info_including_baby_gen(self, allow_hidden_flags=0):

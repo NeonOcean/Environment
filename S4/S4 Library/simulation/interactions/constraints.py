@@ -12,6 +12,7 @@ from constraints.constraint_functions import ConstraintGoalGenerationFunctionIde
 from interactions import ParticipantType
 from interactions.liability import SharedLiability
 from interactions.utils.object_definition_or_tags import ObjectDefinitonsOrTagsVariant
+from objects.components.types import PORTAL_COMPONENT
 from objects.doors.door_selection import DoorSelectFrontDoor, DoorSelectParticipantApartmentDoor
 from objects.pools import pool_utils
 from objects.slots import RuntimeSlot
@@ -27,11 +28,14 @@ from sims4.collections import frozendict
 from sims4.log import StackVar
 from sims4.repr_utils import standard_repr
 from sims4.tuning.geometric import TunableVector3
-from sims4.tuning.tunable import Tunable, TunableTuple, TunableAngle, TunableEnumEntry, TunableVariant, TunableRange, TunableSingletonFactory, TunableList, OptionalTunable, TunableReference, HasTunableSingletonFactory, TunableSet, AutoFactoryInit, TunableEnumWithFilter
+from sims4.tuning.tunable import Tunable, TunableTuple, TunableAngle, TunableEnumEntry, TunableVariant, TunableRange, TunableSingletonFactory, TunableList, OptionalTunable, TunableReference, HasTunableSingletonFactory, TunableSet, AutoFactoryInit, TunableEnumWithFilter, TunableEnumSet
 from sims4.utils import ImmutableType, InternMixin, constproperty
 from singletons import DEFAULT, SingletonType, UNSET
 from tag import Tag
+from terrain import get_water_depth, is_terrain_tag_at_position, get_water_depth_at_location
+from world.ocean_tuning import OceanTuning
 from world.spawn_point_enums import SpawnPointRequestReason
+from world.terrain_enums import TerrainTag
 import animation
 import animation.animation_utils
 import api_config
@@ -93,10 +97,11 @@ class ZoneConstraintMixin:
 
 class IntersectPreference(enum.Int, export=False):
     UNIVERSAL = 0
-    SPECIAL = 1
-    GEOMETRIC_PLUS = 2
-    REQUIREDSLOT = 3
-    GEOMETRIC = 4
+    CONSTRAINT_SET = 1
+    JIG = 2
+    GEOMETRIC_PLUS = 3
+    REQUIREDSLOT = 4
+    GEOMETRIC = 5
 
 class CostFunctionBase:
 
@@ -184,7 +189,7 @@ class Constraint(ImmutableType, InternMixin):
     def _debug_name(self):
         return ''
 
-    def __init__(self, geometry=None, routing_surface=None, scoring_functions=(), goal_functions=(), posture_state_spec=None, age=None, debug_name='', allow_small_intersections=DEFAULT, flush_planner=False, allow_geometry_intersections=True, los_reference_point=DEFAULT, ignore_outer_penalty_threshold=IGNORE_OUTER_PENALTY_THRESHOLD, cost=0, objects_to_ignore=None, create_jig_fn=None, multi_surface=False, enables_height_scoring=False):
+    def __init__(self, geometry=None, routing_surface=None, scoring_functions=(), goal_functions=(), posture_state_spec=None, age=None, debug_name='', allow_small_intersections=DEFAULT, flush_planner=False, allow_geometry_intersections=True, los_reference_point=DEFAULT, ignore_outer_penalty_threshold=IGNORE_OUTER_PENALTY_THRESHOLD, cost=0, objects_to_ignore=None, create_jig_fn=None, multi_surface=False, enables_height_scoring=False, terrain_tags=None, min_water_depth=None, max_water_depth=None):
         self._geometry = geometry
         self._routing_surface = routing_surface
         self._posture_state_spec = posture_state_spec
@@ -201,6 +206,9 @@ class Constraint(ImmutableType, InternMixin):
         self._cost = cost
         self._objects_to_ignore = None if objects_to_ignore is None else frozenset(objects_to_ignore)
         self._create_jig_fn = create_jig_fn
+        self._terrain_tags = terrain_tags
+        self._min_water_depth = min_water_depth
+        self._max_water_depth = max_water_depth
         if not multi_surface:
             if self._routing_surface is None:
                 multi_surface = True
@@ -237,6 +245,10 @@ class Constraint(ImmutableType, InternMixin):
             args.append('geometry')
         if self._posture_state_spec is not None:
             args.append(str(self._posture_state_spec))
+        if self._terrain_tags is not None:
+            args.append(str(self._terrain_tags))
+        if self._min_water_depth is not None and self._min_water_depth >= 0.0 or self._max_water_depth is not None and self._max_water_depth >= 0.0:
+            args.append('depth')
         return standard_repr(self, *args)
 
     @staticmethod
@@ -317,13 +329,19 @@ class Constraint(ImmutableType, InternMixin):
         return tuple(points)
 
     def generate_geometry_only_constraint(self):
-        constraints = [Constraint(geometry=constraint.geometry, scoring_functions=constraint._scoring_functions, goal_functions=constraint._goal_functions, allow_small_intersections=constraint._allow_small_intersections, routing_surface=constraint.routing_surface, allow_geometry_intersections=constraint._allow_geometry_intersections, cost=constraint.cost, objects_to_ignore=constraint._objects_to_ignore, multi_surface=constraint.multi_surface, enables_height_scoring=constraint.enables_height_scoring) for constraint in self if constraint.geometry is not None]
+        constraints = [Constraint(geometry=constraint.geometry, scoring_functions=constraint._scoring_functions, goal_functions=constraint._goal_functions, allow_small_intersections=constraint._allow_small_intersections, routing_surface=constraint.routing_surface, allow_geometry_intersections=constraint._allow_geometry_intersections, cost=constraint.cost, objects_to_ignore=constraint._objects_to_ignore, multi_surface=constraint.multi_surface, enables_height_scoring=constraint.enables_height_scoring, min_water_depth=constraint.get_min_water_depth(), max_water_depth=constraint.get_max_water_depth()) for constraint in self if constraint.geometry is not None]
         if not constraints:
             return Anywhere()
         return create_constraint_set(constraints)
 
     def generate_alternate_geometry_constraint(self, alternate_geometry):
         constraints = self._copy(_geometry=alternate_geometry)
+        if not constraints:
+            return Anywhere()
+        return create_constraint_set(constraints)
+
+    def generate_alternate_water_depth_constraint(self, min_water_depth, max_water_depth):
+        constraints = self._copy(_min_water_depth=min_water_depth, _max_water_depth=max_water_depth)
         if not constraints:
             return Anywhere()
         return create_constraint_set(constraints)
@@ -462,6 +480,26 @@ class Constraint(ImmutableType, InternMixin):
             bounding_boxes.append(sims4.geometry.QtRect(sims4.math.Vector2(min_x, min_z), sims4.math.Vector2(max_x, max_z)))
         return bounding_boxes
 
+    @caches.cached
+    def is_location_water_depth_valid(self, location):
+        min_water_depth = self.get_min_water_depth()
+        max_water_depth = self.get_max_water_depth()
+        if min_water_depth is None and max_water_depth is None:
+            return True
+        depth = get_water_depth_at_location(location)
+        if min_water_depth is not None and depth < min_water_depth:
+            return False
+        elif max_water_depth is not None and max_water_depth < depth:
+            return False
+        return True
+
+    @caches.cached
+    def is_location_terrain_tags_valid(self, location):
+        terrain_tags = self.get_terrain_tags()
+        if terrain_tags is None:
+            return True
+        return is_terrain_tag_at_position(location.position.x, location.position.z, terrain_tags, level=location.routing_surface.secondary_id)
+
     @caches.cached(key=_is_routing_surface_valid_cache_key)
     def is_routing_surface_valid(self, routing_surface):
         if self.routing_surface is None:
@@ -533,6 +571,8 @@ class Constraint(ImmutableType, InternMixin):
                         pool_polygon = sims4.geometry.CompoundPolygon(pool.bounding_polygon)
                         if polygon.intersects(pool_polygon):
                             return pool_routing_surface
+        if level_id == 0 and services.terrain_service.ocean_object() is not None and any(get_water_depth(vertex.x, vertex.z) > sims4.math.EPSILON for poly in polygon for vertex in poly):
+            return SurfaceIdentifier(zone_id, 0, SurfaceType.SURFACETYPE_POOL)
 
     @property
     def polygons(self):
@@ -610,6 +650,17 @@ class Constraint(ImmutableType, InternMixin):
         routing_surface = self._routing_surface
         return sum(scoring_fn.constraint_cost(position, orientation, routing_surface) for scoring_fn in self._scoring_functions)
 
+    def get_terrain_tags(self):
+        if not hasattr(self, '_terrain_tags'):
+            return
+        return self._terrain_tags
+
+    def get_min_water_depth(self):
+        return self._min_water_depth
+
+    def get_max_water_depth(self):
+        return self._max_water_depth
+
     def apply(self, other_constraint):
         intersection = self.intersect(other_constraint)
         if intersection.valid:
@@ -627,6 +678,15 @@ class Constraint(ImmutableType, InternMixin):
         else:
             result = other_constraint._intersect(self)
         return result
+
+    def tested_intersect(self, other_constraint, test_constraint):
+        if self == other_constraint:
+            return self
+        else:
+            test_intersect = self.intersect(test_constraint)
+            if test_intersect.valid:
+                return self.intersect(other_constraint)
+        return self
 
     def _merge_delta_constraint(self, other_constraint):
         if self == other_constraint:
@@ -667,13 +727,13 @@ class Constraint(ImmutableType, InternMixin):
 
     def _intersect_kwargs(self, other):
         allow_geometry_intersections = self._allow_geometry_intersections and other._allow_geometry_intersections
+        if not allow_geometry_intersections and (other._geometry is not None or self._geometry is not None):
+            return (Nowhere('Geometry intersection failed. Geometry is locked for constraints: {} and {}', self, other), None)
         if other._geometry in (None, self._geometry):
             geometry = self._geometry
         elif self._geometry is None:
             geometry = other._geometry
         else:
-            if not allow_geometry_intersections:
-                return (Nowhere('Geometry intersection failed. Geometry is locked for constraints: {} and {}', self, other), None)
             geometry = self._geometry.intersect(other._geometry)
             if not geometry:
                 return (Nowhere('Geometry intersection failed, A: {}, B: {}', self._geometry, other._geometry), None)
@@ -683,6 +743,31 @@ class Constraint(ImmutableType, InternMixin):
         if self.age is not None and other.age is not None and self.age != other.age:
             return (Nowhere('Constraints have mismatched ages, A: {}, B: {}', self, other), None)
         age = self.age or other.age
+        min_water_depth = self.get_min_water_depth()
+        if min_water_depth is None:
+            min_water_depth = other.get_min_water_depth()
+        else:
+            other_min_water_depth = other.get_min_water_depth()
+            if other_min_water_depth is not None:
+                min_water_depth = max(min_water_depth, other_min_water_depth)
+        max_water_depth = self.get_max_water_depth()
+        if max_water_depth is None:
+            max_water_depth = other.get_max_water_depth()
+        else:
+            other_max_water_depth = other.get_max_water_depth()
+            if other_max_water_depth is not None:
+                max_water_depth = min(max_water_depth, other_max_water_depth)
+        if min_water_depth is not None and max_water_depth is not None and max_water_depth < min_water_depth:
+            return (Nowhere('Water Depth null range, A: ({}, {}), B: ({}, {})', self.get_min_water_depth(), self.get_max_water_depth(), other.get_min_water_depth(), other.get_max_water_depth()), None)
+        terrain_tags = self.get_terrain_tags()
+        if terrain_tags is None:
+            terrain_tags = other.get_terrain_tags()
+        else:
+            other_terrain_tags = other.get_terrain_tags()
+            if other_terrain_tags is not None:
+                terrain_tags = list(set(terrain_tags).intersection(other_terrain_tags))
+            if terrain_tags is not None and len(terrain_tags) == 0:
+                return (Nowhere('Terrain Tags null range, A: {}, B: {}', self.get_terrain_tags(), other.get_terrain_tags()), None)
         scoring_functions = self._scoring_functions + other._scoring_functions
         scoring_functions = tuple(set(scoring_functions))
         goal_functions = getattr(self, '_goal_functions', ()) + getattr(other, '_goal_functions', ())
@@ -733,7 +818,7 @@ class Constraint(ImmutableType, InternMixin):
                     break
             else:
                 return (Nowhere('Posture State Spec: {} does not support any valid surfaces: {}', posture_state_spec, tuple(all_surfaces)), None)
-        kwargs = {'_geometry': geometry, '_routing_surface': routing_surface, '_scoring_functions': scoring_functions, '_goal_functions': goal_functions, '_posture_state_spec': posture_state_spec, '_age': age, '_allow_small_intersections': allow_small_intersections, '_allow_geometry_intersections': allow_geometry_intersections, '_los_reference_point': los_reference_point, '_cost': cost, '_objects_to_ignore': objects_to_ignore, '_flush_planner': flush_planner, '_ignore_outer_penalty_threshold': outer_penalty_threshold, '_create_jig_fn': create_jig_fn, '_multi_surface': multi_surface, '_enables_height_scoring': enables_height_scoring}
+        kwargs = {'_geometry': geometry, '_routing_surface': routing_surface, '_scoring_functions': scoring_functions, '_goal_functions': goal_functions, '_posture_state_spec': posture_state_spec, '_age': age, '_allow_small_intersections': allow_small_intersections, '_allow_geometry_intersections': allow_geometry_intersections, '_los_reference_point': los_reference_point, '_cost': cost, '_objects_to_ignore': objects_to_ignore, '_flush_planner': flush_planner, '_ignore_outer_penalty_threshold': outer_penalty_threshold, '_create_jig_fn': create_jig_fn, '_multi_surface': multi_surface, '_enables_height_scoring': enables_height_scoring, '_terrain_tags': terrain_tags, '_min_water_depth': min_water_depth, '_max_water_depth': max_water_depth}
         return (None, kwargs)
 
     def _intersect(self, other_constraint):
@@ -825,31 +910,32 @@ class Constraint(ImmutableType, InternMixin):
                         raise RuntimeError('Mismatched posture types within a single posture state spec! [maxr]')
                     posture_type = posture_type_entry
                 if not posture_type is None:
-                    if posture_type.unconstrained:
-                        pass
-                    else:
-                        new_constraints.remove(sub_constraint)
-                        if body_target.parts:
-                            targets = (part for part in body_target.parts if part.supports_posture_type(posture_type, is_specific=is_specific))
+                    if not posture_type.unconstrained:
+                        if posture_type.mobile:
+                            pass
                         else:
-                            targets = (body_target,)
-                        slot_constraints = []
-                        for target in targets:
-                            target_body_posture = postures.create_posture(posture_type, sim, target, is_throwaway=True)
-                            resolver = {body_target: target}.get
-                            posture_state_spec = sub_constraint.posture_state_spec.get_concrete_version(resolver)
-                            if posture_state_spec.body_target is not sub_constraint.posture_state_spec.body_target:
-                                for entry in posture_state_spec.posture_manifest:
-                                    if entry.surface_target is not None:
-                                        if entry.surface_target.parts is not None:
-                                            if posture_state_spec.body_target.parent in entry.surface_target.parts:
-                                                surface_resolver = {entry.surface_target: posture_state_spec.body_target.parent}.get
-                                                posture_state_spec = posture_state_spec.get_concrete_version(surface_resolver)
-                            slot_constraint = target_body_posture.build_slot_constraint(posture_state_spec=posture_state_spec)
-                            slot_constraints.append(slot_constraint)
-                        slot_constraint_set = create_constraint_set(slot_constraints)
-                        new_constraint = sub_constraint.intersect(slot_constraint_set)
-                        new_constraints.append(new_constraint)
+                            new_constraints.remove(sub_constraint)
+                            if body_target.parts:
+                                targets = (part for part in body_target.parts if part.supports_posture_type(posture_type, is_specific=is_specific))
+                            else:
+                                targets = (body_target,)
+                            slot_constraints = []
+                            for target in targets:
+                                target_body_posture = postures.create_posture(posture_type, sim, target, is_throwaway=True)
+                                resolver = {body_target: target}.get
+                                posture_state_spec = sub_constraint.posture_state_spec.get_concrete_version(resolver)
+                                if posture_state_spec.body_target is not sub_constraint.posture_state_spec.body_target:
+                                    for entry in posture_state_spec.posture_manifest:
+                                        if entry.surface_target is not None:
+                                            if entry.surface_target.parts is not None:
+                                                if posture_state_spec.body_target.parent in entry.surface_target.parts:
+                                                    surface_resolver = {entry.surface_target: posture_state_spec.body_target.parent}.get
+                                                    posture_state_spec = posture_state_spec.get_concrete_version(surface_resolver)
+                                slot_constraint = target_body_posture.build_slot_constraint(posture_state_spec=posture_state_spec)
+                                slot_constraints.append(slot_constraint)
+                            slot_constraint_set = create_constraint_set(slot_constraints)
+                            new_constraint = sub_constraint.intersect(slot_constraint_set)
+                            new_constraints.append(new_constraint)
         constraint = create_constraint_set(new_constraints)
         return constraint
 
@@ -859,6 +945,9 @@ class Constraint(ImmutableType, InternMixin):
             if entry.target_object_filter is not MATCH_ANY:
                 filter_set.add(entry.target_object_filter)
         return filter_set
+
+    def estimate_distance_cache_key(self):
+        return self
 
 class _SingletonConstraint(SingletonType, Constraint):
 
@@ -899,11 +988,6 @@ ANYWHERE = Anywhere()
 class _Nowhere(Constraint):
     INTERSECT_PREFERENCE = IntersectPreference.UNIVERSAL
 
-    def __init__(self, debug_str, *args):
-        self._debug_str = debug_str
-        self._debug_args = args
-        return super().__init__()
-
     def __eq__(self, other):
         return type(self) == type(other)
 
@@ -914,7 +998,7 @@ class _Nowhere(Constraint):
         return self
 
     def __repr__(self):
-        return self._debug_str.format(*self._debug_args)
+        return 'Nowhere()'
 
     def intersect(self, other_constraint):
         return self
@@ -934,11 +1018,8 @@ class _Nowhere(Constraint):
 
 class Nowhere(SingletonType, _Nowhere):
 
-    def __init__(self, *args, **kwargs):
-        Constraint.__init__(self)
-
-    def __repr__(self):
-        return 'Nowhere()'
+    def __init__(self, debug_str, *debug_args):
+        super().__init__()
 
 class ResolvePostureContext(ImmutableType, InternMixin):
 
@@ -1163,6 +1244,9 @@ class TentativeIntersection(Constraint):
             holster_version = self._copy(_constraints=frozenset(constraints), _posture_state_spec=self._posture_state_spec.get_holster_version())
         return holster_version
 
+    def estimate_distance_cache_key(self):
+        return frozenset(constraint.estimate_distance_cache_key() for constraint in self._constraints)
+
 class Somewhere(Constraint):
     INTERSECT_PREFERENCE = IntersectPreference.GEOMETRIC_PLUS
 
@@ -1224,7 +1308,7 @@ def create_constraint_set(constraint_list, invalid_constraints=None, debug_name=
     return _ConstraintSet(constraint_set, debug_name=debug_name)
 
 class _ConstraintSet(Constraint):
-    INTERSECT_PREFERENCE = IntersectPreference.SPECIAL
+    INTERSECT_PREFERENCE = IntersectPreference.CONSTRAINT_SET
     _allow_geometry_intersections = True
 
     def __init__(self, constraints:frozenset, debug_name=''):
@@ -1321,6 +1405,49 @@ class _ConstraintSet(Constraint):
     def constraint_cost(self, position, orientation):
         return min(constraint.constraint_cost(position, orientation) for constraint in self)
 
+    def get_terrain_tags(self):
+        total_terrain_tags = set()
+        for constraint in self:
+            constraint_terrain_tags = constraint.get_terrain_tags()
+            if constraint_terrain_tags is None:
+                return
+            else:
+                total_terrain_tags.union(constraint_terrain_tags)
+                if total_terrain_tags:
+                    return list(total_terrain_tags)
+        if total_terrain_tags:
+            return list(total_terrain_tags)
+
+    def get_min_water_depth(self):
+        current_value = sims4.math.MAX_FLOAT
+        updated_value = False
+        for constraint in self:
+            constaint_value = constraint.get_min_water_depth()
+            if constaint_value is None:
+                return
+            else:
+                current_value = min(current_value, constaint_value)
+                updated_value = True
+                if updated_value:
+                    return current_value
+        if updated_value:
+            return current_value
+
+    def get_max_water_depth(self):
+        current_value = -sims4.math.MAX_FLOAT
+        updated_value = False
+        for constraint in self:
+            constaint_value = constraint.get_max_water_depth()
+            if constaint_value is None:
+                return
+            else:
+                current_value = max(current_value, constaint_value)
+                updated_value = True
+                if updated_value:
+                    return current_value
+        if updated_value:
+            return current_value
+
     def get_posture_specs(self, resolver=None, interaction=None):
         posture_state_specs_to_constraints = collections.defaultdict(list)
         for constraint in self:
@@ -1357,6 +1484,23 @@ class _ConstraintSet(Constraint):
 
     def get_connectivity_handles(self, *args, **kwargs):
         return [handle for constraint in self._constraints for handle in constraint.get_connectivity_handles(*args, **kwargs)]
+
+    def tested_intersect(self, other_constraint, test_constraint):
+        valid_constraints = []
+        invalid_constraints = []
+        for self_sub_constraint in self:
+            tested_intersect = self_sub_constraint.intersect(test_constraint)
+            if tested_intersect.valid:
+                for other_sub_constraint in other_constraint:
+                    intersection = other_sub_constraint.intersect(self_sub_constraint)
+                    if intersection.valid:
+                        valid_constraints.append(intersection)
+                else:
+                    if self_sub_constraint.valid:
+                        valid_constraints.append(self_sub_constraint)
+            elif self_sub_constraint.valid:
+                valid_constraints.append(self_sub_constraint)
+        return create_constraint_set(valid_constraints, invalid_constraints=invalid_constraints, debug_name=self._debug_name)
 
     def _intersect(self, other_constraint):
         valid_constraints = []
@@ -1431,6 +1575,9 @@ class _ConstraintSet(Constraint):
         for constraint in self:
             filter_set |= constraint.get_target_object_filters()
         return filter_set
+
+    def estimate_distance_cache_key(self):
+        return frozenset(constraint.estimate_distance_cache_key() for constraint in self)
 
 class SmallAreaConstraint(Constraint):
 
@@ -1544,8 +1691,6 @@ class TunedLineOfSight:
         else:
             target_forward = target.forward
             target_routing_surface = target.routing_surface
-            if target.is_sim and target.lineofsight_component is not None:
-                target.refresh_los_constraint(target_position=target_position)
         if not isinstance(target_routing_surface, routing.SurfaceIdentifier):
             logger.error('Target {} does not have a valid routing surface {}, type {}.', target, target_routing_surface, type(target_routing_surface), owner='tastle')
             return Nowhere('Line of sight target does not have a valid routing surface: {}', target)
@@ -1558,6 +1703,8 @@ class TunedLineOfSight:
                 return los.constraint
             logger.error('{} has no LOS and no temporary LOS was specified', target, owner='epanero')
             return Nowhere('{} has no LOS and no temporary LOS was specified', target)
+        if target.is_sim and target.lineofsight_component is not None:
+            target.refresh_los_constraint(target_position=target_position)
         if self._multi_surface:
             return target.lineofsight_component.multi_surface_constraint
         return target.lineofsight_component.constraint
@@ -2161,7 +2308,7 @@ class RequiredSlotSingle(SmallAreaConstraint):
         return self._posture.is_universal and (self._target is not None and self._target.provided_routing_surface is not None)
 
     def _get_bounding_box_polygon(self):
-        if self._posture.is_universal and self._target is not None and self._target.provided_routing_surface is not None:
+        if self._posture is not None and (self._posture.is_universal and self._target is not None) and self._target.provided_routing_surface is not None:
             constraint = self.get_universal_constraint()
             return constraint.polygons
         return super()._get_bounding_box_polygon()
@@ -2180,12 +2327,14 @@ class RequiredSlotSingle(SmallAreaConstraint):
             universal_constraint = universal_constraint.intersect(constraint)
         return universal_constraint
 
-    def get_connectivity_handles(self, *args, locked_params=frozendict(), entry=True, routing_surface_override=None, los_reference_point=None, **kwargs):
+    def get_connectivity_handles(self, *args, locked_params=frozendict(), entry=True, routing_surface_override=None, los_reference_point=None, log_none_slots_to_params_as_error=False, **kwargs):
         if entry or not self._slots_to_params_exit:
             slots_to_params = self._slots_to_params_entry
         else:
             slots_to_params = self._slots_to_params_exit
         if slots_to_params is None:
+            if False and log_none_slots_to_params_as_error:
+                logger.error('RequiredSlotSingle: SlotsToParam is None for Constraint:{} Entry:{} Exit:{}', self, self._slots_to_params_entry, self._slots_to_params_exit, owner='nsavalani')
             return []
         if los_reference_point is None:
             (los_reference_point, _) = Constraint.get_los_reference_point(self._target)
@@ -2265,6 +2414,8 @@ class RequiredSlotSingle(SmallAreaConstraint):
 
     def clone_slot_for_new_target_and_posture(self, posture, posture_state_spec):
         target = posture.target
+        if self._target_transform == target.transform:
+            return self._copy(_sim_ref=posture.sim.ref(), _target=target, _posture=posture, _posture_state_spec=posture_state_spec)
         original_obj_inverse = sims4.math.get_difference_transform(self._target_transform, sims4.math.Transform())
         transform_between_objs = sims4.math.Transform.concatenate(original_obj_inverse, target.transform)
         containment_transform_new = sims4.math.Transform.concatenate(self._containment_transform, transform_between_objs)
@@ -2285,6 +2436,9 @@ class RequiredSlotSingle(SmallAreaConstraint):
         geometry = create_transform_geometry(containment_transform_new)
         result = self._copy(_sim_ref=posture.sim.ref(), _target=target, _posture=posture, _containment_transform=containment_transform_new, _containment_transform_exit=containment_transform_exit_new, _slots_to_params_entry=slots_to_params_entry_new, _slots_to_params_exit=slots_to_params_exit_new, _geometry=geometry, _routing_surface=target.routing_surface, _posture_state_spec=posture_state_spec)
         return result
+
+    def estimate_distance_cache_key(self):
+        return self._copy(_actor_name=None, _asm=None, _asm_key=None, _containment_transform_exit=None, debug_name='EstimateDistanceCacheKeyCopy', _posture=None)
 
 def Position(position, debug_name=DEFAULT, **kwargs):
     if debug_name is DEFAULT:
@@ -2374,8 +2528,8 @@ class TunedCone:
         self._enables_height_scoring = enables_height_scoring
         self._require_los = require_los
 
-    def create_constraint(self, sim, target, target_position=DEFAULT, target_forward=DEFAULT, target_routing_surface=DEFAULT, **kwargs):
-        if target is None and (target_position is DEFAULT or target_forward is DEFAULT or target_routing_surface is DEFAULT):
+    def create_constraint(self, sim, target, target_position=DEFAULT, target_forward=DEFAULT, routing_surface=DEFAULT, **kwargs):
+        if target is None and (target_position is DEFAULT or target_forward is DEFAULT or routing_surface is DEFAULT):
             return Nowhere('Trying to create a cone relative to None')
         if target is not None and target.is_in_inventory():
             if target.is_in_sim_inventory():
@@ -2386,13 +2540,13 @@ class TunedCone:
             target_position = target.intended_position
         if target_forward is DEFAULT:
             target_forward = target.intended_forward
-        if target_routing_surface is DEFAULT:
-            target_routing_surface = target.intended_routing_surface
+        if routing_surface is DEFAULT:
+            routing_surface = target.intended_routing_surface
         if self._angular_cost_weight != 0 and target_forward.z == 0 and target_forward.x == 0:
             logger.error('Sim: () attempt to create a tuned Cone constraint with angular cost weight on a target: {} with invalid forward vector', sim, target)
             return Nowhere('Attempt to create a tuned Cone constraint with angular cost weight on a target: {} with invalid forward vector', target)
         los_reference_point = DEFAULT if self._require_los else None
-        return Cone(target_position, target_forward, self._min_radius, self._max_radius, self._angle, target_routing_surface, self._offset, self._ideal_radius_min, self._ideal_radius_max, self._ideal_angle, self._radial_cost_weight, self._angular_cost_weight, multi_surface=self._multi_surface, los_reference_point=los_reference_point, **kwargs)
+        return Cone(target_position, target_forward, self._min_radius, self._max_radius, self._angle, routing_surface, self._offset, self._ideal_radius_min, self._ideal_radius_max, self._ideal_angle, self._radial_cost_weight, self._angular_cost_weight, multi_surface=self._multi_surface, los_reference_point=los_reference_point, **kwargs)
 
 class TunableCone(TunableSingletonFactory):
     FACTORY_TYPE = TunedCone
@@ -2575,8 +2729,14 @@ class PostureConstraintFactory(HasTunableSingletonFactory, AutoFactoryInit):
     def create_constraint(self, *_, **__):
         return self._constraint
 
+class WaterDepthIntervals(enum.Int):
+    WALK = 0
+    WET = 1
+    WADE = 2
+    SWIM = 3
+
 class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
-    INTERSECT_PREFERENCE = IntersectPreference.SPECIAL
+    INTERSECT_PREFERENCE = IntersectPreference.JIG
     JIG_CONSTRAINT_LIABILITY = 'JigConstraintLiability'
 
     class JigConstraintLiability(SharedLiability):
@@ -2611,7 +2771,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         def create_new_liability(self, interaction, *args, **kwargs):
             return super().create_new_liability(interaction, self.jig, *args, constraint=self.constraint, ignore_sim=self.sim, **kwargs)
 
-    def __init__(self, jig_definition, stay_outside=False, is_soft_constraint=False, face_participant=None, sim=None, target=None, ignore_sim=True, object_id=None, should_transfer_liability=True, stay_on_world=False, **kwargs):
+    def __init__(self, jig_definition, stay_outside=False, is_soft_constraint=False, face_participant=None, sim=None, target=None, ignore_sim=True, object_id=None, should_transfer_liability=True, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, jig_model_suite_state_index=None, force_pool_surface_water_depth=None, **kwargs):
         super().__init__(**kwargs)
         self._jig_definition = jig_definition
         self._ignore_sim = ignore_sim
@@ -2621,6 +2781,15 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         self._face_participant = face_participant
         self._should_transfer_liability = should_transfer_liability
         self._stay_on_world = stay_on_world
+        self._use_intended_location = use_intended_location
+        self._model_suite_state_index = model_suite_state_index
+        if jig_model_suite_state_index is None and self._object_id is None and self._model_suite_state_index is not None:
+            self._jig_model_suite_state_index = self._model_suite_state_index
+        elif jig_model_suite_state_index is None:
+            self._jig_model_suite_state_index = 0
+        else:
+            self._jig_model_suite_state_index = jig_model_suite_state_index
+        self._force_pool_surface_water_depth = force_pool_surface_water_depth
 
     def _intersect(self, other_constraint):
         (early_out, kwargs) = self._intersect_kwargs(other_constraint)
@@ -2642,7 +2811,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         if self._face_participant is not None:
             participant_to_face = interaction.get_participant(self._face_participant.participant_to_face)
             facing_radius = self._face_participant.radius
-        fgl_context = interactions.utils.routing.get_fgl_context_for_jig_definition(self._jig_definition, sim, ignore_sim=self._ignore_sim, fallback_routing_surface=fallback_routing_surface, stay_outside=self._stay_outside, object_id=self._object_id, participant_to_face=participant_to_face, facing_radius=facing_radius, stay_on_world=self._stay_on_world)
+        fgl_context = interactions.utils.routing.get_fgl_context_for_jig_definition(self._jig_definition, sim, ignore_sim=self._ignore_sim, fallback_routing_surface=fallback_routing_surface, stay_outside=self._stay_outside, object_id=self._object_id, participant_to_face=participant_to_face, facing_radius=facing_radius, stay_on_world=self._stay_on_world, use_intended_location=self._use_intended_location, model_suite_state_index=self._model_suite_state_index, force_pool_surface_water_depth=self._force_pool_surface_water_depth, min_water_depth=self._min_water_depth, max_water_depth=self._max_water_depth)
         chosen_routing_surface = fgl_context.search_strategy.start_routing_surface
         (translation, orientation) = find_good_location(fgl_context)
         if translation is None or orientation is None:
@@ -2664,7 +2833,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
                 cls_override = self._jig_definition.cls
                 if not issubclass(cls_override, Jig):
                     cls_override = Jig
-                jig_object = objects.system.create_object(self._jig_definition, cls_override=cls_override)
+                jig_object = objects.system.create_object(self._jig_definition, cls_override=cls_override, obj_state=self._jig_model_suite_state_index)
                 jig_object.opacity = 0
                 jig_object.move_to(translation=translation, orientation=orientation, routing_surface=chosen_routing_surface)
                 liability = JigConstraint.JigConstraintLiability(jig_object, constraint=concrete_constraint, ignore_sim=sim, should_transfer=self._should_transfer_liability)
@@ -2674,7 +2843,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         return concrete_constraint
 
     def _get_concrete_constraint(self, transform, routing_surface, create_jig_fn):
-        object_slots = self._jig_definition.get_slots_resource(0)
+        object_slots = self._jig_definition.get_slots_resource(self._jig_model_suite_state_index)
         slot_transform = object_slots.get_slot_transform_by_index(sims4.ObjectSlots.SLOT_ROUTING, 0)
         transform = sims4.math.Transform.concatenate(transform, slot_transform)
         return Transform(transform, routing_surface=routing_surface, create_jig_fn=create_jig_fn)
@@ -2684,28 +2853,31 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         return True
 
 class JigConstraint(ObjectJigConstraint):
-    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            Counters are an example of objects that use a suite of models.\n            ', tunable_type=int, default=0, minimum=0)}
 
-    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, sim=None, target=None, **kwargs):
-        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, **kwargs)
+    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, model_suite_state_index, sim=None, target=None, **kwargs):
+        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, jig_model_suite_state_index=model_suite_state_index, **kwargs)
 
     def create_constraint(self, *args, **kwargs):
-        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, *args, **kwargs)
+        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, self._model_suite_state_index, *args, **kwargs)
 
 class ObjectPlacementConstraint(ObjectJigConstraint):
-    FACTORY_TUNABLES = {'description': '\n            A constraint defined by a location on a specific jig object,\n            which will be placed when the constraint is bound and will\n            live for the duration of the interaction owning the constraint.\n            '}
+    FACTORY_TUNABLES = {'description': '\n            A constraint defined by a location on a specific jig object,\n            which will be placed when the constraint is bound and will\n            live for the duration of the interaction owning the constraint.\n            ', 'use_intended_location': Tunable(description='\n            If enabled, we will use the intended location of the relative\n            object when placing this object. That means we use their intended\n            location to start the FGL search from, and the routing surface to\n            start with.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            For object definitions that use a suite of models\n            ', tunable_type=int, default=0, minimum=0), 'force_pool_surface_water_depth': OptionalTunable(description='\n            (float) If provided, and the starting point for the FGL is not already on\n            the pool (or ocean) surface, water depths greater than this value\n            will force the use of the pool routing surface.\n            ', tunable=TunableTuple(description='\n                Settings for forced use of pool routing surface.\n                ', water_depth=Tunable(description='\n                    Value of the min water depth allowed.\n                    ', tunable_type=float, default=-1.0), model_suite_state_index=OptionalTunable(description='\n                    For object definitions that use a suite of models (each w/ its own\n                    model, rig, slots, slot resources, and footprint), switch the index\n                    used in the suite.  For jigs, this changes the footprint used.\n                    For object definitions that use a suite of models\n                    ', tunable=TunableRange(description='\n                        Index to use.\n                        ', tunable_type=int, default=0, minimum=0)))), 'min_water_depth': OptionalTunable(description='\n            (float) If provided, minimum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the min water depth allowed.\n                ', tunable_type=float, default=0.0)), 'max_water_depth': OptionalTunable(description='\n            (float) If provided, maximum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the max water depth allowed.\n                ', tunable_type=float, default=0.0))}
 
-    def __init__(self, jig_definition=None, sim=None, target=None, object_id=None, **kwargs):
+    def __init__(self, use_intended_location, jig_definition=None, model_suite_state_index=0, force_pool_surface_water_depth=None, min_water_depth=None, max_water_depth=None, sim=None, target=None, object_id=None, **kwargs):
         if target is not None:
             jig_definition = target.definition if jig_definition is None else jig_definition
             object_id = target.id if object_id is None else object_id
-        super().__init__(jig_definition, object_id=object_id, should_transfer_liability=False, **kwargs)
+            jig_model_suite_state_index = model_suite_state_index
+        else:
+            jig_model_suite_state_index = None
+        super().__init__(jig_definition, object_id=object_id, should_transfer_liability=False, use_intended_location=use_intended_location, model_suite_state_index=model_suite_state_index, jig_model_suite_state_index=jig_model_suite_state_index, force_pool_surface_water_depth=force_pool_surface_water_depth, min_water_depth=min_water_depth, max_water_depth=max_water_depth, **kwargs)
 
     def create_constraint(self, *args, **kwargs):
-        return ObjectPlacementConstraint(self._jig_definition, *args, ignore_sim=False, object_id=self._object_id, **kwargs)
+        return ObjectPlacementConstraint(self._use_intended_location, self._jig_definition, self._model_suite_state_index, self._force_pool_surface_water_depth, self._min_water_depth, self._max_water_depth, *args, ignore_sim=False, object_id=self._object_id, **kwargs)
 
     def _get_concrete_constraint(self, transform, routing_surface, create_jig_fn):
-        footprint = self._jig_definition.get_footprint(0)
+        footprint = self._jig_definition.get_footprint(0 if self._jig_model_suite_state_index is None else self._jig_model_suite_state_index)
         compound_polygon = placement.get_placement_footprint_compound_polygon(transform.translation, transform.orientation, routing_surface, footprint)
         radius = compound_polygon.radius()
         circle = Circle(transform.translation, radius + 0.5, routing_surface, ideal_radius=radius, allow_small_intersections=True, create_jig_fn=create_jig_fn)
@@ -2729,3 +2901,111 @@ class RelativeCircleConstraint(HasTunableSingletonFactory, AutoFactoryInit):
                 return Circle(compound_polygon.centroid(), radius, target.routing_surface, ideal_radius=ideal_radius, ideal_radius_width=ideal_radius_width, multi_surface=self.multi_surface, enables_height_scoring=self.enables_height_scoring)
         logger.warn('Object {} does not support relative circle constraints, possibly because it has no footprint. Using Anywhere instead.', target, owner='epanero')
         return Anywhere()
+
+class WaterDepthConstraint(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'min_water_depth': OptionalTunable(description='\n            (float) If provided, each vertex of the test polygon along with its centroid will\n            be tested to determine whether the ocean water at the test location is at least this deep.\n            Values <= 0 indicate placement on land is valid.\n            ', tunable=Tunable(description='\n                Value of the min water depth allowed.\n                ', tunable_type=float, default=-1.0)), 'max_water_depth': OptionalTunable(description='\n            (float) If provided, each vertex of the test polygon along with its centroid will\n            be tested to determine whether the ocean water at the test location is at most this deep.\n            Values <= 0 indicate placement in ocean is invalid.\n            ', tunable=Tunable(description='\n                Value of the max water depth allowed.\n                ', tunable_type=float, default=1000.0))}
+
+    def create_constraint(self, *args, **kwargs):
+        if self.min_water_depth is None and self.max_water_depth is None:
+            return ANYWHERE
+        if self.min_water_depth is not None and self.max_water_depth is not None and self.max_water_depth < self.min_water_depth:
+            return Nowhere()
+        return Constraint(min_water_depth=self.min_water_depth, max_water_depth=self.max_water_depth)
+
+class WaterDepthIntervalConstraint(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'interval': TunableEnumEntry(description="\n            Test if a Sim should be walking, wading or swimming based on the water\n            height offset at a target location and the Sim's wading interval data.\n            ", tunable_type=WaterDepthIntervals, default=WaterDepthIntervals.WALK)}
+
+    @staticmethod
+    def create_water_depth_interval_constraint(sim, interval):
+        wading_interval = OceanTuning.get_actor_wading_interval(sim) if sim is not None else None
+        min_water_depth = None
+        max_water_depth = None
+        if wading_interval is None:
+            max_water_depth = 0
+        elif interval == WaterDepthIntervals.WALK:
+            max_water_depth = wading_interval.lower_bound
+        elif interval == WaterDepthIntervals.WET:
+            min_water_depth = 0
+            max_water_depth = wading_interval.lower_bound
+        elif interval == WaterDepthIntervals.WADE:
+            min_water_depth = wading_interval.lower_bound
+            max_water_depth = wading_interval.upper_bound
+        elif interval == WaterDepthIntervals.SWIM:
+            min_water_depth = wading_interval.upper_bound
+        return Constraint(min_water_depth=min_water_depth, max_water_depth=max_water_depth)
+
+    def create_constraint(self, sim, target, **kwargs):
+        return WaterDepthIntervalConstraint.create_water_depth_interval_constraint(sim, self.interval)
+
+class TerrainMaterialConstraint(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'terrain_tags': OptionalTunable(description='\n            If enabled, a set of allowed terrain tags. At least one tag must\n            match the terrain under each vertex of the footprint of the supplied\n            object.\n            ', tunable=TunableEnumSet(enum_type=TerrainTag, enum_default=TerrainTag.INVALID, invalid_enums=(TerrainTag.INVALID,)))}
+
+    def create_constraint(self, *args, **kwargs):
+        return Constraint(terrain_tags=self.terrain_tags)
+
+class OceanStartLocationConstraint(TunedCircle):
+
+    def __init__(self, interval, radius, ideal_radius, ideal_radius_width, require_los, radial_cost_weight, multi_surface, enables_height_scoring):
+        super().__init__(radius, ideal_radius, ideal_radius_width, require_los, radial_cost_weight, multi_surface, enables_height_scoring)
+        self._interval = interval
+
+    @staticmethod
+    def create_simple_constraint(interval, radius, sim, target=None, target_position=DEFAULT, routing_surface=DEFAULT, relative_offset_vector=DEFAULT, **kwargs):
+        if not (target is None or not (target.is_in_inventory() or not target.is_sim)):
+            target = sim
+        ocean = services.terrain_service.ocean_object()
+        if ocean is not None and target is not None and target.is_sim:
+            if target_position is DEFAULT:
+                target_position = target.intended_position
+            extended_species = sim.extended_species
+            age = sim.age
+            starting_location = ocean.get_nearest_constraint_start_location(extended_species, age, target_position, interval)
+            if starting_location is not None:
+                starting_transform = starting_location.transform
+                starting_position = starting_transform.translation
+                if relative_offset_vector is not DEFAULT:
+                    if relative_offset_vector is not None:
+                        offset_vector = starting_transform.transform_vector(relative_offset_vector)
+                        starting_position = starting_transform.translation + offset_vector
+                if routing_surface is DEFAULT:
+                    routing_surface = starting_location.routing_surface
+                return Circle(starting_position, radius, routing_surface, **kwargs)
+        return Nowhere('OceanStartLocationConstraint needs a Sim and an Ocean, cannot use {} with ocean {}', sim, ocean)
+
+    def create_constraint(self, sim, target=None, target_position=DEFAULT, routing_surface=DEFAULT, relative_offset=DEFAULT, **kwargs):
+        if not (target is None or not (target.is_in_inventory() or not target.is_sim)):
+            target = sim
+        los_reference_point = DEFAULT if self._require_los else None
+        return OceanStartLocationConstraint.create_simple_constraint(self._interval, self.radius, target, target_position=target_position, routing_surface=routing_surface, ideal_radius=self.ideal_radius, ideal_radius_width=self.ideal_radius_width, radial_cost_weight=self._radial_cost_weight, los_reference_point=los_reference_point, multi_surface=self._multi_surface, enables_height_scoring=self._enables_height_scoring, **kwargs)
+
+class TunableOceanStartLocationConstraint(TunableCircle):
+    FACTORY_TYPE = OceanStartLocationConstraint
+
+    def __init__(self, radius, description='A tunable type for creating Circle constraints at the nearest Ocean location.', callback=None, **kwargs):
+        super().__init__(radius, interval=TunableEnumEntry(description="\n                Select the depth for the Sim based on the water\n                height offset at a target location and the Sim's wading interval data.\n                ", tunable_type=WaterDepthIntervals, default=WaterDepthIntervals.WET), description=description, **kwargs)
+
+class PortalConstraint(HasTunableSingletonFactory, AutoFactoryInit):
+    PORTAL_DIRECTION_THERE = 0
+    PORTAL_DIRECTION_BACK = 1
+    PORTAL_LOCATION_ENTRY = 0
+    PORTAL_LOCATION_EXIT = 1
+    FACTORY_TUNABLES = {'portal_type': TunableReference(description='\n            A reference to the type of portal to use for the constraint.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('PortalData',)), 'portal_direction': TunableVariant(description='\n            Choose between the There and Back of the portal. This will not work\n            properly if the portal is missing a Back and Back is specified here.\n            ', locked_args={'there': PORTAL_DIRECTION_THERE, 'back': PORTAL_DIRECTION_BACK}, default='there'), 'portal_location': TunableVariant(description='\n            Choose between the entry and exit of a portal direction.\n            ', locked_args={'entry': PORTAL_LOCATION_ENTRY, 'exit': PORTAL_LOCATION_EXIT}, default='entry'), 'sub_constraint': OptionalTunable(description='\n            If enabled, specify a specific type of constraint to create at the\n            location of the portal.\n            \n            If disabled then the constraint will just be a location constraint\n            at the location of the portal.\n            ', tunable=TunableVariant(description='\n                The types of constraints that can be created at the location\n                of the portal.\n                ', circle=TunableCircle(description='\n                    A circle constraint that is created at the location of the\n                    portal.\n                    ', radius=3), cone=TunableCone(description='\n                    A cone constraint that is created at the location of the \n                    portal.\n                    ', min_radius=0, max_radius=1, angle=sims4.math.PI), default='circle'))}
+
+    def _build_location_constraint(self, location):
+        return Position(location.position, routing_surface=location.routing_surface)
+
+    def _build_sub_constraint(self, sim, target, location):
+        return self.sub_constraint.create_constraint(sim, target=target, target_position=location.position, routing_surface=location.routing_surface)
+
+    def create_constraint(self, sim, target=None, **kwargs):
+        if target is None:
+            return Nowhere('Trying to create a portal constraint without specifying the portal object.')
+        portal_component = target.get_component(PORTAL_COMPONENT)
+        if portal_component is None:
+            return Nowhere("Trying to create a portal constraint using {} which doesn't have a portal component.".format(target))
+        location = portal_component.get_portal_location_by_type(self.portal_type, self.portal_direction, self.portal_location)
+        if location is None:
+            return Nowhere('Unable to find a matching portal location as tuned on object {} with type {}'.format(target, self.portal_type))
+        if self.sub_constraint is None:
+            return self._build_location_constraint(location)
+        return self._build_sub_constraint(sim, target, location)

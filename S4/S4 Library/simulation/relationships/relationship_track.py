@@ -352,7 +352,8 @@ class ShortTermContextRelationshipTrack(RelationshipTrack):
 lock_instance_tunables(ShortTermContextRelationshipTrack, visible_test_set=DEFAULT)
 
 class ObjectRelationshipTrack(BaseRelationshipTrack, TunedContinuousStatistic, HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manager=services.statistic_manager()):
-    OBJECT_BASED_FRIENDSHIP_TRACKS = TunableMapping(description='\n        A mapping of sets of objects with a specific tag to a friendship track.\n        Any value added to the tuned track will apply to all objects within the set.\n        ', key_type=TunableReference(description='\n            This track can be referenced by all objects with the tuned tag.\n            ', manager=services.statistic_manager(), class_restrictions='ObjectRelationshipTrack'), value_type=TunableReference(description='\n            Tags that define the objects in the track.\n            ', manager=services.get_instance_manager(sims4.resources.Types.TAG_SET), pack_safe=True), tuple_name='ObjectBasedFriendshipTrackTuple', export_modes=ExportModes.All)
+    OBJECT_BASED_FRIENDSHIP_TRACKS = TunableMapping(description='\n        A mapping of sets of objects with a specific tag to a friendship track.\n        Any value added to the tuned track will apply to all objects within the set.\n        ', key_type=TunableReference(description='\n            This track can be referenced by all objects with the tuned tag.\n            ', manager=services.statistic_manager(), class_restrictions='ObjectRelationshipTrack', pack_safe=True), value_type=TunableReference(description='\n            Tags that define the objects in the track.\n            ', manager=services.get_instance_manager(sims4.resources.Types.TAG_SET), pack_safe=True), tuple_name='ObjectBasedFriendshipTrackTuple', export_modes=ExportModes.All)
+    INSTANCE_TUNABLES = {'can_name_object': Tunable(description='\n            If enabled, then the relationship between Sim and an object can be \n            assigned a name by the player, which can be treated as the name\n            of the object(s).\n            ', tunable_type=bool, default=False)}
     bit_data = None
 
     def on_remove(self, on_destroy=False):
@@ -369,6 +370,9 @@ class ObjectRelationshipTrack(BaseRelationshipTrack, TunedContinuousStatistic, H
         self._update_visiblity()
         self.reset_decay_alarm()
         self.tracker.rel_data.relationship.send_object_relationship_info(deltas={self: delta}, headline_icon_modifier=headline_icon_modifier)
+
+    def set_name_override(self, name_override_obj):
+        self.tracker.rel_data.relationship.send_object_relationship_info(name_override_obj=name_override_obj)
 
     def _update_visiblity(self):
         if not self.visible_to_client:

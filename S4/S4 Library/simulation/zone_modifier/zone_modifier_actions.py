@@ -1,19 +1,23 @@
 import random
 from audio.primitive import TunablePlayAudio, play_tunable_audio
 from clock import interval_in_real_seconds
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, GlobalResolver
 from event_testing.results import TestResult
 from event_testing.tests import TunableTestSet
 from event_testing.tests_with_data import TunableParticipantRanInteractionTest
 from interactions import ParticipantType
 from interactions.utils.camera import TunableCameraShake
 from interactions.utils.loot import LootActions
+from objects.object_creation import ObjectCreationOp
 from scheduler import WeeklySchedule, ScheduleEntry
 from sims4.resources import Types
-from sims4.tuning.tunable import TunableSet, TunableEnumEntry, TunableList, AutoFactoryInit, TunableReference, HasTunableSingletonFactory, TunableFactory, TunableVariant, TunablePercent, TunablePackSafeReference, TunableThreshold, TunableRealSecond, Tunable
+from sims4.tuning.tunable import TunableSet, TunableEnumEntry, TunableList, AutoFactoryInit, TunableReference, HasTunableSingletonFactory, TunableFactory, TunableVariant, TunablePercent, TunablePackSafeReference, TunableThreshold, TunableRealSecond, Tunable, TunableInterval, OptionalTunable, TunableTuple
 from situations.service_npcs.modify_lot_items_tuning import ModifyAllLotItems
+from snippets import define_snippet
+from tag import TunableTags
 from tunable_utils.tunable_blacklist import TunableBlacklist
 import alarms
+import clock
 import enum
 import event_testing
 import services
@@ -28,7 +32,7 @@ class ZoneModifierActionBehavior(enum.Int):
 class ZoneModifierActionVariants(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, loot=ZoneModifierBroadcastLoot.TunableFactory(), quake=ZoneModifierTriggerQuake.TunableFactory(), modify_lot_items=ZoneModifierModifyLotItems.TunableFactory(), service_npc_request=ZoneModifierRequestServiceNPC.TunableFactory(), play_sound=ZoneModifierPlaySound.TunableFactory(), default='loot', **kwargs)
+        super().__init__(*args, loot=ZoneModifierBroadcastLoot.TunableFactory(), quake=ZoneModifierTriggerQuake.TunableFactory(), modify_lot_items=ZoneModifierModifyLotItems.TunableFactory(), service_npc_request=ZoneModifierRequestServiceNPC.TunableFactory(), play_sound=ZoneModifierPlaySound.TunableFactory(), spawn_objects=ZoneModifierSpawnObjects.TunableFactory(), default='loot', **kwargs)
 
 class TunableSimsThreshold(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'tests': TunableTestSet(description='\n            Tests to be performed on active Sims\n            '), 'threshold': TunableThreshold(description='\n            Checks against the number of Sims, Needs to \n            pass for the TunableSimsThreshold test to pass\n            ')}
@@ -42,13 +46,15 @@ class TunableSimsThreshold(HasTunableSingletonFactory, AutoFactoryInit):
         return self.threshold.compare(count)
 
 class ZoneModifierAction(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'behavior': TunableEnumEntry(description='\n            Under what conditions the action should be applied.\n            \n            May be one of the following:\n            - Always applied.\n            - Applied only if there are Sims on the lot.\n            - Applied only if the active Sim is on the lot.\n            ', tunable_type=ZoneModifierActionBehavior, default=ZoneModifierActionBehavior.ONCE), 'threshold_requirements': TunableList(description='\n            Number of Sims required on active lot in order for the \n            action to be applied\n            ', tunable=TunableSimsThreshold.TunableFactory())}
+    FACTORY_TUNABLES = {'behavior': TunableEnumEntry(description='\n            Under what conditions the action should be applied.\n            \n            May be one of the following:\n            - Always applied.\n            - Applied only if there are Sims on the lot.\n            - Applied only if the active Sim is on the lot.\n            ', tunable_type=ZoneModifierActionBehavior, default=ZoneModifierActionBehavior.ONCE), 'threshold_requirements': TunableList(description='\n            Number of Sims required on active lot in order for the \n            action to be applied\n            ', tunable=TunableSimsThreshold.TunableFactory()), 'chance': TunablePercent(description='\n            Chance that this action will occur.\n            ', default=100)}
 
     def perform(self):
         if self._can_perform_action():
             self._perform_action()
 
     def _can_perform_action(self):
+        if random.random() >= self.chance:
+            return False
         if self.behavior == ZoneModifierActionBehavior.ONCE:
             return self._check_threshold_requirements()
         if self.behavior == ZoneModifierActionBehavior.ONCE_IF_ACTIVE_SIM_ON_LOT:
@@ -122,13 +128,12 @@ class ZoneModifierPlaySound(ZoneModifierAction):
         self._stop_sound_handle = None
 
 class ZoneModifierTriggerQuake(ZoneModifierSimLootMixin, ZoneModifierAction):
-    FACTORY_TUNABLES = {'shake_effect': TunableCameraShake.TunableFactory(description='\n            Tunable camera shake effect which will occur at the given trigger time.\n            '), 'play_sound': ZoneModifierPlaySound.TunableFactory(description='\n            Sound to play when a quake occurs\n            ', locked_args={'behavior': ZoneModifierActionBehavior.ONCE, 'threshold_requirements': ()}), 'chance': TunablePercent(description='\n            Chance that the quake will occur.\n            ', default=100)}
+    FACTORY_TUNABLES = {'shake_effect': TunableCameraShake.TunableFactory(description='\n            Tunable camera shake effect which will occur at the given trigger time.\n            '), 'play_sound': ZoneModifierPlaySound.TunableFactory(description='\n            Sound to play when a quake occurs\n            ', locked_args={'behavior': ZoneModifierActionBehavior.ONCE, 'threshold_requirements': ()})}
 
     def _perform_action(self):
-        if random.random() < self.chance:
-            self.play_sound.perform()
-            self.shake_effect.shake_camera()
-            self.apply_loots_to_sims_on_active_lot()
+        self.play_sound.perform()
+        self.shake_effect.shake_camera()
+        self.apply_loots_to_sims_on_active_lot()
 
 class ZoneModifierRequestServiceNPC(ZoneModifierAction):
     FACTORY_TUNABLES = {'service_npc': TunablePackSafeReference(services.get_instance_manager(Types.SERVICE_NPC))}
@@ -160,13 +165,75 @@ class ZoneModifierBroadcastLoot(ZoneModifierSimLootMixin, ZoneModifierAction):
             self.apply_loots_to_random_sim_on_active_lot()
 
 class ZoneModifierModifyLotItems(ZoneModifierAction):
-    FACTORY_TUNABLES = {'actions': ModifyAllLotItems.TunableFactory(description='\n            Actions to apply to all lot objects on active lot.\n            ')}
+    FACTORY_TUNABLES = {'actions': ModifyAllLotItems.TunableFactory(description='\n            Actions to apply to all lot objects on active lot.\n            '), 'modification_chance': TunablePercent(description='\n            The chance that an object will be affected. We will reroll this\n            chance for each object being modified.\n            ', default=100)}
 
     def criteria(self, obj):
+        if random.random() >= self.modification_chance:
+            return False
         return obj.is_on_active_lot()
 
     def _perform_action(self):
         self.actions().modify_objects(object_criteria=self.criteria)
+
+class ZoneModifierSpawnObjects(ZoneModifierAction):
+    FACTORY_TUNABLES = {'creation_op': ObjectCreationOp.TunableFactory(description='\n            The operation that will create the objects.\n            ', locked_args={'destroy_on_placement_failure': True}), 'iterations': OptionalTunable(description='\n            Random range of iterations we will run the creation op for.  Will\n            default to 1 iteration if untuned. \n            ', tunable=TunableInterval(tunable_type=int, default_lower=0, default_upper=1, minimum=0, maximum=10)), 'spawn_delay': OptionalTunable(description='\n            Random range of real world seconds, will be converted to sim\n            minutes during run time.  When running multiple iterations,\n            each iteration will get its own randomized delay within \n            the specified range.  Objects queued for spawning this way do \n            not persist through a save/load.\n            ', tunable=TunableInterval(tunable_type=TunableRealSecond, default_lower=0.0, default_upper=1.0, minimum=0)), 'spawn_threshold': OptionalTunable(description='\n            Defines a threshold of instanced objects to limit spawning.\n            ', tunable=TunableTuple(tags=TunableTags(description='\n                    Set of tags that objects must match against in order to \n                    count towards the threshold.\n                    '), match_any=Tunable(description='\n                    If set to false, objects must match all tags to count towards\n                    the threshold.\n                    ', tunable_type=bool, default=False), threshold=Tunable(description='Threshold of objects that match\n                    the tuned tags.  If the number of matching instanced objects\n                    is >= to this threshold, we will not spawn any objects.  Otherwise\n                    we will perform as many iterations as possible to stay under\n                    the tuned threshold.\n                    For example if the threshold is 5, the creation op is creating 3 objects,\n                    and we currently have 3 matching objects on the lot.  We would\n                    perform 0 iterations and spawn no objects.  \n                    ', tunable_type=int, default=1)))}
+
+    def _scale_iterations_to_threshold(self, iterations):
+        if self.spawn_threshold is None:
+            return iterations
+        object_manager = services.object_manager()
+        num_matching = object_manager.get_num_objects_matching_tags(self.spawn_threshold.tags, self.spawn_threshold.match_any)
+        allowance = self.spawn_threshold.threshold - num_matching
+        num_spawning = iterations*self.creation_op.quantity
+        if allowance <= 0:
+            return 0
+        if num_spawning <= allowance:
+            return iterations
+        else:
+            return allowance//self.creation_op.quantity
+
+    def _on_alarm_callback(self):
+        if self.creation_op is None:
+            return
+        resolver = GlobalResolver()
+        self.creation_op.apply_to_resolver(resolver)
+
+    def _perform_action(self):
+        if self.creation_op is None:
+            return
+        resolver = GlobalResolver()
+        iterations = self.iterations.random_int() if self.iterations is not None else 1
+        iterations = self._scale_iterations_to_threshold(iterations)
+        delay = self.spawn_delay
+        zone_modifier_service = services.get_zone_modifier_service()
+        for _ in range(iterations):
+            if delay is not None:
+                delay_time_span = clock.interval_in_real_seconds(delay.random_float())
+                zone_modifier_service.create_action_alarm(delay_time_span, self._on_alarm_callback)
+            else:
+                self.creation_op.apply_to_resolver(resolver)
+
+(_, ZoneModifierActionVariantSnippet) = define_snippet('zone_modifier_action', ZoneModifierActionVariants())
+
+class ZoneModifierActionContinuation(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'action': ZoneModifierActionVariantSnippet(description='\n            Action to run after the initial actions complete\n            '), 'delay_time': TunableRealSecond(description='\n            Real world seconds to wait after the initial actions complete before\n            running the continuation action.\n            ', default=0.0)}
+
+    def _on_alarm_callback(self):
+        if self.action is None:
+            logger.error('Zone Modifier Continuation Action is None', owner='bnguyen')
+            return
+        self.action.perform()
+
+    def perform_action(self):
+        if self.action is None:
+            logger.error('Zone Modifier Continuation Action is None', owner='bnguyen')
+            return
+        if self.delay_time is not None:
+            zone_modifier_service = services.get_zone_modifier_service()
+            delay_time_span = clock.interval_in_real_seconds(self.delay_time)
+            zone_modifier_service.create_action_alarm(delay_time_span, self._on_alarm_callback)
+        else:
+            self.action.perform()
 
 class ZoneModifierWeeklySchedule(WeeklySchedule):
 
@@ -176,11 +243,11 @@ class ZoneModifierWeeklySchedule(WeeklySchedule):
         def _callback(instance_class, tunable_name, source, value, **kwargs):
             setattr(value, 'zone_modifier', instance_class)
 
-        FACTORY_TUNABLES = {'execute_on_removal': Tunable(description='\n                If checked, this schedule entry is executed when the modifier is\n                removed while the zone is running.\n                ', tunable_type=bool, default=False), 'callback': _callback}
+        FACTORY_TUNABLES = {'execute_on_removal': Tunable(description='\n                If checked, this schedule entry is executed when the modifier is\n                removed while the zone is running.\n                ', tunable_type=bool, default=False), 'callback': _callback, 'continuation_actions': TunableList(tunable=ZoneModifierActionContinuation.TunableFactory(description='\n                    A continuing action to run after the initial zone mod actions.\n                    ')), 'chance': TunablePercent(description='\n                Chance that this schedule entry as a whole will occur.\n                ', default=100)}
 
     @TunableFactory.factory_option
     def schedule_entry_data(pack_safe=True):
-        return {'schedule_entries': TunableSet(description='\n                A list of event schedules. Each event is a mapping of days of the\n                week to a start_time and duration.\n                ', tunable=ZoneModifierWeeklySchedule.ZoneModifierWeeklyScheduleEntry.TunableFactory(schedule_entry_data={'tuning_name': 'actions', 'tuning_type': TunableList(tunable=ZoneModifierActionVariants(description='\n                                Action to perform during the schedule entry.\n                                '))}))}
+        return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of the\n                week to a start_time and duration.\n                ', tunable=ZoneModifierWeeklySchedule.ZoneModifierWeeklyScheduleEntry.TunableFactory(schedule_entry_data={'tuning_name': 'actions', 'tuning_type': TunableList(tunable=ZoneModifierActionVariantSnippet(description='\n                                Action to perform during the schedule entry.\n                                '))}), unique_entries=True)}
 
 class ZoneModifierTriggerInteractions(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'test': TunableParticipantRanInteractionTest(description='\n            Criteria for an interaction to be able to satisfy this trigger.\n            ', locked_args={'participant': ParticipantType.Actor, 'tooltip': None}), 'blacklist': TunableBlacklist(description='\n            A black list specifying any affordances that should never be included,\n            even if they match the trigger criteria.\n            ', tunable=TunableReference(manager=services.affordance_manager(), pack_safe=True))}

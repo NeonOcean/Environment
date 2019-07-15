@@ -1,12 +1,10 @@
 import operator
 import random
 from protocolbuffers import SimObjectAttributes_pb2 as protocols, UI_pb2 as ui_protocols
-from clock import interval_in_sim_minutes
 from crafting.crafting_process import CraftingProcess, logger
 from crafting.crafting_tunable import CraftingTuning
 from event_testing import test_events
-from event_testing.resolver import SingleSimResolver
-from objects.client_object_mixin import ClientObjectMixin
+from notebook.notebook_entry import SubEntryData
 from objects.components import Component, componentmethod, types, componentmethod_with_fallback
 from objects.game_object_properties import GameObjectProperty
 from objects.hovertip import TooltipFieldsComplete
@@ -29,6 +27,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         self._spoil_listener_handle = None
         self._is_final_product = False
         self._last_spoiled_time = None
+        self._spoil_timer_state_value = CraftingTuning.SPOILED_STATE_VALUE
 
     @property
     def is_final_product(self):
@@ -77,7 +76,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             self.owner.remove_state_changed_callback(self._on_object_state_change)
             self._quality_change_callback_added = False
         if self._spoil_listener_handle is not None:
-            spoil_tracker = self.owner.get_tracker(CraftingTuning.SPOILED_STATE_VALUE.state.linked_stat)
+            spoil_tracker = self.owner.get_tracker(self._spoil_timer_state_value.state.linked_stat)
             spoil_tracker.remove_listener(self._spoil_listener_handle)
         self._remove_hovertip()
 
@@ -138,7 +137,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         if new_value is CraftingTuning.LOCK_FRESHNESS_STATE_VALUE:
             self.owner.update_tooltip_field(TooltipFieldsComplete.spoiled_time, 0)
             if self._spoil_listener_handle is not None:
-                spoil_tracker = self.owner.get_tracker(CraftingTuning.SPOILED_STATE_VALUE.state.linked_stat)
+                spoil_tracker = self.owner.get_tracker(self._spoil_timer_state_value.state.linked_stat)
                 spoil_tracker.remove_listener(self._spoil_listener_handle)
                 self._spoil_listener_handle = None
         self.owner.update_object_tooltip()
@@ -146,8 +145,6 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
     def _add_hovertip(self):
         if self._is_final_product and self._is_finished():
             self._add_consumable_hovertip()
-        else:
-            self._add_ico_hovertip()
 
     def _is_finished(self):
         crafting_process = self._crafting_process
@@ -194,7 +191,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         inscription = crafting_process.inscription
         if inscription is not None:
             self.owner.update_tooltip_field(TooltipFieldsComplete.inscription, inscription)
-        self._add_spoil_listener()
+        self._add_spoil_listener(state_override=recipe.spoil_time_commodity_override)
         if recipe.time_until_spoiled_string_override is not None:
             self.owner.update_tooltip_field(TooltipFieldsComplete.spoiled_time_text, recipe.time_until_spoiled_string_override)
         subtext = self.owner.get_state_strings()
@@ -224,9 +221,6 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             if quality_description is not None:
                 self.owner.update_tooltip_field(TooltipFieldsComplete.quality_description, quality_description)
 
-    def _add_ico_hovertip(self):
-        pass
-
     def _remove_hovertip(self):
         owner = self.owner
         owner.hover_tip = ui_protocols.UiObjectMetadata.HOVER_TIP_DISABLED
@@ -239,14 +233,15 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         self.owner.update_tooltip_field(TooltipFieldsComplete.spoiled_time, 0)
         self.owner.update_tooltip_field(TooltipFieldsComplete.percentage_left, None)
         self.owner.update_tooltip_field(TooltipFieldsComplete.style_name, None)
-        self.owner.update_tooltip_field(TooltipFieldsComplete.simoleon_value, owner.current_value)
+        if self.owner.get_tooltip_field(TooltipFieldsComplete.simoleon_value) is not None:
+            self.owner.update_tooltip_field(TooltipFieldsComplete.simoleon_value, owner.current_value)
         self.owner.update_tooltip_field(TooltipFieldsComplete.main_icon, None)
         self.owner.update_tooltip_field(TooltipFieldsComplete.sub_icons, None)
         self.owner.update_tooltip_field(TooltipFieldsComplete.quality_description, None)
         self.owner.update_tooltip_field(TooltipFieldsComplete.subtext, None)
         self.owner.update_object_tooltip()
 
-    def _on_spoil_time_changed(self, state, spoiled_time):
+    def _on_spoil_time_changed(self, _, spoiled_time):
         if self._last_spoiled_time is None or self._last_spoiled_time != spoiled_time:
             self._last_spoiled_time = spoiled_time
         if RetailComponent.SOLD_STATE is not None and self.owner.has_state(RetailComponent.SOLD_STATE.state) and self.owner.get_state(RetailComponent.SOLD_STATE.state) is RetailComponent.SOLD_STATE:
@@ -262,16 +257,20 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
     def _on_spoiled(self, _):
         self._last_spoiled_time = None
 
-    def _add_spoil_listener(self):
+    def _add_spoil_listener(self, state_override=None):
+        check_operator = operator.lt
+        if state_override is not None:
+            self._spoil_timer_state_value = state_override.state_to_track
+            check_operator = state_override.commodity_check_operator
         if self._spoil_listener_handle is None:
-            if self.owner.has_state(CraftingTuning.SPOILED_STATE_VALUE.state):
-                linked_stat = CraftingTuning.SPOILED_STATE_VALUE.state.linked_stat
+            if self.owner.has_state(self._spoil_timer_state_value.state):
+                linked_stat = self._spoil_timer_state_value.state.linked_stat
                 tracker = self.owner.get_tracker(linked_stat)
                 if tracker is None:
                     return
                 threshold = sims4.math.Threshold()
-                threshold.value = CraftingTuning.SPOILED_STATE_VALUE.range.upper_bound
-                threshold.comparison = operator.lt
+                threshold.value = self._spoil_timer_state_value.range.upper_bound
+                threshold.comparison = check_operator
                 self._spoil_listener_handle = tracker.create_and_add_listener(linked_stat, threshold, self._on_spoiled, on_callback_alarm_reset=self._on_spoil_time_changed)
 
     def _on_crafting_process_updated(self):
@@ -371,11 +370,12 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             logger.error('Failed to find valid consume affordance. Consumable component affordances tested as follows:\n\n{}', error_dict)
 
     @componentmethod_with_fallback(lambda : None)
-    def get_notebook_information(self, notebook_entry):
+    def get_notebook_information(self, notebook_entry, notebook_sub_entries):
         recipe = self.get_recipe()
         if not recipe.use_ingredients:
             return
-        return (notebook_entry(None, (recipe.guid64,)),)
+        sub_entries = (SubEntryData(recipe.guid64, False),)
+        return (notebook_entry(None, sub_entries=sub_entries),)
 
     def _icon_override_gen(self):
         recipe = self.get_recipe()

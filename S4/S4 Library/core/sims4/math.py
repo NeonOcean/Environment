@@ -25,6 +25,7 @@ POS_INFINITY = float('inf')
 NEG_INFINITY = float('-inf')
 FORWARD_AXIS = Vector3.Z_AXIS()
 UP_AXIS = Vector3.Y_AXIS()
+VECTOR3_ZERO = Vector3.ZERO()
 logger = sims4.log.Logger('Sims4Math')
 
 def clamp(lower_bound, x, upper_bound):
@@ -69,6 +70,15 @@ def angle_abs_difference(a1, a2):
         delta = TWO_PI - delta
     return delta
 
+def vector_from_seq(list_or_tuple):
+    if not list_or_tuple:
+        return
+    length = len(list_or_tuple)
+    if length >= 3:
+        return Vector3(list_or_tuple[0], list_or_tuple[1], list_or_tuple[2])
+    elif length == 2:
+        return Vector2(list_or_tuple[0], list_or_tuple[1])
+
 def vector_dot(a, b):
     return a.x*b.x + a.y*b.y + a.z*b.z
 
@@ -90,6 +100,9 @@ def vector_normalize_2d(v):
 
 def vector_flatten(v):
     return Vector3(v.x, 0, v.z)
+
+def vector_interpolate(a, b, fraction):
+    return a + (b - a)*fraction
 
 def almost_equal(a, b, epsilon=EPSILON):
     return abs(a - b) < epsilon

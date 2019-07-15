@@ -140,7 +140,7 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
                 return False
                 yield
             if selected_interaction is not None:
-                if selected_interaction.transition is not None and self.owner.routing_master is not None and self.owner.routing_master.transition_controller is not None:
+                if selected_interaction.transition is not None and (self.owner.routing_master is not None and self.owner.routing_master.is_sim) and self.owner.routing_master.transition_controller is not None:
                     selected_interaction.transition.derail(DerailReason.PREEMPTED, self.owner)
                 result = self._push_interaction(selected_interaction)
                 if not result and gsi_handlers.autonomy_handlers.archiver.enabled:

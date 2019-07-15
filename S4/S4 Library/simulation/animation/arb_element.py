@@ -292,6 +292,8 @@ class ArbElement(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             return
         parent_id = event_data.event_data['parent_parent_id']
         if parent_id is None:
+            parent_object = child_object.get_parenting_root()
+            child_object.clear_parent(child_object.transform, parent_object.routing_surface)
             return
         parent_object = get_animation_object_by_id(int(parent_id))
         if parent_object is None:

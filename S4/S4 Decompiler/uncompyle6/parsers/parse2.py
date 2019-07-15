@@ -98,9 +98,9 @@ class Python2Parser(PythonParser):
         for         ::= SETUP_LOOP expr for_iter store
                         for_block POP_BLOCK _come_froms
 
-        del_stmt ::= delete_subscr
-        delete_subscr ::= expr expr DELETE_SUBSCR
-        del_stmt ::= expr DELETE_ATTR
+        del_stmt         ::= delete_subscript
+        delete_subscript ::= expr expr DELETE_SUBSCR
+        del_stmt         ::= expr DELETE_ATTR
 
         _mklambda ::= load_closure mklambda
         kwarg     ::= LOAD_CONST expr
@@ -390,10 +390,10 @@ class Python2Parser(PythonParser):
                 continue
             elif opname == 'DELETE_SUBSCR':
                 self.addRule("""
-                    del_stmt ::= delete_subscr
-                    delete_subscr ::= expr expr DELETE_SUBSCR
+                    del_stmt ::= delete_subscript
+                    delete_subscript ::= expr expr DELETE_SUBSCR
                    """, nop_func)
-                self.check_reduce['delete_subscr'] = 'AST'
+                self.check_reduce['delete_subscript'] = 'AST'
                 custom_seen_ops.add(opname)
                 continue
             elif opname == 'GET_ITER':
@@ -459,7 +459,7 @@ class Python2Parser(PythonParser):
                 if i > 0 and tokens[i-1] == 'LOAD_LAMBDA':
                     self.addRule('mklambda ::= %s LOAD_LAMBDA %s' %
                                  ('pos_arg ' * token.attr, opname), nop_func)
-                rule = 'mkfunc ::= %s LOAD_CONST %s' % ('expr ' * token.attr, opname)
+                rule = 'mkfunc ::= %s LOAD_CODE %s' % ('expr ' * token.attr, opname)
             elif opname_base == 'MAKE_CLOSURE':
                 # FIXME: use add_unique_rules to tidy this up.
                 if i > 0 and tokens[i-1] == 'LOAD_LAMBDA':
@@ -474,7 +474,7 @@ class Python2Parser(PythonParser):
                             ('expr ' * token.attr, opname))], customize)
                         pass
                 self.add_unique_rules([
-                    ('mkfunc ::= %s load_closure LOAD_CONST %s' %
+                    ('mkfunc ::= %s load_closure LOAD_CODE %s' %
                      ('expr ' * token.attr, opname))], customize)
 
                 if self.version >= 2.7:
@@ -549,7 +549,7 @@ class Python2Parser(PythonParser):
         elif rule == ('or', ('expr', 'jmp_true', 'expr', '\\e_come_from_opt')):
             expr2 = ast[2]
             return expr2 == 'expr' and expr2[0] == 'LOAD_ASSERT'
-        elif lhs in ('delete_subscr', 'del_expr'):
+        elif lhs in ('delete_subscript', 'del_expr'):
             op = ast[0][0]
             return op.kind in ('and', 'or')
 

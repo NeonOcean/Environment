@@ -4,9 +4,9 @@ from distributor.system import Distributor
 import elements
 
 class BalloonRequest(elements.Element):
-    __slots__ = ['_sim_ref', 'icon', 'icon_object', 'overlay', 'balloon_type', 'priority', 'duration', 'delay', 'delay_randomization', 'category_icon']
+    __slots__ = ['_sim_ref', 'icon', 'icon_object', 'overlay', 'balloon_type', 'priority', 'duration', 'delay', 'delay_randomization', 'category_icon', 'view_offset']
 
-    def __init__(self, sim, icon, icon_object, overlay, balloon_type, priority, duration, delay, delay_randomization, category_icon):
+    def __init__(self, sim, icon, icon_object, overlay, balloon_type, priority, duration, delay, delay_randomization, category_icon, view_offset=None):
         super().__init__()
         self._sim_ref = sim.ref()
         self.icon = icon
@@ -18,6 +18,7 @@ class BalloonRequest(elements.Element):
         self.delay = delay
         self.delay_randomization = delay_randomization
         self.category_icon = create_icon_info_msg(IconInfoData(icon_resource=category_icon[0], obj_instance=category_icon[1])) if category_icon is not None else None
+        self.view_offset = view_offset
 
     @property
     def _sim(self):

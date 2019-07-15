@@ -129,5 +129,38 @@ class TunableGeometryState(TunableStringOrDefault):
             return
         return value
 
+class ModelSuiteStateIndex:
+
+    def __init__(self, state_index, target=None):
+        self._target = target
+        self._state_index = state_index
+        self._old_state_index = None
+
+    def __call__(self, target):
+        return ModelSuiteStateIndex(self._state_index, target)
+
+    def start(self):
+        if self._target is not None:
+            self._old_state_index = self._target.state_index
+            if self._old_state_index != self._state_index:
+                self._target.set_object_def_state_index(self._state_index)
+
+    def stop(self, *_, **__):
+        if self._target is not None and self._old_state_index is not None and self._old_state_index != self._target.state_index:
+            self._target.set_object_def_state_index(self._old_state_index)
+
+class TunableModelSuiteStateIndex(Tunable):
+    DEFAULT_VALUE = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(int, 0, **kwargs)
+        self.cache_key = '{}_{}'.format('TunableModelSuiteStateIndex', self.cache_key)
+
+    def load_etree_node(self, **kwargs):
+        value = super().load_etree_node(**kwargs)
+        if value is None:
+            value = 0
+        return ModelSuiteStateIndex(value)
+
 class TunableMaterialVariant(TunableStringOrDefault):
     pass

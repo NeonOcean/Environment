@@ -1,4 +1,5 @@
 from _weakrefset import WeakSet
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 
 class Liability:
 
@@ -57,3 +58,31 @@ class SharedLiability(Liability):
 
     def create_new_liability(self, interaction, *args, **kwargs):
         return self.__class__(*args, source_liability=self, **kwargs)
+
+class PreparationLiability(Liability):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._is_prepared = False
+
+    def on_add(self, interaction):
+        super().on_add(interaction)
+        if interaction.is_super:
+            interaction.add_prepare_liability(self)
+
+    def _prepare_gen(self, timeline):
+        raise NotImplementedError
+
+    def transfer(self, continuation):
+        super().transfer(continuation)
+        self._is_prepared = False
+
+    def on_prepare_gen(self, timeline):
+        if self._is_prepared:
+            return InteractionQueuePreparationStatus.SUCCESS
+            yield
+        result = yield from self._prepare_gen(timeline)
+        if result == InteractionQueuePreparationStatus.SUCCESS:
+            self._is_prepared = True
+        return result
+        yield

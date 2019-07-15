@@ -7,6 +7,7 @@ from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import create_icon_info_msg
 from distributor.system import Distributor
 from event_testing import test_events
+from households.household_tracker import HouseholdTracker
 from objects.components import Component, types, componentmethod_with_fallback
 from objects.hovertip import TooltipFieldsComplete
 from objects.object_enums import ItemLocation
@@ -113,7 +114,7 @@ class CollectionTrackerData:
         self.quality = quality
         self.icon_info = icon_info
 
-class CollectionTracker:
+class CollectionTracker(HouseholdTracker):
 
     def __init__(self, household):
         self._collections = {}
@@ -129,6 +130,9 @@ class CollectionTracker:
 
     def clear_collection_tracker(self):
         self._collections = {}
+
+    def household_lod_cleanup(self):
+        self.clear_collection_tracker()
 
     def mark_as_viewed(self, collection_id):
         for (key, collection_tracker_data) in self._collections.items():

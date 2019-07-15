@@ -81,6 +81,10 @@ except ImportError:
             return True
 
         @staticmethod
+        def get_pool_size_at_location(*_, **__):
+            pass
+
+        @staticmethod
         def get_all_block_polygons(*_, **__):
             pass
 
@@ -142,6 +146,10 @@ except ImportError:
 
         @staticmethod
         def get_object_all_tags(*_, **__):
+            pass
+
+        @staticmethod
+        def get_pool_polys(*_, **__):
             pass
 
         @staticmethod
@@ -271,6 +279,7 @@ has_floor_at_location = _buildbuy.has_floor_at_location
 is_location_outside = _buildbuy.is_location_outside
 is_location_natural_ground = _buildbuy.is_location_natural_ground
 is_location_pool = _buildbuy.is_location_pool
+get_pool_size_at_location = _buildbuy.get_pool_size_at_location
 get_pool_edges = _buildbuy.get_pool_edges
 get_all_block_polygons = _buildbuy.get_all_block_polygons
 get_object_slotset = _buildbuy.get_object_slotset
@@ -286,6 +295,7 @@ get_object_can_depreciate = _buildbuy.get_object_can_depreciate
 get_household_inventory_value = _buildbuy.get_household_inventory_value
 get_object_has_tag = _buildbuy.get_object_has_tag
 get_object_all_tags = _buildbuy.get_object_all_tags
+get_pool_polys = _buildbuy.get_pool_polys
 get_current_venue_config = _buildbuy.get_current_venue_config
 update_gameplay_unlocked_products = _buildbuy.update_gameplay_unlocked_products
 has_floor_feature = _buildbuy.has_floor_feature
@@ -521,6 +531,7 @@ def c_api_buildbuy_session_begin(zone_id:int, account_id:int):
 
 @sims4.utils.exception_protected
 def buildbuy_session_end(zone_id):
+    services.object_manager(zone_id).rebuild_objects_to_ignore_portal_validation_cache()
     for obj in services.object_manager(zone_id).get_all():
         obj.on_buildbuy_exit()
     posture_graph_service = services.current_zone().posture_graph_service
@@ -538,6 +549,7 @@ def buildbuy_session_end(zone_id):
     services.business_service().on_build_buy_exit()
     services.current_zone().on_build_buy_exit()
     services.get_reset_and_delete_service().on_build_buy_exit()
+    services.object_manager().clear_objects_to_ignore_portal_validation_cache()
 
 @sims4.utils.exception_protected
 def c_api_buildbuy_venue_type_changed(zone_id):
@@ -564,7 +576,7 @@ def c_api_buildbuy_get_save_object_data(zone_id:int, obj_id:int):
     if obj is None:
         return
     object_list = file_serialization.ObjectList()
-    save_data = obj.save_object(object_list.objects)
+    save_data = obj.save_object(object_list.objects, from_bb=True)
     return save_data
 
 @sims4.utils.exception_protected

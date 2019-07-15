@@ -3,14 +3,16 @@ import math
 import operator
 from date_and_time import MINUTES_PER_HOUR
 from event_testing.test_events import TestEvent
-from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingleSim, ParticipantTypeSingle
+from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingle
 from interactions.constraint_variants import TunableGeometricConstraintVariant
 from interactions.constraints import Anywhere
+from objects import HiddenReasonFlag
 from objects.components.state import TunableStateValueReference, CommodityBasedObjectStateValue, ObjectStateMetaclass
 from objects.slots import SlotType
 from sims4.repr_utils import standard_repr
 from sims4.tuning.tunable import Tunable, TunableEnumEntry, TunableVariant, TunableReference, TunableThreshold, TunableFactory, TunableTuple, TunableSimMinute, HasTunableFactory, AutoFactoryInit, TunableSet, OptionalTunable, TunableList, TunableMapping, TunableEnumFlags
 from statistics.mood import Mood
+from world.daytime_state_change import DaytimeStateChange
 import alarms
 import clock
 import date_and_time
@@ -18,7 +20,6 @@ import enum
 import services
 import sims4.log
 import sims4.math
-from objects import HiddenReasonFlag
 logger = sims4.log.Logger('Condition')
 
 class Condition:
@@ -232,7 +233,7 @@ class StateCondition(Condition):
 class TimeBasedCondition(Condition):
     __slots__ = '_interval'
 
-    def __init__(self, interval_in_sim_minutes, **kwargs):
+    def __init__(self, interval_in_sim_minutes=0, **kwargs):
         super().__init__(**kwargs)
         self._interval = interval_in_sim_minutes
 
@@ -433,7 +434,7 @@ class ConstraintBasedCondition(HasTunableFactory, AutoFactoryInit, Condition):
 class TunableCondition(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, stat_based=TunableStatisticCondition(description='A condition based on the status of a statistic.'), state_based=TunableStateCondition(description='A condition based on the state of an object.'), time_based=TunableTimeRangeCondition(description='The minimum and maximum amount of time required to satisfy this condition.'), event_based=TunableEventBasedCondition(description='A condition that is satisfied by some event'), career_based=TunableCareerCondition(description='A condition that is satisfied by career data'), wakeup_time_based=TunableWakeupCondition(description='A condition that is satisfied by being close to the schedule time for the sims career'), sim_spawn_based=TunableSimSpawnCondition(description='A condition that is satisfied when a Sim spawns in the world.'), group_based=GroupBasedCondition.TunableFactory(), in_use_based=InUseCondition.TunableFactory(), mood_based=MoodBasedCondition.TunableFactory(), object_relationship_based=ObjectRelationshipCondition.TunableFactory(), buff_based=BuffCondition.TunableFactory(), child_based=ObjectChildrenChangedCondition.TunableFactory(), constraint_based=ConstraintBasedCondition.TunableFactory(), rabbit_hole=TunableRabbitHoleExitCondition(), hidden_or_shown=HiddenOrShownCondition.TunableFactory(), default='stat_based', **kwargs)
+        super().__init__(*args, stat_based=TunableStatisticCondition(description='A condition based on the status of a statistic.'), state_based=TunableStateCondition(description='A condition based on the state of an object.'), time_based=TunableTimeRangeCondition(description='The minimum and maximum amount of time required to satisfy this condition.'), event_based=TunableEventBasedCondition(description='A condition that is satisfied by some event'), career_based=TunableCareerCondition(description='A condition that is satisfied by career data'), wakeup_time_based=TunableWakeupCondition(description='A condition that is satisfied by being close to the schedule time for the sims career'), sim_spawn_based=TunableSimSpawnCondition(description='A condition that is satisfied when a Sim spawns in the world.'), group_based=GroupBasedCondition.TunableFactory(), daytime_state_change_based=DaytimeStateChangeCondition.TunableFactory(), in_use_based=InUseCondition.TunableFactory(), mood_based=MoodBasedCondition.TunableFactory(), object_relationship_based=ObjectRelationshipCondition.TunableFactory(), buff_based=BuffCondition.TunableFactory(), child_based=ObjectChildrenChangedCondition.TunableFactory(), constraint_based=ConstraintBasedCondition.TunableFactory(), rabbit_hole=TunableRabbitHoleExitCondition(), hidden_or_shown=HiddenOrShownCondition.TunableFactory(), default='stat_based', **kwargs)
 
 class TunableTimeRangeCondition(TunableFactory):
 
@@ -563,6 +564,32 @@ class CareerCondition(Condition):
         percentage_done = time_worked/total_time
         rate = 1/total_time
         return (time_to_work_end, percentage_done, rate)
+
+class DaytimeStateChangeCondition(HasTunableFactory, AutoFactoryInit, TimeBasedCondition):
+    FACTORY_TUNABLES = {'who': TunableEnumEntry(description="\n            The Sim who we're running this test on\n            ", tunable_type=ParticipantType, default=ParticipantType.Actor), '_daytime': TunableEnumEntry(description='\n            The daytime state change (i.e. sunrise) that triggers the condition\n            ', tunable_type=DaytimeStateChange, default=DaytimeStateChange.Sunset)}
+
+    def __str__(self):
+        return 'DaytimeStateChange: {}, trigger on next {}'.format(self.who, self._daytime)
+
+    def attach_to_owner(self, owner, callback):
+        sim = owner.get_participant(self.who)
+        if sim is None:
+            return
+        region_instance = services.current_region()
+        if region_instance is None:
+            logger.error('region instance is unexpectedly None')
+            return
+        state_change_time = None
+        if self._daytime == DaytimeStateChange.Sunrise:
+            state_change_time = region_instance.get_sunrise_time()
+        elif self._daytime == DaytimeStateChange.Sunset:
+            state_change_time = region_instance.get_sunset_time()
+        else:
+            logger.error('Unhandled case for DaytimeStateChange value: {}', self._daytime)
+            return
+        time_span = services.game_clock_service().now().time_till_next_day_time(state_change_time)
+        self._interval = time_span.in_minutes()
+        super().attach_to_owner(owner, callback)
 
 class TunableWakeupCondition(TunableFactory):
 

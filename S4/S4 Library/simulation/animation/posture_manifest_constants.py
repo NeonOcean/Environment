@@ -27,13 +27,6 @@ SIT_POSTURE_STATE_SPEC = create_body_posture_state_spec(SIT_POSTURE_MANIFEST)
 SIT_NO_CARRY_ANY_SURFACE_STATE_SPEC = create_body_posture_state_spec(SIT_NO_CARRY_ANY_SURFACE_MANIFEST)
 SIT_CONSTRAINT = Constraint(debug_name='Sit', posture_state_spec=SIT_POSTURE_STATE_SPEC)
 SIT_NO_CARRY_ANY_SURFACE_CONSTRAINT = Constraint(debug_name='SitNoCarryAnySurface', posture_state_spec=SIT_NO_CARRY_ANY_SURFACE_STATE_SPEC)
-SIT_INTIMATE_POSTURE_MANIFEST = PostureManifest((PostureManifestEntry(None, 'sitIntimate', '', 'FullBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimate', '', 'UpperBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimateBooth', '', 'FullBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimateBooth', '', 'UpperBody', MATCH_NONE, MATCH_NONE, MATCH_ANY))).intern()
-SIT_INTIMATE_POSTURE_STATE_SPEC = create_body_posture_state_spec(SIT_INTIMATE_POSTURE_MANIFEST)
-SIT_INTIMATE_CONSTRAINT = Constraint(debug_name='SitIntimate', posture_state_spec=SIT_INTIMATE_POSTURE_STATE_SPEC)
-STAND_OR_SIT_POSTURE_MANIFEST = PostureManifest(list(STAND_POSTURE_MANIFEST) + list(SIT_POSTURE_MANIFEST)).intern()
-STAND_OR_SIT_CONSTRAINT = create_constraint_set((STAND_CONSTRAINT, SIT_CONSTRAINT), debug_name='Stand-or-Sit')
-STAND_OR_SIT_CONSTRAINT_OUTER_PENALTY = create_constraint_set((STAND_CONSTRAINT_OUTER_PENALTY, SIT_CONSTRAINT), debug_name='Stand-or-Sit-Outer-Penalty')
-ADJUSTMENT_CONSTRAINT = create_constraint_set((STAND_OR_MOVING_STAND_CONSTRAINT, SIT_CONSTRAINT), debug_name='Adjustment-Constraint')
 SWIM_POSTURE_TYPE = 'swim'
 SWIM_POSTURE_MANIFEST = PostureManifest((PostureManifestEntry(None, SWIM_POSTURE_TYPE, '', 'FullBody', None, None, MATCH_ANY), PostureManifestEntry(None, SWIM_POSTURE_TYPE, '', 'UpperBody', None, None, MATCH_ANY))).intern()
 SWIM_AT_NONE_POSTURE_STATE_SPEC = create_body_posture_state_spec(SWIM_POSTURE_MANIFEST, body_target=None)
@@ -41,3 +34,11 @@ SWIM_AT_NONE_CONSTRAINT = Constraint(debug_name='swim@None', posture_state_spec=
 
 class PostureConstants:
     SIT_POSTURE_TYPE = TunableReference(description='\n        A reference to the sit posture type.\n        ', manager=services.get_instance_manager(sims4.resources.Types.POSTURE))
+
+SIT_INTIMATE_POSTURE_MANIFEST = PostureManifest((PostureManifestEntry(None, 'sitIntimate', '', 'FullBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimate', '', 'UpperBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimateBooth', '', 'FullBody', MATCH_NONE, MATCH_NONE, MATCH_ANY), PostureManifestEntry(None, 'sitIntimateBooth', '', 'UpperBody', MATCH_NONE, MATCH_NONE, MATCH_ANY))).intern()
+SIT_INTIMATE_POSTURE_STATE_SPEC = create_body_posture_state_spec(SIT_INTIMATE_POSTURE_MANIFEST)
+SIT_INTIMATE_CONSTRAINT = Constraint(debug_name='SitIntimate', posture_state_spec=SIT_INTIMATE_POSTURE_STATE_SPEC)
+STAND_OR_SIT_POSTURE_MANIFEST = PostureManifest(list(STAND_POSTURE_MANIFEST) + list(SIT_POSTURE_MANIFEST)).intern()
+STAND_OR_SIT_CONSTRAINT = create_constraint_set((STAND_CONSTRAINT, SIT_CONSTRAINT), debug_name='Stand-or-Sit')
+STAND_SIT_OR_SWIM_CONSTRAINT_OUTER_PENALTY = create_constraint_set((STAND_CONSTRAINT_OUTER_PENALTY, SIT_CONSTRAINT, SWIM_AT_NONE_CONSTRAINT), debug_name='Stand-Sit-Or-Swim-Outer-Penalty')
+ADJUSTMENT_CONSTRAINT = create_constraint_set((STAND_OR_MOVING_STAND_CONSTRAINT, SIT_CONSTRAINT), debug_name='Adjustment-Constraint')

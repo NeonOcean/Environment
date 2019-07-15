@@ -29,18 +29,18 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
                 tags = (SpawnPoint.ARRIVAL_SPAWN_POINT_TAG,)
             spawn_point = services.current_zone().get_spawn_point(lot_id=services.active_lot_id(), sim_spawner_tags=tags)
             self._origin_position = spawn_point.get_approximate_center()
-            self._routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_WORLD)
             self._except_lot_id = services.active_lot_id()
         else:
             self._origin_position = self._sim.position
-            self._routing_surface = self._sim.routing_surface
             self._except_lot_id = None
+        self._routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_WORLD)
         self._start_constraint = Circle(self._origin_position, self.constraint_radius, routing_surface=self._routing_surface, los_reference_point=None)
+        self._start_constraint = self._start_constraint.intersect(self.get_water_constraint())
 
     def get_start_constraint(self):
         return self._start_constraint
 
-    def get_waypoint_constraints_gen(self, sim, waypoint_count):
+    def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
         zone = services.current_zone()
         constraint_set = zone.get_spawn_points_constraint(except_lot_id=self._except_lot_id, sim_spawner_tags=self.spawn_point_tags, generalize=True)
         constraints_weighted = []
@@ -72,5 +72,6 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
             constraints_weighted = constraints_weighted_next
             break
             last_waypoint_position = next_constraint.average_position
+        jog_waypoint_constraints = self.apply_water_constraint(jog_waypoint_constraints)
         yield from jog_waypoint_constraints
         yield self._start_constraint

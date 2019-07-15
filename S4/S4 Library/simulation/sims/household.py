@@ -1,8 +1,12 @@
+from collections import OrderedDict
+from event_testing.resolver import DoubleSimResolver
+from interactions.utils.loot import LootActions
 from protocolbuffers import FileSerialization_pb2 as serialization, ResourceKey_pb2, S4Common_pb2, FileSerialization_pb2, GameplaySaveData_pb2
 from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
 from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
 from protocolbuffers.DistributorOps_pb2 import Operation
 from bucks.household_bucks_tracker import HouseholdBucksTracker
+from careers.career_enums import ReceiveDailyHomeworkHelp
 from date_and_time import create_time_span, DateAndTime, DATE_AND_TIME_ZERO
 from delivery.delivery_tracker import DeliveryTracker
 from distributor.ops import GenericProtocolBufferOp
@@ -15,15 +19,18 @@ from laundry.household_laundry_tracker import HouseholdLaundryTracker
 from objects import HiddenReasonFlag, ALL_HIDDEN_REASONS
 from objects.collection_manager import CollectionTracker
 from pets.missing_pets_tracker import MissingPetsTracker
+from relationships.relationship_bit import RelationshipBit
 from sims import bills, sim_info
 from sims.aging.aging_tuning import AgingTuning
 from sims.baby.baby_utils import remove_stale_babies, run_baby_spawn_behavior
 from sims.household_telemetry import send_sim_added_telemetry
 from sims.outfits.outfit_enums import OutfitCategory
 from sims.sim_info_lod import SimInfoLODLevel
+from sims.sim_info_types import Age
 from sims.sim_info_utils import sim_info_auto_finder
 from sims.sim_spawner_enums import SimInfoCreationSource
 from sims4.common import UnavailablePackError
+from sims4.tuning.tunable import TunableTuple
 from situations.service_npcs.service_npc_record import ServiceNpcRecord
 from telemetry_helper import HouseholdTelemetryTracker
 from world import region
@@ -46,6 +53,8 @@ class Household:
     MAXIMUM_SIZE = sims4.tuning.tunable.Tunable(description='\n        Maximum number of Sims you can have in a household at a time.\n        ', tunable_type=int, default=8)
     ANCESTRY_PURGE_DEPTH = sims4.tuning.tunable.TunableRange(description='\n        The maximum number of links that living Sims can have with an ancestor\n        before the ancestor is purged.\n        ', tunable_type=int, default=3, minimum=1)
     NPC_HOUSEHOLD_DEFAULT_FUNDS = sims4.tuning.tunable.TunableRange(description='\n        The default amount of funds an NPC household will have. This will\n        determine how much money an NPC sims brings with them when you invite\n        to household.\n        ', tunable_type=int, default=20000, minimum=0)
+    SPECIAL_FIXES = TunableTuple(description='\n        Special Case tuning to fix up bad save data\n        ', pet_relbits=TunableTuple(description='\n            Not all sims in a household with a pet have the correct pet\n            ownership relbits. If this is the case, we will fix this for the \n            active household on load.\n            ', loot_for_pets=LootActions.TunablePackSafeReference()))
+    HOUSEHOLD_TRACKERS = OrderedDict((('bucks_tracker', HouseholdBucksTracker), ('laundry_tracker', HouseholdLaundryTracker), ('missing_pet_tracker', MissingPetsTracker), ('delivery_tracker', DeliveryTracker), ('_collection_tracker', CollectionTracker)))
 
     def __init__(self, account, starting_funds=singletons.DEFAULT):
         self.account = account
@@ -62,15 +71,12 @@ class Household:
             starting_funds = self.NPC_HOUSEHOLD_DEFAULT_FUNDS
         self._funds = sims.funds.FamilyFunds(self.id, starting_funds)
         self.bills_manager = bills.Bills(self)
-        self.bucks_tracker = HouseholdBucksTracker(self)
         self._has_cheated = False
-        self.laundry_tracker = HouseholdLaundryTracker(self)
-        self.missing_pet_tracker = MissingPetsTracker(self)
-        self.delivery_tracker = DeliveryTracker(self)
+        for (tracker_attr, tracker_type) in Household.HOUSEHOLD_TRACKERS.items():
+            setattr(self, tracker_attr, tracker_type(self))
         self._household_milestone_tracker = None
         self._holiday_tracker = None
         self._service_npc_record = None
-        self._collection_tracker = CollectionTracker(self)
         self._telemetry_tracker = HouseholdTelemetryTracker(self)
         self._last_active_sim_id = 0
         self._reward_inventory = serialization.RewardPartList()
@@ -94,7 +100,9 @@ class Household:
         self._is_player_household = False
         self._is_played_household = False
         self.pending_urnstone_ids = []
+        self._max_sim_lod = None
         self.visible_to_client = False
+        self._receive_homework_help_map = {Age.CHILD: ReceiveDailyHomeworkHelp.UNCHECKED, Age.TEEN: ReceiveDailyHomeworkHelp.UNCHECKED}
 
     def __repr__(self):
         sim_strings = []
@@ -155,6 +163,31 @@ class Household:
     @sim_info_auto_finder
     def get_pending_urnstone_sim_infos(self):
         return self.pending_urnstone_ids
+
+    def on_sim_lod_update(self, sim_info_updated, old_lod, new_lod):
+        if self._max_sim_lod is None:
+            return
+        if new_lod >= self._max_sim_lod:
+            return
+        max_lod = max((sim_info.lod for sim_info in self if sim_info is not sim_info_updated), default=new_lod)
+        if new_lod > max_lod:
+            max_lod = new_lod
+        if max_lod >= self._max_sim_lod:
+            return
+        self._max_sim_lod = max_lod
+        self.cleanup_trackers(new_lod=new_lod)
+
+    def _initialize_max_household_lod(self):
+        self._max_sim_lod = max((sim_info.lod for sim_info in self), default=SimInfoLODLevel.MINIMUM)
+
+    def cleanup_trackers(self, new_lod=None):
+        for (tracker_attr, tracker_type) in Household.HOUSEHOLD_TRACKERS.items():
+            tracker = getattr(self, tracker_attr, None)
+            if tracker is not None:
+                if not new_lod is None:
+                    if not tracker_type.is_valid_for_lod(new_lod):
+                        tracker.household_lod_cleanup()
+                tracker.household_lod_cleanup()
 
     def set_to_hidden(self):
         services.business_service().clear_owned_business(self.id)
@@ -388,6 +421,12 @@ class Household:
         self.bucks_tracker.on_all_households_and_sim_infos_loaded()
         self.missing_pet_tracker.on_all_households_and_sim_infos_loaded()
         self._load_fixup_always_welcomed_sims()
+        self._initialize_max_household_lod()
+        if self.is_active_household:
+            if self.SPECIAL_FIXES.pet_relbits.loot_for_pets is not None:
+                for pet in self.get_pets_gen():
+                    for other_family_member in (family_member for family_member in self if pet is not family_member):
+                        self.SPECIAL_FIXES.pet_relbits.loot_for_pets.apply_to_resolver(DoubleSimResolver(other_family_member, pet))
 
     def _load_fixup_always_welcomed_sims(self):
         mgr = services.sim_info_manager()
@@ -540,16 +579,23 @@ class Household:
             self.add_build_buy_unlock(unlock)
         sim_info.refresh_age_settings()
 
-    def remove_sim_info(self, sim_info, destroy_if_empty_household=False):
+    def remove_sim_info(self, sim_info, destroy_if_empty_household=False, process_events=True):
         self._sim_infos.remove(sim_info)
         sim_info.assign_to_household(None, assign_is_npc=False)
-        self.notify_dirty()
-        if services.current_zone().is_zone_running:
-            services.get_event_manager().process_events_for_household(test_events.TestEvent.HouseholdChanged, self)
-        self.resend_sim_infos()
-        if not self._sim_infos and destroy_if_empty_household:
+        if process_events:
+            self.notify_dirty()
+            if services.current_zone().is_zone_running:
+                services.get_event_manager().process_events_for_household(test_events.TestEvent.HouseholdChanged, self)
+            self.resend_sim_infos()
+        if destroy_if_empty_household:
+            self.destroy_household_if_empty()
+
+    def destroy_household_if_empty(self):
+        if not self._sim_infos:
             services.get_persistence_service().del_household_proto_buff(self.id)
             services.household_manager().remove(self)
+            return True
+        return False
 
     def sim_in_household(self, sim_id):
         for sim_info in self._sim_infos:
@@ -660,6 +706,7 @@ class Household:
         self.creator_id = household_msg.creator_id
         self.creator_name = household_msg.creator_name
         self.creator_uuid = household_msg.creator_uuid
+        resend_sim_infos = False
         if household_msg.sims.ids:
             default_lod = SimInfoLODLevel.FULL if self.is_played_household else SimInfoLODLevel.BASE
             for sim_id in household_msg.sims.ids:
@@ -668,19 +715,41 @@ class Household:
                     if sim_proto is None:
                         continue
                     sim_info = services.sim_info_manager().get(sim_id)
+                    existing_household_id = None
                     if sim_info is None:
                         sim_info = sims.sim_info.SimInfo(sim_id=sim_id, account=self.account)
+                    else:
+                        existing_household_id = sim_info.household_id
                     try:
                         sim_info.load_sim_info(sim_proto, default_lod=default_lod)
                     except UnavailablePackError as e:
                         logger.warn('Sim {} failed to load: {}', sim_id, e)
                         continue
                     if not self.sim_in_household(sim_id):
+                        if existing_household_id is not None and existing_household_id != self.id:
+                            other_household = services.household_manager().get(existing_household_id)
+                            if other_household is None or self._sim_should_be_in_other_household(other_household, sim_info):
+                                if fixup_helper is not None:
+                                    fixup_helper.add_shared_sim_household(self)
+                                else:
+                                    logger.error('Removing {} from household {} with no fixup helper. Household may leak.', sim_info, self)
+                                sim_info.assign_to_household(other_household)
+                                if self.home_zone_id != 0:
+                                    resend_sim_infos = True
+                                continue
+                            other_household.remove_sim_info(sim_info, process_events=False)
+                            if other_household.home_zone_id != 0:
+                                other_household.resend_sim_infos()
+                            if fixup_helper is not None:
+                                fixup_helper.add_shared_sim_household(other_household)
+                            else:
+                                logger.error('Removing {} from household {} with no fixup helper. Household may leak.', sim_info, other_household)
+                            logger.warn('{} in wrong household {} will  be moved back into household {} where they belong.', sim_info, other_household, self)
                         self.add_sim_info(sim_info, process_events=False)
                         if sim_info.household_id != self.id:
                             if fixup_helper is not None:
                                 fixup_helper.add_shared_sim_household(self)
-                            logger.error('{} household id {} will be trumped with the household {} they now belong.', sim_info, sim_info.household_id, self)
+                            logger.warn('{} household id {} will  be trumped with the household {} they now belong.', sim_info, sim_info.household_id, self)
                             sim_info.assign_to_household(self)
                 except:
                     logger.exception('Sim {} failed to load', sim_id)
@@ -716,6 +785,41 @@ class Household:
             self._household_milestone_tracker.load(blob=household_msg.gameplay_data.household_milestone_tracker)
             self._holiday_tracker = HolidayTracker(self)
             self._holiday_tracker.load_holiday_tracker(household_msg.gameplay_data.holiday_tracker)
+        return resend_sim_infos
+
+    def _sim_should_be_in_other_household(self, other_household, sim_info):
+        active_household_id = services.active_household_id()
+        if active_household_id == self.id:
+            return False
+        if active_household_id == other_household.id:
+            return True
+        elif (self.home_zone_id == 0) != (other_household.home_zone_id == 0):
+            if self.home_zone_id != 0:
+                return False
+            return True
+        elif self.is_played_household != other_household.is_played_household:
+            if self.is_played_household:
+                return False
+            return True
+        elif self.is_player_household != other_household.is_player_household:
+            if self.is_player_household:
+                return False
+            return True
+        return True
+        if self.is_played_household != other_household.is_played_household:
+            if self.is_played_household:
+                return False
+            return True
+        elif self.is_player_household != other_household.is_player_household:
+            if self.is_player_household:
+                return False
+            return True
+        return True
+        if self.id == sim_info.household_id:
+            return True
+        elif other_household.id == sim_info.household_id:
+            return False
+        return True
 
     def populate_household_data(self, household_msg):
         inventory = serialization.ObjectList()
@@ -965,3 +1069,9 @@ class Household:
         household_msg = FileSerialization_pb2.HouseholdData()
         self.populate_household_data(household_msg)
         Distributor.instance().add_op_with_no_owner(GenericProtocolBufferOp(Operation.HOUSEHOLD_UPDATE, household_msg))
+
+    def get_homework_help(self, age):
+        return self._receive_homework_help_map.get(age)
+
+    def set_homework_help(self, age, homework_help_status):
+        self._receive_homework_help_map[age] = homework_help_status

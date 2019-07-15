@@ -384,7 +384,7 @@ class SetLocation(Op):
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SET_LOCATION)
 
-def create_route_msg_src(route_id, actor, path, start_time, wait_time, track_override=None):
+def create_route_msg_src(route_id, actor, path, start_time, wait_time, track_override=None, mask_override=None):
     route_pb = Routing_pb2.Route(id=route_id)
     last_routing_surface_id = None
     for n in path.nodes:
@@ -437,6 +437,8 @@ def create_route_msg_src(route_id, actor, path, start_time, wait_time, track_ove
     route_pb.absolute_time_ms = int(monotonic_time.absolute_ticks() + ROUTING_TIME_BUFFER_MS + wait_time*1000.0)
     if track_override is not None:
         route_pb.track = track_override
+    if mask_override is not None:
+        route_pb.mask = mask_override
     actor.write_slave_data_msg(route_pb, path=path)
     return route_pb
 
@@ -620,10 +622,11 @@ class FocusEventPrint(Op):
 
 class RouteCancel(Op):
 
-    def __init__(self, route_id, time):
+    def __init__(self, route_id, time, orientation):
         super().__init__()
         self.id = route_id
         self.time = time
+        self.orientation = orientation
 
     def __repr__(self):
         return standard_repr(self, self.id)
@@ -632,6 +635,10 @@ class RouteCancel(Op):
         op = DistributorOps_pb2.RouteCancel()
         op.id = self.id
         op.time = self.time
+        op.orientation.x = self.orientation.x
+        op.orientation.y = self.orientation.y
+        op.orientation.z = self.orientation.z
+        op.orientation.w = self.orientation.w
         self.serialize_op(msg, op, protocol_constants.ROUTE_CANCEL)
 
 class SetModel(Op):
@@ -1636,8 +1643,8 @@ class SetFocusCompatibility(Op):
 
 class StopVFX(Op):
 
-    def __init__(self, target_id, actor_id, stop_type=None):
-        super().__init__()
+    def __init__(self, target_id, actor_id, stop_type=None, **kwargs):
+        super().__init__(**kwargs)
         self._target_id = target_id
         self._actor_id = actor_id
         self._stop_type = stop_type
@@ -2863,19 +2870,20 @@ class CompositeThumbnail(Op):
         self.serialize_op(msg, self.op, protocol_constants.COMPOSITE_THUMBNAIL)
 
 class FollowRoute(Op):
-    __slots__ = ('actor', 'path', 'start_time')
+    __slots__ = ('actor', 'path', 'start_time', 'mask_override')
 
-    def __init__(self, actor, path, start_time):
+    def __init__(self, actor, path, start_time, mask_override):
         super().__init__()
         self.actor = actor
         self.path = path
         self.start_time = start_time
+        self.mask_override = mask_override
 
     def __repr__(self):
         return standard_repr(self, self.path.id)
 
     def write(self, msg):
-        msg_src = distributor.ops.create_route_msg_src(self.path.nodes.id, self.actor, self.path, self.start_time, 0)
+        msg_src = distributor.ops.create_route_msg_src(self.path.nodes.id, self.actor, self.path, self.start_time, 0, track_override=None, mask_override=self.mask_override)
         self.serialize_op(msg, msg_src, protocol_constants.FOLLOW_ROUTE)
 
 class SetScratched(Op):

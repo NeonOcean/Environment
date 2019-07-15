@@ -190,7 +190,7 @@ class BuffTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
         has_satisfied_whitelist_once = False
         for target in test_targets:
             if self.blacklist and any(target.has_buff(buff_type) for buff_type in self.blacklist):
-                return TestResult(False, '{} has buff in blacklist.', target, tooltip=self.tooltip)
+                return TestResult(False, '{} has buff in blacklist {}', target, self.blacklist, tooltip=self.tooltip)
             if self.whitelist is not None:
                 if self.apply_whitelist_on_individual_basis:
                     if not any(target.has_buff(buff_type) for buff_type in self.whitelist):
@@ -247,7 +247,7 @@ class MoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     def participant_type_override(participant_type_enum, participant_type_default):
         return {'who': TunableEnumEntry(description='\n                    To whom or what this test should be applied.\n                    ', tunable_type=participant_type_enum, default=participant_type_default)}
 
-    FACTORY_TUNABLES = {'who': TunableEnumEntry(description='\n            To whom or what this test should be applied.\n            ', tunable_type=ParticipantTypeSim, default=ParticipantTypeSim.Actor), 'mood': TunablePackSafeReference(description="\n            The mood that must be active (or must be inactive, if 'Disallow' is\n            checked).\n            ", manager=services.get_instance_manager(sims4.resources.Types.MOOD)), 'disallow': Tunable(description="\n            If True, this test will pass if the Sim's mood does NOT match the tuned mood reference.\n            ", tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'who': TunableEnumEntry(description='\n            To whom or what this test should be applied.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'mood': TunablePackSafeReference(description="\n            The mood that must be active (or must be inactive, if 'Disallow' is\n            checked).\n            ", manager=services.get_instance_manager(sims4.resources.Types.MOOD)), 'disallow': Tunable(description="\n            If True, this test will pass if the Sim's mood does NOT match the tuned mood reference.\n            ", tunable_type=bool, default=False)}
     __slots__ = ('who', 'mood', 'disallow')
 
     def __init__(self, **kwargs):
@@ -264,7 +264,7 @@ class MoodTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
             return TestResult(False, "Can't match mood as it is None, probably due pack safeness.")
         influence_by_active_mood = False
         for target in test_targets:
-            if target is None:
+            if target is None or not target.is_sim:
                 logger.error("Trying to call MoodTest with an invalid Participant Type, {}, in the 'Who' field of tuning. Skipping this participant and attempting to continue.", self)
             else:
                 sim_mood = target.get_mood()
@@ -605,3 +605,20 @@ class SkinToneTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
         if self.invert:
             return TestResult.TRUE
         return TestResult(False, "{}'s skin tone is {} which is not one of the following: {}", subject, subject.skin_tone, ', '.join(str(skin_tone) for skin_tone in self.skin_tones), tooltip=self.tooltip)
+
+class BirthdayTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
+    FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n            The participant against which to run this birthday test.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'invert': Tunable(description='\n            If true, invert the result of this test.\n            ', tunable_type=bool, default=False)}
+
+    def get_expected_args(self):
+        return {'test_targets': self.participant}
+
+    @cached_test
+    def __call__(self, test_targets=()):
+        for target in test_targets:
+            if not target.is_birthday():
+                if self.invert:
+                    return TestResult.TRUE
+                return TestResult(False, "It is not {}'s birthday.", target, tooltip=self.tooltip)
+        if self.invert:
+            return TestResult(False, "Test inverted, it is {}'s birthday.", target, tooltip=self.tooltip)
+        return TestResult.TRUE

@@ -1,4 +1,5 @@
 from interactions import ParticipantType
+from interactions.interaction_finisher import FinishingType
 from interactions.utils.interaction_elements import XevtTriggeredElement
 from sims4.tuning.tunable import HasTunableFactory, TunableEnumEntry, Tunable, TunableVariant, TunableTuple
 import build_buy
@@ -29,6 +30,18 @@ class SendToInventory(XevtTriggeredElement, HasTunableFactory):
             inventory_component = inventory_participant.inventory_component
             if not inventory_component.player_try_add_object(target):
                 should_fallback = self.inventory.fallback_to_household
+            else:
+                for interaction in tuple(target.interaction_refs):
+                    if not interaction.running:
+                        if interaction.is_finishing:
+                            continue
+                        if inventory_participant.is_sim:
+                            if not interaction.allow_from_sim_inventory:
+                                interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Object moved to inventory')
+                                if not interaction.allow_from_object_inventory:
+                                    interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Object moved to inventory')
+                        elif not interaction.allow_from_object_inventory:
+                            interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Object moved to inventory')
         if self.inventory.inventory_type == SendToInventory.MAILBOX_INVENTORY:
             if not inventory_participant.is_sim:
                 logger.error('Trying to add an item [{}] to a mailbox but the participant [{}] is not a sim', target._definition, inventory_participant)
@@ -43,6 +56,11 @@ class SendToInventory(XevtTriggeredElement, HasTunableFactory):
                 logger.error("Trying to add an item [{}] to the lot's hidden inventory but the provided sim [{}] has no hidden inventory for their lot.", target._definition, inventory_participant)
                 return False
             lot_hidden_inventory.system_add_object(target)
+            for interaction in tuple(target.interaction_refs):
+                if not interaction.running:
+                    if interaction.is_finishing:
+                        continue
+                    interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Object moved to inventory')
         elif self.inventory.inventory_type == SendToInventory.HOUSEHOLD_INVENTORY or should_fallback:
 
             def on_reservation_change(*_, **__):

@@ -13,6 +13,7 @@ from interactions.context import InteractionContext
 from interactions.priority import Priority
 from interactions.utils.enum_utils import FlagField
 from objects import ALL_HIDDEN_REASONS
+from objects.pools import pool_utils
 from postures import posture_graph
 from server.config_service import ContentModes
 from server.pick_info import PickInfo, PickType, PICK_USE_TERRAIN_OBJECT
@@ -21,6 +22,7 @@ from sims.phone_tuning import PhoneTuning
 from sims4.commands import Output
 from sims4.localization import TunableLocalizedStringFactory, create_tokens
 from sims4.tuning.tunable import TunableResourceKey
+from terrain import get_water_depth
 import autonomy.content_sets
 import build_buy
 import enum
@@ -34,6 +36,7 @@ import sims4.commands
 import sims4.log
 import sims4.reload
 import telemetry_helper
+from world.ocean_tuning import OceanTuning
 logger = sims4.log.Logger('Interactions')
 TELEMETRY_GROUP_PIE_MENU = 'PIEM'
 TELEMETRY_HOOK_CREATE_PIE_MENU = 'PIEM'
@@ -180,17 +183,38 @@ def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level
             pick_target = nearest_obj
             potential_targets.append((pick_target, pick_target.routing_surface))
     else:
+        pool_block_id = 0
         if pick_type != PickType.PICK_POOL_EDGE and build_buy.is_location_pool(zone_id, position, level):
             routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+            pool_block_id = build_buy.get_block_id(sim.zone_id, position, level - 1)
         else:
             routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_WORLD)
         if pick_type in PICK_USE_TERRAIN_OBJECT:
             location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
-            pick_target = objects.terrain.TerrainPoint(location)
-            potential_targets.append((pick_target, routing_surface))
-            if lot_id:
-                if lot_id != services.active_lot_id():
-                    pick_type = PickType.PICK_TERRAIN
+            terrain_point = objects.terrain.TerrainPoint(location)
+            pick_target = terrain_point
+            water_height = get_water_depth(position.x, position.z, level)
+            if lot_id and lot_id != services.active_lot_id():
+                pick_type = PickType.PICK_TERRAIN
+                potential_targets.append((pick_target, routing_surface))
+            elif pool_block_id:
+                pool = pool_utils.get_pool_by_block_id(pool_block_id)
+                if pool is not None:
+                    pool_point = objects.terrain.PoolPoint(location, pool)
+                    pick_target = pool_point
+                    potential_targets.append((pool_point, routing_surface))
+            elif water_height > 0 and services.terrain_service.ocean_object() is not None:
+                wading_interval = OceanTuning.get_actor_wading_interval(sim)
+                if wading_interval is not None and water_height > wading_interval.upper_bound:
+                    ocean_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+                    ocean_location = location.clone(routing_surface=ocean_surface)
+                    ocean_point = objects.terrain.OceanPoint(ocean_location)
+                    potential_targets.append((ocean_point, ocean_surface))
+                    pick_target = ocean_point
+                else:
+                    potential_targets.append((terrain_point, routing_surface))
+            else:
+                potential_targets.append((terrain_point, routing_surface))
         else:
             if lot_id and lot_id != services.active_lot_id():
                 location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
@@ -213,6 +237,12 @@ def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level
                 location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
                 terrain_target = objects.terrain.TerrainPoint(location)
                 potential_targets.append((terrain_target, routing_surface))
+            if pick_target.provides_ocean_interactions:
+                location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+                ocean_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+                ocean_location = location.clone(routing_surface=ocean_surface)
+                ocean_point = objects.terrain.OceanPoint(ocean_location)
+                potential_targets.append((ocean_point, ocean_surface))
     return (pick_target, pick_type, tuple(potential_targets))
 
 @sims4.commands.Command('interactions.choices', command_type=sims4.commands.CommandType.Live)
@@ -755,6 +785,23 @@ def set_interaction_mode(mode:InteractionModes=None, source:int=None, priority:i
     source = sources.get(client.interaction_source, client.interaction_source)
     output('Client interaction mode: source={} priority={}'.format(source, client.interaction_priority.name))
     return 1
+
+@sims4.commands.Command('interactions.debug_outcome_print', command_type=sims4.commands.CommandType.Automation)
+def debug_outcome_index_print(affordance:TunableInstanceParam(sims4.resources.Types.INTERACTION), mode=None, _connection=None):
+    sims4.commands.output(affordance.outcome.print_outcome_index(), _connection)
+
+@sims4.commands.Command('interactions.debug_outcome_index_set', command_type=sims4.commands.CommandType.Automation)
+def debug_outcome_index_set(affordance:TunableInstanceParam(sims4.resources.Types.INTERACTION), debug_outcome_index, mode=None, _connection=None):
+    interactions.utils.outcome.update_debug_outcome_index_mapping(affordance, debug_outcome_index)
+    sims4.commands.output(interactions.utils.outcome.debug_outcome_index_mapping.__str__(), _connection)
+
+@sims4.commands.Command('interactions.debug_outcome_index_table_clear', command_type=sims4.commands.CommandType.Automation)
+def debug_outcome_index_table_clear(mode=None, _connection=None):
+    interactions.utils.outcome.debug_outcome_index_mapping = None
+
+@sims4.commands.Command('interactions.debug_outcome_index_table_print', command_type=sims4.commands.CommandType.Automation)
+def debug_outcome_index_table_print(mode=None, _connection=None):
+    sims4.commands.output(interactions.utils.outcome.debug_outcome_index_mapping.__str__(), _connection)
 
 @sims4.commands.Command('interactions.debug_outcome_style_set', command_type=sims4.commands.CommandType.Automation)
 def set_debug_outcome_style(debug_style, mode=None, _connection=None):

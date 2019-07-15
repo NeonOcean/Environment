@@ -123,7 +123,7 @@ class CareerService(Service):
                                 if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
                                     career.end_career_event_without_payout()
                                     if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                        logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
+                                        career.leave_work(left_early=True)
                                     if sim is not None:
                                         if career.currently_at_work:
                                             if career.push_go_to_work_affordance():
@@ -141,7 +141,7 @@ class CareerService(Service):
                                             career.attend_work()
                             else:
                                 if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                    logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
+                                    career.leave_work(left_early=True)
                                 if sim is not None:
                                     if career.currently_at_work:
                                         if career.push_go_to_work_affordance():
@@ -165,7 +165,7 @@ class CareerService(Service):
                         if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
                             career.end_career_event_without_payout()
                             if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
+                                career.leave_work(left_early=True)
                             if sim is not None:
                                 if career.currently_at_work:
                                     if career.push_go_to_work_affordance():
@@ -183,7 +183,7 @@ class CareerService(Service):
                                     career.attend_work()
                     else:
                         if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                            logger.error("Loading {} who's at work/school for {} but not on home lot. Kicking them out.", sim_info, career)
+                            career.leave_work(left_early=True)
                         if sim is not None:
                             if career.currently_at_work:
                                 if career.push_go_to_work_affordance():

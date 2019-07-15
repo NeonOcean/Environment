@@ -394,7 +394,7 @@ class RenameImmediateInteraction(ImmediateSuperInteraction):
             target = self.target
             if target is not None:
                 if name is not None:
-                    target.set_custom_name(name)
+                    target.set_custom_name(name, actor_sim_id=self._sim.id)
                 if description is not None:
                     target.set_custom_description(description)
                 self._update_ui_metadata(target)

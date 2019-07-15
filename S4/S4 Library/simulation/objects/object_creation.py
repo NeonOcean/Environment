@@ -1,7 +1,7 @@
 import random
 from event_testing.resolver import InteractionResolver
 from event_testing.tests import TunableTestSet
-from interactions import ParticipantType, ParticipantTypeSingle, ParticipantTypeSingleSim, ParticipantTypeActorTargetSim
+from interactions import ParticipantType, ParticipantTypeSingle, ParticipantTypeSingleSim, ParticipantTypeActorTargetSim, ParticipantTypeObject
 from interactions.utils.loot_basic_op import BaseLootOperation
 from objects import ALL_HIDDEN_REASONS
 from objects.components.state import TunableStateValueReference, StateComponent
@@ -18,6 +18,7 @@ from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, Tu
 from tag import Tag, TunableTags
 from tunable_multiplier import TunableMultiplier
 import build_buy
+import fishing.fishing_data
 import objects.components.types
 import services
 import sims
@@ -25,11 +26,10 @@ import sims4.log
 import sims4.resources
 logger = sims4.log.Logger('Creation')
 
-class _ObjectDefinition(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'definition': TunableReference(description='\n            The definition of the object that is created.\n            ', manager=services.definition_manager(), pack_safe=True)}
+class CreationDataBase:
 
     def get_definition(self, resolver):
-        return self.definition
+        raise NotImplementedError
 
     def setup_created_object(self, resolver, created_object):
         pass
@@ -37,7 +37,13 @@ class _ObjectDefinition(HasTunableSingletonFactory, AutoFactoryInit):
     def get_source_object(self, resolver):
         pass
 
-class _ObjectDefinitionTested(HasTunableSingletonFactory, AutoFactoryInit):
+class _ObjectDefinition(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'definition': TunableReference(description='\n            The definition of the object that is created.\n            ', manager=services.definition_manager(), pack_safe=True)}
+
+    def get_definition(self, resolver):
+        return self.definition
+
+class _ObjectDefinitionTested(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'fallback_definition': TunableReference(description='\n            Should no test pass, use this definition.\n            ', manager=services.definition_manager(), allow_none=True), 'definitions': TunableList(description='\n            A list of potential object definitions to use.\n            ', tunable=TunableTuple(weight=TunableMultiplier.TunableFactory(description='\n                    The weight of this definition relative to other\n                    definitions in this list.\n                    '), definition=TunableReference(description='\n                    The definition of the object to be created.\n                    ', manager=services.definition_manager(), pack_safe=True)))}
 
     def get_definition(self, resolver):
@@ -46,13 +52,7 @@ class _ObjectDefinitionTested(HasTunableSingletonFactory, AutoFactoryInit):
             return definition
         return self.fallback_definition
 
-    def setup_created_object(self, resolver, created_object):
-        pass
-
-    def get_source_object(self, resolver):
-        pass
-
-class _RecipeDefinition(HasTunableSingletonFactory, AutoFactoryInit):
+class _RecipeDefinition(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'recipe': TunableReference(description='\n            The recipe to use to create the object.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE)), 'show_crafted_by_text': Tunable(description='\n            Show crafted by text on the tooltip of item created by this recipe. \n            ', tunable_type=bool, default=True)}
 
     def get_definition(self, resolver):
@@ -66,10 +66,7 @@ class _RecipeDefinition(HasTunableSingletonFactory, AutoFactoryInit):
             crafting_process.remove_crafted_by_text()
         crafting_process.setup_crafted_object(created_object, is_final_product=True)
 
-    def get_source_object(self, resolver):
-        pass
-
-class _CloneObject(HasTunableSingletonFactory, AutoFactoryInit):
+class _CloneObject(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
 
     class _ParticipantObject(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n                Used to clone a participant object.\n                ', tunable_type=ParticipantType, default=ParticipantType.Object)}
@@ -98,13 +95,10 @@ class _CloneObject(HasTunableSingletonFactory, AutoFactoryInit):
             if source_object is not None:
                 return source_object.definition
 
-    def setup_created_object(self, resolver, created_object):
-        pass
-
     def get_source_object(self, resolver):
         return self.source_object.get_object(resolver)
 
-class _CreatePhotoObject(HasTunableSingletonFactory, AutoFactoryInit):
+class _CreatePhotoObject(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n            Used to create photo of a participant object.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object)}
 
     def get_definition(self, resolver):
@@ -119,10 +113,56 @@ class _CreatePhotoObject(HasTunableSingletonFactory, AutoFactoryInit):
         crafter = resolver.get_participant(ParticipantType.Actor)
         created_object.add_dynamic_component(STORED_SIM_INFO_COMPONENT, sim_id=crafter.id)
 
-    def get_source_object(self, resolver):
-        pass
+class _FishingDataFromParticipant(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n            Participant on which we will get the fishing data information \n            ', tunable_type=ParticipantTypeObject, default=ParticipantTypeObject.Object)}
 
-class _CreateObjectFromStoredObjectInfo(HasTunableSingletonFactory, AutoFactoryInit):
+    def get_fish_definition(self, resolver):
+        target = resolver.get_participant(self.participant)
+        if target is None:
+            logger.error('{} create object tried to create an object using fishing data, but the participant {} is None.', resolver, self.participant, owner='mkartika')
+            return
+        fishing_location_component = target.fishing_location_component
+        if fishing_location_component is None:
+            logger.error('{} create object tried to create an object using fishing data on {}, but has no tuned Fishing Location Component.', resolver, target, owner='mkartika')
+            return
+        fishing_data = fishing_location_component.fishing_data
+        if fishing_data is None:
+            logger.error('{} create object tried to create an object using fishing data on {}, but has no tuned Fishing Data.', resolver, target, owner='shouse')
+            return
+        else:
+            fish = fishing_data.choose_fish(resolver, require_bait=False)
+            if fish is None:
+                logger.error('{} create object tried to create an object using fishing data on {}, but caught no fish.', resolver, target, owner='mkartika')
+                return
+        return fish
+
+class _FishingDataFromReference(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'fishing_data': fishing.fishing_data.TunableFishingDataReference(description='\n            Fishing data reference.\n            ')}
+
+    def get_fish_definition(self, resolver):
+        fishing_data = self.fishing_data
+        if fishing_data is None:
+            logger.error('{} create object tried to create an object without fishing data, so caught no fish.', resolver, owner='shouse')
+            return
+        else:
+            fish = self.fishing_data.choose_fish(resolver, require_bait=False)
+            if fish is None:
+                logger.error('{} create object tried to create an object using fishing data {}, but caught no fish.', resolver, self.fishing_data, owner='mkartika')
+                return
+        return fish
+
+class TunableFishingDataTargetVariant(TunableVariant):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, participant=_FishingDataFromParticipant.TunableFactory(), reference=_FishingDataFromReference.TunableFactory(), default='participant', **kwargs)
+
+class _CreateObjectFromFishingData(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'source': TunableFishingDataTargetVariant(description='\n            Source on which we will get the fishing data information \n            ')}
+
+    def get_definition(self, resolver):
+        return self.source.get_fish_definition(resolver)
+
+class _CreateObjectFromStoredObjectInfo(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'stored_object_info_participant': TunableEnumEntry(description='\n            The Sim participant of this interaction which contains the stored\n            object info that is used to create this object.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'stored_object_type': TunableEnumEntry(description='\n            The type of object being stored. This will be used to retrieve the\n            stored object from the Stored Object Info Component of the target.\n            ', tunable_type=StoredObjectType, default=StoredObjectType.INVALID, invalid_enums=(StoredObjectType.INVALID,))}
 
     def get_definition(self, resolver):
@@ -159,10 +199,7 @@ class _CreateObjectFromStoredObjectInfo(HasTunableSingletonFactory, AutoFactoryI
                     continue
                 created_object.set_state(state, state_value, immediate=True)
 
-    def get_source_object(self, resolver):
-        pass
-
-class _RandomFromTags(HasTunableSingletonFactory, AutoFactoryInit):
+class _RandomFromTags(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'filter_tags': TunableTags(description='\n            Define tags to try and create the object. Picks randomly from\n            objects with these tags.\n            ', minlength=1)}
 
     def get_definition(self, resolver):
@@ -172,21 +209,15 @@ class _RandomFromTags(HasTunableSingletonFactory, AutoFactoryInit):
             return random.choice(filtered_defs)
         logger.error('{} create object basic extra tries to find object definitions tagged as {} , but no object definitions were found.', resolver, self.filter_tags, owner='jgiordano')
 
-    def setup_created_object(self, resolver, created_object):
-        pass
-
-    def get_source_object(self, resolver):
-        pass
-
 class TunableObjectCreationDataVariant(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), default='definition', **kwargs)
+        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), from_fishing_data=_CreateObjectFromFishingData.TunableFactory(), default='definition', **kwargs)
 
 class ObjectCreationMixin:
     INVENTORY = 'inventory'
     CARRY = 'carry'
-    FACTORY_TUNABLES = {'creation_data': TunableObjectCreationDataVariant(description='\n            Define the object to create.\n            '), 'initial_states': TunableList(description='\n            A list of states to apply to the object as soon as it is created.\n            ', tunable=TunableTuple(description='\n                The state to apply and optional tests to decide if the state\n                should apply.\n                ', state=TunableStateValueReference(), tests=OptionalTunable(description='\n                    If enabled, the state will only get set on the created\n                    object if the tests pass. Note: These tests can not be\n                    performed on the newly created object.\n                    ', tunable=TunableTestSet()))), 'destroy_on_placement_failure': Tunable(description='\n            If checked, the created object will be destroyed on placement failure.\n            If unchecked, the created object will be placed into an appropriate\n            inventory on placement failure if possible.  If THAT fails, object\n            will be destroyed.\n            ', tunable_type=bool, default=False), 'owner_sim': TunableEnumEntry(description='\n            The participant Sim whose household should own the object. Leave this\n            as Invalid to not assign ownership.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantType.Invalid), 'location': TunableVariant(description='\n            Where the object should be created.\n            ', default='position', position=_PlacementStrategyLocation.TunableFactory(), slot=_PlacementStrategySlot.TunableFactory(), inventory=TunableTuple(description='\n                An inventory based off of the chosen Participant Type.\n                ', locked_args={'location': INVENTORY}, location_target=TunableEnumEntry(description='\n                    "The owner of the inventory the object will be created in."\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), mark_object_as_stolen_from_career=Tunable(description='\n                    Marks the object as stolen from a career by the tuned location_target participant.\n                    This should only be checked if this basic extra is on a CareerSuperInteraction.\n                    ', tunable_type=bool, default=False)), carry=TunableTuple(description='\n                Carry the object. Note: This expects an animation in the\n                interaction to trigger the carry.\n                ', locked_args={'location': CARRY}, carry_track_override=OptionalTunable(description='\n                    If enabled, specify which carry track the Sim must use to carry the\n                    created object.\n                    ', tunable=TunableEnumEntry(description='\n                        Which hand to carry the object in.\n                        ', tunable_type=PostureTrackGroup, default=PostureTrack.RIGHT)))), 'reserve_object': OptionalTunable(description='\n            If this is enabled, the created object will be reserved for use by\n            the set Sim.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor)), 'temporary_tags': OptionalTunable(description='\n            If enabled, these Tags are added to the created object and DO NOT\n            persist.\n            ', tunable=TunableSet(description='\n                A set of temporary tags that are added to the created object.\n                These tags DO NOT persist.\n                ', tunable=TunableEnumEntry(description='\n                    A tag that is added to the created object. This tag DOES\n                    NOT persist.\n                    ', tunable_type=Tag, default=Tag.INVALID), minlength=1))}
+    INSTANCE_TUNABLES = FACTORY_TUNABLES = {'creation_data': TunableObjectCreationDataVariant(description='\n            Define the object to create.\n            '), 'initial_states': TunableList(description='\n            A list of states to apply to the object as soon as it is created.\n            ', tunable=TunableTuple(description='\n                The state to apply and optional tests to decide if the state\n                should apply.\n                ', state=TunableStateValueReference(), tests=OptionalTunable(description='\n                    If enabled, the state will only get set on the created\n                    object if the tests pass. Note: These tests can not be\n                    performed on the newly created object.\n                    ', tunable=TunableTestSet()))), 'destroy_on_placement_failure': Tunable(description='\n            If checked, the created object will be destroyed on placement failure.\n            If unchecked, the created object will be placed into an appropriate\n            inventory on placement failure if possible.  If THAT fails, object\n            will be destroyed.\n            ', tunable_type=bool, default=False), 'owner_sim': TunableEnumEntry(description='\n            The participant Sim whose household should own the object. Leave this\n            as Invalid to not assign ownership.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantType.Invalid), 'location': TunableVariant(description='\n            Where the object should be created.\n            ', default='position', position=_PlacementStrategyLocation.TunableFactory(), slot=_PlacementStrategySlot.TunableFactory(), inventory=TunableTuple(description='\n                An inventory based off of the chosen Participant Type.\n                ', locked_args={'location': INVENTORY}, location_target=TunableEnumEntry(description='\n                    "The owner of the inventory the object will be created in."\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), mark_object_as_stolen_from_career=Tunable(description='\n                    Marks the object as stolen from a career by the tuned location_target participant.\n                    This should only be checked if this basic extra is on a CareerSuperInteraction.\n                    ', tunable_type=bool, default=False)), carry=TunableTuple(description='\n                Carry the object. Note: This expects an animation in the\n                interaction to trigger the carry.\n                ', locked_args={'location': CARRY}, carry_track_override=OptionalTunable(description='\n                    If enabled, specify which carry track the Sim must use to carry the\n                    created object.\n                    ', tunable=TunableEnumEntry(description='\n                        Which hand to carry the object in.\n                        ', tunable_type=PostureTrackGroup, default=PostureTrack.RIGHT)))), 'reserve_object': OptionalTunable(description='\n            If this is enabled, the created object will be reserved for use by\n            the set Sim.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor)), 'temporary_tags': OptionalTunable(description='\n            If enabled, these Tags are added to the created object and DO NOT\n            persist.\n            ', tunable=TunableSet(description='\n                A set of temporary tags that are added to the created object.\n                These tags DO NOT persist.\n                ', tunable=TunableEnumEntry(description='\n                    A tag that is added to the created object. This tag DOES\n                    NOT persist.\n                    ', tunable_type=Tag, default=Tag.INVALID), minlength=1))}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

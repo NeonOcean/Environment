@@ -120,12 +120,13 @@ class BuffRemovalOp(BaseLootOperation):
                 if not buff.visible:
                     continue
                 if buff.commodity is not None:
+                    if subject.is_statistic_type_added_by_modifier(buff.commodity):
+                        continue
                     tracker = subject.get_tracker(buff.commodity)
                     commodity_inst = tracker.get_statistic(buff.commodity)
                     if commodity_inst.core:
                         continue
-                else:
-                    subject.Buffs.remove_buff_entry(buff)
+                subject.Buffs.remove_buff_entry(buff)
             else:
                 subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove)
         else:

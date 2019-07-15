@@ -31,8 +31,8 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         if commodity is not None and (not commodity.core and commodity.remove_on_convergence) and commodity.is_at_convergence():
             self.remove_statistic(stat_type)
 
-    def set_value(self, stat_type, value, from_load=False, **kwargs):
-        super().set_value(stat_type, value, from_load=from_load, **kwargs)
+    def set_value(self, stat_type, value, from_load=False, from_init=False, **kwargs):
+        super().set_value(stat_type, value, from_load=from_load, from_init=from_init, **kwargs)
         self._cleanup_noncore_commodity(stat_type)
 
     def add_value(self, stat_type, increment, **kwargs):

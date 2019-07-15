@@ -12,8 +12,11 @@ from objects.components.shared_inventory_component import SharedInventoryContain
 from objects.components.statistic_component import HasStatisticComponent
 from objects.object_enums import ItemLocation
 from objects.system import create_object
+from plex.plex_enums import PlexBuildingType
 from sims4.math import vector_normalize
 from sims4.utils import constproperty
+from terrain import get_water_depth
+from world.lot_enums import LotPositionStrategy
 from world.lot_tuning import GlobalLotTuningAndCleanup, LotTuningMaps
 from world.premade_lot_status import PremadeLotStatus
 import distributor
@@ -64,6 +67,22 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
         pos += self.position
         return pos
 
+    def get_uniform_sampling_of_points(self, samples_x, samples_z):
+        samples = []
+        step_x = 1/samples_x
+        step_z = 1/samples_z
+        for z in range(samples_z):
+            for x in range(samples_x):
+                pos = sims4.math.Vector3(-0.5 + step_x/2, 0, -0.5 + step_z/2)
+                pos.x += x*step_x
+                pos.z += z*step_z
+                pos.x *= self.size_x
+                pos.z *= self.size_z
+                pos = self.orientation.transform_vector(pos)
+                pos += self.center
+                samples.append(pos)
+        return samples
+
     def get_edge_polygons(self, width=5.0, depth=2.0):
         corners = self.corners
         polygons = []
@@ -96,7 +115,17 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
         elif position is not None:
             default_position = min(self.corners, key=lambda p: (p - position).magnitude_squared())
         else:
-            default_position = self.corners[0]
+            plex_service = services.get_plex_service()
+            if plex_service.get_plex_building_type(services.current_zone_id()) == PlexBuildingType.COASTAL:
+                for corner_position in self.corners:
+                    if get_water_depth(corner_position.x, corner_position.z) <= 0:
+                        default_position = corner_position
+                        break
+                else:
+                    logger.error("Couldn't find a corner that was not below water on the current lot. This is probably an error case. We need a place to put down things like the mailbox, etc.")
+                    default_position = self.corners[0]
+            else:
+                default_position = self.corners[0]
         delta = self.position - default_position
         if not sims4.math.vector3_almost_equal(delta, sims4.math.Vector3.ZERO()):
             default_position += vector_normalize(delta)
@@ -234,6 +263,15 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
             lot_data = premade_lot_status.add()
             lot_data.lot_id = self.lot_id
             lot_data.is_premade = is_premade
+
+    def get_lot_position(self, position_strategy):
+        if position_strategy == LotPositionStrategy.DEFAULT:
+            return self.get_default_position()
+        if position_strategy == LotPositionStrategy.RANDOM:
+            return self.get_random_point()
+        else:
+            logger.error('Invalid LotPositionStrategy: {}, returning default lot position', position_strategy, self, owner='bnguyen')
+            return self.get_default_position()
 
     def on_teardown(self):
         statistic_component = self.get_component(objects.components.types.STATISTIC_COMPONENT)

@@ -3,6 +3,7 @@ from collections import OrderedDict
 import itertools
 import math
 import random
+import time
 from protocolbuffers import SimObjectAttributes_pb2 as protocols, FileSerialization_pb2 as serialization, GameplaySaveData_pb2 as gameplay_serialization
 from protocolbuffers import SimsCustomOptions_pb2 as custom_options
 from protocolbuffers.DistributorOps_pb2 import SetWhimBucks
@@ -21,9 +22,11 @@ from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.tests import TunableTestSet
 from fame.fame_tuning import FameTunables
 from fame.lifestyle_brand_tracker import LifestyleBrandTracker
+from indexed_manager import ObjectLoadData
 from interactions.aop import AffordanceObjectPair
 from interactions.utils.adventure import AdventureTracker
 from interactions.utils.death import DeathTracker
+from interactions.utils.tunable import SetGoodbyeNotificationElement
 from notebook.notebook_tracker import NotebookTrackerSimInfo
 from objects import ALL_HIDDEN_REASONS, ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED, HiddenReasonFlag
 from objects.components import ComponentContainer, forward_to_components, forward_to_components_gen
@@ -36,7 +39,7 @@ from relics.relic_tracker import RelicTracker
 from reputation.reputation_tuning import ReputationTunables
 from services.persistence_service import PersistenceTuning
 from services.relgraph_service import RelgraphService
-from sickness.sickness_tracker import HasSicknessTrackerMixin
+from sickness.sickness_tracker import SicknessTracker
 from sims.aging.aging_mixin import AgingMixin
 from sims.baby.baby_utils import run_baby_spawn_behavior
 from sims.genealogy_relgraph_enums import SimRelBitFlags
@@ -56,6 +59,8 @@ from sims.sim_info_name_data import SimInfoNameData
 from sims.sim_info_tests import SimInfoTest, TraitTest
 from sims.sim_info_types import SimInfoSpawnerTags, SimSerializationOption, Gender, Species, SpeciesExtended
 from sims.sim_spawner_enums import SimInfoCreationSource
+from sims.suntan.suntan_ops import SetTanLevel
+from sims.suntan.suntan_tracker import SuntanTracker
 from sims.template_affordance_provider.template_affordance_tracker import TemplateAffordanceTracker
 from sims.unlock_tracker import UnlockTracker
 from sims4.common import is_available_pack, UnavailablePackError
@@ -84,6 +89,7 @@ import enum
 import event_testing
 import game_services
 import gsi_handlers
+import indexed_manager
 import objects.components
 import objects.system
 import placement
@@ -125,7 +131,7 @@ class TunableSimTestList(event_testing.tests.TestListLoadingMixin):
             description = 'A list of tests.  All tests must succeed to pass the TestSet.'
         super().__init__(description=description, tunable=TunableSimTestVariant())
 
-class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSourceMixin, AgingMixin, PregnancyClientMixin, SimInfoFavoriteMixin, HasSicknessTrackerMixin, ComponentContainer, HasStatisticComponent):
+class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSourceMixin, AgingMixin, PregnancyClientMixin, SimInfoFavoriteMixin, ComponentContainer, HasStatisticComponent):
 
     class BodyBlendTypes(enum.Int, export=False):
         BODYBLENDTYPE_HEAVY = 0
@@ -159,7 +165,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
     APPLY_DEFAULT_AWAY_ACTION_INTERACTION = ApplyDefaultAwayActionInteraction.TunableReference(description='\n        Interaction that will be used to apply the default away action onto the\n        sim info.\n        ')
     SIM_SKEWER_AFFORDANCES = TunableList(description="\n        A list of affordances that will test and be available when the player\n        clicks on a Sim's interaction button in the Sim skewer.\n        ", tunable=TunableReference(description="\n            An affordance shown when the player clicks on a sim's\n            interaction button in the Sim skewer.\n            ", manager=services.affordance_manager()))
     MAX_WHIM_BUCKS = 999999999
-    SIM_INFO_TRACKERS = OrderedDict((('_relationship_tracker', RelationshipTracker), ('_trait_tracker', TraitTracker), ('_pregnancy_tracker', PregnancyTracker), ('_death_tracker', DeathTracker), ('_adventure_tracker', AdventureTracker), ('_royalty_tracker', RoyaltyTracker), ('_career_tracker', CareerTracker), ('_genealogy_tracker', GenealogyTracker), ('_story_progression_tracker', StoryProgressionTracker), ('_unlock_tracker', UnlockTracker), ('_away_action_tracker', AwayActionTracker), ('_notebook_tracker', NotebookTrackerSimInfo), ('_whim_tracker', whims.whims_tracker.WhimsTracker), ('_aspiration_tracker', aspirations.aspirations.AspirationTracker), ('_template_affordance_tracker', TemplateAffordanceTracker), ('_relic_tracker', RelicTracker), ('_lifestyle_brand_tracker', LifestyleBrandTracker)))
+    SIM_INFO_TRACKERS = OrderedDict((('_relationship_tracker', RelationshipTracker), ('_trait_tracker', TraitTracker), ('_pregnancy_tracker', PregnancyTracker), ('_death_tracker', DeathTracker), ('_adventure_tracker', AdventureTracker), ('_royalty_tracker', RoyaltyTracker), ('_career_tracker', CareerTracker), ('_genealogy_tracker', GenealogyTracker), ('_story_progression_tracker', StoryProgressionTracker), ('_unlock_tracker', UnlockTracker), ('_away_action_tracker', AwayActionTracker), ('_notebook_tracker', NotebookTrackerSimInfo), ('_whim_tracker', whims.whims_tracker.WhimsTracker), ('_aspiration_tracker', aspirations.aspirations.AspirationTracker), ('_template_affordance_tracker', TemplateAffordanceTracker), ('_relic_tracker', RelicTracker), ('_lifestyle_brand_tracker', LifestyleBrandTracker), ('_suntan_tracker', SuntanTracker), ('_sickness_tracker', SicknessTracker)))
 
     def __init__(self, *args, zone_id:int=0, zone_name='', world_id:int=0, account=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -204,7 +210,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         self._singed = False
         self._grubby = False
         self._plumbbob_override = None
-        self.goodbye_notification = None
+        self._goodbye_notification = None
         self._transform_on_load = None
         self._level_on_load = 0
         self._surface_id_on_load = 1
@@ -286,6 +292,8 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             return False
         old_lod = self._lod
         self._lod = new_lod
+        if self.household is not None:
+            self.household.on_sim_lod_update(self, old_lod, new_lod)
         for (tracker_attr, tracker_type) in SimInfo.SIM_INFO_TRACKERS.items():
             is_valid = tracker_type.is_valid_for_lod(new_lod)
             tracker = getattr(self, tracker_attr, None)
@@ -534,6 +542,17 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         return self._whim_bucks
 
     @property
+    def goodbye_notification(self):
+        return self._goodbye_notification
+
+    def try_to_set_goodbye_notification(self, value):
+        if self._goodbye_notification != SetGoodbyeNotificationElement.NEVER_USE_NOTIFICATION_NO_MATTER_WHAT:
+            self._goodbye_notification = value
+
+    def clear_goodbye_notification(self):
+        self._goodbye_notification = None
+
+    @property
     def clothing_preference_gender(self):
         if self.has_trait(GlobalGenderPreferenceTuning.MALE_CLOTHING_PREFERENCE_TRAIT):
             return Gender.MALE
@@ -586,6 +605,53 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
     @property
     def notebook_tracker(self):
         return self._notebook_tracker
+
+    @property
+    def sickness_tracker(self):
+        return self._sickness_tracker
+
+    @property
+    def current_sickness(self):
+        if self._sickness_tracker is None:
+            return
+        return self._sickness_tracker.current_sickness
+
+    def has_sickness_tracking(self):
+        return self.current_sickness is not None
+
+    def is_sick(self):
+        current_sickness = self.current_sickness
+        return current_sickness is not None and current_sickness.considered_sick
+
+    def has_sickness(self, sickness):
+        return self.current_sickness is sickness
+
+    def sickness_record_last_progress(self, progress):
+        self._sickness_tracker.record_last_progress(progress)
+
+    def discover_symptom(self, symptom):
+        self._sickness_tracker.discover_symptom(symptom)
+
+    def track_examination(self, affordance):
+        self._sickness_tracker.track_examination(affordance)
+
+    def track_treatment(self, affordance):
+        self._sickness_tracker.track_treatment(affordance)
+
+    def rule_out_treatment(self, affordance):
+        self._sickness_tracker.rule_out_treatment(affordance)
+
+    def was_symptom_discovered(self, symptom):
+        return symptom in self._sickness_tracker.discovered_symptoms
+
+    def was_exam_performed(self, affordance):
+        return affordance in self._sickness_tracker.exams_performed
+
+    def was_treatment_performed(self, affordance):
+        return affordance in self._sickness_tracker.treatments_performed
+
+    def was_treatment_ruled_out(self, affordance):
+        return affordance in self._sickness_tracker.ruled_out_treatments
 
     @distributor.fields.Field(op=distributor.ops.SetAwayAction)
     def current_away_action(self):
@@ -853,6 +919,20 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
     @property
     def lifestyle_brand_tracker(self):
         return self._lifestyle_brand_tracker
+
+    @property
+    def suntan_tracker(self):
+        return self._suntan_tracker
+
+    @distributor.fields.Field(op=SetTanLevel)
+    def suntan_data(self):
+        return self.suntan_tracker
+
+    resend_suntan_data = suntan_data.get_resend()
+
+    def force_resend_suntan_data(self):
+        if self.suntan_tracker:
+            self.suntan_tracker.set_tan_level(force_update=True)
 
     @property
     def revision(self):
@@ -1541,6 +1621,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         attributes_save.statistics_tracker.statistics.extend(regular_statistics)
         attributes_save.skill_tracker.skills.extend(skill_statistics)
         attributes_save.ranked_statistic_tracker.ranked_statistics.extend(ranked_statistics)
+        attributes_save.suntan_tracker = self._suntan_tracker.save()
         if self._aspiration_tracker is not None:
             self._aspiration_tracker.save(attributes_save.event_data_tracker)
         elif old_attributes_save is not None:
@@ -1565,12 +1646,16 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             attributes_save.relic_tracker = self._relic_tracker.save()
         elif old_attributes_save is not None:
             attributes_save.relic_tracker.MergeFrom(old_attributes_save.relic_tracker)
+        if self._sickness_tracker is not None:
+            if self._sickness_tracker.should_persist_data():
+                attributes_save.sickness_tracker = self._sickness_tracker.sickness_tracker_save_data()
+        elif old_attributes_save is not None:
+            attributes_save.sickness_tracker.MergeFrom(old_attributes_save.sickness_tracker)
         if self._lifestyle_brand_tracker is not None:
             attributes_save.lifestyle_brand_tracker = self._lifestyle_brand_tracker.save()
         elif old_attributes_save is not None:
             attributes_save.lifestyle_brand_tracker.MergeFrom(old_attributes_save.lifestyle_brand_tracker)
         attributes_save.appearance_tracker = self.appearance_tracker.save_appearance_tracker()
-        attributes_save.sickness_tracker = self.sickness_tracker.sickness_tracker_save_data()
         return attributes_save
 
     def _get_serialization_option(self):
@@ -1641,6 +1726,11 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         required_pack = SpeciesExtended.get_required_pack(self.extended_species)
         if required_pack is not None and not is_available_pack(required_pack):
             raise UnavailablePackError('Cannot load Sims with species {}'.format(self.extended_species))
+        if indexed_manager.capture_load_times:
+            time_stamp = time.time()
+            species_def = self.get_sim_definition(self.species)
+            if species_def not in indexed_manager.object_load_times:
+                indexed_manager.object_load_times[species_def] = ObjectLoadData()
         self._sim_creation_path = sim_proto.sim_creation_path
         self._lod = SimInfoLODLevel(sim_proto.sim_lod) if sim_proto.HasField('sim_lod') else default_lod
         self._initialize_sim_info_trackers(self._lod)
@@ -1650,9 +1740,17 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         self._base.age = types.Age(sim_proto.age)
         if not INJECT_LOD_NAME_IN_CALLSTACK:
             self._load_sim_info(sim_proto, skip_load, is_clone=is_clone)
+            if indexed_manager.capture_load_times:
+                time_elapsed = time.time() - time_stamp
+                indexed_manager.object_load_times[species_def].time_spent_loading += time_elapsed
+                indexed_manager.object_load_times[species_def].loads += 1
             return
         name_f = create_custom_named_profiler_function('Load LOD {} SimInfo'.format(self._lod.name))
         name_f(lambda : self._load_sim_info(sim_proto, skip_load, is_clone=is_clone))
+        if indexed_manager.capture_load_times:
+            time_elapsed = time.time() - time_stamp
+            indexed_manager.object_load_times[species_def].time_spent_loading += time_elapsed
+            indexed_manager.object_load_times[species_def].loads += 1
 
     def _load_sim_info(self, sim_proto, skip_load, is_clone=False):
         self._base.first_name = sim_proto.first_name
@@ -1779,6 +1877,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                 self.statistic_tracker.load(sim_attribute_data.statistics_tracker.statistics, skip_load=skip_load)
                 self.commodity_tracker.load(sim_attribute_data.skill_tracker.skills, update_affordance_cache=False)
                 self.commodity_tracker.load(sim_attribute_data.ranked_statistic_tracker.ranked_statistics, update_affordance_cache=True)
+                self._suntan_tracker.load(sim_attribute_data.suntan_tracker)
                 skills_to_check_for_unlocks = [commodity for commodity in self.commodity_tracker.get_all_commodities() if commodity.unlocks_skills_on_max() if len(commodity.skill_unlocks_on_max) > 0]
                 if skills_to_check_for_unlocks:
                     self._check_skills_for_unlock(skills_to_check_for_unlocks, sim_attribute_data.skill_tracker.skills)
@@ -1844,19 +1943,7 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         sim_info_manager = services.sim_info_manager()
         for squad_member_id in sim_proto.gameplay_data.squad_members:
             self.add_sim_info_id_to_squad(squad_member_id)
-        self._fix_up_sim_info()
         self._post_load()
-
-    def _fix_up_sim_info(self):
-        blacklisted_statistics = self.get_blacklisted_statistics()
-        if blacklisted_statistics:
-            return
-        if self.has_component(objects.components.types.STATISTIC_COMPONENT):
-            statistic_component = self.statistic_component
-            for stat in list(statistic_component.get_all_stats_gen()):
-                if stat in blacklisted_statistics:
-                    tracker = statistic_component.get_tracker(stat)
-                    tracker.remove_statistic(stat)
 
     def _get_time_to_go_home(self):
         random_minutes = PersistenceTuning.MINUTES_STAY_ON_LOT_BEFORE_GO_HOME.random_int()
@@ -1939,14 +2026,14 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
                 else:
                     attribute_data = protocols.PersistenceMaster()
                     attribute_data.ParseFromString(inv_obj.attributes)
-                    if inventory_manager._has_item_failed_claiming(inv_obj.object_id, attribute_data.data):
+                    if inventory_manager.has_inventory_item_failed_claiming(inv_obj.object_id, attribute_data.data):
                         count += 1
                     else:
                         pruned_inventory.objects.append(inv_obj)
             else:
                 attribute_data = protocols.PersistenceMaster()
                 attribute_data.ParseFromString(inv_obj.attributes)
-                if inventory_manager._has_item_failed_claiming(inv_obj.object_id, attribute_data.data):
+                if inventory_manager.has_inventory_item_failed_claiming(inv_obj.object_id, attribute_data.data):
                     count += 1
                 else:
                     pruned_inventory.objects.append(inv_obj)
@@ -2033,7 +2120,6 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
             return
         if self._bucks_tracker is not None:
             self._bucks_tracker.on_all_households_and_sim_infos_loaded()
-        self._relationship_tracker.add_neighbor_bit_if_necessary()
         self._pregnancy_tracker.refresh_pregnancy_data()
         if not self.premade_sim_template_id:
             self.update_school_data()
@@ -2224,6 +2310,8 @@ class SimInfo(SimInfoWithOccultTracker, SimInfoCreationSource.SimInfoCreationSou
         highest_advertising_away_action = None
         if services.hidden_sim_service().default_away_action(self.id) is not None:
             return services.hidden_sim_service().default_away_action(self.id)
+        if not is_instance and services.daycare_service().is_sim_info_at_daycare(self):
+            return services.daycare_service().default_away_action(self)
         for (commodity, away_action) in SimInfo.DEFAULT_AWAY_ACTION.items():
             if is_instance and not away_action.available_when_instanced:
                 continue

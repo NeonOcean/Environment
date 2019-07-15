@@ -37,14 +37,17 @@ class _WaypointGeneratorMultipleObjectByTag(_WaypointGeneratorBase):
             return
         starting_object = self._valid_objects.pop(0)
         self._start_constraint = Circle(starting_object.position, self.constrain_radius, routing_surface=self._sim.routing_surface, los_reference_point=None)
+        self._start_constraint = self._start_constraint.intersect(self.get_water_constraint())
 
     def get_start_constraint(self):
         return self._start_constraint
 
-    def get_waypoint_constraints_gen(self, sim, waypoint_count):
+    def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
+        water_constraint = self.get_water_constraint()
         for _ in range(waypoint_count - 1):
             if not self._valid_objects:
                 return
             obj = self._valid_objects.pop(0)
             next_constraint_circle = Circle(obj.position, self.constrain_radius, los_reference_point=None, routing_surface=obj.routing_surface)
+            next_constraint_circle = next_constraint_circle.intersect(water_constraint)
             yield next_constraint_circle

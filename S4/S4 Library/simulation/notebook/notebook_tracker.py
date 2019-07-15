@@ -7,14 +7,19 @@ from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import IconInfoData, create_icon_info_msg
 from distributor.system import Distributor
+from event_testing.resolver import SingleSimResolver
+from fishing.fishing_tuning import FishingTuning
+from notebook.notebook_entry import SubEntryData
 from objects import ALL_HIDDEN_REASONS
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_tracker import SimInfoTracker
 from sims4.localization import LocalizationHelperTuning
 from sims4.utils import classproperty
-from ui.notebook_tuning import NotebookTuning
+from ui.notebook_tuning import NotebookTuning, NotebookCustomTypeTuning, NotebookSubCategories
+from ui.ui_dialog import CommandArgType
 import services
 import sims4.resources
+logger = sims4.log.Logger('Notebook')
 
 class NotebookTrackerSimInfo(SimInfoTracker):
 
@@ -27,16 +32,24 @@ class NotebookTrackerSimInfo(SimInfoTracker):
         self._notebook_entries.clear()
         self._notebook_entry_catsubcat_cache.clear()
 
-    def unlock_entry(self, notebook_entry, from_load=False):
+    def unlock_entry(self, notebook_entry, from_load=False, notifications=None, resolver=None):
+        if resolver is None:
+            resolver = SingleSimResolver(self._owner)
+        response_command_tuple = (CommandArgType.ARG_TYPE_INT, self._owner.id)
         notebook_entries = self._notebook_entries.get(notebook_entry.subcategory_id)
         if notebook_entries and notebook_entry.has_identical_entries(notebook_entries):
+            if notifications and notifications.unlocked_failed_notification:
+                dialog = notifications.unlocked_failed_notification(self._owner, resolver)
+                dialog.show_dialog(response_command_tuple=response_command_tuple)
             return
-        notebook_entry.new_entry = True
         self._notebook_entries[notebook_entry.subcategory_id].append(notebook_entry)
         category_id = NotebookTuning.get_category_id(notebook_entry.subcategory_id)
         self._notebook_entry_catsubcat_cache[category_id].add(notebook_entry.subcategory_id)
+        if notifications and notifications.unlocked_success_notification:
+            dialog = notifications.unlocked_success_notification(self._owner, resolver)
+            dialog.show_dialog(response_command_tuple=response_command_tuple)
         if not from_load:
-            NotebookTuning.show_entry_unlocked_notification(notebook_entry.category_id, notebook_entry.subcategory_id, self._owner)
+            notebook_entry.new_entry = True
 
     def remove_entries_by_subcategory(self, subcategory_id):
         category_id = NotebookTuning.get_category_id(subcategory_id)
@@ -57,49 +70,87 @@ class NotebookTrackerSimInfo(SimInfoTracker):
         if not notebook_entries:
             self.remove_entries_by_subcategory(subcategory_id)
 
-    def generate_notebook_information(self):
+    def mark_entry_as_seen(self, subcategory_id, entry_id):
+        entry = None
+        for notebook_entry in self._notebook_entries[subcategory_id]:
+            if entry_id == notebook_entry.entry_object_definition_id:
+                entry = notebook_entry
+                break
+        else:
+            logger.error('Failed to find notebook entry with SubcategoryId: {} and EntryDefinitionId: {} on Sim: {}.', NotebookSubCategories(subcategory_id), entry_id, self._owner)
+            return
+        for (i, sub_entry) in enumerate(entry.sub_entries):
+            if sub_entry.new_sub_entry:
+                entry.sub_entries[i] = SubEntryData(sub_entry.sub_entry_id, False)
+
+    def generate_notebook_information(self, initial_selected_category=None):
         msg = UI_pb2.NotebookView()
         if self._notebook_entries:
             ingredient_cache = StartCraftingMixin.get_default_candidate_ingredients(self._owner.get_sim_instance())
-        for category_id in self._notebook_entry_catsubcat_cache.keys():
+        for (index, category_id) in enumerate(self._notebook_entry_catsubcat_cache.keys()):
+            if initial_selected_category is not None:
+                if category_id == initial_selected_category:
+                    msg.selected_category_index = index
             with ProtocolBufferRollback(msg.categories) as notebook_category_message:
                 category_tuning = NotebookTuning.NOTEBOOK_CATEGORY_MAPPING[category_id]
                 notebook_category_message.category_name = category_tuning.category_name
+                if category_tuning.category_description is not None:
+                    notebook_category_message.category_description = category_tuning.category_description
                 notebook_category_message.category_icon = create_icon_info_msg(IconInfoData(icon_resource=category_tuning.category_icon))
                 valid_subcategories = self._notebook_entry_catsubcat_cache[category_id]
                 for subcategory_id in valid_subcategories:
                     with ProtocolBufferRollback(notebook_category_message.subcategories) as notebook_subcategory_message:
                         subcategory_tuning = category_tuning.subcategories[subcategory_id]
+                        notebook_subcategory_message.subcategory_id = subcategory_id
                         notebook_subcategory_message.subcategory_name = subcategory_tuning.subcategory_name
                         notebook_subcategory_message.subcategory_icon = create_icon_info_msg(IconInfoData(icon_resource=subcategory_tuning.subcategory_icon))
                         notebook_subcategory_message.subcategory_tooltip = subcategory_tuning.subcategory_tooltip
                         notebook_subcategory_message.entry_type = subcategory_tuning.format_type
                         if subcategory_tuning.show_max_entries is not None:
                             notebook_subcategory_message.max_num_entries = subcategory_tuning.show_max_entries
+                        if subcategory_tuning.is_sortable is None:
+                            notebook_subcategory_message.is_sortable = False
+                            notebook_subcategory_message.is_new_entry_sortable = False
+                        else:
+                            notebook_subcategory_message.is_sortable = True
+                            notebook_subcategory_message.is_new_entry_sortable = subcategory_tuning.is_sortable.include_new_entry
                         subcategory_entries = self._notebook_entries[subcategory_id]
-                        for entry in subcategory_entries:
+                        for entry in reversed(subcategory_entries):
                             if entry is None:
                                 continue
                             if entry.is_definition_based():
                                 definition_data = entry.get_definition_notebook_data(ingredient_cache=ingredient_cache)
                                 if definition_data is not None:
-                                    self._fill_notebook_entry_data(notebook_subcategory_message, definition_data, True, entry.new_entry)
+                                    self._fill_notebook_entry_data(notebook_subcategory_message, subcategory_tuning, definition_data, entry.entry_object_definition_id, True, entry.new_entry)
                             else:
-                                self._fill_notebook_entry_data(notebook_subcategory_message, entry, False, entry.new_entry)
+                                self._fill_notebook_entry_data(notebook_subcategory_message, subcategory_tuning, entry, entry.entry_object_definition_id, False, entry.new_entry)
                             entry.new_entry = False
         op = GenericProtocolBufferOp(Operation.NOTEBOOK_VIEW, msg)
-        Distributor.instance().add_op_with_no_owner(op)
+        Distributor.instance().add_op(self._owner, op)
 
-    def _fill_notebook_entry_data(self, notebook_subcategory_message, entry, definition_based, new_entry):
+    def _fill_notebook_entry_data(self, notebook_subcategory_message, subcategory_tuning, entry, entry_def_id, definition_based, new_entry):
         active_sim = self._owner.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
         with ProtocolBufferRollback(notebook_subcategory_message.entries) as notebook_entry_message:
             notebook_entry_message.entry_message = entry.entry_text
+            if entry_def_id is not None:
+                notebook_entry_message.entry_id = entry_def_id
             if entry.entry_icon_info_data is not None:
                 notebook_entry_message.entry_icon = create_icon_info_msg(entry.entry_icon_info_data)
             if entry.entry_tooltip is not None:
-                notebook_entry_message.entry_tooltip = entry.entry_tooltip
+                notebook_entry_message.entry_metadata_hovertip.hover_tip = entry.entry_tooltip.tooltip_style
+                for (tooltip_key, tooltip_text) in entry.entry_tooltip.tooltip_fields.items():
+                    setattr(notebook_entry_message.entry_metadata_hovertip, tooltip_key.name, tooltip_text)
             notebook_entry_message.new_entry = new_entry
-            if entry.entry_sublist is not None:
+            if entry.entry_sublist:
+                entry_list_description = subcategory_tuning.entry_list_texts.has_list_text
+                if entry_list_description is not None:
+                    notebook_entry_message.entry_list_description = entry_list_description
+                if entry.entry_sublist_is_sortable is None:
+                    notebook_entry_message.is_sortable = False
+                    notebook_entry_message.is_new_item_sortable = False
+                else:
+                    notebook_entry_message.is_sortable = True
+                    notebook_entry_message.is_new_item_sortable = entry.entry_sublist_is_sortable.include_new_entry
                 for sublist_data in entry.entry_sublist:
                     with ProtocolBufferRollback(notebook_entry_message.entry_list) as notebook_entry_list_message:
                         if sublist_data.is_ingredient:
@@ -115,18 +166,30 @@ class NotebookTrackerSimInfo(SimInfoTracker):
                         else:
                             notebook_entry_list_message.item_count = 0
                         notebook_entry_list_message.item_total = sublist_data.num_objects_required
+                        notebook_entry_list_message.new_item = sublist_data.new_item
+                        if sublist_data.item_icon_info_data is not None:
+                            notebook_entry_list_message.item_icon = create_icon_info_msg(sublist_data.item_icon_info_data)
+                        if sublist_data.item_tooltip is not None:
+                            notebook_entry_list_message.item_tooltip = sublist_data.item_tooltip
+            else:
+                entry_list_description = subcategory_tuning.entry_list_texts.no_list_text
+                if entry_list_description is not None:
+                    notebook_entry_message.entry_list_description = entry_list_description
 
     def save_notebook(self):
         notebook_tracker_data = protocols.PersistableNotebookTracker()
-        for cateogry_list in self._notebook_entries.values():
-            for entry in cateogry_list:
+        for category_list in self._notebook_entries.values():
+            for entry in category_list:
                 with ProtocolBufferRollback(notebook_tracker_data.notebook_entries) as entry_data:
                     entry_data.tuning_reference_id = entry.guid64
                     entry_data.new_entry = entry.new_entry
                     if entry.is_definition_based():
-                        entry_data.object_entry_ids.extend(entry.entry_object_definition_ids)
-                        if entry.recipe_object_definition_id is not None:
-                            entry_data.object_recipe_id = entry.recipe_object_definition_id
+                        if entry.entry_object_definition_id is not None:
+                            entry_data.object_recipe_id = entry.entry_object_definition_id
+                        for sub_entry in entry.sub_entries:
+                            with ProtocolBufferRollback(entry_data.object_sub_entries) as sub_entry_data:
+                                sub_entry_data.sub_entry_id = sub_entry.sub_entry_id
+                                sub_entry_data.new_sub_entry = sub_entry.new_sub_entry
         return notebook_tracker_data
 
     def load_notebook(self, notebook_proto_msg):
@@ -137,8 +200,21 @@ class NotebookTrackerSimInfo(SimInfoTracker):
             if tuning_instance is None:
                 continue
             object_entry_ids = list(notebook_data.object_entry_ids)
-            object_recipe_id = notebook_data.object_recipe_id
-            self._owner.notebook_tracker.unlock_entry(tuning_instance(object_recipe_id, object_entry_ids, notebook_data.new_entry), from_load=True)
+            object_definition_id = notebook_data.object_recipe_id
+            sub_entries = []
+            if object_entry_ids:
+                if tuning_instance is NotebookCustomTypeTuning.BAIT_NOTEBOOK_ENTRY:
+                    object_entry_ids = FishingTuning.get_fishing_bait_data_set(object_entry_ids)
+                for sub_entry_id in object_entry_ids:
+                    sub_entries.append(SubEntryData(sub_entry_id, False))
+            else:
+                for sub_entry in notebook_data.object_sub_entries:
+                    sub_entries.append(SubEntryData(sub_entry.sub_entry_id, sub_entry.new_sub_entry))
+            self._owner.notebook_tracker.unlock_entry(tuning_instance(object_definition_id, sub_entries, notebook_data.new_entry), from_load=True)
+
+    @property
+    def unlocked_category_ids(self):
+        return self._notebook_entry_catsubcat_cache.keys()
 
     @classproperty
     def _tracker_lod_threshold(cls):

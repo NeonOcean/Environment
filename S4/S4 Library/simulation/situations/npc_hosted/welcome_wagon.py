@@ -3,7 +3,7 @@ from crafting.crafting_interactions import DebugCreateCraftableInteraction
 from date_and_time import create_time_span
 from interactions.context import InteractionContext, QueueInsertStrategy
 from interactions.priority import Priority
-from sims4.tuning.tunable import TunableSimMinute, TunableReference, TunableRange
+from sims4.tuning.tunable import TunableSimMinute, TunableReference, TunableRange, TunableList
 from sims4.tuning.tunable_base import GroupNames
 from situations.base_situation import _RequestUserData
 from situations.bouncer.bouncer_request import SelectableSimRequestFactory
@@ -14,6 +14,7 @@ from situations.situation_guest_list import SituationGuestList, SituationGuestIn
 import services
 import sims4.tuning.instances
 import situations.bouncer
+logger = sims4.log.Logger('Welcome Wagon')
 WAIT_TO_BE_LET_IN_TIMEOUT = 'wait_to_be_let_in_timeout'
 FRUITCAKE_TOKEN = 'fruitcake_id'
 
@@ -25,7 +26,11 @@ class _MakeFruitcakeSituationState(CommonInteractionCompletedSituationState):
         if self.owner._fruitcake_id is not None:
             target = services.current_zone().inventory_manager.get(self.owner._fruitcake_id)
         else:
-            target = DebugCreateCraftableInteraction.create_craftable(self.owner._fruitcake_recipe, sim, owning_household_id_override=services.active_household_id(), place_in_crafter_inventory=True)
+            bearer_recipe = random.choice(self.owner._bearer_recipes)
+            if bearer_recipe is None:
+                logger.error('No recipes tuned for the fruitcake-bearer. Recipe                creation failed for {} situation', self, owner='shipark')
+                return (role_state_type, None)
+            target = DebugCreateCraftableInteraction.create_craftable(bearer_recipe, sim, owning_household_id_override=services.active_household_id(), place_in_crafter_inventory=True)
             if target is None:
                 raise ValueError('No craftable created for {} on {}'.format(self.owner._fruitcake_recipe, self))
             self.owner._fruitcake_id = target.id
@@ -41,7 +46,7 @@ class _HasNoFrontDoorSituationStartingState(_MakeFruitcakeSituationState):
     pass
 
 class PreWelcomeWagon(SituationComplexCommon):
-    INSTANCE_TUNABLES = {'has_front_door_situation_starting_state': _HasFrontDoorSituationStartingState.TunableFactory(description='\n                The first state of this situation in the case that the lot\n                has a front door.  If it does not then the Has No Front Door\n                Situation Starting State will be started instead.\n                ', tuning_group=GroupNames.STATE), 'has_no_front_door_situation_starting_state': _HasNoFrontDoorSituationStartingState.TunableFactory(description='\n                The first state of this situation in the case that the lot has\n                no front door.  Sims should be routing to the arrival spawn\n                point.\n                ', tuning_group=GroupNames.STATE), '_door_knocker_situation_job': TunableReference(description='\n                The job for the situation door knocker.  This sim will end up\n                being the host for the situation.\n                ', manager=services.situation_job_manager()), '_fruitcake_bearer_situation_job': TunableReference(description='\n                The job for the bearing of the vile nastiness known as...\n                \n                \n                ...fruitcake...\n                ', manager=services.situation_job_manager()), '_other_neighbors_job': TunableReference(description='\n                The job for all of the other neighbors in the situation.\n                ', manager=services.situation_job_manager()), '_number_of_neighbors': TunableRange(description="\n                The number of other neighbors to bring to the situation.  If\n                there aren't enough neighbors then none will be generated to\n                bring.\n                ", tunable_type=int, default=0, minimum=0), '_fruitcake_recipe': TunableReference(description='\n                A recipe for the revolting food product commonly known as...\n                \n                \n                ...fruitcake...\n                ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE)), '_welcome_wagon_situation': TunableReference(description='\n                The actual welcome wagon situation that we want to start once\n                we have actually gotten the Sims to where we want them to be.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))}
+    INSTANCE_TUNABLES = {'has_front_door_situation_starting_state': _HasFrontDoorSituationStartingState.TunableFactory(description='\n                The first state of this situation in the case that the lot\n                has a front door.  If it does not then the Has No Front Door\n                Situation Starting State will be started instead.\n                ', tuning_group=GroupNames.STATE), 'has_no_front_door_situation_starting_state': _HasNoFrontDoorSituationStartingState.TunableFactory(description='\n                The first state of this situation in the case that the lot has\n                no front door.  Sims should be routing to the arrival spawn\n                point.\n                ', tuning_group=GroupNames.STATE), '_door_knocker_situation_job': TunableReference(description='\n                The job for the situation door knocker.  This sim will end up\n                being the host for the situation.\n                ', manager=services.situation_job_manager()), '_fruitcake_bearer_situation_job': TunableReference(description='\n                The job for the bearing of the vile nastiness known as...\n                \n                \n                ...fruitcake...\n                ', manager=services.situation_job_manager()), '_other_neighbors_job': TunableReference(description='\n                The job for all of the other neighbors in the situation.\n                ', manager=services.situation_job_manager()), '_number_of_neighbors': TunableRange(description="\n                The number of other neighbors to bring to the situation.  If\n                there aren't enough neighbors then none will be generated to\n                bring.\n                ", tunable_type=int, default=0, minimum=0), '_bearer_recipes': TunableList(description='\n            A list of recipes from which a random selection will\n            be made and used by the fruitcake bearer to generate and carry\n            a craftable into the Pre Welcome Wagon situation.\n            ', tunable=TunableReference(description='\n                Recipe that will be brought in during the Pre Welcome Wagon \n                situation by the fruitcake-bearer.\n                ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE)), minlength=1), '_welcome_wagon_situation': TunableReference(description='\n                The actual welcome wagon situation that we want to start once\n                we have actually gotten the Sims to where we want them to be.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
 
     @classmethod

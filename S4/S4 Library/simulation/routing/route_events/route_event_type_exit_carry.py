@@ -16,12 +16,17 @@ class RouteEventTypeExitCarry(_RouteEventTypeCarry):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._owned_object = None
+        self._actually_run_prepare = self._duration_override is None
+        self._override_valid_for_scheduling = not self._actually_run_prepare
 
     @classmethod
     def test(cls, actor, event_data_tuning):
         return super().test(actor, event_data_tuning, ignore_carry=True)
 
     def prepare(self, actor):
+        if not self._actually_run_prepare:
+            self._actually_run_prepare = True
+            return True
 
         def set_target(asm):
             asm.set_current_state('entry')
@@ -30,6 +35,11 @@ class RouteEventTypeExitCarry(_RouteEventTypeCarry):
             return True
 
         super().prepare(actor, setup_asm_override=set_target)
+
+    def is_valid_for_scheduling(self, actor, path):
+        if self._override_valid_for_scheduling:
+            return True
+        return super().is_valid_for_scheduling(actor, path)
 
     def should_remove_on_execute(self):
         return False

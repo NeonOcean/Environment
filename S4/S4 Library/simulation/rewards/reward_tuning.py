@@ -85,7 +85,7 @@ class TunableRewardObject(TunableRewardBase):
                 return
         self._try_create_in_household_inventory(sim_info, obj=reward_object)
 
-    def _get_display_text(self):
+    def _get_display_text(self, resolver=None):
         return LocalizationHelperTuning.get_object_name(self._definition)
 
 class TunableRewardCASPart(TunableRewardBase):
@@ -114,7 +114,7 @@ class TunableRewardMoney(TunableRewardBase):
         if household is not None:
             household.funds.add(self._awarded_money, Consts_pb2.TELEMETRY_MONEY_ASPIRATION_REWARD, sim_info.get_sim_instance())
 
-    def _get_display_text(self):
+    def _get_display_text(self, resolver=None):
         return LocalizationHelperTuning.get_money(self._awarded_money)
 
 class TunableRewardTrait(TunableRewardBase):

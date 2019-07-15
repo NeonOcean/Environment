@@ -1,19 +1,21 @@
 from _sims4_collections import frozendict
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableMapping, TunableEnumEntry, TunableList, TunableTuple, OptionalTunable
+import enum
+import sims4.log
+import sims4.math
 from build_buy import is_location_outside
 from event_testing.resolver import SingleObjectResolver, SingleSimResolver
 from interactions.utils.loot import LootActions, LootOperationList
 from objects.components import Component, componentmethod_with_fallback
 from objects.components.types import WEATHER_AWARE_COMPONENT
+from routing import SurfaceType
+from routing.portals.portal_tuning import PortalFlags
 from routing.route_enums import RouteEventType, RoutingStageEvent
 from routing.route_events.route_event import RouteEvent
 from routing.route_events.route_event_provider import RouteEventProviderMixin
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableMapping, TunableEnumEntry, TunableList, TunableTuple, OptionalTunable
 from tunable_multiplier import TunableMultiplier
 from weather.weather_enums import WeatherType
-import enum
 import services
-import sims4.math
-import sims4.log
 logger = sims4.log.Logger('WeatherAwareComponent', default_owner='nabaker')
 
 class WeatherAwareComponent(RouteEventProviderMixin, Component, HasTunableFactory, AutoFactoryInit, component_name=WEATHER_AWARE_COMPONENT):
@@ -290,7 +292,21 @@ class WeatherAwareComponent(RouteEventProviderMixin, Component, HasTunableFactor
         added_exit_carry = False
         is_prev_point_outside = None
         prev_time = None
+        node = None
+        prev_node = None
+        prev_force_no_carry = False
         for (transform, routing_surface, time) in path.get_location_data_along_path_gen(time_step=0.5, start_time=start_time, end_time=end_time):
+            force_no_carry = routing_surface.type == SurfaceType.SURFACETYPE_POOL
+            if not force_no_carry:
+                node = path.node_at_time(time)
+                if node is prev_node:
+                    force_no_carry = prev_force_no_carry
+                elif not force_no_carry:
+                    if node.portal_object_id != 0:
+                        portal_object = services.object_manager(routing_surface.primary_id).get(node.portal_object_id)
+                        if portal_object is not None:
+                            portal_instance = portal_object.get_portal_by_id(node.portal_id)
+                            force_no_carry = portal_instance is not None and (portal_instance.portal_template is not None and (portal_instance.portal_template.required_flags is not None and portal_instance.portal_template.required_flags & PortalFlags.REQUIRE_NO_CARRY == PortalFlags.REQUIRE_NO_CARRY))
             level = 0 if routing_surface is None else routing_surface.secondary_id
             is_curr_point_outside = is_location_outside(self.owner.zone_id, transform.translation, level)
             if is_prev_point_outside is None:
@@ -304,16 +320,17 @@ class WeatherAwareComponent(RouteEventProviderMixin, Component, HasTunableFactor
                                 route_event_context.add_route_event(RouteEventType.FIRST_OUTDOOR, self.umbrella_route_events.enter_carry_event(provider=self, time=time))
                                 added_enter_carry = True
                 if not added_exit_carry:
-                    if not is_curr_point_outside:
-                        if is_prev_point_outside:
-                            if self._no_regular_put_away_scheduled(route_event_context):
-                                route_event_context.add_route_event(RouteEventType.LAST_OUTDOOR, self.umbrella_route_events.exit_carry_event(provider=self, time=prev_time))
-                                added_exit_carry = True
+                    if is_curr_point_outside or not is_prev_point_outside or force_no_carry:
+                        if self._no_regular_put_away_scheduled(route_event_context):
+                            route_event_context.add_route_event(RouteEventType.LAST_OUTDOOR, self.umbrella_route_events.exit_carry_event(provider=self, time=prev_time))
+                            added_exit_carry = True
                 if not can_carry_umbrella or added_enter_carry:
                     if added_exit_carry:
                         break
                 is_prev_point_outside = is_curr_point_outside
                 prev_time = time
+                prev_node = node
+                prev_force_no_carry = force_no_carry
         if self._safety_umbrella_putaway_event is None:
             location = path.final_location
             if not is_location_outside(self.owner.zone_id, location.transform.translation, location.routing_surface.secondary_id):

@@ -175,6 +175,13 @@ class PutDownSimAnywhereInteraction(PutDownSimInteraction):
         self._world_cost = world_cost
 
     def _get_carry_system_target(self, callback):
+        carryable_component = self._target.carryable_component
+        if carryable_component is not None:
+            (terrain_transform, terrain_routing_surface) = carryable_component._get_terrain_transform(self)
+            if not terrain_transform is None:
+                if not terrain_routing_surface is None:
+                    self._terrain_transform = terrain_transform
+                    self._terrain_routing_surface = terrain_routing_surface
         self._terrain_transform.orientation = self.sim.transform.orientation
         return CarrySystemTerrainTarget(self.sim, self.target, True, self._terrain_transform, custom_event_callback=callback)
 

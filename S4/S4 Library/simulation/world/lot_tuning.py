@@ -5,6 +5,7 @@ from event_testing.resolver import SingleObjectResolver
 from event_testing.tests import TunableTestSet
 from interactions import ParticipantType
 from objects.components.state import TunableStateValueReference
+from objects.components.types import VEHICLE_COMPONENT
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
 from sims4.tuning.tunable import TunableMapping, TunableLotDescription, TunableRegionDescription, HasTunableReference, TunableWorldDescription, TunableReference, TunableList, TunableFactory, TunableTuple, TunableVariant, Tunable, OptionalTunable
 from situations.ambient.walkby_tuning import SchedulingWalkbyDirector
@@ -111,6 +112,20 @@ class DestroyObject(TunableFactory):
     def __init__(self, *args, **kwargs):
         super().__init__(description='\n                Destroy the object.\n                ')
 
+class CleanupVehicle(TunableFactory):
+
+    @staticmethod
+    def factory(obj, _):
+        vehicle_component = obj.get_component(VEHICLE_COMPONENT)
+        household_owner_id = obj.get_household_owner_id()
+        if vehicle_component is not None and (household_owner_id is None or household_owner_id == 0) and not obj.interaction_refs:
+            GlobalLotTuningAndCleanup.objects_to_destroy.add(obj)
+
+    FACTORY_TYPE = factory
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, description="\n            Cleanup a vehicle that isn't being used by destroying it.\n            ", **kwargs)
+
 class ConstantAmount(TunableFactory):
 
     @staticmethod
@@ -155,7 +170,7 @@ class StatisticChange(TunableFactory):
 class GlobalLotTuningAndCleanup:
     OBJECT_COUNT_TUNING = TunableMapping(description='\n        Mapping between statistic and a set of tests that are run over the\n        objects on the lot on save.  The value of the statistic is set to the\n        number of objects that pass the tests.\n        ', key_type=TunableReference(description='\n            The statistic on the lot that will be set the value of the number\n            of objects that pass the test set that it is mapped to.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), pack_safe=True), value_type=TunableTestSet(description='\n            Test set that will be run on all objects on the lot to determine\n            what the value of the key statistic should be set to.\n            '))
     SET_STATISTIC_TUNING = TunableList(description='\n        A list of statistics and values that they will be set to on the lot\n        while saving it when the lot was running.\n        \n        These values are set before counting by tests on objects.\n        ', tunable=TunableTuple(statistic=TunableReference(description='\n                The statistic that will have its value set.\n                ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)), amount=Tunable(description='\n                The value that the statistic will be set to.\n                ', tunable_type=float, default=0.0)))
-    OBJECT_CLEANUP_TUNING = TunableList(description='\n        A list of actions to take when spinning up a zone in order to fix it\n        up based on statistic values that the lot has.\n        ', tunable=TunableTuple(count=TunableVariant(all_items=AllItems(), statistic_value=StatisticValue(), statistic_difference=StatisticDifference(), default='all_items', description='\n                    The maximum number of items that will have the action run\n                    on them. \n                '), possible_actions=TunableList(description='\n                The different possible actions that can be taken on objects on\n                the lot if tests pass.\n                ', tunable=TunableTuple(actions=TunableList(description='\n                        A group of actions to be taken on the object.\n                        ', tunable=TunableVariant(set_state=SetState(), destroy_object=DestroyObject(), statistic_change=StatisticChange(), default='set_state', description='\n                                The actual action that will be performed on the\n                                object if test passes.\n                            ')), tests=TunableTestSet(description='\n                        Tests that if they pass the object will be under\n                        consideration for this action being done on them.\n                        ')))))
+    OBJECT_CLEANUP_TUNING = TunableList(description='\n        A list of actions to take when spinning up a zone in order to fix it\n        up based on statistic values that the lot has.\n        ', tunable=TunableTuple(count=TunableVariant(all_items=AllItems(), statistic_value=StatisticValue(), statistic_difference=StatisticDifference(), default='all_items', description='\n                    The maximum number of items that will have the action run\n                    on them. \n                '), possible_actions=TunableList(description='\n                The different possible actions that can be taken on objects on\n                the lot if tests pass.\n                ', tunable=TunableTuple(actions=TunableList(description='\n                        A group of actions to be taken on the object.\n                        ', tunable=TunableVariant(set_state=SetState(), destroy_object=DestroyObject(), statistic_change=StatisticChange(), cleanup_vehicle=CleanupVehicle(), default='set_state', description='\n                                The actual action that will be performed on the\n                                object if test passes.\n                            ')), tests=TunableTestSet(description='\n                        Tests that if they pass the object will be under\n                        consideration for this action being done on them.\n                        ')))))
     objects_to_destroy = None
     _count_tuning_optimizer = None
 

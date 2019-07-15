@@ -210,12 +210,19 @@ class AffordanceResolver(Resolver):
         return 'AffordanceResolver: affordance: {}, actor {}'.format(self.affordance, self.actor)
 
     def get_participants(self, participant_type, **kwargs):
-        if participant_type == event_testing.test_constants.SIM_INSTANCE or participant_type == ParticipantType.Actor:
+        if participant_type == event_testing.test_constants.FROM_DATA_OBJECT:
+            return ()
+        if participant_type == event_testing.test_constants.OBJECTIVE_GUID64:
+            return ()
+        if participant_type == event_testing.test_constants.FROM_EVENT_DATA:
+            return ()
+        elif participant_type == event_testing.test_constants.SIM_INSTANCE or participant_type == ParticipantType.Actor:
             if self.actor is not None:
                 result = _to_sim_info(self.actor)
                 if result:
                     return (result,)
             return ()
+        return ()
         if participant_type == 0:
             logger.error('Calling get_participants with no flags on {}.', self)
             return ()
@@ -231,7 +238,7 @@ class AffordanceResolver(Resolver):
         if test.participants_for_early_testing is None:
             test.participants_for_early_testing = tuple(test.get_expected_args().values())
         for participant in test.participants_for_early_testing:
-            if not self.get_participants(participant):
+            if self.get_participants(participant) is None:
                 return TestResult.TRUE
         return super().__call__(test)
 
@@ -610,6 +617,8 @@ class SingleObjectResolver(Resolver):
         result = self._get_participants_base(participant_type, **kwargs)
         if result is not None:
             return result
+        if participant_type == event_testing.test_constants.FROM_EVENT_DATA:
+            return ()
         raise ValueError('Trying to use SingleObjectResolver with something that is not an Object: {}'.format(participant_type))
 
     def get_localization_tokens(self, *args, **kwargs):

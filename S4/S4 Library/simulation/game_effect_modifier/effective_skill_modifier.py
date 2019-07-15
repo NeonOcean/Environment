@@ -8,7 +8,7 @@ class EffectiveSkillModifier(HasTunableSingletonFactory, BaseGameEffectModifier)
     FACTORY_TUNABLES = {'description': '\n        The modifier to change the effective skill or skill_tag tuned in the\n        modifier key The value of the modifier can be negative..\n        ', 'modifier_key': TunableVariant(description='\n            ', skill_type=Skill.TunableReference(description='\n                            What skill to apply the modifier on.', pack_safe=True), skill_tag=TunableEnumEntry(description='\n                            What skill tag to apply the modifier on.', tunable_type=tag.Tag, default=tag.Tag.INVALID)), 'modifier_value': Tunable(description='\n            The value to change the effective skill. Can be negative.', tunable_type=int, default=0)}
 
     def __init__(self, modifier_key, modifier_value, **kwargs):
-        BaseGameEffectModifier.__init__(self, GameEffectType.EFFECTIVE_SKILL_MODIFIER)
+        super().__init__(GameEffectType.EFFECTIVE_SKILL_MODIFIER)
         self.modifier_key = modifier_key
         self.modifier_value = modifier_value
 

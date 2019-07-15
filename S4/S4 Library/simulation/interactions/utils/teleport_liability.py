@@ -39,7 +39,7 @@ class TeleportLiability(Liability, HasTunableFactory, AutoFactoryInit):
                 return True
             else:
                 starting_location = create_starting_location(position=self._constraint.average_position, routing_surface=routing_surface)
-                fgl_context = FindGoodLocationContext(starting_location, scoring_functions=scoring_functions, object_id=target_object.id, search_flags=search_flags)
+                fgl_context = FindGoodLocationContext(starting_location, scoring_functions=scoring_functions, object_id=target_object.id, object_def_state_index=target_object.state_index, search_flags=search_flags)
                 (translation, orientation) = find_good_location(fgl_context)
                 if translation is not None and orientation is not None:
                     self._interaction.sim.move_to(translation=translation, orientation=orientation, routing_surface=routing_surface)

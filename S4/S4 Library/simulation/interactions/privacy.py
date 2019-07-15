@@ -8,6 +8,7 @@ from interactions.liability import Liability
 from interactions.priority import Priority
 from interactions.utils.routing import FollowPath
 from objects.components.line_of_sight_component import LineOfSight
+from routing import FootprintType
 from sims4.geometry import PolygonFootprint
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.resources import Types
@@ -79,8 +80,6 @@ class PrivacyService(Service):
         self._potential_vehicles_to_check.discard(vehicle)
 
 class Privacy(LineOfSight):
-    _PRIVACY_FOOTPRINT_TYPE = 5
-    _PRIVACY_SURFACE_BLOCKING_FOOTPRINT_TYPE = 6
     _PRIVACY_SURFACE_BLOCKING_FOOTPRINT_COST = 100000
     _PRIVACY_DISCOURAGEMENT_COST = routing.get_default_discouragement_cost()
     _SHOO_CONSTRAINT_RADIUS = Tunable(description='\n        The radius of the constraint a Shooed Sim will attempt to route to.\n        ', tunable_type=float, default=2.5)
@@ -180,7 +179,7 @@ class Privacy(LineOfSight):
             routing_surface = self.central_object.routing_surface
         self.generate(self.central_object.position, routing_surface, allow_object_routing_surface=allow_object_routing_surface)
         for poly in self.constraint.geometry.polygon:
-            self._privacy_constraints.append(PolygonFootprint(poly, routing_surface=routing_surface, cost=self.privacy_discouragement_cost, footprint_type=self._PRIVACY_FOOTPRINT_TYPE, enabled=True))
+            self._privacy_constraints.append(PolygonFootprint(poly, routing_surface=routing_surface, cost=self.privacy_discouragement_cost, footprint_type=FootprintType.FOOTPRINT_TYPE_PATH, enabled=True))
         if self._reserved_surface_space is not None and target is not None:
             reserved_space = self._reserved_surface_space.reserved_space
             polygon = _generate_single_poly_rectangle_points(target.position, target.part_owner.orientation.transform_vector(sims4.math.Vector3.Z_AXIS()), target.part_owner.orientation.transform_vector(sims4.math.Vector3.X_AXIS()), reserved_space.left, reserved_space.right, reserved_space.front, reserved_space.back)
@@ -188,7 +187,7 @@ class Privacy(LineOfSight):
             if routing_surface is None:
                 routing_surface = target.routing_surface
             footprint_cost = self.privacy_discouragement_cost if self._reserved_surface_space.allow_routing else self._PRIVACY_SURFACE_BLOCKING_FOOTPRINT_COST
-            self._privacy_constraints.append(PolygonFootprint(polygon, routing_surface=routing_surface, cost=footprint_cost, footprint_type=self._PRIVACY_FOOTPRINT_TYPE, enabled=True))
+            self._privacy_constraints.append(PolygonFootprint(polygon, routing_surface=routing_surface, cost=footprint_cost, footprint_type=FootprintType.FOOTPRINT_TYPE_PATH, enabled=True))
         if self._interaction is not None:
             self._allowed_sims.update(self._interaction.get_participants(ParticipantType.AllSims))
         for sim in services.sim_info_manager().instanced_sims_gen():

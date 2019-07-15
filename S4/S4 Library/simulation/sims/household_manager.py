@@ -1,6 +1,8 @@
 import collections
+import time
 from relationships import global_relationship_tuning
 from sims4.utils import classproperty
+import indexed_manager
 import objects.object_manager
 import persistence_error_types
 import server.account
@@ -12,14 +14,15 @@ logger = sims4.log.Logger('HouseholdManager')
 class HouseholdFixupHelper:
 
     def __init__(self):
-        self._households_sharing_sims = []
+        self._households_sharing_sims = set()
 
     def add_shared_sim_household(self, household):
-        self._households_sharing_sims.append(household)
+        self._households_sharing_sims.add(household)
 
     def fix_shared_sim_households(self):
         for household in self._households_sharing_sims:
-            household.handle_adultless_household(skip_hidden=True, skip_premade=True)
+            if not household.destroy_household_if_empty():
+                household.handle_adultless_household(skip_hidden=True, skip_premade=True)
 
 class HouseholdManager(objects.object_manager.DistributableObjectManager):
 
@@ -41,6 +44,8 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
     def load_households(self):
         if self._loaded:
             return
+        if indexed_manager.capture_load_times:
+            time_stamp = time.time()
         fixup_helper = HouseholdFixupHelper()
         business_service = services.business_service()
         for household_proto in services.get_persistence_service().all_household_protos():
@@ -56,6 +61,9 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
         for sim_info in services.sim_info_manager().get_all():
             sim_info.on_all_sim_infos_loaded()
             sim_info.set_default_data()
+        if indexed_manager.capture_load_times:
+            elapsed_time = time.time() - time_stamp
+            indexed_manager.object_load_times['household'] = elapsed_time
         self._loaded = True
 
     def load_household(self, household_id):
@@ -95,9 +103,11 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
             sims4.log.error('Persistence', "Household account doesn't exist in account ids. Creating temp account", owner='yshan')
             account = server.account.Account(household_proto.account_id, 'TempPersonaName')
         household = sims.household.Household(account)
-        household.load_data(household_proto, fixup_helper)
+        resend_sim_infos = household.load_data(household_proto, fixup_helper)
         logger.info('Household loaded. name:{:20} id:{:10} #sim_infos:{:2}', household.name, household.id, len(household))
         self.add(household)
+        if resend_sim_infos:
+            household.resend_sim_infos()
         household.initialize_sim_infos()
         if household is services.client_manager().get_first_client().household:
             for sim_info in household.sim_info_gen():

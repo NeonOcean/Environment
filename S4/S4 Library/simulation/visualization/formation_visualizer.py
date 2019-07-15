@@ -1,6 +1,6 @@
 from debugvis import Context
 from interactions.constraints import ANYWHERE
-from routing.formation.formation_data import RoutingFormationFollowType
+from routing.formation.formation_type_follow import RoutingFormationFollowType
 from routing.route_enums import RoutingStageEvent
 from sims4.color import pseudo_random_color
 from visualization.constraint_visualizer import _draw_constraint

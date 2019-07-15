@@ -12,7 +12,7 @@ from postures.posture_state_spec import create_body_posture_state_spec
 from routing.walkstyle.walkstyle_tuning import TunableWalkstyle
 from sims4.tuning.tunable import Tunable, OptionalTunable, TunableReference, TunableList
 from sims4.tuning.tunable_base import GroupNames, SourceQueries
-from sims4.utils import classproperty, constproperty
+from sims4.utils import classproperty, constproperty, flexmethod
 from singletons import DEFAULT
 import services
 import sims4.log
@@ -127,14 +127,19 @@ class MultiSimPosture(Posture):
                 return True
         return result
 
-    def _post_route_clothing_change(self, *args, **kwargs):
-        return super().post_route_clothing_change(*args, **kwargs)
+    @flexmethod
+    def _post_route_clothing_change(cls, inst, *args, **kwargs):
+        return super(__class__, inst if inst is not None else cls).post_route_clothing_change(*args, **kwargs)
 
     def _exit_clothing_change(self, *args, **kwargs):
         return super().exit_clothing_change(*args, **kwargs)
 
-    def post_route_clothing_change(self, *args, **kwargs):
-        return self.get_linked_clothing_change(self._post_route_clothing_change, self.linked_posture._post_route_clothing_change, *args, **kwargs)
+    @flexmethod
+    def post_route_clothing_change(cls, inst, *args, **kwargs):
+        if inst is None:
+            logger.error('No class support for {}.post_route_clothing_change', cls)
+            return
+        return inst.get_linked_clothing_change(inst._post_route_clothing_change, inst.linked_posture._post_route_clothing_change, *args, **kwargs)
 
     def exit_clothing_change(self, *args, **kwargs):
         return self.get_linked_clothing_change(self._exit_clothing_change, self.linked_posture._exit_clothing_change, *args, **kwargs)
@@ -227,13 +232,21 @@ class IntimatePartPosture(MultiSimPosture):
         return self.target.is_mirrored(linked_target)
 
 class MobilePosture(Posture):
-    INSTANCE_TUNABLES = {'compatible_walkstyles': TunableList(description='\n            The exhaustive list of walkstyles allowed while Sims are in this\n            mobile posture. If a Sim has a request for a walkstyle that is not\n            supported, the first element is used as a replacement.\n            ', tunable=TunableWalkstyle(), unique_entries=False), 'posture_objects': OptionalTunable(description='\n            If enabled, we will use this tuning to find objects related to this\n            posture if it is unconstrained. This allows unconstrained mobile\n            postures to reset back into the object they were contained in.\n            ', tunable=ObjectDefinitonsOrTagsVariant(description='\n                The filter we use to check objects that this posture cares about.\n                '))}
+    INSTANCE_TUNABLES = {'compatible_walkstyles': TunableList(description='\n            The exhaustive list of walkstyles allowed while Sims are in this\n            mobile posture. If a Sim has a request for a walkstyle that is not\n            supported, the first element is used as a replacement.\n            ', tunable=TunableWalkstyle(pack_safe=True), unique_entries=False), 'posture_objects': OptionalTunable(description='\n            If enabled, we will use this tuning to find objects related to this\n            posture if it is unconstrained. This allows unconstrained mobile\n            postures to reset back into the object they were contained in.\n            ', tunable=ObjectDefinitonsOrTagsVariant(description='\n                The filter we use to check objects that this posture cares about.\n                ')), '_skip_route': Tunable(description='\n            If checked, this mobile posture does not use a route to transition \n            to and from another posture. WARNING: Please consult a GPE before\n            checking this.\n            ', tunable_type=bool, default=False)}
     _posture_at_none_posture_state_spec = None
     _posture_at_none_constraint = None
 
     @constproperty
     def mobile():
         return True
+
+    @classproperty
+    def is_vehicle(cls):
+        return not cls.unconstrained
+
+    @classproperty
+    def skip_route(cls):
+        return cls._skip_route
 
     @classmethod
     def is_object_related(cls, test_object):

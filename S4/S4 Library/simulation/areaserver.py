@@ -4,6 +4,7 @@ from sims4.utils import exception_protected, c_api_can_fail
 from telemetry_helper import TelemetryTuning
 import clock
 import game_services
+import indexed_manager
 import native.animation
 import paths
 import server.account
@@ -198,6 +199,8 @@ def c_api_client_connect(session_id, account_id, household_id, persona_name, zon
             object_leak_tracker.register_gc_callback()
         time_stamp = time.time() - time_stamp
         status.info('Completed {} with result {}. Total Time: {:0.02f} seconds.', spin_up_mode, result, time_stamp)
+        if indexed_manager.capture_load_times:
+            indexed_manager.object_load_times['lot_load'] = time_stamp
         service_perf_logger.debug('Zone startup complete')
         game_services.enable_shutdown()
         if not result:
@@ -285,10 +288,9 @@ def c_api_notify_client_in_main_menu():
     services.on_enter_main_menu()
 
 @exception_protected
-def c_api_setup_sim_spawner_data(zone_id, spawner_data):
-    zone = services._zone_manager.get(zone_id)
-    if zone is not None:
-        zone.set_up_world_spawn_points(spawner_data, zone_id)
+def c_api_setup_sim_spawner_data(zone_id, locator_data):
+    locator_manager = services.locator_manager()
+    locator_manager.set_up_locators(locator_data)
     return SUCCESS_CODE
 
 @c_api_can_fail()
@@ -302,3 +304,12 @@ def c_api_get_household_funds(zone_id, household_id):
         if household is not None:
             return household.funds.money
     return SUCCESS_CODE
+
+@c_api_can_fail()
+@exception_protected(default_return=0)
+def c_api_get_simulator_debt():
+    time_service = services.time_service()
+    if time_service is None or time_service.sim_timeline is None:
+        return 0
+    delta = time_service.sim_future - time_service.sim_now
+    return delta.in_minutes()

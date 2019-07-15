@@ -27,6 +27,10 @@ class AddBalloon(Op):
         balloon_msg.type = self.balloon_request.balloon_type
         balloon_msg.priority = self.balloon_request.priority
         balloon_msg.duration = self.balloon_request.duration
+        if self.balloon_request.view_offset is not None:
+            balloon_msg.view_offset_override.x = self.balloon_request.view_offset.x
+            balloon_msg.view_offset_override.y = self.balloon_request.view_offset.y
+            balloon_msg.view_offset_override.z = self.balloon_request.view_offset.z
         if self.balloon_request.category_icon is not None:
             balloon_msg.category_icon = self.balloon_request.category_icon
         self.serialize_op(msg, balloon_msg, protocols.Operation.ADD_BALLOON)

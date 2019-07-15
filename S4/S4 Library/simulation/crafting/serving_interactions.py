@@ -8,10 +8,11 @@ from element_utils import build_element, build_critical_section
 from event_testing.results import TestResult
 from interactions import ParticipantType
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import CANCEL_INTERACTION_ON_EXIT_LIABILITY, Interaction
+from interactions.base.interaction import Interaction
 from interactions.base.super_interaction import SuperInteraction
 from interactions.context import InteractionContext, QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
+from interactions.utils.interaction_liabilities import CANCEL_INTERACTION_ON_EXIT_LIABILITY
 from interactions.utils.loot import LootOperationList
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableReference, Tunable, TunableEnumEntry, OptionalTunable

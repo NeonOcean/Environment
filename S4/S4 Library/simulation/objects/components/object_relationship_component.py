@@ -103,8 +103,21 @@ class ObjectRelationshipComponent(Component, HasTunableFactory, AutoFactoryInit,
         for sim_id in self._relationships.keys():
             self._send_relationship_data(sim_id)
 
+    def _update_object_relationship_name(self):
+        ownable_component = self.owner.get_component(types.OWNABLE_COMPONENT)
+        if ownable_component is not None:
+            sim_owner_id = ownable_component.get_sim_owner_id()
+            obj_def_id = self.owner.definition.id
+            relationship_service = services.relationship_service()
+            obj_tag_set = relationship_service.get_mapped_tag_set_of_id(obj_def_id)
+            if obj_tag_set is not None:
+                obj_relationship = relationship_service.get_object_relationship(sim_owner_id, obj_tag_set)
+                if obj_relationship is not None and self.owner.has_custom_name():
+                    obj_relationship.set_object_rel_name(self.owner.custom_name)
+
     def _on_name_changed(self, *_, **__):
         self._publish_relationship_data()
+        self._update_object_relationship_name()
 
     def add_relationship_changed_callback_for_sim_id(self, sim_id, callback):
         self._relationship_changed_callbacks[sim_id].append(callback)

@@ -4,15 +4,16 @@ from buffs.tunable import TunableBuffReference
 from event_testing.resolver import SingleSimResolver
 from event_testing.test_events import TestEvent
 from event_testing.tests import TunableTestSet
-from interactions.base.interaction import UNCANCELABLE_LIABILITY, UncancelableLiability, Interaction
+from interactions.base.interaction import Interaction
 from interactions.context import QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
+from interactions.utils.interaction_liabilities import UncancelableLiability, UNCANCELABLE_LIABILITY
 from sims4.localization import TunableLocalizedString
-from sims4.tuning.tunable import TunableList, TunableTuple, TunableReference, TunableEnumWithFilter, TunableEnumEntry, TunableSet
+from sims4.tuning.tunable import TunableList, TunableTuple, TunableReference, TunableEnumWithFilter, TunableEnumEntry
 from sims4.tuning.tunable_base import GroupNames
 from situations.ambient.walkby_limiting_tags_mixin import WalkbyLimitingTagsMixin
 from situations.situation import Situation
-from situations.situation_complex import SituationComplexCommon, SituationStateData, CommonInteractionCompletedSituationState, CommonSituationState, SituationState
+from situations.situation_complex import SituationComplexCommon, SituationStateData, CommonInteractionCompletedSituationState, SituationState
 from situations.situation_job import SituationJob
 from tag import Tag
 import event_testing

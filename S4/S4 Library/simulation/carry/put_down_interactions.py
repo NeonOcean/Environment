@@ -1,15 +1,20 @@
 from weakref import WeakSet
 import random
+from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableEnumEntry
+from sims4.utils import flexmethod, classproperty, constproperty
+from singletons import DEFAULT
+import enum
+import sims4.log
 from animation.posture_manifest import SlotManifestEntry, SlotManifest, Hand
 from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT, STAND_POSTURE_MANIFEST, SIT_POSTURE_MANIFEST
 from carry.carry_elements import exit_carry_while_holding, swap_carry_while_holding, enter_carry_while_holding
-from carry.carry_postures import CarrySystemInventoryTarget, CarrySystemTerrainTarget, CarrySystemTransientTarget
+from carry.carry_postures import CarrySystemInventoryTarget, CarrySystemTerrainTarget, CarrySystemTransientTarget, CarrySystemDestroyTarget
 from carry.carry_utils import create_carry_constraint, SCRIPT_EVENT_ID_START_CARRY
 from event_testing.results import TestResult
 from interactions import ParticipantType
 from interactions.base.basic import TunableBasicContentSet
 from interactions.base.super_interaction import SuperInteraction
-from interactions.constraints import JigConstraint, create_constraint_set, Circle, Constraint, Nowhere
+from interactions.constraints import JigConstraint, create_constraint_set, Circle, Constraint, Nowhere, OceanStartLocationConstraint, WaterDepthIntervals, WaterDepthIntervalConstraint
 from objects.components.types import CARRYABLE_COMPONENT
 from objects.helpers.create_object_helper import CreateObjectHelper
 from objects.object_enums import ResetReason
@@ -17,14 +22,9 @@ from objects.slots import get_surface_height_parameter_for_object
 from objects.terrain import TerrainSuperInteraction
 from postures.posture_specs import PostureSpecVariable
 from postures.posture_state_spec import PostureStateSpec
-from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableEnumEntry
-from sims4.utils import flexmethod, classproperty, constproperty
-from singletons import DEFAULT
 import element_utils
-import enum
 import objects.game_object
 import services
-import sims4.log
 logger = sims4.log.Logger('PutDownInteractions')
 EXCLUSION_MULTIPLIER = None
 OPTIMAL_MULTIPLIER = 0
@@ -496,6 +496,13 @@ def create_put_down_on_ground_constraint(sim, target, terrain_transform, routing
     routing_surface = sim.routing_surface if routing_surface is DEFAULT else routing_surface
     swipe_constraint = target.get_carry_transition_constraint(sim, terrain_transform.translation, routing_surface)
     if target.is_sim:
+        if target.should_be_swimming_at_position(terrain_transform.translation, routing_surface.secondary_id, check_can_swim=False):
+            DEFAULT_SIM_PUT_DOWN_OCEAN_CONSTRAINT_RADIUS = 10.0
+            DEFAULT_SIM_PUT_DOWN_OCEAN_INTERVAL = WaterDepthIntervals.WET
+            start_constraint = OceanStartLocationConstraint.create_simple_constraint(DEFAULT_SIM_PUT_DOWN_OCEAN_INTERVAL, DEFAULT_SIM_PUT_DOWN_OCEAN_CONSTRAINT_RADIUS, target, target_position=terrain_transform.translation, routing_surface=routing_surface)
+            depth_constraint = WaterDepthIntervalConstraint.create_water_depth_interval_constraint(target, DEFAULT_SIM_PUT_DOWN_OCEAN_INTERVAL)
+            swipe_constraint = swipe_constraint.generate_alternate_geometry_constraint(start_constraint.geometry)
+            swipe_constraint = swipe_constraint.generate_alternate_water_depth_constraint(depth_constraint.get_min_water_depth(), depth_constraint.get_max_water_depth())
         swipe_constraint = swipe_constraint._copy(_multi_surface=False)
     carry_constraint = create_carry_constraint(target, debug_name='CarryForPutDownOnGround')
     final_constraint = swipe_constraint.intersect(carry_constraint).intersect(STAND_OR_SIT_CONSTRAINT)
@@ -579,6 +586,9 @@ class PutDownAnywhereInteraction(PutAwayBase):
                 sim_inv_chosen = sim_inventory_valid
             if sim_inv_chosen:
                 carry_system_target = CarrySystemInventoryTarget(self.sim, self.target, True, self.sim)
+                return exit_carry_while_holding(self, use_posture_animations=True, carry_system_target=carry_system_target, sequence=sequence)
+            if self.sim.posture.is_vehicle and not self.target.transient:
+                carry_system_target = CarrySystemDestroyTarget(self.target, True)
                 return exit_carry_while_holding(self, use_posture_animations=True, carry_system_target=carry_system_target, sequence=sequence)
             else:
                 carry_system_target = CarrySystemTerrainTarget(self.sim, self.target, True, self._terrain_transform)

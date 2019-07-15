@@ -45,7 +45,7 @@ class GardeningFruitComponent(_GardeningComponent, component_name=objects.compon
                 self.owner.set_state(to_state_value)
 
     @componentmethod_with_fallback(lambda : None)
-    def get_notebook_information(self, reference_notebook_entry):
+    def get_notebook_information(self, reference_notebook_entry, notebook_sub_entries):
         notebook_entry = reference_notebook_entry(self.owner.definition.id)
         return (notebook_entry,)
 
@@ -125,7 +125,7 @@ class GardeningFruitComponent(_GardeningComponent, component_name=objects.compon
         else:
             search_flags = FGLSearchFlagsDefault | FGLSearchFlag.ALLOW_GOALS_IN_SIM_INTENDED_POSITIONS | FGLSearchFlag.ALLOW_GOALS_IN_SIM_POSITIONS | FGLSearchFlag.SHOULD_TEST_BUILDBUY
             starting_location = create_starting_location(location=self.owner.location)
-            context = FindGoodLocationContext(starting_location, ignored_object_ids=(self.owner.id,), object_id=plant.id, object_footprints=(plant.get_footprint(),), search_flags=search_flags)
+            context = FindGoodLocationContext(starting_location, ignored_object_ids=(self.owner.id,), object_id=plant.id, object_def_state_index=plant.state_index, object_footprints=(plant.get_footprint(),), search_flags=search_flags)
             (translation, orientation) = find_good_location(context)
             if translation is None or orientation is None:
                 return

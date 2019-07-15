@@ -354,8 +354,9 @@ def _set_stat_percent(stat, tracker, percent, _connection=0):
 @sims4.commands.Command('stats.set_commodity_percent')
 def set_commodity_percent(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), value:float=None, opt_sim:OptionalSimInfoParam=None, _connection=None):
     sim_info = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection)
-    if sim_info is not None and (stat_type is not None and value is not None) and sim_info.commodity_tracker is not None:
-        _set_stat_percent(stat_type, sim_info.commodity_tracker, value, _connection=_connection)
+    tracker = sim_info.get_tracker(stat_type)
+    if sim_info is not None and (stat_type is not None and value is not None) and tracker is not None:
+        _set_stat_percent(stat_type, tracker, value, _connection=_connection)
     else:
         sims4.commands.output('Unable to set Commodity - invalid arguments or sim info has no commodity tracker.', _connection)
 
@@ -364,13 +365,15 @@ def fill_all_sim_commodities_except(stat_type:TunableInstanceParam(sims4.resourc
     if stat_type is not None:
         if opt_sim is not None:
             sim = get_optional_target(opt_sim, _connection)
-            if sim is None or sim.commodity_tracker is None:
-                sims4.commands.output('No valid target for stats.enable_sim_commodities', _connection)
+            tracker = sim.get_tracker(stat_type)
+            if sim is None or tracker is None:
+                sims4.commands.output('No valid target for stats.fill_all_sim_commodities_except', _connection)
                 return
-            sim.commodity_tracker.debug_set_all_to_max_except(stat_type)
+            tracker.debug_set_all_to_max_except(stat_type)
         else:
             for sim in services.sim_info_manager().instanced_sims_gen():
-                sim.commodity_tracker.debug_set_all_to_max_except(stat_type)
+                tracker = sim.get_tracker(stat_type)
+                tracker.debug_set_all_to_max_except(stat_type)
     else:
         sims4.commands.output('Unable to set Commodity - commodity {} not found.'.format(stat_type.lower()), _connection)
 
@@ -381,7 +384,7 @@ with sims4.reload.protected(globals()):
 def enable_commodities(opt_sim:OptionalTargetParam=None, *stat_types:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is None:
-        sims4.commands.output('No valid target for stats.enable_sim_commodities', _connection)
+        sims4.commands.output('No valid target for stats.enable_commodities', _connection)
         return
     for stat_type in stat_types:
         if sim in autonomy_handles[stat_type]:
@@ -393,7 +396,7 @@ def enable_all_commodities(opt_sim:OptionalTargetParam=None, _connection=None):
     if opt_sim is not None:
         sim = get_optional_target(opt_sim, _connection)
         if sim is None:
-            sims4.commands.output('No valid target for stats.enable_sim_commodities', _connection)
+            sims4.commands.output('No valid target for stats.enable_all_commodities', _connection)
             return
         for sim_handle_dictionary in autonomy_handles.values():
             if sim in sim_handle_dictionary:

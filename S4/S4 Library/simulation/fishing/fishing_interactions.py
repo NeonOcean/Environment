@@ -1,7 +1,9 @@
 import random
-from build_buy import HouseholdInventoryFlags
 from distributor.shared_messages import IconInfoData
-from ui.notebook_tuning import NotebookCustomTypeTuning
+from fishing.fishing_tuning import FishingTuning
+from interactions.utils.outcome import TunableOutcomeActions
+from sims4.tuning.tunable import TunableTuple
+from sims4.tuning.tunable_base import GroupNames
 import buffs.tunable
 import build_buy
 import element_utils
@@ -62,7 +64,7 @@ class MountFishSuperInteraction(interactions.base.immediate_interaction.Immediat
 
 class FishingLocationSuperInteraction(interactions.base.super_interaction.SuperInteraction):
 
-    def _get_fishing_data_from_target(self):
+    def get_fishing_data_from_target(self):
         target = self.target
         if target is None:
             logger.error('Trying to run a Fishing Interaction on a None object. {}', self)
@@ -74,7 +76,6 @@ class FishingLocationSuperInteraction(interactions.base.super_interaction.SuperI
         return fishing_location_component.fishing_data
 
 class FishingLocationGoFishingSuperInteraction(FishingLocationSuperInteraction):
-    BAIT_TAG_BUFF_MAP = sims4.tuning.tunable.TunableMapping(key_type=sims4.tuning.tunable.TunableEnumEntry(description='\n            The bait tag to which we want to map a buff.\n            ', tunable_type=tag.Tag, pack_safe=True, default=tag.Tag.INVALID), key_name='Bait Tag', value_type=sims4.tuning.tunable.TunableReference(manager=services.buff_manager(), pack_safe=True), value_name='Bait Buff')
     FISHING_WITH_BAIT_INTERACTION_NAME = sims4.localization.TunableLocalizedStringFactory(description='\n        When a Sim fishes with bait, this is the interaction name. This name\n        will revert to the normal name of the interaction when they run out of\n        bait.\n        \n        Uses the same tokens as the interaction display name.\n        ')
     OUT_OF_BAIT_NOTIFICATION = ui.ui_dialog_notification.UiDialogNotification.TunableFactory(description="\n        This notification will be displayed when the player started using bait but ran out.\n        Token 0 is the actor sim. e.g. {0.SimFirstName}\n        Token 1 is the target fishing location (probably don't want to use this.\n        Token 2 is the bait object they just ran out of. e.g. {2.ObjectCatalogName} will show the type\n        ")
 
@@ -132,9 +133,9 @@ class FishingLocationGoFishingSuperInteraction(FishingLocationSuperInteraction):
 
     def _add_bait_buffs(self):
         if self._bait:
-            for (tag, buff) in self.BAIT_TAG_BUFF_MAP.items():
+            for (tag, bait_data) in FishingTuning.BAIT_TAG_DATA_MAP.items():
                 if self._bait.has_tag(tag):
-                    self._buff_handle_ids.append(self.sim.add_buff(buff))
+                    self._buff_handle_ids.append(self.sim.add_buff(bait_data.bait_buff))
 
     def _remove_bait_buffs(self):
         for handle_id in self._buff_handle_ids:
@@ -162,25 +163,64 @@ class FishingLocationExamineWaterSuperInteraction(FishingLocationSuperInteractio
         return element_utils.build_critical_section_with_finally(sequence, end)
 
     def _decide_localized_string(self):
-        fishing_data = self._get_fishing_data_from_target()
-        required_baits = set()
-        resolver = self.get_resolver()
-        for fish in fishing_data.get_possible_fish_gen():
-            bait = fish.fish.cls.required_bait_buff
-            if bait in self._notification_bait_types:
-                if fish.fish.cls.can_catch(resolver):
-                    required_baits.add(bait)
-        if required_baits:
-            chosen_bait = random.choice(list(required_baits))
-            loc_string = self.BAIT_NOTIFICATION_TEXT_MAP.get(chosen_bait)
-            return loc_string(self.sim)
+        fishing_data = self.get_fishing_data_from_target()
+        if fishing_data is not None:
+            required_baits = set()
+            resolver = self.get_resolver()
+            for fish in fishing_data.get_possible_fish_gen():
+                bait = fish.fish.cls.required_bait_buff
+                if bait in self._notification_bait_types:
+                    if fish.fish.cls.can_catch(resolver):
+                        required_baits.add(bait)
+            if required_baits:
+                chosen_bait = random.choice(list(required_baits))
+                loc_string = self.BAIT_NOTIFICATION_TEXT_MAP.get(chosen_bait)
+                return loc_string(self.sim)
         return self.GENERIC_EXAMINE_NOTIFICATION_TEXT(self.sim)
 
     def _show_success_notification(self):
         dialog = self.EXAMINE_SUCCESS_NOTIFICATION(self.sim, self.get_resolver(), text=lambda *_: self._decide_localized_string())
         dialog.show_dialog()
 
-class FishingLocationCatchMixerInteraction(interactions.base.mixer_interaction.MixerInteraction):
+class FishingCatchMixerInteractionMixin:
+
+    @property
+    def bait(self):
+        return self.super_interaction.bait
+
+    def _get_fishing_data(self):
+        return self.super_interaction.get_fishing_data_from_target()
+
+    def _get_weighted_choices(self):
+        resolver = self.get_resolver()
+        fishing_data = self._get_fishing_data()
+        weighted_outcomes = [(fishing_data.weight_fish.get_multiplier(resolver), self.fishing_outcomes.catch_fish_outcome_actions), (fishing_data.weight_junk.get_multiplier(resolver), self.fishing_outcomes.catch_junk_outcome_actions), (fishing_data.weight_treasure.get_multiplier(resolver), self.fishing_outcomes.catch_treasure_outcome_actions)]
+        return weighted_outcomes
+
+    def _get_individual_fish_catch(self):
+        resolver = self.get_resolver()
+        fishing_data = self._get_fishing_data()
+        return fishing_data.choose_fish(resolver)
+
+    def _get_individual_treasure_catch(self):
+        resolver = self.get_resolver()
+        fishing_data = self._get_fishing_data()
+        return fishing_data.choose_treasure(resolver)
+
+    def create_object_and_add_to_inventory(self, sim, object_to_create, is_fish):
+        if object_to_create is not None and sim.is_selectable:
+            created_object = objects.system.create_object(object_to_create)
+            if created_object is not None:
+                created_object.update_ownership(sim)
+                if is_fish:
+                    created_object.initialize_fish(sim)
+                if sim.inventory_component.can_add(created_object):
+                    sim.inventory_component.player_try_add_object(created_object)
+                elif not build_buy.move_object_to_household_inventory(created_object):
+                    logger.error('FishingInteractions: Failed to add object {} to household inventory.', created_object, owner='rmccord')
+            return created_object
+
+class FishingLocationCatchMixerInteraction(FishingCatchMixerInteractionMixin, interactions.base.mixer_interaction.MixerInteraction):
 
     @staticmethod
     def _verify_tunable_callback(instance_class, tunable_name, source, value, **kwargs):
@@ -188,12 +228,8 @@ class FishingLocationCatchMixerInteraction(interactions.base.mixer_interaction.M
             logger.error('Junk Objects is empty. It needs at least one junk\n            item. The tuning is located in the\n            FishingLocationCatchMixerInteraction module tuning')
 
     JUNK_OBJECTS = sims4.tuning.tunable.TunableList(sims4.tuning.tunable.TunableReference(description='\n            The possible junk object a Sim can catch. These will just be randomly\n            picked each time the Sim is supposed to catch junk.\n            ', manager=services.definition_manager()), verify_tunable_callback=_verify_tunable_callback)
-    CATCH_FISH_OUTCOME_ACTIONS = interactions.utils.outcome.TunableOutcomeActions(description='\n        The outcome actions that will be used if a Sim catches a fish.\n        ')
-    CATCH_JUNK_OUTCOME_ACTIONS = interactions.utils.outcome.TunableOutcomeActions(description='\n        The outcome actions that will be used if a Sim catches junk.\n        ')
-    CATCH_TREASURE_OUTCOME_ACTIONS = interactions.utils.outcome.TunableOutcomeActions(description='\n        The outcome actions that will be used if a Sim catches treasure.\n        ')
-    CATCH_NOTHING_OUTCOME_ACTIONS = interactions.utils.outcome.TunableOutcomeActions(description='\n        The outcome actions that will be used if a Sim catches nothing.\n        ')
     BASE_CATCH_CHANCE = sims4.tuning.tunable.TunablePercent(description='\n        The base chance that a Sim will actually catch something here. This\n        chance can be modified using the skill curve.\n        ', default=80)
-    CATCH_CHANCE_MODIFIER_CURVE = tunable_multiplier.TunableStatisticModifierCurve.TunableFactory(description='\n        This curve represents the chance to \n        ', axis_name_overrides=('Skill Level', 'Catch Chance Multiplier'), locked_args={'subject': interactions.ParticipantType.Actor})
+    CATCH_CHANCE_MODIFIER_CURVE = tunable_multiplier.TunableSkillModifierCurve.TunableFactory(description='\n        This curve represents the chance to catch something.\n        ', axis_name_overrides=('Skill Level', 'Catch Chance Multiplier'), locked_args={'subject': interactions.ParticipantType.Actor})
     BUFF_CATCH_FISH_WITH_BAIT = buffs.tunable.TunableBuffReference(description='\n        The invisible buff that a sim will get any time they catch a fish while\n        using bait. This will be given along with the buff provided by Buff\n        Catch Any Fish. This is meant to help aspirations/achievements know\n        when a fish was caught with bait.\n        ')
     CATCH_FISH_NOTIFICATION = ui.ui_dialog_notification.UiDialogNotification.TunableFactory(description='\n        The notification that is displayed when a Sim successfully catches a fish.\n        ', locked_args={'text': None, 'icon': None})
     CATCH_FISH_NOTIFICATION_TEXT = sims4.localization.TunableLocalizedStringFactory(description='\n        The text of the notification that is displayed when a Sim successfully catches a fish.\n        \n        The localization tokens for the Text field are:\n        {0} = Sim - e.g. {0.SimFirstName}\n        {1} = The Fishing Location Object - e.g. {1.ObjectName}\n        {2.String} = Fish Type/Default Name\n        {3.String} = Localized Fish Weight, see FishObject tuning to change the localized string for fish weight\n        {4.String} = Fish Value, in usual simoleon format\n        ')
@@ -203,10 +239,8 @@ class FishingLocationCatchMixerInteraction(interactions.base.mixer_interaction.M
     OUTCOME_TYPE_OTHER = 0
     OUTCOME_TYPE_FISH = 1
     OUTCOME_TYPE_TREASURE = 2
-
-    @property
-    def bait(self):
-        return self.super_interaction.bait
+    INSTANCE_TUNABLES = {'fishing_outcomes': TunableTuple(description='\n            This is how we play different content depending on fishing results.\n            ', catch_fish_outcome_actions=TunableOutcomeActions(description='\n                The outcome actions that will be used if a Sim catches a fish.\n                '), catch_junk_outcome_actions=TunableOutcomeActions(description='\n                The outcome actions that will be used if a Sim catches junk.\n                '), catch_treasure_outcome_actions=TunableOutcomeActions(description='\n                The outcome actions that will be used if a Sim catches treasure.\n                '), catch_nothing_outcome_actions=TunableOutcomeActions(description='\n                The outcome actions that will be used if a Sim catches nothing.\n                '), tuning_group=GroupNames.CORE)}
+    REMOVE_INSTANCE_TUNABLES = ('outcome',)
 
     def _get_random_junk(self):
         return random.choice(self.JUNK_OBJECTS)
@@ -214,46 +248,55 @@ class FishingLocationCatchMixerInteraction(interactions.base.mixer_interaction.M
     def _build_outcome_sequence(self):
         succeeded = self._is_successful_catch()
         object_to_create = None
+        created_object = None
+        sim = self.sim
         outcome_type = self.OUTCOME_TYPE_OTHER
-        outcome_actions = self.CATCH_NOTHING_OUTCOME_ACTIONS
+        outcome_actions = self.fishing_outcomes.catch_nothing_outcome_actions
         prop_override = None
         if succeeded:
-            fishing_data = self.super_interaction._get_fishing_data_from_target()
-            weighted_outcomes = [(fishing_data.weight_fish, self.CATCH_FISH_OUTCOME_ACTIONS), (fishing_data.weight_junk, self.CATCH_JUNK_OUTCOME_ACTIONS), (fishing_data.weight_treasure, self.CATCH_TREASURE_OUTCOME_ACTIONS)]
+            weighted_outcomes = self._get_weighted_choices()
             outcome_actions = sims4.random.weighted_random_item(weighted_outcomes)
-            if outcome_actions is self.CATCH_JUNK_OUTCOME_ACTIONS:
+            if outcome_actions is self.fishing_outcomes.catch_junk_outcome_actions:
                 prop_override = self._get_random_junk()
             else:
-                if outcome_actions is self.CATCH_TREASURE_OUTCOME_ACTIONS:
-                    object_to_create = fishing_data.choose_treasure()
+                if outcome_actions is self.fishing_outcomes.catch_treasure_outcome_actions:
+                    object_to_create = self._get_individual_treasure_catch()
                     prop_override = self.TREASURE_PROP_OBJECT
                     outcome_type = self.OUTCOME_TYPE_TREASURE
                 else:
-                    object_to_create = fishing_data.choose_fish(self.get_resolver())
+                    object_to_create = self._get_individual_fish_catch()
                     prop_override = object_to_create
                     if object_to_create is not None:
                         outcome_type = self.OUTCOME_TYPE_FISH
-                        self._add_bait_notebook_entry(object_to_create)
                 if not object_to_create:
-                    outcome_actions = self.CATCH_NOTHING_OUTCOME_ACTIONS
-        outcome = FishingLocationCatchOutcome(outcome_actions, prop_override)
+                    outcome_actions = self.fishing_outcomes.catch_nothing_outcome_actions
+            if object_to_create is not None:
+                if sim.is_selectable:
+                    created_object = objects.system.create_object(object_to_create)
+                    if created_object is not None:
+                        created_object.update_ownership(sim)
+                        self.context.create_target_override = created_object
+        bait_ids = None
+        if self.bait is not None:
+            bait_ids = (self.bait.id,)
+        self.interaction_parameters['picked_item_ids'] = bait_ids
+        is_fish = outcome_actions is self.fishing_outcomes.catch_fish_outcome_actions
+        outcome = FishingLocationCatchOutcome(outcome_actions, prop_override, is_fish)
 
         def end(_):
-            sim = self.sim
-            if object_to_create is not None and sim.is_selectable:
-                obj = objects.system.create_object(object_to_create)
-                if outcome_type == self.OUTCOME_TYPE_FISH:
-                    obj.initialize_fish(sim)
-                    self._apply_caught_fish_buff(obj)
-                    self._show_catch_fish_notification(sim, obj)
-                    self.super_interaction.kill_and_try_reapply_bait()
-                elif outcome_type == self.OUTCOME_TYPE_TREASURE:
-                    self._show_catch_treasure_notification(sim, obj)
-                obj.update_ownership(sim)
-                if sim.inventory_component.can_add(obj):
-                    sim.inventory_component.player_try_add_object(obj)
-                elif not build_buy.move_object_to_household_inventory(obj):
-                    logger.error('FishingInteractions: Failed to add object {} to household inventory.', obj, owner='rmccord')
+            if created_object is None:
+                return
+            if outcome_type == self.OUTCOME_TYPE_FISH:
+                created_object.initialize_fish(sim)
+                self._apply_caught_fish_buff(created_object)
+                self._show_catch_fish_notification(sim, created_object)
+                self.super_interaction.kill_and_try_reapply_bait()
+            elif outcome_type == self.OUTCOME_TYPE_TREASURE:
+                self._show_catch_treasure_notification(sim, created_object)
+            if sim.inventory_component.can_add(created_object):
+                sim.inventory_component.player_try_add_object(created_object)
+            elif not build_buy.move_object_to_household_inventory(created_object):
+                logger.error('FishingInteractions: Failed to add object {} to household inventory.', created_object, owner='rmccord')
 
         return element_utils.build_critical_section_with_finally(outcome.build_elements(self, update_global_outcome_result=True), end)
 
@@ -289,18 +332,14 @@ class FishingLocationCatchMixerInteraction(interactions.base.mixer_interaction.M
         notification = self.CATCH_TREASURE_NOTIFICATION(sim, self.get_resolver())
         notification.show_dialog(icon_override=IconInfoData(obj_instance=treasure), additional_tokens=(treasure,))
 
-    def _add_bait_notebook_entry(self, created_fish):
-        if self.bait and self.sim.sim_info.notebook_tracker is not None:
-            self.sim.sim_info.notebook_tracker.unlock_entry(NotebookCustomTypeTuning.BAIT_NOTEBOOK_ENTRY(created_fish.definition.id, (self.bait.definition.id,)))
-
 class FishingLocationCatchOutcome(interactions.utils.outcome.InteractionOutcomeSingle):
     PROP_NAME = 'collectFish'
     FISH_TYPE_NAME = 'fishType'
 
-    def __init__(self, actions, prop_override):
+    def __init__(self, actions, prop_override, is_fish):
         super().__init__(actions)
         self._prop_override = prop_override
-        self._is_fish = actions is FishingLocationCatchMixerInteraction.CATCH_FISH_OUTCOME_ACTIONS
+        self._is_fish = is_fish
 
     def _build_elements(self, interaction):
         sim = interaction.sim

@@ -181,7 +181,7 @@ class TunableRoutingSlotConstraint(TunableSingletonFactory):
             asm = create_asm(asm_key, context=get_throwaway_animation_context())
             asm.set_actor(actor_name, actor)
             asm.add_potentially_virtual_actor(actor_name, actor, target_name, target)
-            asm._boundary_condition_dirty = True
+            asm.dirty_boundary_conditions()
             if actor.is_sim:
                 age = actor.age.age_for_animation_cache
             else:

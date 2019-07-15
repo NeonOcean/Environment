@@ -81,6 +81,18 @@ class HouseholdUtilitiesManager:
         utility_info.remove_shutoff_reason(reason)
         if utility == Utilities.POWER and utility_info.active:
             self._startup_power_utilities()
+        self._clear_delinquency_if_needed()
+
+    def _clear_delinquency_if_needed(self):
+        power_info = self.get_utility_info(Utilities.POWER)
+        water_info = self.get_utility_info(Utilities.WATER)
+        if power_info.active:
+            if water_info.active:
+                for obj in services.object_manager().valid_objects():
+                    state_component = obj.state_component
+                    if state_component is None:
+                        continue
+                    state_component.clear_delinquent_states()
 
     def _cancel_delinquent_interactions(self, delinquent_utility):
         household_id = services.owning_household_id_of_active_lot()

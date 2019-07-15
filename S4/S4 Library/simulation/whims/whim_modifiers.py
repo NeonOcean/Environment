@@ -14,7 +14,8 @@ class SatisfactionPointMultiplierModifier(HasTunableSingletonFactory, AutoFactor
 
     def apply_modifier(self, sim_info):
         whims_tracker = sim_info.whim_tracker
-        whims_tracker.add_score_multiplier(self.score_multiplier)
+        if whims_tracker is not None:
+            whims_tracker.add_score_multiplier(self.score_multiplier)
 
     def remove_modifier(self, sim_info, handle):
         whims_tracker = sim_info.whim_tracker

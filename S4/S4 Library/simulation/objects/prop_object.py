@@ -9,6 +9,8 @@ from reservation.reservation_mixin import ReservationMixin
 from sims4.repr_utils import standard_repr, standard_brief_id_repr
 from sims4.utils import classproperty
 import services
+import sims4.log
+logger = sims4.log.Logger('PropObject', default_owner='msantander')
 
 class BasicPropObject(ClientObjectMixin, ReservationMixin, BaseObject):
     VALID_COMPONENTS = ()
@@ -66,6 +68,9 @@ class BasicPropObject(ClientObjectMixin, ReservationMixin, BaseObject):
     @forward_to_components
     def on_state_changed(self, state, old_value, new_value, from_init):
         pass
+
+    def update_component_commodity_flags(self, affordance_provider=None):
+        logger.error("Prop object: {} shouldn't be providing interactions AffordanceProvider:{}", self, affordance_provider)
 
     @property
     def is_outside(self):

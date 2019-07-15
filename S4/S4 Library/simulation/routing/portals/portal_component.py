@@ -1,24 +1,31 @@
+from _math import Vector3Immutable
 from collections import namedtuple
-from animation.animation_utils import AnimationOverrides
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableList, OptionalTunable
+import sims4.utils
 from objects.components import Component, types, componentmethod_with_fallback, componentmethod
 from objects.components.portal_locking_component import PortalLockingComponent
 from routing import remove_portal
 from routing.portals.portal_animation_component import PortalAnimationComponent
 from routing.portals.portal_data import TunablePortalReference
+from routing.portals.portal_enums import PathSplitType
 from routing.portals.portal_tuning import PortalType
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableList, OptionalTunable
 from tag import TunableTags
 import services
-import sims4.utils
 import tag
 _PortalPair = namedtuple('_PortalPair', ['there', 'back'])
 
 class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_name=types.PORTAL_COMPONENT):
+    PORTAL_DIRECTION_THERE = 0
+    PORTAL_DIRECTION_BACK = 1
+    PORTAL_LOCATION_ENTRY = 0
+    PORTAL_LOCATION_EXIT = 1
     FACTORY_TUNABLES = {'_portal_data': TunableList(description='\n            The portals that are to be created for this object.\n            ', tunable=TunablePortalReference(pack_safe=True)), '_portal_animation_component': OptionalTunable(description='\n            If enabled, this portal animates in response to agents traversing\n            it. Use Enter/Exit events to control when and for how long an\n            animation plays.\n            ', tunable=PortalAnimationComponent.TunableFactory()), '_portal_locking_component': OptionalTunable(description='\n            If enabled then this object will be capable of being locked using\n            the same system as Portal Objects.\n            \n            If not enabled then it will not have a portal locking component\n            and will therefore not be lockable.\n            ', tunable=PortalLockingComponent.TunableFactory()), '_portal_disallowed_tags': TunableTags(description='\n            A set of tags used to prevent Sims in particular role states from\n            using this portal.\n            ', filter_prefixes=tag.PORTAL_DISALLOWANCE_PREFIX)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._portals = {}
+        self._custom_portals = None
+        self._enable_refresh = True
 
     def get_subcomponents_gen(self):
         yield from super().get_subcomponents_gen()
@@ -28,6 +35,14 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         if self._portal_animation_component is not None:
             portal_animation_component = self._portal_animation_component(self.owner)
             yield from portal_animation_component.get_subcomponents_gen()
+
+    @property
+    def refresh_enabled(self):
+        return self._enable_refresh
+
+    @refresh_enabled.setter
+    def refresh_enabled(self, value):
+        self._enable_refresh = bool(value)
 
     def on_buildbuy_exit(self, *_, **__):
         self._refresh_portals()
@@ -42,9 +57,10 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         self._refresh_portals()
 
     def _refresh_portals(self):
-        self._remove_portals()
-        self._add_portals()
-        self.owner.refresh_locks()
+        if self.refresh_enabled:
+            self._remove_portals()
+            self._add_portals()
+            self.owner.refresh_locks()
 
     def on_add(self, *_, **__):
         services.object_manager().add_portal_to_cache(self.owner)
@@ -71,8 +87,8 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
     def split_path_on_portal(self, portal_id):
         portal = self._portals.get(portal_id)
         if portal is not None:
-            return portal.split_path_on_portal(portal_id)
-        return False
+            return portal.split_path_on_portal()
+        return PathSplitType.PathSplitType_DontSplit
 
     @componentmethod
     def get_posture_change(self, portal_id, initial_posture):
@@ -82,13 +98,23 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         return (initial_posture, initial_posture)
 
     @componentmethod
-    def add_portal_events(self, portal_id, actor, time, route_pb):
-        for portal_data in self._portal_data:
-            portal_data.traversal_type.add_portal_events(portal_id, actor, self.owner, time, route_pb)
+    def provide_route_events(self, portal_id, route_event_context, sim, path, **kwargs):
+        if portal_id in self._portals:
+            portal = self._portals.get(portal_id)
+            return portal.provide_route_events(portal_id, route_event_context, sim, path, **kwargs)
 
     @componentmethod
-    def get_portal_anim_overrides(self):
-        return AnimationOverrides()
+    def add_portal_events(self, portal_id, actor, time, route_pb):
+        portal = self._portals.get(portal_id)
+        if portal is not None:
+            portal.traversal_type.add_portal_events(portal_id, actor, self.owner, time, route_pb)
+
+    @componentmethod
+    def get_portal_asm_params(self, portal_id, sim):
+        portal = self._portals.get(portal_id)
+        if portal is not None:
+            return portal.get_portal_asm_params(portal_id, sim)
+        return {}
 
     @componentmethod
     def get_portal_owner(self, portal_id):
@@ -98,10 +124,10 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         return self.owner
 
     @componentmethod
-    def get_target_surface(self, portal_id, sim):
+    def get_target_surface(self, portal_id):
         portal = self._portals.get(portal_id)
         if portal is not None:
-            return portal.get_target_surface(portal_id, sim)
+            return portal.get_target_surface(portal_id)
         return self.owner.routing_surface
 
     def _add_portals(self):
@@ -112,22 +138,43 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
                 part_definition = part.part_definition
                 for portal_data in part_definition.portal_data:
                     self._add_portal_internal(part, portal_data)
+        if self._custom_portals is not None:
+            for (location_point, portal_data, mask, _) in self._custom_portals:
+                self._add_portal_internal(location_point, portal_data, mask)
 
-    def _add_portal_internal(self, obj, portal_data):
-        for portal in portal_data.get_portal_instances(obj):
+    def _add_portal_internal(self, obj, portal_data, portal_creation_mask=None):
+        portal_instance_ids = []
+        for portal in portal_data.get_portal_instances(obj, portal_creation_mask):
             if portal.there is not None:
                 self._portals[portal.there] = portal
+                portal_instance_ids.append(portal.there)
             if portal.back is not None:
                 self._portals[portal.back] = portal
+                portal_instance_ids.append(portal.back)
+        return portal_instance_ids
+
+    def _remove_portal_internal(self, portal_id):
+        if portal_id in self._portals:
+            remove_portal(portal_id)
+            portal = self._portals[portal_id]
+            if portal.there is not None and portal.there == portal_id:
+                portal.there = None
+            elif portal.back is not None:
+                if portal.back == portal_id:
+                    portal.back = None
+            del self._portals[portal_id]
 
     def _remove_portals(self):
         for portal_id in self._portals:
             remove_portal(portal_id)
         self._portals.clear()
+        if self._custom_portals is not None:
+            self._custom_portals.clear()
+            self._custom_portals = None
 
     @componentmethod_with_fallback(lambda *_, **__: False)
     def has_portals(self, check_parts=True):
-        if self._portal_data:
+        if self._portal_data or self._custom_portals:
             return True
         elif check_parts and self.owner.parts is not None:
             return any(part.part_definition is not None and part.part_definition.portal_data is not None for part in self.owner.parts)
@@ -197,6 +244,13 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         portal = self._portals.get(portal_id)
         if portal is not None:
             return portal.get_portal_cost_override()
+
+    @componentmethod_with_fallback(lambda *_, **__: True)
+    def lock_portal_on_use(self, portal_id):
+        portal = self._portals.get(portal_id)
+        if portal is not None:
+            return portal.lock_portal_on_use
+        return True
 
     @componentmethod
     def clear_portal_cost_override(self, portal_id, sim=None):
@@ -271,3 +325,83 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
             (posture_entry, _) = portal_instance.get_posture_change(portal_id, None)
             if posture_entry is not None:
                 return True
+
+    def add_custom_portal(self, location_point, portal_data, portal_creation_mask=None):
+        portal_ids = self._add_portal_internal(location_point, portal_data, portal_creation_mask)
+        if portal_ids:
+            if self._custom_portals is None:
+                self._custom_portals = []
+            self._custom_portals.append((location_point, portal_data, portal_creation_mask, portal_ids))
+        return portal_ids
+
+    def remove_custom_portals(self, portal_ids):
+        if self._custom_portals is None:
+            return
+        for custom_portal in list(self._custom_portals):
+            (location_point, portal_data, mask, custom_portal_ids) = custom_portal
+            portal_ids_to_remove = []
+            if all(custom_portal_id in portal_ids for custom_portal_id in custom_portal_ids):
+                self._custom_portals.remove(custom_portal)
+                portal_ids_to_remove = custom_portal_ids
+            else:
+                portal_ids_to_remove = [custom_portal_id for custom_portal_id in custom_portal_ids if custom_portal_id in portal_ids]
+                if portal_ids_to_remove:
+                    portal_ids_to_keep = [custom_portal_id for custom_portal_id in custom_portal_ids if custom_portal_id not in portal_ids_to_remove]
+                    self._custom_portals.remove(custom_portal)
+                    self._custom_portals.append((location_point, portal_data, mask, portal_ids_to_keep))
+            for portal_id in portal_ids_to_remove:
+                self._remove_portal_internal(portal_id)
+        if not self._custom_portals:
+            self._custom_portals = None
+
+    def clear_custom_portals(self):
+        if self._custom_portals is not None:
+            portal_ids_to_remove = [portal_id for custom_portal in self._custom_portals for portal_id in custom_portal[3]]
+            self.remove_custom_portals(portal_ids_to_remove)
+            self._custom_portals.clear()
+            self._custom_portals = None
+
+    def get_vehicles_nearby_portal_id(self, portal_id):
+        object_manager = services.object_manager()
+        owner_position = Vector3Immutable(self.owner.position.x, 0, self.owner.position.z)
+        portal_inst = self.get_portal_by_id(portal_id)
+        if portal_inst is None:
+            return []
+        if portal_inst.portal_template.use_vehicle_after_traversal is None:
+            return []
+        target_surface = portal_inst.get_target_surface(portal_id)
+        results = []
+        portal_vehicle_tuning = portal_inst.portal_template.use_vehicle_after_traversal
+        for vehicle in object_manager.get_objects_with_tags_gen(*portal_vehicle_tuning.vehicle_tags):
+            if vehicle.routing_surface.type != target_surface.type:
+                continue
+            vehicle_position = Vector3Immutable(vehicle.position.x, 0, vehicle.position.z)
+            distance = (owner_position - vehicle_position).magnitude_squared()
+            if distance > portal_inst.portal_template.use_vehicle_after_traversal.max_distance:
+                continue
+            results.append(vehicle)
+        return results
+
+    def get_portal_location_by_type(self, portal_type, portal_direction, portal_location):
+        portal_pairs = self.get_portal_pairs()
+        for (portal_there, portal_back) in portal_pairs:
+            if portal_there is None and portal_back is None:
+                continue
+            there_instance = self.get_portal_by_id(portal_there)
+            if there_instance.portal_template is portal_type.value:
+                location = self._get_desired_location(portal_there, portal_back, portal_direction, portal_location)
+                if location is None:
+                    continue
+                return location
+
+    def _get_desired_location(self, portal_there_id, portal_back_id, portal_direction, portal_location):
+        if portal_direction == PortalComponent.PORTAL_DIRECTION_THERE:
+            portal_instance = self.get_portal_by_id(portal_there_id)
+        else:
+            if portal_back_id is None:
+                return
+            portal_instance = self.get_portal_by_id(portal_back_id)
+            if portal_instance is None:
+                return
+        location = portal_instance.there_entry if portal_location == PortalComponent.PORTAL_LOCATION_ENTRY else portal_instance.there_exit
+        return location

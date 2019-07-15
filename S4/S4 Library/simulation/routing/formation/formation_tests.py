@@ -19,8 +19,8 @@ class FormationAvailability(HasTunableSingletonFactory, AutoFactoryInit):
             for formation_type in self.available_formations:
                 if not formation_type.formation_compatibility.test_collection(other_formations):
                     continue
-                slave_data_count = master.get_routing_slave_data_count(formation_type)
-                if slave_data_count >= len(formation_type.formation_offsets):
+                formations = [slave_data for slave_data in other_formations if slave_data.formation_type is formation_type]
+                if formations and len(formations) >= formation_type.max_slave_count:
                     continue
                 break
             else:
@@ -72,7 +72,7 @@ class FormationCompatibility(HasTunableSingletonFactory, AutoFactoryInit):
             else:
                 test_formations = (slave.routing_master.get_formation_data_for_slave(slave),)
         if test_formations:
-            test_formations = {formation.formation_type for formation in test_formations}
+            test_formations = {formation.formation_type for formation in test_formations if formation is not None}
             if not self.compatibility.test_collection(test_formations):
                 return TestResult(False, '{}, {} are not in compatible formations.', master, slave, tooltip=tooltip)
         return TestResult.TRUE

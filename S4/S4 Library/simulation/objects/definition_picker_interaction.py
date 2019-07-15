@@ -1,15 +1,18 @@
 from distributor.shared_messages import IconInfoData
 from interactions.base.picker_interaction import ObjectPickerInteraction, DefinitionsFromTags, DefinitionsExplicit
 from interactions.utils.loot import LootActions
+from objects.object_creation import ObjectCreationMixin, CreationDataBase
 from objects.object_tests import DefinitionIdFilter
 from sims4.localization import LocalizationHelperTuning, TunableLocalizedStringFactory
-from sims4.tuning.tunable import TunableVariant, TunableList, TunableTuple, TunableMapping, TunableReference
+from sims4.tuning.tunable import TunableVariant, TunableList, TunableTuple, TunableMapping, TunableReference, HasTunableSingletonFactory, AutoFactoryInit, HasTunableFactory
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
 from singletons import DEFAULT
 from traits.traits import Trait
 from ui.ui_dialog_picker import ObjectPickerRow
 import services
+import sims4.log
+logger = sims4.log.Logger('DefinitionPicker', default_owner='rmccord')
 
 class ObjectDefinitionPickerInteraction(ObjectPickerInteraction):
     INSTANCE_TUNABLES = {'object_tags_or_definition': TunableVariant(description='\n            The method that will be used to generate the list of objects that\n            will populate the picker.\n            ', all_items=DefinitionsFromTags.TunableFactory(description='\n                Look through all the items and populate any with these tags.\n                \n                This should be accompanied with specific filtering tags in\n                Object Populate Filter to get a good result.\n                '), specific_items=DefinitionsExplicit.TunableFactory(description='\n                A list of specific items that is populated in this\n                dialog.\n                '), tuning_group=GroupNames.PICKERTUNING), 'definition_to_loot': TunableList(description='\n            Does a definition test to see loot should be applied to subjects.\n            ', tunable=TunableTuple(description='\n                Loot to apply if definition id passes.\n                ', definition_id_test=DefinitionIdFilter.TunableFactory(description='\n                    Definition to test for.\n                    '), loot_to_apply=LootActions.TunableReference(description='\n                    Loot to apply.\n                    ')), tuning_group=GroupNames.PICKERTUNING)}
@@ -38,6 +41,37 @@ class ObjectDefinitionPickerInteraction(ObjectPickerInteraction):
         for id_loot_test in self.definition_to_loot:
             if id_loot_test.definition_id_test(choice_tag):
                 id_loot_test.loot_to_apply.apply_to_resolver(resolver)
+        super().on_choice_selected(choice_tag, **kwargs)
+
+class CreateObjectDefinitionPickerInteraction(ObjectCreationMixin, ObjectDefinitionPickerInteraction):
+
+    class _DefinitionPickerCreationData(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+
+        def get_definition(self, *args, **kwargs):
+            pass
+
+    INSTANCE_TUNABLES = {'creation_data': _DefinitionPickerCreationData.TunableFactory()}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._definition = None
+
+    @property
+    def definition(self):
+        return self._definition
+
+    def on_choice_selected(self, choice_tag, **kwargs):
+        if choice_tag is None:
+            return
+        self._definition = choice_tag
+        self.resolver = self.get_resolver()
+        created_object = self.create_object()
+        if created_object is None:
+            logger.error('{} failed to create object from picked definition {}.', self, self.definition)
+        self.context.create_target_override = created_object
+        for id_loot_test in self.definition_to_loot:
+            if id_loot_test.definition_id_test(choice_tag):
+                id_loot_test.loot_to_apply.apply_to_resolver(self.resolver)
         super().on_choice_selected(choice_tag, **kwargs)
 
 class TraitToDefinitionPickerInteraction(ObjectDefinitionPickerInteraction):

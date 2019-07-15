@@ -11,13 +11,13 @@ from interactions.constraints import Anywhere, Nowhere, ANYWHERE
 from interactions.context import InteractionSource
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority, can_priority_displace
+from interactions.utils.interaction_liabilities import CANCEL_AOP_LIABILITY
 from postures.posture_errors import PostureGraphError
 from sims4.callback_utils import consume_exceptions, CallableList
 from singletons import DEFAULT
 import autonomy.autonomy_util
 import caches
 import elements
-import interactions.base.interaction
 import postures
 import role
 import scheduling
@@ -73,10 +73,10 @@ class SIState:
     def are_sis_compatible(si_a, si_b, participant_type_a=ParticipantType.Actor, participant_type_b=ParticipantType.Actor, ignore_geometry=False, for_sim=DEFAULT):
         if not SIState.test_non_constraint_compatibility(si_a, si_b, si_b.target):
             return False
-        cancel_aop_liability_a = si_a.get_liability(interactions.base.interaction.CANCEL_AOP_LIABILITY)
+        cancel_aop_liability_a = si_a.get_liability(CANCEL_AOP_LIABILITY)
         if cancel_aop_liability_a is not None and cancel_aop_liability_a.interaction_to_cancel is si_b:
             return False
-        cancel_aop_liability_b = si_b.get_liability(interactions.base.interaction.CANCEL_AOP_LIABILITY)
+        cancel_aop_liability_b = si_b.get_liability(CANCEL_AOP_LIABILITY)
         if cancel_aop_liability_b is not None and cancel_aop_liability_b.interaction_to_cancel is si_a:
             return False
         if ignore_geometry:
@@ -384,12 +384,20 @@ class SIState:
                         continue
                     sis_must_include.add(si)
             to_consider = set()
+            is_like_vehicle = self.sim.posture.is_vehicle or self.sim.parent_may_move
             for non_guaranteed_si in self._super_interactions:
                 if non_guaranteed_si in sis_must_include:
                     continue
-                if not allow_posture_providers and self.sim.posture_state.is_source_interaction(non_guaranteed_si):
+                if not is_like_vehicle:
                     continue
-                to_consider.add(non_guaranteed_si)
+                if not allow_posture_providers and (self.sim.posture_state.is_source_interaction(non_guaranteed_si) and self.sim.posture.is_vehicle) and existing_constraint is not None:
+                    final_surfaces = {constraint.routing_surface.type for constraint in existing_constraint if constraint.routing_surface is not None}
+                    vehicle = self.sim.posture.target
+                    vehicle_surfaces = vehicle.vehicle_component.allowed_surfaces
+                    if final_surfaces and not any(final_surface in vehicle_surfaces for final_surface in final_surfaces):
+                        continue
+                else:
+                    to_consider.add(non_guaranteed_si)
         else:
             sis_must_include = self._get_must_include_sis(priority, group_id, existing_si=existing_si)
             to_consider = set()
@@ -458,8 +466,6 @@ class SIState:
         if to_consider:
             for si in self._sis_sorted(to_consider):
                 if si is to_exclude:
-                    continue
-                if existing_si is not None and existing_si.group_id == si.group_id:
                     continue
                 if not self._common_included_si_tests(si):
                     continue

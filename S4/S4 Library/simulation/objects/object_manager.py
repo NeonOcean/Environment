@@ -7,6 +7,7 @@ from protocolbuffers import FileSerialization_pb2 as file_serialization, Gamepla
 from crafting.crafting_cache import CraftingObjectCache
 from distributor.rollback import ProtocolBufferRollback
 from indexed_manager import IndexedManager, CallbackTypes
+from objects import components
 from objects.attractors.attractor_manager_mixin import AttractorManagerMixin
 from objects.components.inventory_enums import StackScheme
 from objects.components.types import PORTAL_COMPONENT
@@ -84,6 +85,10 @@ class DistributableObjectManager(IndexedManager):
 
 class GameObjectManagerMixin:
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._claimed_items = set()
+
     def valid_objects(self):
         return [obj for obj in self._objects.values() if not obj._hidden_flags]
 
@@ -126,6 +131,37 @@ class GameObjectManagerMixin:
     def remove_active_whim_set(self, whim_set):
         pass
 
+    def set_claimed_item(self, obj_id):
+        self._claimed_items.add(obj_id)
+
+    def has_item_been_claimed(self, obj_id):
+        return obj_id in self._claimed_items
+
+    def has_object_failed_claiming(self, obj):
+        if not self.has_item_been_claimed(obj.id) and obj.has_component(components.types.OBJECT_CLAIM_COMPONENT) and obj.object_claim_component.requires_claiming:
+            return True
+        return False
+
+    def has_inventory_item_failed_claiming(self, obj_id, inventory_data):
+        for persistable_data in inventory_data:
+            if persistable_data.type == persistable_data.InventoryItemComponent:
+                data = persistable_data.Extensions[protocols.PersistableInventoryItemComponent.persistable_data]
+                if data.requires_claiming:
+                    if not self.has_item_been_claimed(obj_id):
+                        return True
+        return False
+
+    def destroy_unclaimed_objects(self):
+        objs_to_remove = []
+        for obj_id in self:
+            obj = self.get(obj_id)
+            if obj is not None:
+                if obj.has_component(components.types.OBJECT_CLAIM_COMPONENT):
+                    if obj.object_claim_component.has_not_been_reclaimed():
+                        objs_to_remove.append(obj)
+        for obj in objs_to_remove:
+            self.remove(obj)
+
 class PartyManager(IndexedManager):
     pass
 
@@ -140,7 +176,6 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
         self._definition_stack_id_map = {}
         self._dynamic_stack_scheme_id_map = {}
         self._last_stack_id = 0
-        self._claimed_items = set()
 
     def on_client_connect(self, client):
         all_objects = list(self._objects.values())
@@ -155,6 +190,7 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
         obj.manager = object_manager
         object_manager._objects[obj.id] = obj
         object_manager.add_object_to_object_tags_cache(obj)
+        object_manager.add_object_to_posture_providing_cache(obj)
 
     def remove(self, obj, *args, **kwargs):
         inventory = obj.get_inventory()
@@ -190,21 +226,6 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
     def supports_parenting(self):
         return True
 
-    def set_claimed_item(self, obj_id):
-        self._claimed_items.add(obj_id)
-
-    def has_item_been_claimed(self, obj_id):
-        return obj_id in self._claimed_items
-
-    def _has_item_failed_claiming(self, obj_id, inventory_data):
-        for persistable_data in inventory_data:
-            if persistable_data.type == persistable_data.InventoryItemComponent:
-                data = persistable_data.Extensions[protocols.PersistableInventoryItemComponent.persistable_data]
-                if data.requires_claiming:
-                    if not self.has_item_been_claimed(obj_id):
-                        return True
-        return False
-
 BED_PREFIX_FILTER = ('buycat', 'buycatee', 'buycatss', 'func')
 
 class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, AttractorManagerMixin):
@@ -225,6 +246,8 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         self._all_bed_tags = self.BED_TAGS.beds | self.BED_TAGS.double_beds | self.BED_TAGS.kid_beds | self.BED_TAGS.other_sleeping_spots
         self._tag_to_object_list = defaultdict(set)
         self._whim_set_cache = Counter()
+        self._posture_providing_object_cache = None
+        self._objects_to_ignore_portal_validation_cache = []
 
     @classproperty
     def save_error_code(cls):
@@ -254,16 +277,19 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         obj.manager = inventory_manager
         inventory_manager._objects[obj.id] = obj
         self.remove_object_from_object_tags_cache(obj)
+        self.remove_object_from_posture_providing_cache(obj)
 
     def add(self, obj, *args, **kwargs):
         super().add(obj, *args, **kwargs)
         self.add_object_to_object_tags_cache(obj)
+        self.add_object_to_posture_providing_cache(obj)
 
     def remove(self, obj, *args, **kwargs):
         super().remove(obj, *args, **kwargs)
         current_zone = services.current_zone()
         if not current_zone.is_zone_shutting_down:
             self.remove_object_from_object_tags_cache(obj)
+            self.remove_object_from_posture_providing_cache(obj)
 
     def add_object_to_object_tags_cache(self, obj):
         self.add_tags_and_object_to_cache(obj.get_tags(), obj)
@@ -295,9 +321,47 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
                 return False
         return True
 
+    def add_object_to_posture_providing_cache(self, obj):
+        if not obj.provided_mobile_posture_affordances:
+            return
+        if self._posture_providing_object_cache is None:
+            self._posture_providing_object_cache = set()
+        self._posture_providing_object_cache.add(obj)
+        posture_graph_service = services.posture_graph_service()
+        if not posture_graph_service.has_built_for_zone_spin_up:
+            posture_graph_service.on_mobile_posture_object_added_during_zone_spinup(obj)
+
+    def remove_object_from_posture_providing_cache(self, obj):
+        if not obj.provided_mobile_posture_affordances:
+            return
+        self._posture_providing_object_cache.remove(obj)
+        if not self._posture_providing_object_cache:
+            self._posture_providing_object_cache = None
+
+    def get_posture_providing_objects(self):
+        return self._posture_providing_object_cache or ()
+
+    def rebuild_objects_to_ignore_portal_validation_cache(self):
+        self._objects_to_ignore_portal_validation_cache.clear()
+        for obj in self._objects.values():
+            if not obj.routing_component is not None:
+                if not obj.inventoryitem_component is not None:
+                    if obj.live_drag_component is not None:
+                        self._objects_to_ignore_portal_validation_cache.append(obj.id)
+            self._objects_to_ignore_portal_validation_cache.append(obj.id)
+
+    def clear_objects_to_ignore_portal_validation_cache(self):
+        self._objects_to_ignore_portal_validation_cache.clear()
+
+    def get_objects_to_ignore_portal_validation_cache(self):
+        return self._objects_to_ignore_portal_validation_cache
+
     def clear_caches_on_teardown(self):
         self._tag_to_object_list.clear()
         self._water_terrain_object_cache.clear()
+        if self._posture_providing_object_cache is not None:
+            self._posture_providing_object_cache.clear()
+        self.clear_objects_to_ignore_portal_validation_cache()
         build_buy.unregister_build_buy_exit_callback(self._water_terrain_object_cache.refresh)
 
     def pre_save(self):
@@ -462,14 +526,10 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         portal_component = portal.get_component(PORTAL_COMPONENT)
         if portal_component is None:
             return False
-        if portal_component.get_portal_data():
-            return True
-        elif any(p.part_definition.portal_data for p in portal.get_part_data()):
-            return True
-        return False
+        return portal.has_portals()
 
     def add_portal_to_cache(self, portal):
-        if self._is_valid_portal_object(portal):
+        if portal not in self._portal_cache and self._is_valid_portal_object(portal):
             self._portal_cache.add(portal)
             self._portal_added_callbacks(portal)
 
@@ -504,6 +564,10 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         if matching_objects is not None:
             return matching_objects
         return EMPTY_SET
+
+    def get_num_objects_matching_tags(self, tags:set, match_any=False):
+        matching_objects = self.get_objects_matching_tags(tags, match_any)
+        return len(matching_objects)
 
     @contextmanager
     def batch_commodity_flags_update(self):

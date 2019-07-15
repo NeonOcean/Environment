@@ -1,9 +1,11 @@
 from event_testing.results import TestResult
-from interactions.constraints import create_constraint_set
+from interactions.constraints import create_constraint_set, OceanStartLocationConstraint, WaterDepthIntervals, ANYWHERE
 from interactions.social.social_super_interaction import SocialSuperInteraction
 from objects.pools import pool_utils
+from routing import SurfaceType
 from sims4.tuning.tunable import TunableRange
 from sims4.utils import flexmethod
+from terrain import get_water_depth
 import build_buy
 import routing
 import sims4
@@ -38,10 +40,20 @@ class PoolEdgeSocialInteraction(SocialSuperInteraction):
         else:
             pick_position = pick_position.location
         pool_block_id = build_buy.get_block_id(sim.zone_id, pick_position, inst_or_cls.context.pick.level - 1)
-        pool = pool_utils.get_pool_by_block_id(pool_block_id)
-        if pool is None:
-            return
-        pool_edge_constraints = pool.get_edge_constraint(constraint_width=inst_or_cls.edge_constraint_width, inward_dir=False, return_constraint_list=True, los_reference_point=pick_position)
+        if pool_block_id == 0:
+            if inst_or_cls.context.pick.routing_surface.type == SurfaceType.SURFACETYPE_POOL:
+                if get_water_depth(sim.position.x, sim.position.z, sim.level) > 0:
+                    pool_edge_constraints = ANYWHERE
+                else:
+                    pool_edge_constraints = OceanStartLocationConstraint.create_simple_constraint(WaterDepthIntervals.WET, 1, sim, target)
+                    return
+            else:
+                return
+        else:
+            pool = pool_utils.get_pool_by_block_id(pool_block_id)
+            if pool is None:
+                return
+            pool_edge_constraints = pool.get_edge_constraint(constraint_width=inst_or_cls.edge_constraint_width, inward_dir=False, return_constraint_list=True, los_reference_point=pick_position)
         constraint_set = create_constraint_set(pool_edge_constraints)
         inst._edge_constraint = constraint_set
         yield constraint_set

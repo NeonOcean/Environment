@@ -1,3 +1,4 @@
+from protocolbuffers import Consts_pb2
 from audio.primitive import TunablePlayAudio, play_tunable_audio
 from clock import interval_in_sim_weeks
 from date_and_time import TimeSpan, create_date_and_time, DateAndTime
@@ -5,10 +6,10 @@ from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import IconInfoData
 from event_testing.resolver import SingleSimResolver, GlobalResolver
 from event_testing.tests import TunableTestSet
-from protocolbuffers import Consts_pb2
 from sims.funds import get_funds_for_source, FundsSource
 from sims.household_utilities.utility_types import Utilities, UtilityShutoffReasonPriority
-from sims4.localization import TunableLocalizedStringFactory
+from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning, TunableLocalizedString
+from sims4.tuning.dynamic_enum import DynamicEnum, DynamicEnumLocked
 from sims4.tuning.tunable import Tunable, TunableList, TunableTuple, TunablePercent, TunableInterval, TunableMapping, TunableReference, TunableEnumEntry
 from singletons import DEFAULT
 from tunable_multiplier import TunableMultiplier
@@ -21,8 +22,17 @@ import services
 import sims4.log
 logger = sims4.log.Logger('Bills', default_owner='rmccord')
 
+class BillReductionEnum(DynamicEnumLocked):
+    GlobalPolicy_ControlInvasiveSpecies = 0
+    GlobalPolicy_ControlOverfishing = 1
+    GlobalPolicy_CoconutRebate = 2
+    GlobalPolicy_SupportOrganicProduce = 3
+    GlobalPolicy_ExperimentalPollutionCleaner = 4
+    GlobalPolicy_LitteringFines = 5
+
 class Bills:
     BILL_ARRIVAL_NOTIFICATION = TunableList(description='\n        A list of notifications that show up if bills are delivered. We run\n        through the notifications and tests in order to see which one passes\n        first.\n        ', tunable=TunableTuple(description='\n            Tests and Notification for when bills are delivered. We run the\n            tests first before popping the notification.\n            ', notification=UiDialogNotification.TunableFactory(description='\n                A notification which pops up when bills are delivered.\n                '), tests=TunableTestSet(description='\n                Tests to determine if we should show this notification.\n                ')))
+    REDUCTION_REASON_TEXT_MAP = TunableMapping(description='\n        A mapping of reduction reason to text that will appear as a bullet\n        in a bulleted list in the bill arrival notification.\n        ', key_type=TunableEnumEntry(description='\n            Reason for bill reduction.\n            ', tunable_type=BillReductionEnum, default=BillReductionEnum.GlobalPolicy_ControlInvasiveSpecies), value_type=TunableLocalizedStringFactory(description='\n            A string representing the line item on the notification\n            explaining why Sims are getting a bill reduction.\n            \n            This string is provided one token: the percentage discount\n            obtained due to the reason.\n            \n            e.g.:\n             {0.Number}% off for enacting the Green Energy Policy.\n            '))
     UTILITY_INFO = TunableMapping(key_type=Utilities, value_type=TunableList(description='\n            A list of notifications and tooltips that show up if a utility will\n            soon become delinquent or is shut off. We run through the tests in\n            order to decide which set of notifications and tooltips to show.\n            ', tunable=TunableTuple(description='\n                Notifications and tooltips related to shutting off utilities,\n                accompanied by tests which must pass before we show the\n                notification or tooltip.\n                ', warning_notification=UiDialogNotification.TunableFactory(description='\n                    A notification which appears when the player will be losing this\n                    utility soon due to delinquency.\n                    '), shutoff_notification=UiDialogNotification.TunableFactory(description='\n                    A notification which appears when the player loses this utility\n                    due to delinquency.\n                    '), shutoff_tooltip=TunableLocalizedStringFactory(description='\n                    A tooltip to show when an interaction cannot be run due to this\n                    utility being shutoff.\n                    '), tests=TunableTestSet(description='\n                    Test set which determines if we show the notification and\n                    tooltip or not.\n                    '))))
     BILL_COST_MODIFIERS_SIM = TunableMultiplier.TunableFactory(description='\n        A tunable list of test sets and associated multipliers to apply to the\n        total bill cost per payment on a per Sim basis.\n        ')
     BILL_COST_MODIFIERS_HOUSEHOLD = TunableMultiplier.TunableFactory(description='\n        A tunable list of test sets and associated multipliers to apply to the\n        total bill cost per payment on a per household basis.\n        ')
@@ -245,6 +255,10 @@ class Bills:
             multiplier *= Bills.BILL_COST_MODIFIERS_SIM.get_multiplier(SingleSimResolver(sim_info))
         multiplier *= Bills.BILL_COST_MODIFIERS_HOUSEHOLD.get_multiplier(SingleSimResolver(GlobalResolver()))
         bill_amount *= multiplier
+        bill_reductions = services.global_policy_service().get_bill_reductions()
+        if bill_reductions:
+            for reduction in bill_reductions.values():
+                bill_amount *= reduction
         if bill_amount <= 0 and self._household.is_active_household:
             logger.error('\n                Player household {} has been determined to owe {} Simoleons. \n                Player households are always expected to owe at least some amount \n                of money for bills.\n                ', self._household, bill_amount)
         return int(bill_amount)
@@ -332,11 +346,6 @@ class Bills:
         if self._warning_handle is not None:
             alarms.cancel_alarm(self._warning_handle)
             self._warning_handle = None
-        for obj in services.object_manager().valid_objects():
-            state_component = obj.state_component
-            if state_component is None:
-                continue
-            state_component.clear_delinquent_states()
 
     def _set_next_delinquency_timers(self):
         for utility in self._utility_delinquency:
@@ -375,6 +384,18 @@ class Bills:
             play_tunable_audio(self.AUDIO.delinquency_warning_sfx)
         if not self.bill_notifications_enabled:
             return
+        reduction_reasons_string = ''
+        bill_reductions = services.global_policy_service().get_bill_reductions()
+        if bill_reductions:
+            reduction_reasons = []
+            for (reduction_reason, reduction) in bill_reductions.items():
+                reduction_text = self.REDUCTION_REASON_TEXT_MAP.get(reduction_reason)
+                if reduction_text:
+                    reduction_reasons.append(reduction_text(reduction*100))
+                else:
+                    logger.error('Attempting to get reduction reason ({}) bullet point without a tuned value in the Reduction Reason Text Map.', str(reduction_reason), owner='shipark')
+                    return
+            reduction_reasons_string = LocalizationHelperTuning.get_bulleted_list(None, *reduction_reasons)
         client = services.client_manager().get_client_by_household(self._household)
         if client is not None:
             active_sim_info = client.active_sim_info
@@ -386,7 +407,7 @@ class Bills:
                 if plex_service is not None:
                     if plex_service.is_zone_a_plex(self._household.home_zone_id):
                         icon_override = IconInfoData(obj_instance=services.get_landlord_service().get_landlord_sim_info())
-                dialog.show_dialog(icon_override=icon_override, additional_tokens=(remaining_time, self._current_payment_owed))
+                dialog.show_dialog(icon_override=icon_override, additional_tokens=(remaining_time, self._current_payment_owed, reduction_reasons_string))
 
     def add_additional_bill_cost(self, additional_bill_source, cost):
         current_cost = self._additional_bill_costs.get(additional_bill_source, 0)

@@ -31,6 +31,7 @@ def start_services(save_slot_data):
     global service_manager
     if service_manager is None:
         service_manager = GameServiceManager()
+        from apartments.landlord_service import LandlordService
         from business.business_service import BusinessService
         from call_to_action.call_to_action_service import CallToActionService
         from clock import GameClock
@@ -59,7 +60,8 @@ def start_services(save_slot_data):
         from lot_decoration.lot_decoration_service import LotDecorationService
         from narrative.narrative_service import NarrativeService
         from services.object_lost_and_found_service import ObjectLostAndFoundService
-        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService()]
+        from global_policies.global_policy_service import GlobalPolicyService
+        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), GlobalPolicyService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService(), LandlordService()]
         for service in service_list:
             if service is not None:
                 service_manager.register_service(service)

@@ -68,10 +68,10 @@ class MoneyChange(BaseLootOperation):
     def _on_apply_completed(self):
         self._random_amount = None
 
-    def _get_display_text(self):
+    def _get_display_text(self, resolver=None):
         return LocalizationHelperTuning.MONEY(*self._get_display_text_tokens())
 
-    def _get_display_text_tokens(self):
+    def _get_display_text_tokens(self, resolver=None):
         return (self.amount,)
 
     def _get_multiplier(self, resolver, sim):

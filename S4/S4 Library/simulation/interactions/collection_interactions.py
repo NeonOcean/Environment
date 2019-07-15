@@ -1,4 +1,6 @@
 from build_buy import ObjectOriginLocation
+from interactions.aop import AffordanceObjectPair
+from interactions.base.immediate_interaction import ImmediateSuperInteraction
 from interactions.base.picker_interaction import ObjectPickerInteraction
 from interactions.base.picker_strategy import StatePickerEnumerationStrategy
 from objects.collection_manager import CollectionIdentifier, ObjectCollectionData
@@ -7,6 +9,7 @@ from objects.system import create_object
 from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, TunableTuple, TunableList
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
+from singletons import DEFAULT
 import build_buy
 import services
 import sims4
@@ -79,3 +82,48 @@ class CollectionPickerInteraction(ObjectPickerInteraction):
         self._collectible_data = None
         choice_enumeration_strategy = StatePickerEnumerationStrategy()
         super().__init__(*args, choice_enumeration_strategy=choice_enumeration_strategy, **kwargs)
+
+class AwardCollectiblesInteraction(ImmediateSuperInteraction):
+
+    def _run_interaction_gen(self, timeline):
+        self._give_objects_for_collection_type()
+        return True
+        yield
+
+    def _object_definitions_gen(self):
+        collection_type = self.interaction_parameters.get('collection_type')
+        if collection_type is None:
+            return
+        collection_data = ObjectCollectionData.get_collection_data(collection_type)
+        if collection_data is None:
+            return
+        yield from (i.collectable_item for i in collection_data.object_list)
+        yield from (i.collectable_item for i in collection_data.bonus_object_list)
+
+    @flexmethod
+    def _get_name(cls, inst, target=DEFAULT, context=DEFAULT, collection_type=None, **interaction_parameters):
+        if collection_type is None:
+            return
+        collection_data = ObjectCollectionData.get_collection_data(collection_type)
+        return cls.display_name(collection_data.collection_name)
+
+    @classmethod
+    def potential_interactions(cls, target, context, **kwargs):
+        for collection_type in CollectionIdentifier.values:
+            if CollectionIdentifier.Unindentified == collection_type:
+                continue
+            if ObjectCollectionData.get_collection_data(collection_type) is None:
+                continue
+            yield AffordanceObjectPair(cls, target, cls, None, collection_type=collection_type, **kwargs)
+
+    def _give_objects_for_collection_type(self, **kwargs):
+        for obj_def in self._object_definitions_gen():
+            obj = create_object(obj_def)
+            if obj is None:
+                logger.error('AwardCollectiblesInteraction: Failed to create object {}', obj_def, owner='jdimailig')
+            else:
+                obj.update_ownership(self.sim.sim_info)
+                if not self.sim.inventory_component.player_try_add_object(obj):
+                    obj.set_household_owner_id(services.active_household_id())
+                    if not build_buy.move_object_to_household_inventory(obj, object_location_type=ObjectOriginLocation.SIM_INVENTORY):
+                        logger.error('AwardCollectiblesInteraction: Failed to add object {} to household inventory.', obj, owner='jdimailig')

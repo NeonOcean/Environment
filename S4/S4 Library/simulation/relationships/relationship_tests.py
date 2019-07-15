@@ -9,6 +9,7 @@ import event_testing
 import services
 import sims4.resources
 import singletons
+import tag
 logger = sims4.log.Logger('RelationshipTests', default_owner='msantander')
 
 class RelationshipTestEvents(enum.Int):
@@ -176,64 +177,64 @@ class RelationshipTest(BaseRelationshipTest):
 
 TunableRelationshipTest = TunableSingletonFactory.create_auto_factory(RelationshipTest)
 
-class ObjectTypeRelationshipTest(BaseRelationshipTest):
-    FACTORY_TUNABLES = {'description': 'Gate availability by a relationship status.\n        \n            Note: \n            This is different than the instance-based Object Relationship Component\n            and applies only to the relationships of Object Based Tracks tuned under\n            relationship tracker module tuning.\n            \n            If object rel does not exist, the test will treat the rel_track value \n            with an assumed value of 0 with no rel-bits.\n            ', 'target_object': TunableEnumFlags(description='\n            Target Object of the relationship.\n            ', enum_type=ParticipantType, default=ParticipantType.Object), 'track': TunableReference(description='\n            The object relationship track on which to check for bits and threshold values.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='ObjectRelationshipTrack')}
-    __slots__ = 'target_object'
+class ObjectTypeRelationshipTest(HasTunableSingletonFactory, BaseRelationshipTest):
+    FACTORY_TUNABLES = {'description': 'Gate availability by a relationship status.\n        \n            Note: \n            This is different than the instance-based Object Relationship Component\n            and applies only to the relationships of Object Based Tracks tuned under\n            relationship tracker module tuning.\n            \n            If object rel does not exist, the test will treat the rel_track value \n            with an assumed value of 0 with no rel-bits.\n            ', 'target_type': TunableVariant(description='\n            The type of target we want to test the relationship on.  This will\n            either be a tag set (in the case where we want to test rel on \n            uninstantiated objects) or an object.\n            ', tag_set=TunableReference(description='\n                Tag set that defines the target objects of the relationship.\n                ', manager=services.get_instance_manager(sims4.resources.Types.TAG_SET), pack_safe=True), object=TunableEnumFlags(description='\n                Target Object of the relationship.\n                ', enum_type=ParticipantType, default=ParticipantType.Object), default='object'), 'track': TunableReference(description='\n            The object relationship track on which to check for bits and threshold values.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='ObjectRelationshipTrack')}
+    __slots__ = ('target_type',)
 
-    def __init__(self, target_object, *args, **kwargs):
+    def __init__(self, target_type, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.target_object = target_object
+        self.target_type = target_type
 
     def get_expected_args(self):
-        return {'source_sims': self.subject, 'target_objects': self.target_object}
+        return {'source_sims': self.subject, 'target_type': self.target_type}
 
     @cached_test
-    def __call__(self, source_sims=None, target_objects=None):
-        super().__call__(targets=target_objects)
-        if self.target_object == ParticipantType.AllRelationships:
-            logger.error('Object Relationships do not support the All Relationships participant. Failed to test against relationship between source:{} and target:{}', source_sims, target_objects)
+    def __call__(self, source_sims=None, target_type=None):
+        if self.target_type == ParticipantType.AllRelationships:
+            logger.error('Object Relationships do not support the All Relationships participant. Failed to test against relationship between source:{} and target:{}', source_sims, self.target_type)
             return
         for sim_a in source_sims:
             sim_a_id = sim_a.id
             rel_tracker = self.track
             relationship_service = services.relationship_service()
-            for target_object in target_objects:
+            if isinstance(self.target_type, ParticipantType):
+                target_object = target_type[0]
                 obj_tag_set = relationship_service.get_mapped_tag_set_of_id(target_object.definition.id)
                 if obj_tag_set is None:
                     logger.error('{} does not have object relationship tuning. Update the object relationship map.', target_object)
                     return TestResult(False, 'Relationship between {} and {} does not exist.', sim_a, target_object, tooltip=self.tooltip)
-                rel_score = relationship_service.get_object_relationship_score(sim_a_id, obj_tag_set, track=rel_tracker, target_def_id=target_object.definition.id)
-                actual_rel = 0 if rel_score is None else rel_score
-                if actual_rel not in self.relationship_score_interval:
-                    return TestResult(False, 'Inadequate relationship level ({} not within [{},{}]) between {} and {}.', rel_score, self.relationship_score_interval.lower_bound, self.relationship_score_interval.upper_bound, sim_a, target_object, tooltip=self.tooltip)
-                if self.required_relationship_bits.match_any:
-                    if rel_score is None:
-                        return TestResult(False, 'No relationship between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
-                    for bit in self.required_relationship_bits.match_any:
+            else:
+                obj_tag_set = self.target_type
+            rel_score = relationship_service.get_object_relationship_score(sim_a_id, obj_tag_set, track=rel_tracker)
+            actual_rel = rel_tracker.initial_value if rel_score is None else rel_score
+            if actual_rel not in self.relationship_score_interval:
+                return TestResult(False, 'Inadequate relationship level ({} not within [{},{}]) between {} and {}.', rel_score, self.relationship_score_interval.lower_bound, self.relationship_score_interval.upper_bound, sim_a, self.target_type, tooltip=self.tooltip)
+            if self.required_relationship_bits.match_any:
+                if rel_score is None:
+                    return TestResult(False, 'No relationship between {} and {}.', sim_a, self.target_type, tooltip=self.tooltip)
+                for bit in self.required_relationship_bits.match_any:
+                    if relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                        break
+                else:
+                    return TestResult(False, 'Missing all of the match_any required relationship bits between {} and {}.', sim_a, self.target_type, tooltip=self.tooltip)
+            for bit in self.required_relationship_bits.match_all:
+                if rel_score is None:
+                    return TestResult(False, 'No relationship between {} and {}.', sim_a, self.target_type, tooltip=self.tooltip)
+                if bit is None:
+                    return TestResult(False, 'Missing pack, so relationship bit is None.', tooltip=self.tooltip)
+                if not relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
+                    return TestResult(False, 'Missing relationship bit ({}) between {} and {}.', bit, sim_a, self.target_type, tooltip=self.tooltip)
+            if self.prohibited_relationship_bits.match_any:
+                if rel_score is not None:
+                    for bit in self.prohibited_relationship_bits.match_any:
                         if relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
-                            break
-                    return TestResult(False, 'Missing all of the match_any required relationship bits between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
-                for bit in self.required_relationship_bits.match_all:
-                    if rel_score is None:
-                        return TestResult(False, 'No relationship between {} and {}.', sim_a, target_object, tooltip=self.tooltip)
-                    if bit is None:
-                        return TestResult(False, 'Missing pack, so relationship bit is None.', tooltip=self.tooltip)
+                            return TestResult(False, 'Prohibited Relationship ({}) between {} and {}.', bit, sim_a, self.target_type, tooltip=self.tooltip)
+            if self.prohibited_relationship_bits.match_all and rel_score is not None:
+                for bit in self.prohibited_relationship_bits.match_all:
                     if not relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
-                        return TestResult(False, 'Missing relationship bit ({}) between {} and {}.', bit, sim_a, target_object, tooltip=self.tooltip)
-                if self.prohibited_relationship_bits.match_any:
-                    if rel_score is not None:
-                        for bit in self.prohibited_relationship_bits.match_any:
-                            if relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
-                                return TestResult(False, 'Prohibited Relationship ({}) between {} and {}.', bit, sim_a, target_object, tooltip=self.tooltip)
-                if self.prohibited_relationship_bits.match_all:
-                    if rel_score is not None:
-                        for bit in self.prohibited_relationship_bits.match_all:
-                            if not relationship_service.has_object_bit(sim_a_id, obj_tag_set, bit):
-                                break
-                        return TestResult(False, '{} has all  the match_all prohibited bits with {}.', sim_a, target_object, tooltip=self.tooltip)
+                        break
+                return TestResult(False, '{} has all  the match_all prohibited bits with {}.', sim_a, self.target_type, tooltip=self.tooltip)
             return TestResult.TRUE
-
-TunableObjectTypeRelationshipTest = TunableSingletonFactory.create_auto_factory(ObjectTypeRelationshipTest)
 
 class ComparativeRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     FACTORY_TUNABLES = {'subject_a': TunableEnumFlags(description='\n            Owner(s) of the relationship(s) to be compared with subject_b.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'subject_b': TunableEnumFlags(description='\n            Owner(s) of the relationship(s) to be compared with subject_a.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'target': TunableEnumFlags(description='\n            Target of the relationship(s).\n            ', enum_type=ParticipantType, default=ParticipantType.TargetSim), 'track': TunableReference(description='\n            The relationship track to compare.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions='RelationshipTrack'), 'fallback': TunableVariant(description='\n            The fallback winner in case subjects a and b have the exact same\n            average relationship with the target.\n            ', locked_args={'Subject A': True, 'Subject B': False}, default='Subject A'), 'expected_result': TunableVariant(description='\n            The expected result of this relationship comparison.\n            ', locked_args={'Subject A has higher relationship with target.': True, 'Subject B has higher relationship with target.': False}, default='Subject A has higher relationship with target.')}

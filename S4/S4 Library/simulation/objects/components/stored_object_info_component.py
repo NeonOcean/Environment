@@ -112,7 +112,7 @@ class StoredObjectInfoComponent(Component, component_name=types.STORED_OBJECT_IN
 
     def save(self, persistence_master_message):
         persistable_data = protocols.PersistenceMaster.PersistableData()
-        persistable_data.type = protocols.PersistenceMaster.PersistableData.PersistableStoredObjectInfoComponent
+        persistable_data.type = protocols.PersistenceMaster.PersistableData.StoredObjectInfoComponent
         stored_object_info_component_data = persistable_data.Extensions[protocols.PersistableStoredObjectInfoComponent.persistable_data]
         self._save_stored_object_info(stored_object_info_component_data)
         persistence_master_message.data.extend([persistable_data])
@@ -145,7 +145,7 @@ class StoredObjectInfoComponent(Component, component_name=types.STORED_OBJECT_IN
             self._stored_object_map[stored_object_data_proto.stored_object_type] = StoredObjectData(stored_object_data_proto.object_id, object_definition_id, custom_name, state_guids)
 
     def load(self, persistable_data):
-        stored_object_info_component_data = persistable_data.Extensions[protocols.StoredObjectInfoComponent.persistable_data]
+        stored_object_info_component_data = persistable_data.Extensions[protocols.PersistableStoredObjectInfoComponent.persistable_data]
         self.load_stored_object_info(stored_object_info_component_data)
 
     @componentmethod

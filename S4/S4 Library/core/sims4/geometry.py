@@ -313,6 +313,18 @@ class RestrictedPolygon(ImmutableType):
                 merged_restrictions = []
         return RestrictedPolygon(merged_polygon, merged_restrictions)
 
+    def union(self, other):
+        assert isinstance(other, RestrictedPolygon)
+        if self.polygon is not None and other.polygon is not None:
+            if len(self.polygon) == 1 and len(other.polygon) == 1:
+                poly_mine = self.polygon[0]
+                poly_other = other.polygon[0]
+                if len(poly_mine) == 1 and len(poly_other) == 1 and sims4.math.vector3_almost_equal_2d(poly_mine[0], poly_other[0], epsilon=ANIMATION_SLOT_EPSILON):
+                    return RestrictedPolygon(self.polygon, ())
+            return RestrictedPolygon(self.polygon.union(other.polygon), ())
+        polygon = self.polygon if other.polygon is None else other.polygon
+        return RestrictedPolygon(polygon, ())
+
     def get_orientation_range(self, point):
         (compatible, interval) = _evaluate_interval(point, self.restrictions)
         if not compatible:

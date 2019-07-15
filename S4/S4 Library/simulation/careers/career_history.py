@@ -4,7 +4,7 @@ import sims4.resources
 
 class CareerHistory:
 
-    def __init__(self, *, career_track, level, user_level, overmax_level, highest_level, time_of_leave, daily_pay, days_worked, active_days_worked, player_rewards_deferred):
+    def __init__(self, *, career_track, level, user_level, overmax_level, highest_level, time_of_leave, daily_pay, days_worked, active_days_worked, player_rewards_deferred, schedule_shift_type):
         self._career_track = career_track
         self._level = level
         self._user_level = user_level
@@ -15,6 +15,7 @@ class CareerHistory:
         self._days_worked = days_worked
         self._active_days_worked = active_days_worked
         self._player_rewards_deferred = player_rewards_deferred
+        self._schedule_shift_type = schedule_shift_type
 
     @property
     def career_track(self):
@@ -63,6 +64,7 @@ class CareerHistory:
         career_history_proto.days_worked = int(self._days_worked)
         career_history_proto.active_days_worked = int(self._active_days_worked)
         career_history_proto.player_rewards_deferred = self._player_rewards_deferred
+        career_history_proto.schedule_shift_type = self._schedule_shift_type
 
     @staticmethod
     def load_career_history(sim_info, career_history_proto):
@@ -80,4 +82,4 @@ class CareerHistory:
         if daily_pay == 0:
             daily_pay = career.get_daily_pay(sim_info=sim_info, career_track=career_track, career_level=level, overmax_level=overmax_level)
         deferred_rewards = career_history_proto.player_rewards_deferred
-        return CareerHistory(career_track=career_track, level=level, user_level=user_level, overmax_level=overmax_level, highest_level=highest_level, time_of_leave=DateAndTime(career_history_proto.time_left), daily_pay=daily_pay, days_worked=career_history_proto.days_worked, active_days_worked=career_history_proto.active_days_worked, player_rewards_deferred=deferred_rewards)
+        return CareerHistory(career_track=career_track, level=level, user_level=user_level, overmax_level=overmax_level, highest_level=highest_level, time_of_leave=DateAndTime(career_history_proto.time_left), daily_pay=daily_pay, days_worked=career_history_proto.days_worked, active_days_worked=career_history_proto.active_days_worked, player_rewards_deferred=deferred_rewards, schedule_shift_type=career_history_proto.schedule_shift_type)

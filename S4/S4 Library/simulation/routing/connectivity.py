@@ -1,8 +1,13 @@
 from animation import animation_constants
+from interactions.constraints import Constraint
 from interactions.utils.routing import SlotGoal
 from native.routing.connectivity import Handle, HandleList
 from postures.posture_specs import PostureSpecVariable
+from routing import SurfaceType
+from sims.sim_info_types import Age, SpeciesExtended
 from sims4.collections import frozendict
+from sims4.utils import constproperty
+from world.ocean_tuning import OceanTuning
 import placement
 import routing
 import services
@@ -45,8 +50,8 @@ class RoutingHandle(Handle):
     def _get_kwargs_for_clone(self, kwargs):
         kwargs.update(sim=self.sim, constraint=self.constraint, geometry=self.geometry, los_reference_point=self.los_reference_point, routing_surface_override=self.routing_surface, locked_params=self.locked_params)
 
-    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None):
-        force_multi_surface = relative_object is not None and relative_object.force_multi_surface_constraints
+    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None, always_reject_invalid_goals=False):
+        force_multi_surface = relative_object is not None and (relative_object.force_multi_surface_constraints or relative_object.is_sim and relative_object.routing_surface != self.sim.routing_surface)
         if force_multi_surface or not not (self.constraint.multi_surface and for_source):
             routing_surfaces = self.constraint.get_all_valid_routing_surfaces(force_multi_surface=force_multi_surface)
         else:
@@ -66,13 +71,30 @@ class RoutingHandle(Handle):
             if carry_target is not None and getattr(carry_target, 'is_sim', False):
                 objects_to_ignore.add(carry_target.id)
         provided_points = self.constraint.get_provided_points_for_goals()
+        min_water_depth = self.constraint.get_min_water_depth()
+        max_water_depth = self.constraint.get_max_water_depth()
+        terrain_tags = self.constraint.get_terrain_tags()
+        wading_interval = OceanTuning.get_actor_wading_interval(self.sim)
+        all_blocking_edges_block_los = self.los_reference_point is not None and (single_goal_only and (not for_carryable and self.for_slot_constraint))
+        los_routing_context = None
+        if relative_object is not None:
+            try:
+                if not relative_object.is_sim and relative_object.is_part and relative_object.part_owner is None:
+                    return []
+                los_routing_context = relative_object.raycast_context(for_carryable=for_carryable)
+            except AttributeError as exc:
+                raise AttributeError('\n    Relative object for sim: {}\n    for constraint: {}\n    with head interaction: {}\n    has no raycast context\n {}'.format(self.sim, self.constraint, self.sim.queue.get_head(), exc))
+        sim_is_big_dog = self.sim.is_sim and (self.sim.extended_species is SpeciesExtended.DOG and self.sim.age > Age.CHILD)
+        if los_routing_context is not None and all_blocking_edges_block_los and (self.sim.extended_species is SpeciesExtended.HUMAN or sim_is_big_dog):
+            los_routing_context.set_key_mask(los_routing_context.get_key_mask() | routing.FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT)
         generated_goals = []
         surface_costs = {}
         for routing_surface in routing_surfaces:
             if routing_surface is None:
                 continue
             los_reference_pt = self.get_los_reference_point(routing_surface, force_multi_surface=force_multi_surface)
-            goals = placement.generate_routing_goals_for_polygon(self.sim, self.geometry.polygon, routing_surface, orientation_restrictions, objects_to_ignore, flush_planner=self.constraint._flush_planner, los_reference_pt=los_reference_pt, max_points=max_goals, ignore_outer_penalty_amount=self.constraint._ignore_outer_penalty_threshold, single_goal_only=single_goal_only, los_routing_context=relative_object.raycast_context(for_carryable=for_carryable) if relative_object is not None else None, all_blocking_edges_block_los=self.los_reference_point is not None and single_goal_only, provided_points=provided_points)
+            (surface_min_water_depth, surface_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface(routing_surface, wading_interval=wading_interval, min_water_depth=min_water_depth, max_water_depth=max_water_depth)
+            goals = placement.generate_routing_goals_for_polygon(self.sim, self.geometry.polygon, routing_surface, orientation_restrictions, objects_to_ignore, flush_planner=self.constraint._flush_planner, los_reference_pt=los_reference_pt, max_points=max_goals, ignore_outer_penalty_amount=self.constraint._ignore_outer_penalty_threshold, single_goal_only=single_goal_only, los_routing_context=los_routing_context, all_blocking_edges_block_los=all_blocking_edges_block_los, provided_points=provided_points, min_water_depth=surface_min_water_depth, max_water_depth=surface_max_water_depth, terrain_tags=terrain_tags)
             if not goals:
                 continue
             surface_costs[routing_surface.type] = self.sim.get_additional_scoring_for_surface(routing_surface.type)
@@ -94,12 +116,27 @@ class RoutingHandle(Handle):
         is_line_obj = target_obj is not None and target_obj.waiting_line_component is not None
         is_single_point = self._is_geometry_single_point()
         goal_list = []
+        water_constraint_cache = dict()
         max_goal_height = self.sim.position.y
         for (tag, (location, cost, validation)) in enumerate(generated_goals):
-            if not is_line_obj and (relative_object is not None and is_single_point) and validation not in VALID_GOAL_VALUES:
+            invalid_goal = not (for_source or validation in VALID_GOAL_VALUES)
+            if always_reject_invalid_goals and invalid_goal:
+                continue
+            if invalid_goal and (not sim_is_big_dog and (not is_line_obj and relative_object is not None)) and is_single_point:
                 continue
             if not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
                 continue
+            if invalid_goal:
+                if location.routing_surface in water_constraint_cache:
+                    water_constraint = water_constraint_cache[location.routing_surface]
+                else:
+                    (surface_min_water_depth, surface_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface(location.routing_surface, wading_interval=wading_interval, min_water_depth=min_water_depth, max_water_depth=max_water_depth)
+                    water_constraint = self.constraint.intersect(Constraint(min_water_depth=surface_min_water_depth, max_water_depth=surface_max_water_depth))
+                    water_constraint_cache[location.routing_surface] = water_constraint
+                if not water_constraint.is_location_water_depth_valid(location):
+                    continue
+                if not self.constraint.is_location_terrain_tags_valid(location):
+                    continue
             if minimum_router_cost is not None:
                 if cost > sims4.math.EPSILON:
                     cost = max(cost, minimum_router_cost)
@@ -135,6 +172,10 @@ class RoutingHandle(Handle):
     def _get_minimum_router_cost(self):
         pass
 
+    @constproperty
+    def for_slot_constraint():
+        return False
+
 class SlotRoutingHandle(RoutingHandle):
 
     def __init__(self, *args, reference_transform=None, entry=True, **kwargs):
@@ -163,7 +204,11 @@ class SlotRoutingHandle(RoutingHandle):
         locked_params[(animation_constants.ASM_TARGET_TRANSLATION, 'x')] = target_transform.translation
         locked_params[(animation_constants.ASM_TARGET_ORIENTATION, 'x')] = target_orientation
         locked_params = frozendict(locked_params)
-        return SlotGoal(location, containment_transform=self.constraint.containment_transform, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self, slot_params=locked_params)
+        if location.orientation == sims4.math.Quaternion.ZERO():
+            goal_location = routing.Location(location.position, orientation=target_orientation, routing_surface=location.routing_surface)
+        else:
+            goal_location = location
+        return SlotGoal(goal_location, containment_transform=self.constraint.containment_transform, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self, slot_params=locked_params)
 
     def _get_location_cost(self, position, orientation, routing_surface, router_cost):
         transform = self.constraint.containment_transform
@@ -172,6 +217,10 @@ class SlotRoutingHandle(RoutingHandle):
     def _get_minimum_router_cost(self):
         if self._is_geometry_single_point():
             return 1
+
+    @constproperty
+    def for_slot_constraint():
+        return True
 
 class UniversalSlotRoutingHandle(SlotRoutingHandle):
 

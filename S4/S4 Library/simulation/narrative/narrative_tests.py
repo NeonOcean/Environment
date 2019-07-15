@@ -1,5 +1,6 @@
 from event_testing.results import TestResult
 from event_testing.test_base import BaseTest
+from event_testing.test_events import TestEvent
 from sims4.resources import Types
 from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableVariant
 from tunable_utils.tunable_white_black_list import TunableWhiteBlackList
@@ -26,6 +27,13 @@ class NarrativeTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
 
     def get_expected_args(self):
         return {}
+
+    def get_custom_event_registration_keys(self):
+        keys = []
+        narratives_to_register = self.test_type.narratives.get_items()
+        for narrative in narratives_to_register:
+            keys.append((TestEvent.NarrativesUpdated, narrative))
+        return keys
 
     def __call__(self):
         return self.test_type.test(self.tooltip)

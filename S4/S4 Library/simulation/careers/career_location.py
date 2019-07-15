@@ -38,18 +38,17 @@ class CareerLocation(HasTunableFactory, AutoFactoryInit):
             career = self._career
             sim_info = career.sim_info
             current_track = career.current_track_tuning
-            if current_track.goodbye_notification is not None:
-                if sim_info.goodbye_notification is not None:
+            if current_track.goodbye_notification is not None and sim_info.goodbye_notification is not None:
 
-                    class _UiDialogNotificationCareerGoodbye:
+                class _UiDialogNotificationCareerGoodbye:
 
-                        def __init__(self, *args, **kwargs):
-                            self._dialog = current_track.goodbye_notification(*args, **kwargs)
+                    def __init__(self, *args, **kwargs):
+                        self._dialog = current_track.goodbye_notification(*args, **kwargs)
 
-                        def show_dialog(self, *args, **kwargs):
-                            self._dialog.show_dialog(*args, additional_tokens=career.get_career_text_tokens(), **kwargs)
+                    def show_dialog(self, *args, **kwargs):
+                        self._dialog.show_dialog(*args, additional_tokens=career.get_career_text_tokens(), **kwargs)
 
-                    sim_info.goodbye_notification = _UiDialogNotificationCareerGoodbye
+                sim_info.try_to_set_goodbye_notification(_UiDialogNotificationCareerGoodbye)
             if sim_info.is_at_home and self._career.push_go_to_work_affordance():
                 return
             services.get_zone_situation_manager().make_sim_leave_now_must_run(sim)

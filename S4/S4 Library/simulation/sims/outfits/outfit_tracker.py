@@ -10,6 +10,7 @@ from animation.arb import Arb
 from animation.asm import create_asm
 from element_utils import build_critical_section
 from event_testing.resolver import SingleSimResolver
+from gsi_handlers import outfit_change_handlers
 from objects import ALL_HIDDEN_REASONS
 from sims.outfits.outfit_enums import OutfitCategory, NON_RANDOMIZABLE_OUTFIT_CATEGORIES, OutfitChangeReason, OutfitFilterFlag
 from sims.outfits.outfit_tuning import OutfitTuning
@@ -97,6 +98,11 @@ class OutfitTrackerMixin:
 
         return change_outfit
 
+    def get_change_outfit_element_and_archive_change_reason(self, outfit_category_and_index, do_spin=True, interaction=None, change_reason=None):
+        if outfit_change_handlers.archiver.enabled:
+            outfit_change_handlers.log_outfit_change(self.get_sim_info(), outfit_category_and_index, change_reason)
+        return self.get_change_outfit_element(outfit_category_and_index, do_spin, interaction)
+
     def get_default_outfit(self, interaction=None, resolver=None):
         default_outfit = OutfitPriority(None, 0, None)
         if self._default_outfit_priorities:
@@ -116,12 +122,15 @@ class OutfitTrackerMixin:
     def get_outfit(self, outfit_category:OutfitCategory, outfit_index:int):
         if not self.has_outfit((outfit_category, outfit_index)):
             self.generate_outfit(outfit_category, outfit_index)
-        return self._base.get_outfit(outfit_category, outfit_index)
+        try:
+            return self._base.get_outfit(outfit_category, outfit_index)
+        except RuntimeError as exception:
+            raise exception
 
     def get_outfit_change(self, interaction, change_reason, resolver=None, **kwargs):
         if change_reason is not None:
             outfit_category_and_index = self.get_outfit_for_clothing_change(interaction, change_reason, resolver=resolver)
-            return build_critical_section(self.get_change_outfit_element(outfit_category_and_index, interaction=interaction, **kwargs), flush_all_animations)
+            return build_critical_section(self.get_change_outfit_element_and_archive_change_reason(outfit_category_and_index, interaction=interaction, change_reason=change_reason, **kwargs), flush_all_animations)
 
     def get_outfit_for_clothing_change(self, interaction, reason, resolver=None):
         for trait in self.get_traits():
@@ -170,6 +179,7 @@ class OutfitTrackerMixin:
         if outfit_change is None:
             outfit_change = (OutfitCategory.EVERYDAY, 0)
         outfit_change = self._run_weather_fixup(reason, outfit_change, resolver_to_use)
+        outfit_change = self._run_career_fixup(outfit_change, interaction)
         return outfit_change
 
     def _run_weather_fixup(self, reason, outfit_change, resolver):
@@ -187,6 +197,22 @@ class OutfitTrackerMixin:
         elif reason in weather_service.WEATHER_OUFTIT_CHANGE_REASONS_TO_IGNORE:
             return outfit_change
         return weather_outfit_change
+
+    def _run_career_fixup(self, outfit_change, interaction):
+        sim = self.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+        if sim is None:
+            return outfit_change
+        if not self._career_tracker.has_part_time_career_outfit():
+            return outfit_change
+        if outfit_change[0] != OutfitCategory.CAREER or (interaction is None or not hasattr(interaction, 'career_uid')) or interaction.career_uid == None:
+            return outfit_change
+        elif interaction.career_uid is not None:
+            self.remove_outfits_in_category(OutfitCategory.CAREER)
+            career = self._career_tracker.get_career_by_uid(interaction.career_uid)
+            career.generate_outfit()
+            career_outfit_change = (OutfitCategory.CAREER, 0)
+            return career_outfit_change
+        return outfit_change
 
     def get_outfits_in_category(self, outfit_category:OutfitCategory):
         return self._base.get_outfits_in_category(outfit_category)
@@ -213,6 +239,13 @@ class OutfitTrackerMixin:
 
     def has_outfit_category(self, outfit_category):
         return self.has_outfit((outfit_category, 0))
+
+    def has_cas_part(self, cas_part):
+        try:
+            return cas_part in self._base.get_outfit(*self._current_outfit).part_ids
+        except RuntimeError as exception:
+            logger.exception('Exception encountered trying to get the current outfit: ', exc=exception, level=sims4.log.LEVEL_ERROR)
+            return False
 
     def is_wearing_outfit(self, category_and_index):
         if self.outfit_is_dirty(category_and_index[0]):
@@ -292,6 +325,7 @@ class OutfitTrackerMixin:
                     clothing_change_asm = create_asm(animation_element_tuning.asm_key, context=clothing_context)
                     clothing_change_asm.update_locked_params(sim.get_transition_asm_params())
                     result = sim.posture.setup_asm_interaction(clothing_change_asm, sim, None, animation_element_tuning.actor_name, None)
+                    sim.set_trait_asm_parameters(clothing_change_asm, animation_element_tuning.actor_name)
                     if not result:
                         logger.error('Could not setup asm for Clothing Change. {}', result)
                     clothing_change_asm.request(animation_element_tuning.begin_states[0], arb)

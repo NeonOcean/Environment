@@ -251,7 +251,7 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
                 stack.enter_context(self.set_temporary_outfit_flags(outfit_category, outfit_index, outfit_flags))
             yield None
 
-    def generate_merged_outfits_for_category(self, source_sim_info, outfit_category, outfit_flags=DEFAULT, **kwargs):
+    def generate_merged_outfits_for_category(self, source_sim_info, outfit_category, outfit_flags=DEFAULT, fallback_outfit_category=OutfitCategory.EVERYDAY, **kwargs):
         current_outfit = self.get_current_outfit()
         for (outfit_index, _) in enumerate(source_sim_info.get_outfits_in_category(outfit_category)):
             merged_outfit = (outfit_category, outfit_index)
@@ -269,8 +269,8 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
             self.set_current_outfit(current_outfit)
         elif self.has_outfit((outfit_category, 0)):
             self.set_current_outfit((outfit_category, 0))
-        elif self.has_outfit((OutfitCategory.EVERYDAY, 0)):
-            self.set_current_outfit((OutfitCategory.EVERYDAY, 0))
+        elif self.has_outfit((fallback_outfit_category, 0)):
+            self.set_current_outfit((fallback_outfit_category, 0))
         elif self.has_outfit((OutfitCategory.BATHING, 0)):
             self.set_current_outfit((OutfitCategory.BATHING, 0))
 

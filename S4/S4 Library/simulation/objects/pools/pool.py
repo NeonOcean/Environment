@@ -2,6 +2,7 @@ from animation.posture_manifest_constants import STAND_AT_NONE_CONSTRAINT, SWIM_
 from interactions.constraints import Constraint
 from objects.game_object import GameObject
 from objects.pools.pool_utils import cached_pool_objects
+from objects.pools.swimming_mixin import SwimmingMixin
 from routing import RAYCAST_HIT_TYPE_NONE
 from singletons import DEFAULT
 import build_buy
@@ -12,7 +13,7 @@ import sims4.geometry
 import sims4.log
 logger = sims4.log.Logger('Pools', default_owner='bhill')
 
-class SwimmingPool(GameObject):
+class SwimmingPool(SwimmingMixin, GameObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -20,8 +21,6 @@ class SwimmingPool(GameObject):
         self._old_footprint_component = self.remove_component(objects.components.types.FOOTPRINT_COMPONENT)
         self._bounding_polygon = None
         self._center_point = None
-        self._provided_routing_surface = None
-        self._world_routing_surface = None
 
     @classmethod
     def _verify_tuning_callback(cls):
@@ -40,15 +39,11 @@ class SwimmingPool(GameObject):
     def try_mark_as_new_object(self):
         pass
 
-    def _build_routing_surfaces(self):
-        self._provided_routing_surface = routing.SurfaceIdentifier(self.zone_id, self._location.world_routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_POOL)
-        self._world_routing_surface = routing.SurfaceIdentifier(self.zone_id, self._location.world_routing_surface.secondary_id, routing.SurfaceType.SURFACETYPE_WORLD)
-
     def on_location_changed(self, old_location):
-        super().on_location_changed(old_location)
         if self._location.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
             self._build_routing_surfaces()
             self._create_bounding_polygon()
+        super().on_location_changed(old_location)
 
     @property
     def remove_children_from_posture_graph_on_delete(self):
@@ -61,7 +56,7 @@ class SwimmingPool(GameObject):
         pool_edges = build_buy.get_pool_edges(self.zone_id)
         return pool_edges[(self.block_id, self.routing_surface.secondary_id)]
 
-    def get_edge_constraint(self, constraint_width=1.0, inward_dir=False, return_constraint_list=False, los_reference_point=DEFAULT):
+    def get_edge_constraint(self, constraint_width=1.0, inward_dir=False, return_constraint_list=False, los_reference_point=DEFAULT, sim=None):
         edges = self.get_edges()
         polygons = []
         for (start, stop) in edges:
@@ -121,14 +116,6 @@ class SwimmingPool(GameObject):
     @property
     def center_point(self):
         return self._center_point
-
-    @property
-    def provided_routing_surface(self):
-        return self._provided_routing_surface
-
-    @property
-    def world_routing_surface(self):
-        return self._world_routing_surface
 
     @property
     def block_id(self):

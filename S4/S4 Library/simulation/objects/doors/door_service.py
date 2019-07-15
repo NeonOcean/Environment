@@ -48,7 +48,7 @@ class DoorService(Service):
 
     def fix_up_doors(self, force_refresh=False):
         building_type = services.get_plex_service().get_plex_building_type(services.current_zone_id())
-        if building_type == PlexBuildingType.DEFAULT or building_type == PlexBuildingType.PENTHOUSE_PLEX:
+        if building_type == PlexBuildingType.DEFAULT or building_type == PlexBuildingType.PENTHOUSE_PLEX or building_type == PlexBuildingType.COASTAL:
             self._fix_up(force_refresh=force_refresh)
         elif building_type == PlexBuildingType.FULLY_CONTAINED_PLEX:
             self._fix_up_for_apartments()

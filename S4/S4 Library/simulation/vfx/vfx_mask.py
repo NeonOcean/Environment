@@ -21,6 +21,7 @@ class VFXMask(enum.IntFlags):
     MASK_VAMPIRE = 8192
     MASK_PARENTING_SKILL = 16384
     MASK_CURSED = 32768
+    MASK_SKILL_LEVEL_HIGH = 65536
 
 def notify_client_mask_update(new_active_sim_info):
     if new_active_sim_info is None:

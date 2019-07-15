@@ -48,7 +48,9 @@ class SimKnowledge:
             target_sim_info = self._rel_data.find_target_sim_info()
             if target_sim_info is not None:
                 if target_sim_info.career_tracker.has_career:
-                    return tuple(career for career in target_sim_info.careers.values())
+                    careers = tuple(career for career in target_sim_info.careers.values() if career.is_visible_career)
+                    if careers:
+                        return careers
                 if target_sim_info.career_tracker.retirement is not None:
                     return (target_sim_info.career_tracker.retirement,)
                 else:

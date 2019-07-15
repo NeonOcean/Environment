@@ -1,13 +1,13 @@
 from event_testing.resolver import SingleSimResolver
 from event_testing.results import TestResult
 from interactions import ParticipantType
-from interactions.base.interaction import RESERVATION_LIABILITY
 from interactions.base.super_interaction import SuperInteraction
 from interactions.constraints import ObjectJigConstraint
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority
 from interactions.utils.creation import ObjectCreationElement
 from interactions.utils.death import DeathType, is_death_enabled, DEATH_INTERACTION_MARKER_ATTRIBUTE
+from interactions.utils.interaction_liabilities import RESERVATION_LIABILITY
 from interactions.utils.outcome_enums import OutcomeResult
 from objects.components import types
 from sims.ghost import Ghost

@@ -32,7 +32,7 @@ class RouteEventDataBase:
     def should_remove_on_execute(self):
         return True
 
-    def execute(self, actor):
+    def execute(self, actor, **kwargs):
         raise NotImplementedError
 
     def process(self, actor):

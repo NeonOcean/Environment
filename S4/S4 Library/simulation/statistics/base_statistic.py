@@ -52,6 +52,10 @@ class BaseStatistic(HasTunableLodMixin):
     def min_value(cls):
         raise NotImplementedError
 
+    @classmethod
+    def added_by_default(cls, min_range=None, max_range=None):
+        return True
+
     @classproperty
     def persisted(cls):
         raise NotImplementedError

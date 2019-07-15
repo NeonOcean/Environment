@@ -9,6 +9,9 @@ class Blacklist:
         self._items = frozenset(items)
         self._threshold = threshold
 
+    def get_items(self):
+        return self._items
+
     def test_collection(self, items):
         count = sum(1 for item in items if item in self._items)
         if self._threshold is None:

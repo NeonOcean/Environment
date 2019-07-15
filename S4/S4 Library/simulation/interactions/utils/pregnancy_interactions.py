@@ -2,10 +2,11 @@ from element_utils import build_element
 from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.tests import TunableTestSet
 from interactions import ParticipantType
-from interactions.base.interaction import CancelInteractionsOnExitLiability, CANCEL_INTERACTION_ON_EXIT_LIABILITY, InteractionQueuePreparationStatus
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.base.super_interaction import SuperInteraction
 from interactions.interaction_finisher import FinishingType
 from interactions.liability import Liability
+from interactions.utils.interaction_liabilities import CancelInteractionsOnExitLiability, CANCEL_INTERACTION_ON_EXIT_LIABILITY
 from interactions.utils.loot import LootOperationList, LootActions
 from interactions.utils.tunable import SaveLockLiability
 from objects.slots import SlotType

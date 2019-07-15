@@ -16,11 +16,14 @@ from routing.portals.portal_data import TunablePortalReference
 from sims4.hash_util import hash32
 from sims4.math import Transform
 from sims4.tuning.instances import TunedInstanceMetaclass
-from sims4.tuning.tunable import TunableList, TunableReference, Tunable, TunableTuple, TunableSet, HasTunableReference
+from sims4.tuning.tunable import TunableList, TunableReference, Tunable, TunableTuple, TunableSet, HasTunableReference, TunableEnumEntry, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit
 from sims4.tuning.tunable_hash import TunableStringHash32
 from sims4.utils import Result, constproperty
 from singletons import DEFAULT
 from snippets import TunableAffordanceFilterSnippet
+from terrain import get_water_depth
+from traits.traits import Trait
+from tunable_utils.tunable_white_black_list import TunableWhiteBlackList
 import routing
 import services
 import sims4.callback_utils
@@ -31,6 +34,20 @@ def purge_cache():
     ObjectPart._bone_name_hashes_for_part_suffices = None
 
 sims4.callback_utils.add_callbacks(sims4.callback_utils.CallbackEvent.TUNING_CODE_RELOAD, purge_cache)
+
+class _OverrideSurfaceType(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'override_surface_type': TunableEnumEntry(description="\n            The override for the surface type. If used, part owner's \n            surface type will be ignored.\n            ", tunable_type=routing.SurfaceType, default=routing.SurfaceType.SURFACETYPE_WORLD)}
+
+    def get_surface_type(self, part, **kwargs):
+        return self.override_surface_type
+
+class _PartOwnerSurfaceType(HasTunableSingletonFactory, AutoFactoryInit):
+
+    def get_surface_type(self, part, transform=None):
+        owner = part.part_owner
+        if owner.routing_surface is None:
+            return
+        return owner.routing_surface.type
 
 class Part(ProxyObject, ReservationMixin):
     _unproxied_attributes = ProxyObject._unproxied_attributes | {'_data', '_reservation_handlers', '_joint_transform', '_routing_context', '_children_cache', '_is_surface', '_parts', '_part_location', '_containment_slot_info_cache'}
@@ -260,14 +277,23 @@ class Part(ProxyObject, ReservationMixin):
     def _supports_sim_buffs(self, sim):
         return not any(sim.has_buff(blacklisted_buff) for blacklisted_buff in self.part_definition.blacklisted_buffs)
 
+    def _meets_trait_requirements(self, sim):
+        if self.part_definition.trait_requirements is None:
+            return True
+        else:
+            traits = sim.sim_info.get_traits()
+            return self.part_definition.trait_requirements.test_collection(traits)
+
     def supports_posture_spec(self, posture_spec, interaction=None, sim=None):
         if interaction is not None and interaction.is_super:
             affordance = interaction.affordance
             if affordance.requires_target_support and not self.supports_affordance(affordance):
                 return False
             is_sim_putdown = interaction.is_putdown and (interaction.carry_target is not None and interaction.carry_target.is_sim)
-            buff_test_sim = sim or interaction.sim
-            if (not is_sim_putdown or interaction.carry_target is buff_test_sim) and not self._supports_sim_buffs(buff_test_sim):
+            test_sim = sim or interaction.sim
+            if (not is_sim_putdown or interaction.carry_target is test_sim) and not self._supports_sim_buffs(test_sim):
+                return False
+            if not self._meets_trait_requirements(test_sim):
                 return False
         part_supported_posture_types = None
         if self.part_definition:
@@ -363,13 +389,9 @@ class Part(ProxyObject, ReservationMixin):
             transform = owner_transform
         else:
             transform = Transform.concatenate(self.get_joint_transform(), owner_transform)
-        if owner.routing_surface is None:
-            routing_surface = None
-        else:
-            if is_location_pool(owner.zone_id, transform.translation, owner.level):
-                surface_type = routing.SurfaceType.SURFACETYPE_POOL
-            else:
-                surface_type = routing.SurfaceType.SURFACETYPE_WORLD
+        routing_surface = None
+        surface_type = self.part_definition.part_surface.get_surface_type(self, transform=transform)
+        if surface_type is not None:
             routing_surface = routing.SurfaceIdentifier(owner.zone_id, owner.level, surface_type)
         self._part_location = owner.location.clone(transform=transform, routing_surface=routing_surface)
         for child in self.children:
@@ -378,7 +400,7 @@ class Part(ProxyObject, ReservationMixin):
                     part.on_owner_location_changed()
 
 class ObjectPart(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=services.object_part_manager()):
-    INSTANCE_TUNABLES = {'supported_posture_types': TunablePostureTypeListSnippet(description='\n            The postures supported by this part. If empty, assumes all postures\n            are supported.\n            '), 'supported_affordance_data': TunableTuple(description='\n            Define affordance compatibility for this part.\n            ', compatibility=TunableAffordanceFilterSnippet(description='\n                Affordances supported by the part\n                '), consider_mixers=Tunable(description='\n                If checked, mixers are filtered through this compatibility\n                check. If unchecked, all mixers are assumed to be valid to run\n                on this part.\n                ', tunable_type=bool, default=False)), 'blacklisted_buffs': TunableList(description='\n            A list of buffs that will disable this part as a candidate to run an\n            interaction.\n            ', tunable=TunableReference(description='\n               Reference to a buff to disable the part.\n               ', manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True)), 'subroot': TunableReference(description='\n            The reference of the subroot definition in the part.\n            ', manager=services.subroot_manager(), allow_none=True), 'portal_data': TunableSet(description='\n            If the object owning this part has a portal component tuned, the\n            specified portals will be created for each part of this type. The\n            root position of the part is the subroot position.\n            ', tunable=TunablePortalReference(pack_safe=True)), 'can_pick': Tunable(description='\n            If checked, this part can be picked (selected as target when\n            clicking on object.)  If unchecked, cannot be picked.\n            ', tunable_type=bool, default=True)}
+    INSTANCE_TUNABLES = {'supported_posture_types': TunablePostureTypeListSnippet(description='\n            The postures supported by this part. If empty, assumes all postures\n            are supported.\n            '), 'supported_affordance_data': TunableTuple(description='\n            Define affordance compatibility for this part.\n            ', compatibility=TunableAffordanceFilterSnippet(description='\n                Affordances supported by the part\n                '), consider_mixers=Tunable(description='\n                If checked, mixers are filtered through this compatibility\n                check. If unchecked, all mixers are assumed to be valid to run\n                on this part.\n                ', tunable_type=bool, default=False)), 'blacklisted_buffs': TunableList(description='\n            A list of buffs that will disable this part as a candidate to run an\n            interaction.\n            ', tunable=TunableReference(description='\n               Reference to a buff to disable the part.\n               ', manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True)), 'trait_requirements': TunableWhiteBlackList(description='\n            Trait blacklist and whitelist requirements to pick this part.\n            ', tunable=Trait.TunableReference(description='\n               Reference to the trait white/blacklists.\n               ', pack_safe=True)), 'subroot': TunableReference(description='\n            The reference of the subroot definition in the part.\n            ', manager=services.subroot_manager(), allow_none=True), 'portal_data': TunableSet(description='\n            If the object owning this part has a portal component tuned, the\n            specified portals will be created for each part of this type. The\n            root position of the part is the subroot position.\n            ', tunable=TunablePortalReference(pack_safe=True)), 'can_pick': Tunable(description='\n            If checked, this part can be picked (selected as target when\n            clicking on object.)  If unchecked, cannot be picked.\n            ', tunable_type=bool, default=True), 'part_surface': TunableVariant(description='\n            The rules to determine the surface type for this object.\n            ', part_owner=_PartOwnerSurfaceType.TunableFactory(), override_surface=_OverrideSurfaceType.TunableFactory(), default='part_owner')}
     _bone_name_hashes_for_part_suffices = None
 
     @classmethod

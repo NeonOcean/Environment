@@ -1,4 +1,9 @@
-from weakref import WeakKeyDictionary
+import animation.asm
+import caches
+import distributor.ops
+import element_utils
+import services
+import sims4
 from animation import AnimationContext
 from animation.animation_utils import flush_all_animations
 from distributor.system import Distributor
@@ -6,12 +11,7 @@ from element_utils import build_element
 from objects.components import Component, types, componentmethod_with_fallback, componentmethod
 from sims4.tuning.tunable import HasTunableFactory, TunableMapping, TunableReference, OptionalTunable, Tunable, AutoFactoryInit
 from singletons import DEFAULT
-import animation.asm
-import caches
-import distributor.ops
-import element_utils
-import services
-import sims4
+from weakref import WeakKeyDictionary
 logger = sims4.log.Logger('IdleComponent', default_owner='rmccord')
 
 class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_name=types.IDLE_COMPONENT):
@@ -27,19 +27,21 @@ class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_nam
         self._component_suppressed = False
         self._wakeable_element = None
 
-    def get_asm(self, asm_key, actor_name, setup_asm_func=None, use_cache=True, cache_key=DEFAULT, **kwargs):
+    def get_asm(self, asm_key, actor_name, setup_asm_func=None, use_cache=True, animation_context=DEFAULT, cache_key=DEFAULT, **kwargs):
+        if animation_context is DEFAULT:
+            animation_context = self._animation_context
         if use_cache:
-            asm_dict = self._asm_registry.setdefault(self._animation_context, {})
+            asm_dict = self._asm_registry.setdefault(animation_context, {})
             asm = None
             if asm_key in asm_dict:
                 asm = asm_dict[asm_key]
                 if asm.current_state == 'exit':
                     asm = None
             if asm is None:
-                asm = animation.asm.create_asm(asm_key, context=self._animation_context)
+                asm = animation.asm.create_asm(asm_key, context=animation_context)
             asm_dict[asm_key] = asm
         else:
-            asm = animation.asm.create_asm(asm_key, context=self._animation_context)
+            asm = animation.asm.create_asm(asm_key, context=animation_context)
         asm.set_actor(actor_name, self.owner)
         if self.parent_name is not None:
             parent = self.owner.parent
@@ -64,6 +66,9 @@ class IdleComponent(Component, HasTunableFactory, AutoFactoryInit, component_nam
         if self._wakeable_element is not None:
             self._wakeable_element.trigger_soft_stop()
             self._wakeable_element = None
+
+    def on_removed_from_inventory(self):
+        self._refresh_active_idle()
 
     def on_state_changed(self, state, old_value, new_value, from_init):
         if not self._trigger_idle_animation(state, new_value, from_init) and new_value.anim_overrides is not None and old_value != new_value:

@@ -1,4 +1,5 @@
 from _collections import defaultdict
+from animation import AnimationContext
 from contextlib import contextmanager
 import itertools
 import operator
@@ -7,10 +8,10 @@ from protocolbuffers import Routing_pb2
 from animation.animation_interaction import AnimationInteraction
 from distributor.rollback import ProtocolBufferRollback
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import STAND_SLOT_LIABILITY, StandSlotReservationLiability
 from interactions.context import InteractionContext
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority
+from interactions.utils.interaction_liabilities import StandSlotReservationLiability, STAND_SLOT_LIABILITY
 from objects.components import Component, types, componentmethod
 from objects.helpers.user_footprint_helper import UserFootprintHelper
 from postures import DerailReason
@@ -45,6 +46,8 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         walkstyle_behavior = self.get_walkstyle_behavior()
         self._walkstyle_requests = [WalkStyleRequest(self.owner, walkstyle=walkstyle_behavior.default_walkstyle, priority=-1)]
         self._walk_style_handles = {}
+        self.wading_buff_handle = None
+        self.last_route_has_wading_nodes = False
         self._routing_stage_event_callbacks = defaultdict(CallableList)
         if owner.is_sim:
             owner.remove_component(objects.components.types.FOOTPRINT_COMPONENT)
@@ -59,9 +62,11 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         self._routing_slave_data = []
         self._routing_master_ref = None
         self._default_agent_radius = None
-        self._route_event_context = None
+        self._route_event_context = RouteEventContext()
         self._route_interaction = None
+        self._animation_context = None
         self._initial_carry_targets = None
+        self._route_event_provider_requests = None
 
     def get_subcomponents_gen(self):
         yield from super().get_subcomponents_gen()
@@ -88,7 +93,7 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     def _on_routing_stage_event(self, routing_stage_event, **kwargs):
         callbacks = self._routing_stage_event_callbacks.get(routing_stage_event)
         if callbacks is not None:
-            callbacks(self.owner.sim_info, routing_stage_event, **kwargs)
+            callbacks(self.owner, routing_stage_event, **kwargs)
 
     @contextmanager
     def temporary_walkstyle_request(self, walkstyle_request_factory):
@@ -201,9 +206,9 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
                 if override.species == species_key:
                     self._path_plan_context_map[combined_override_key] = override.context_override(self.owner)
                     return self._path_plan_context_map[combined_override_key]
-        if DEFAULT not in self._path_plan_context_map:
-            self._path_plan_context_map[DEFAULT] = self.plan_context_data.default_context(self.owner)
-        return self._path_plan_context_map[DEFAULT]
+        self._path_plan_context_map.clear()
+        self._path_plan_context_map[combined_override_key] = self.plan_context_data.default_context(self.owner)
+        return self._path_plan_context_map[combined_override_key]
 
     @componentmethod
     def get_routing_context(self):
@@ -211,7 +216,6 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
 
     def on_sim_added(self):
         self._update_quadtree_location()
-        self._route_event_context = RouteEventContext()
 
     def on_sim_removed(self):
         self.on_slot = None
@@ -224,6 +228,8 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     def add_callbacks(self):
         self.owner.register_on_location_changed(self._update_quadtree_location)
         self.owner.register_on_location_changed(self._check_violations)
+        if self.get_walkstyle_behavior().supports_wading_walkstyle_buff(self.owner):
+            self.owner.register_on_location_changed(self.get_walkstyle_behavior().check_for_wading)
         self.on_plan_path.append(self._on_update_goals)
         self.on_intended_location_changed.append(self.owner.refresh_los_constraint)
         self.on_intended_location_changed.append(self.owner._update_social_geometry_on_location_changed)
@@ -256,7 +262,10 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
 
     @property
     def is_moving(self):
-        return not self.owner.location.almost_equal(self.owner.intended_location)
+        if self.owner.is_sim:
+            return not self.owner.location.almost_equal(self.owner.intended_location)
+        else:
+            return self.current_path is not None
 
     @property
     def routing_master(self):
@@ -270,6 +279,12 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     @property
     def route_interaction(self):
         return self._route_interaction
+
+    @property
+    def animation_context(self):
+        if self._route_interaction is not None:
+            return self._route_interaction.animation_context
+        return self._animation_context
 
     SLAVE_RADIUS_MODIFIER = 0.5
     MAX_ALLOWED_AGENT_RADIUS = 0.25
@@ -328,18 +343,18 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
 
     @componentmethod
     def write_slave_data_msg(self, route_msg, path=None):
-        if not self.owner.is_sim:
-            return
         transitioning_sims = ()
-        if self.owner.transition_controller is not None:
-            transitioning_sims = self.owner.transition_controller.get_transitioning_sims()
+        actor = self.owner
+        if actor.is_sim:
+            if actor.transition_controller is not None:
+                transitioning_sims = actor.transition_controller.get_transitioning_sims()
         for slave_data in self.get_routing_slave_data():
             if slave_data.should_slave_for_path(path):
                 if slave_data.slave in transitioning_sims:
                     continue
                 (slave_actor, slave_msg) = slave_data.add_routing_slave_to_pb(route_msg, path=path)
                 slave_actor.write_slave_data_msg(slave_msg, path=path)
-        for slave_actor in self.owner.children:
+        for slave_actor in actor.children:
             if not slave_actor.is_sim:
                 continue
             carry_walkstyle_behavior = slave_actor.get_walkstyle_behavior().carry_walkstyle_behavior
@@ -430,11 +445,13 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
             reaction_trigger.intersect_and_execute(self.owner)
 
     def create_route_interaction(self):
-        if not self.owner.is_sim:
-            return
-        aop = AffordanceObjectPair(AnimationInteraction, None, AnimationInteraction, None, hide_unrelated_held_props=False)
-        context = InteractionContext(self.owner, InteractionContext.SOURCE_SCRIPT, Priority.High)
-        self._route_interaction = aop.interaction_factory(context).interaction
+        if self.owner.is_sim:
+            aop = AffordanceObjectPair(AnimationInteraction, None, AnimationInteraction, None, hide_unrelated_held_props=False)
+            context = InteractionContext(self.owner, InteractionContext.SOURCE_SCRIPT, Priority.High)
+            self._route_interaction = aop.interaction_factory(context).interaction
+        else:
+            self._animation_context = AnimationContext()
+            self._animation_context.add_ref(self._current_path)
         for slave_data in self.get_routing_slave_data():
             slave_data.slave.routing_component.create_route_interaction()
 
@@ -443,6 +460,9 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
             self._route_interaction.cancel(FinishingType.AUTO_EXIT, 'Route Ended.')
             self._route_interaction.on_removed_from_queue()
             self._route_interaction = None
+        if self._animation_context is not None:
+            self._animation_context.release_ref(self._current_path)
+            self._animation_context = None
         for slave_data in self.get_routing_slave_data():
             slave_data.slave.routing_component.cancel_route_interaction()
 
@@ -496,7 +516,7 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         self._current_path.nodes.update_timing(walkstyle, age, gender, species, time_offset, services.current_zone_id())
 
     @componentmethod
-    def update_slave_positions_for_path(self, path, transform, orientation, routing_surface, distribute=True):
+    def update_slave_positions_for_path(self, path, transform, orientation, routing_surface, distribute=True, canceled=False):
         transitioning_sims = ()
         if self.owner.is_sim:
             if self.owner.transition_controller is not None:
@@ -504,7 +524,18 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         for slave_data in self.get_routing_slave_data():
             if slave_data.slave in transitioning_sims:
                 continue
-            slave_data.update_slave_position(transform, orientation, routing_surface, distribute=distribute, path=path)
+            slave_data.update_slave_position(transform, orientation, routing_surface, distribute=distribute, path=path, canceled=canceled)
+
+    def add_route_event_provider(self, request):
+        if self._route_event_provider_requests is None:
+            self._route_event_provider_requests = []
+        self._route_event_provider_requests.append(request)
+
+    def remove_route_event_provider(self, request):
+        if self._route_event_provider_requests is not None and request in self._route_event_provider_requests:
+            self._route_event_provider_requests.remove(request)
+        if not self._route_event_provider_requests:
+            self._route_event_provider_requests = None
 
     def route_event_executed(self, event_id):
         if self._route_event_context is None:
@@ -535,14 +566,23 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
 
     def _gather_route_events(self, path, **kwargs):
         owner = self.owner
-        interaction = owner.transition_controller.interaction if owner.is_sim and owner.transition_controller is not None else None
-        if interaction is not None and interaction.is_super:
-            interaction.provide_route_events(self._route_event_context, owner, path, **kwargs)
+        if owner.is_sim:
+            interaction = owner.transition_controller.interaction if owner.transition_controller is not None else None
+            if interaction is not None and interaction.is_super:
+                interaction.provide_route_events(self._route_event_context, owner, path, **kwargs)
+            owner.Buffs.provide_route_events_from_buffs(self._route_event_context, owner, path, **kwargs)
         broadcaster_service = services.current_zone().broadcaster_service
         broadcaster_service.provide_route_events(self._route_event_context, owner, path, **kwargs)
-        owner.Buffs.provide_route_events_from_buffs(self._route_event_context, owner, path, **kwargs)
         if owner.weather_aware_component is not None:
             owner.weather_aware_component.provide_route_events(self._route_event_context, owner, path, **kwargs)
+        if self._route_event_provider_requests is not None:
+            for request in self._route_event_provider_requests:
+                request.provide_route_events(self._route_event_context, owner, path, **kwargs)
+        for node in path.nodes:
+            if node.portal_object_id != 0:
+                portal_object = services.object_manager(owner.zone_id).get(node.portal_object_id)
+                if portal_object is not None:
+                    portal_object.provide_route_events(node.portal_id, self._route_event_context, owner, path, node=node, **kwargs)
 
     def clear_route_events(self, *args, **kwargs):
         if self._route_event_context is None:
@@ -554,7 +594,7 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     def schedule_and_process_route_events_for_new_path(self, path):
         if self._route_event_context is None:
             return
-        if not (self.owner.is_sim and self.owner.posture.mobile):
+        if self.owner.is_sim and not self.owner.posture.mobile:
             return
         self.clear_route_events()
         start_time = RouteEventContext.ROUTE_TRIM_START
@@ -575,8 +615,6 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
             slave_data.slave.routing_component.append_route_events_to_route_msg(route_msg)
 
     def update_route_events_for_current_path(self, path, current_time, time_offset):
-        if not self.owner.is_sim:
-            return False
         (failed_events, failed_types) = self._route_event_context.prune_stale_events_and_get_failed_types(self.owner, path, current_time)
         start_time = current_time
         window_duration = ROUTE_EVENT_WINDOW_DURATION

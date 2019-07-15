@@ -281,7 +281,7 @@ class BroadcasterEffectSelfBuff(_BroadcasterEffectTested):
         self._on_object_number_changed(broadcaster)
 
 class BroadcasterEffectSelfLoot(_BroadcasterEffectTested):
-    FACTORY_TUNABLES = {'broadcastee_count_interval': TunableInterval(description='\n            If the number of objects within this broadcaster is in this\n            interval, loot will be awarded. Includes lower and upper.\n            ', tunable_type=int, default_lower=1, default_upper=2, minimum=0), 'loot_list': TunableList(description='\n            A list of loot operations.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True))}
+    FACTORY_TUNABLES = {'broadcastee_count_interval': TunableInterval(description='\n            If the number of objects within this broadcaster is in this\n            interval, loot will be awarded. Includes lower and upper.\n            ', tunable_type=int, default_lower=1, default_upper=2, minimum=0), 'loot_list': TunableList(description='\n            A list of loot operations.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True)), 'apply_loot_on_remove': Tunable(description="\n            If enabled, determine whether or not we want to apply this broadcaster's\n            loot when the broadcaster is removed.\n            True means we will apply the loot on removal of the broadcaster\n            False means we will apply the loot as soon as enough sims enter the constraint\n            ", tunable_type=bool, default=True)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -300,15 +300,21 @@ class BroadcasterEffectSelfLoot(_BroadcasterEffectTested):
         return object_count in self.broadcastee_count_interval
 
     def apply_broadcaster_loot(self, broadcaster):
-        if self._count_is_within_interval(broadcaster):
-            resolver = broadcaster.get_resolver(broadcaster.broadcasting_object)
-            for loot_action in self.loot_list:
-                loot_action.apply_to_resolver(resolver)
+        if self.apply_loot_on_remove:
+            self._try_apply_loot(broadcaster)
         self._observing_objs = set()
 
     def _apply_broadcaster_effect(self, broadcaster, affected_object):
         if self._should_apply_broadcaster_effect(broadcaster, affected_object):
             self._observing_objs.add(affected_object.id)
+        if not self.apply_loot_on_remove:
+            self._try_apply_loot(broadcaster)
+
+    def _try_apply_loot(self, broadcaster):
+        if self._count_is_within_interval(broadcaster):
+            resolver = broadcaster.get_resolver(broadcaster.broadcasting_object)
+            for loot_action in self.loot_list:
+                loot_action.apply_to_resolver(resolver)
 
 class BroadcasterEffectStartFire(_BroadcasterEffectTestedOneShot):
     FACTORY_TUNABLES = {'percent_chance': TunablePercent(description='\n            A value between 0 - 100 which represents the percent chance to \n            start a fire when reacting to the broadcaster.\n            ', default=50)}

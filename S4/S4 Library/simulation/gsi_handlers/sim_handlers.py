@@ -60,105 +60,6 @@ def generate_sim_static_commodity_view_data(sim_id:int=None):
                 stat_data.append({'name': type(stat).__name__})
     return stat_data
 
-def generate_all_commodities():
-    instance_manager = services.get_instance_manager(Types.STATISTIC)
-    if instance_manager.all_instances_loaded:
-        return [cls.__name__ for cls in instance_manager.types.values() if issubclass(cls, statistics.commodity.Commodity)]
-    else:
-        return []
-
-commodity_view_schema = GsiBarChartSchema(label='Statistics/Commodities', sim_specific=True)
-commodity_view_schema.add_field('simId', hidden=True)
-commodity_view_schema.add_field('commodityName', axis=GsiBarChartSchema.Axis.X)
-commodity_view_schema.add_field('commodityValue', type=GsiFieldVisualizers.FLOAT)
-commodity_view_schema.add_field('percentFull', axis=GsiBarChartSchema.Axis.Y, type=GsiFieldVisualizers.FLOAT, is_percent=True)
-commodity_view_schema.add_filter(FILTER_WORKING_SET)
-commodity_view_schema.add_filter('motive')
-commodity_view_schema.add_filter('whimset')
-commodity_view_schema.add_filter('commodity_trait')
-commodity_view_schema.add_filter('commodity_siminfo')
-commodity_view_schema.add_filter('commodity_babycare')
-commodity_view_schema.add_filter('commodity_toddlers')
-commodity_view_schema.add_filter('commodity_object')
-commodity_view_schema.add_filter('commodity')
-with commodity_view_schema.add_cheat('stats.set_commodity', label='Set {commodityName}') as cheat:
-    cheat.add_token_param('commodityName')
-    cheat.add_input_param(label='Value', default='100')
-    cheat.add_token_param('simId')
-with commodity_view_schema.add_cheat('stats.fill_all_sim_commodities_except', label='Fill all except {commodityName}') as cheat:
-    cheat.add_token_param('commodityName')
-    cheat.add_token_param('simId')
-with commodity_view_schema.add_cheat('stats.set_commodity_percent', label='Set {commodityName} to max', dbl_click=True) as cheat:
-    cheat.add_token_param('commodityName')
-    cheat.add_static_param(1)
-    cheat.add_token_param('simId')
-
-def add_commodity_cheats(manager):
-    with commodity_view_schema.add_view_cheat('stats.set_stat', label='Add Commodity') as cheat:
-        cheat.add_token_param('commodity_string', dynamic_token_fn=generate_all_commodities)
-        cheat.add_static_param('1')
-        cheat.add_token_param('simId')
-
-services.get_instance_manager(Types.STATISTIC).add_on_load_complete(add_commodity_cheats)
-
-@GsiHandler('commodity_view', commodity_view_schema)
-def generate_sim_commodity_view_data(sim_id:int=None, filter=None):
-    filter_list = parse_filter_to_list(filter)
-    if filter_list is not None and FILTER_WORKING_SET in filter_list:
-        filter_list.extend(f for f in FILTER_WORKING_SET_FILTERS if f not in filter_list)
-    commodity_data = []
-    cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info is not None:
-        if cur_sim_info.static_commodity_tracker is not None:
-            for statistic in list(cur_sim_info.commodity_tracker):
-                if not isinstance(statistic, statistics.commodity.Commodity):
-                    continue
-                if filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
-                    continue
-                commodity_data.append({'simId': str(sim_id), 'commodityName': type(statistic).__name__, 'commodityValue': statistic.get_value(), 'percentFull': statistic.get_value()/statistic.max_value*100 if statistic.max_value != 0 else 0})
-    return sorted(commodity_data, key=lambda entry: entry['commodityName'])
-
-def generate_all_stats():
-    instance_manager = services.get_instance_manager(Types.STATISTIC)
-    if instance_manager.all_instances_loaded:
-        return [cls.__name__ for cls in instance_manager.types.values() if issubclass(cls, statistics.statistic.Statistic)]
-    else:
-        return []
-
-statistic_schema = GsiBarChartSchema(label='Statistics/Statistic', sim_specific=True, x_min=0, x_max=100)
-statistic_schema.add_field('simId', hidden=True)
-statistic_schema.add_field('statName', axis=GsiBarChartSchema.Axis.X)
-statistic_schema.add_field('statValue', type=GsiFieldVisualizers.FLOAT)
-statistic_schema.add_field('percentFull', axis=GsiBarChartSchema.Axis.Y, type=GsiFieldVisualizers.FLOAT, is_percent=True)
-with statistic_schema.add_cheat('stats.set_stat', label='Set {statName}') as cheat:
-    cheat.add_token_param('statName')
-    cheat.add_input_param(label='Value', default='100')
-    cheat.add_token_param('simId')
-with statistic_schema.add_cheat('stats.set_stat', label='Add Statistic') as cheat:
-    cheat.add_input_param(label='Statistic')
-    cheat.add_input_param(label='Value', default='100')
-    cheat.add_token_param('simId')
-
-def add_stat_cheats(manager):
-    with statistic_schema.add_view_cheat('stats.set_stat', label='Add Statistic') as cheat:
-        cheat.add_token_param('stat_string', dynamic_token_fn=generate_all_stats)
-        cheat.add_static_param('1')
-        cheat.add_token_param('simId')
-
-services.get_instance_manager(Types.STATISTIC).add_on_load_complete(add_stat_cheats)
-
-@GsiHandler('statistic_view', statistic_schema)
-def generate_sim_statistic_view_data(sim_id:int=None):
-    statistic_data = []
-    cur_sim_info = _get_sim_info_by_id(sim_id)
-    if cur_sim_info is not None:
-        if cur_sim_info.statistic_tracker is not None:
-            for stat in list(cur_sim_info.statistic_tracker):
-                statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': (stat.get_value() - stat.min_value)/(stat.max_value - stat.min_value)*100})
-            for stat in cur_sim_info.all_skills():
-                statistic_data.append({'simId': str(sim_id), 'statName': type(stat).__name__, 'statValue': stat.get_value(), 'percentFull': stat.get_value()/stat.max_value*100})
-    return sorted(statistic_data, key=lambda entry: entry['statName'])
-
 skill_schema = GsiGridSchema(label='Statistics/Skill', sim_specific=True)
 skill_schema.add_field('sim_id', label='Sim ID', hidden=True)
 skill_schema.add_field('skill_guid', label='Skill ID', hidden=True, unique_field=True)
@@ -252,77 +153,6 @@ def generate_sim_commodity_data_view_data(sim_id:int=None):
         entry['track_listeners'] = callback_infos
         stat_data.append(entry)
     return stat_data
-
-def generate_all_rel_bits():
-    instance_manager = services.get_instance_manager(Types.RELATIONSHIP_BIT)
-    if instance_manager.all_instances_loaded:
-        return [cls.__name__ for cls in instance_manager.types.values()]
-    else:
-        return []
-
-relationship_schema = GsiGridSchema(label='Relationships', sim_specific=True)
-relationship_schema.add_field('relationship_id', label='Rel ID', hidden=True, unique_field=True)
-relationship_schema.add_field('sim_name', label='Sim Name')
-relationship_schema.add_field('depth', label='Depth', type=GsiFieldVisualizers.FLOAT)
-relationship_schema.add_field('prevailing_stc', label='Prevailing STC')
-relationship_schema.add_field('sim_id', label='Sim Id', hidden=True)
-relationship_schema.add_field('target_id', label='Target Id', hidden=True)
-
-def add_rel_bit_cheats(manager):
-    with relationship_schema.add_view_cheat('relationship.add_bit', label='Add Bit') as cheat:
-        cheat.add_token_param('sim_id')
-        cheat.add_token_param('target_id')
-        cheat.add_token_param('bit_string', dynamic_token_fn=generate_all_rel_bits)
-
-services.get_instance_manager(Types.RELATIONSHIP_BIT).add_on_load_complete(add_rel_bit_cheats)
-with relationship_schema.add_has_many('tracks', GsiGridSchema, label='Tracks') as sub_schema:
-    sub_schema.add_field('type', label='Track')
-    sub_schema.add_field('score', label='Score', type=GsiFieldVisualizers.FLOAT)
-    sub_schema.add_field('decay', label='Decay', type=GsiFieldVisualizers.FLOAT)
-    sub_schema.add_field('bits', label='Bit')
-with relationship_schema.add_has_many('all_bits', GsiGridSchema, label='All Bits') as sub_schema:
-    sub_schema.add_field('raw_bit', label='Bit')
-with relationship_schema.add_has_many('track_listeners', GsiGridSchema, label='Track Callbacks') as sub_schema:
-    sub_schema.add_field('track_name', label='Track')
-    sub_schema.add_field('callback_info', label='Callback Info')
-with relationship_schema.add_has_many('relationship_bit_locks', GsiGridSchema, label='Relationship Bit Locks') as sub_schema:
-    sub_schema.add_field('lock', label='Lock')
-    sub_schema.add_field('lock_group', label='Lock Group')
-    sub_schema.add_field('lock_end_time', label='Lock End Time')
-
-@GsiHandler('relationship_view', relationship_schema)
-def generate_relationship_view_data(sim_id:int=None):
-    rel_data = []
-    sim_info_manager = services.sim_info_manager()
-    if sim_info_manager is None:
-        return rel_data
-    sim_info = sim_info_manager.get(sim_id)
-    for rel in sim_info.relationship_tracker:
-        target_sim_info = _get_sim_info_by_id(rel.get_other_sim_id(sim_id))
-        entry = {'relationship_id': str(rel.get_other_sim_id(sim_id)), 'depth': rel.get_relationship_depth(sim_id), 'prevailing_stc': str(rel.get_prevailing_short_term_context_track()), 'sim_id': str(sim_info.sim_id)}
-        if target_sim_info is not None:
-            entry['target_id'] = str(target_sim_info.id)
-            entry['sim_name'] = target_sim_info.full_name
-        entry['tracks'] = []
-        callback_info = []
-        for track in rel.relationship_track_tracker:
-            track_name = track.__class__.__name__
-            track_entry = {'type': track_name, 'score': track.get_user_value(), 'decay': track.get_decay_rate()}
-            active_bit = track.get_active_bit()
-            if active_bit is not None:
-                track_entry['bits'] = active_bit.__name__
-            for callback_listener in track._statistic_callback_listeners:
-                callback_info.append({'track_name': track_name, 'callback_info': str(callback_listener)})
-            entry['tracks'].append(track_entry)
-        entry['track_listeners'] = callback_info
-        entry['all_bits'] = []
-        for bit in rel.get_bits(sim_id):
-            entry['all_bits'].append({'raw_bit': bit.__name__})
-        entry['relationship_bit_locks'] = []
-        for rel_lock in rel.get_all_relationship_bit_locks(sim_id):
-            entry['relationship_bit_locks'].append({'lock': str(rel_lock), 'lock_group': str(rel_lock.group_id), 'lock_end_time': str(rel_lock.end_time)})
-        rel_data.append(entry)
-    return rel_data
 
 autonomy_timer_schema = GsiGridSchema(label='Autonomy Timers', sim_specific=True)
 autonomy_timer_schema.add_field('timer_name', label='Timer')
@@ -423,6 +253,8 @@ with sim_info_schema.add_has_many('occult', GsiGridSchema, label='Occult') as su
     sub_schema.add_field('occult_voice_pitch', label='Voice Pitch')
     sub_schema.add_field('occult_voice_effect', label='Voice Effect')
     sub_schema.add_field('occult_plumbbob_override', label='Plumbbob Override')
+    sub_schema.add_field('occult_outfit_categories', label='Occult Outfits')
+    sub_schema.add_field('occult_current_outfit', label='Current Occult Outfit')
 with sim_info_schema.add_has_many('outfits', GsiGridSchema, label='Outfits') as sub_schema:
     sub_schema.add_field('outfit_category', label='Category')
     sub_schema.add_field('outfit_index', label='Index')
@@ -461,7 +293,11 @@ def generate_sim_info_data(*args, zone_id:int=None, **kwargs):
         entry['occult'] = occult_info
         for occult_type in OccultType:
             occult_sim_info = sim_info.occult_tracker.get_occult_sim_info(occult_type)
-            occult_entry = {'occult_type': str(occult_type), 'occult_is_available': 'X' if sim_info.occult_tracker.has_occult_type(occult_type) else '', 'occult_is_current': 'X' if sim_info.current_occult_types == occult_type else '', 'occult_facial_attributes': str(occult_sim_info.facial_attributes)[:32] if occult_sim_info is not None else '', 'occult_physique': str(occult_sim_info.physique) if occult_sim_info is not None else '', 'occult_skin_tone': str(occult_sim_info.skin_tone) if occult_sim_info is not None else '', 'occult_voice_actor': str(occult_sim_info.voice_actor) if occult_sim_info is not None else '', 'occult_voice_pitch': str(occult_sim_info.voice_pitch) if occult_sim_info is not None else '', 'occult_voice_effect': str(occult_sim_info.voice_effect) if occult_sim_info is not None else '', 'occult_plumbbob_override': str(sim_info.plumbbob_override) if sim_info.current_occult_types == occult_type else ''}
+            occult_outfit_categories = ''
+            if occult_sim_info is not None:
+                for outfit_entry in list(occult_sim_info.get_all_outfit_entries()):
+                    occult_outfit_categories = occult_outfit_categories + str(outfit_entry[0]) + ' '
+            occult_entry = {'occult_type': str(occult_type), 'occult_is_available': 'X' if sim_info.occult_tracker.has_occult_type(occult_type) else '', 'occult_is_current': 'X' if sim_info.current_occult_types == occult_type else '', 'occult_facial_attributes': str(occult_sim_info.facial_attributes)[:32] if occult_sim_info is not None else '', 'occult_physique': str(occult_sim_info.physique) if occult_sim_info is not None else '', 'occult_skin_tone': str(occult_sim_info.skin_tone) if occult_sim_info is not None else '', 'occult_voice_actor': str(occult_sim_info.voice_actor) if occult_sim_info is not None else '', 'occult_voice_pitch': str(occult_sim_info.voice_pitch) if occult_sim_info is not None else '', 'occult_voice_effect': str(occult_sim_info.voice_effect) if occult_sim_info is not None else '', 'occult_plumbbob_override': str(sim_info.plumbbob_override) if sim_info.current_occult_types == occult_type else '', 'occult_outfit_categories': occult_outfit_categories, 'occult_current_outfit': str(occult_sim_info.get_current_outfit()) if occult_sim_info is not None else ''}
             occult_info.append(occult_entry)
         entry['outfits'] = []
         current_outfit = sim_info.get_current_outfit()
@@ -1031,6 +867,17 @@ commodity_and_stat_view_schema.add_filter('commodity_babycare')
 commodity_and_stat_view_schema.add_filter('commodity_toddlers')
 commodity_and_stat_view_schema.add_filter('commodity_object')
 commodity_and_stat_view_schema.add_filter('commodity')
+with commodity_and_stat_view_schema.add_cheat('stats.set_commodity', label='Set {name}') as cheat:
+    cheat.add_token_param('name')
+    cheat.add_input_param(label='Value', default='100')
+    cheat.add_token_param('simId')
+with commodity_and_stat_view_schema.add_cheat('stats.fill_all_sim_commodities_except', label='Fill all except {name}') as cheat:
+    cheat.add_token_param('name')
+    cheat.add_token_param('simId')
+with commodity_and_stat_view_schema.add_cheat('stats.set_commodity_percent', label='Set {name} to max', dbl_click=True) as cheat:
+    cheat.add_token_param('name')
+    cheat.add_static_param(1)
+    cheat.add_token_param('simId')
 
 @GsiHandler('commodity_and_stat_view', commodity_and_stat_view_schema)
 def generate_sim_commodity_and_stat_view_data(sim_id:int=None, filter=None):

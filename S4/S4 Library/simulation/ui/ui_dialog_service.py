@@ -1,11 +1,13 @@
 from protocolbuffers import Consts_pb2, Dialog_pb2
 from clock import ClockSpeedMode
+from date_and_time import TimeSpan
 from distributor.ops import SetPhoneSilence
 from distributor.system import Distributor
 from sims4.service_manager import Service
 from sims4.utils import classproperty
 from singletons import DEFAULT
 from ui.ui_dialog import PhoneRingType
+import alarms
 import persistence_error_types
 import services
 
@@ -14,6 +16,7 @@ class UiDialogService(Service):
     def __init__(self):
         self._active_dialogs = {}
         self._auto_respond = False
+        self._auto_respond_alarm_handles = {}
         self._is_phone_silenced = False
         self._enabled = True
 
@@ -22,6 +25,9 @@ class UiDialogService(Service):
         return persistence_error_types.ErrorCodes.SERVICE_SAVE_FAILED_UI_DIALOG_SERVICE
 
     def disable_on_teardown(self):
+        for alarm_handle in self._auto_respond_alarm_handles.values():
+            alarm_handle.cancel()
+        self._auto_respond_alarm_handles.clear()
         self._enabled = False
 
     @property
@@ -42,7 +48,12 @@ class UiDialogService(Service):
             return
         self._active_dialogs[dialog.dialog_id] = dialog
         if dialog.has_responses() and self.auto_respond:
-            dialog.do_auto_respond(auto_response=auto_response)
+
+            def auto_respond_callback(_):
+                dialog.do_auto_respond(auto_response=auto_response)
+                del self._auto_respond_alarm_handles[dialog.dialog_id]
+
+            self._auto_respond_alarm_handles[dialog.dialog_id] = alarms.add_alarm(self, TimeSpan.ZERO, auto_respond_callback)
             return
         dialog_msg = dialog.build_msg(**kwargs)
         if phone_ring_type != PhoneRingType.NO_RING:

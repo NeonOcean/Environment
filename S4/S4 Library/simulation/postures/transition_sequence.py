@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import collections
 import functools
 import itertools
+import weakref
 from animation.animation_utils import flush_all_animations
 from animation.posture_manifest import Hand, PostureManifest, AnimationParticipant, SlotManifest, MATCH_ANY, _NOT_SPECIFIC_ACTOR, FrozenPostureManifest
 from carry.carry_utils import create_carry_constraint, get_carried_objects_gen
@@ -10,18 +11,19 @@ from element_utils import build_critical_section_with_finally, build_critical_se
 from element_utils import build_element, do_all, must_run
 from interactions import ParticipantType, PipelineProgress, TargetType
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import PRIVACY_LIABILITY, PrivacyLiability, CANCEL_AOP_LIABILITY, STAND_SLOT_LIABILITY
 from interactions.base.super_interaction import SuperInteraction
-from interactions.constraints import Constraint, ANYWHERE, create_constraint_set
+from interactions.constraints import Constraint, ANYWHERE, create_constraint_set, Circle
 from interactions.context import InteractionContext, QueueInsertStrategy, InteractionSource
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority
 from interactions.utils.animation_reference import TunableAnimationReference
+from interactions.utils.interaction_liabilities import STAND_SLOT_LIABILITY, CANCEL_AOP_LIABILITY, PRIVACY_LIABILITY, PrivacyLiability
 from interactions.utils.route_fail import handle_transition_failure
 from interactions.utils.routing_constants import TransitionFailureReasons
 from objects.components.types import CARRYABLE_COMPONENT
 from objects.object_enums import ResetReason
 from objects.pools import pool_utils
+from objects.pools.ocean import Ocean
 from postures import DerailReason, MOVING_DERAILS
 from postures.base_postures import create_puppet_postures
 from postures.context import PostureContext
@@ -35,6 +37,7 @@ from postures.posture_tuning import PostureTuning
 from postures.stand import StandSuperInteraction
 from postures.transition import PostureStateTransition
 from services.reset_and_delete_service import ResetRecord
+from sims.outfits.outfit_enums import OutfitCategory, OutfitChangeReason
 from sims4 import callback_utils
 from sims4.callback_utils import CallableList
 from sims4.collections import frozendict
@@ -43,6 +46,9 @@ from sims4.profiler_utils import create_custom_named_profiler_function
 from sims4.sim_irq_service import yield_to_irq
 from sims4.tuning.tunable import TunableSimMinute, TunableRealSecond
 from singletons import DEFAULT
+from terrain import get_water_depth
+from vehicles.vehicle_constants import VehicleTransitionState
+from world.ocean_tuning import OceanTuning
 import build_buy
 import caches
 import clock
@@ -145,6 +151,8 @@ class TransitionSequenceController:
         self._pushed_mobile_posture_exit = False
         self.interaction.carry_sim_node = SimPostureNode(interaction.sim)
         self._has_deferred_putdown = False
+        self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+        self._deployed_vehicle = None
 
     @property
     def has_deferred_putdown(self):
@@ -173,6 +181,7 @@ class TransitionSequenceController:
         def clear_current_transition(_):
             if self._current_transitions[sim] == posture_transition:
                 self._current_transitions[sim] = None
+            self._deployed_vehicle = None
 
         return build_critical_section_with_finally(set_current_transition, sequence, clear_current_transition)
 
@@ -191,6 +200,11 @@ class TransitionSequenceController:
     @property
     def sim(self):
         return self.interaction.sim
+
+    @property
+    def deployed_vehicle(self):
+        if self._deployed_vehicle is not None:
+            return self._deployed_vehicle()
 
     @staticmethod
     @caches.cached
@@ -1228,9 +1242,12 @@ class TransitionSequenceController:
         return (templates, additional_template_list, carry_target_si)
 
     def _get_constraint_for_interaction(self, sim, interaction, participant_type, ignore_inertial, ignore_combinables):
-        interaction_constraint = interaction.constraint_intersection(sim=sim, participant_type=participant_type, posture_state=None)
+        interaction_raw_constraint = interaction.constraint_intersection(sim=sim, participant_type=participant_type, posture_state=None)
         if gsi_handlers.posture_graph_handlers.archiver.enabled:
-            gsi_handlers.posture_graph_handlers.add_possible_constraints(sim, interaction_constraint, 'Interaction')
+            gsi_handlers.posture_graph_handlers.add_possible_constraints(sim, interaction_raw_constraint, 'Interaction')
+        interaction_constraint = interaction.transition_constraint_intersection(sim, participant_type, interaction_raw_constraint)
+        if gsi_handlers.posture_graph_handlers.archiver.enabled:
+            gsi_handlers.posture_graph_handlers.add_possible_constraints(sim, interaction_constraint, 'Interaction Transition')
         if not interaction_constraint.valid:
             return (interaction_constraint, ())
         interaction_constraint_resolved = self.resolve_constraint_for_hands(sim, self.interaction, interaction_constraint)
@@ -1247,6 +1264,7 @@ class TransitionSequenceController:
                     if interaction.sim is sim:
                         test_intersection = interaction_constraint_resolved
                         interaction_constraint_no_holster = interaction.constraint_intersection(sim=sim, participant_type=participant_type, posture_state=None, allow_holster=False)
+                        interaction_constraint_no_holster = interaction.transition_constraint_intersection(sim, participant_type, interaction_constraint_no_holster)
                         for combinable in final_valid_combinables:
                             if combinable is interaction:
                                 continue
@@ -1295,22 +1313,11 @@ class TransitionSequenceController:
                     if not interaction.is_cancel_aop:
                         if not self.involves_specific_surface_or_body_target(final_constraint):
                             if not final_constraint.supports_mobile_posture(body_aspect.posture_type):
-                                posture_object = None
-                                if sim.in_pool and not self.has_geometry_outside_pool(final_constraint, sim):
-                                    posture_object = pool_utils.get_pool_by_block_id(sim.block_id)
-                                else:
-                                    posture_graph_service = services.current_zone().posture_graph_service
-                                    compatible_postures_and_targets = posture_graph_service.get_compatible_mobile_postures_and_targets(sim)
-                                    if compatible_postures_and_targets:
-                                        for (target, compatible_postures) in compatible_postures_and_targets.items():
-                                            if body_aspect.posture_type in compatible_postures:
-                                                posture_object = target
-                                                break
-                                        else:
-                                            (posture_object, _) = next(iter(compatible_postures_and_targets.items()))
+                                posture_graph_service = services.current_zone().posture_graph_service
+                                posture_object = posture_graph_service.get_compatible_mobile_posture_target(sim)
                                 if posture_object is not None:
                                     self._pushed_mobile_posture_exit = True
-                                    edge_constraint = posture_object.get_edge_constraint()
+                                    edge_constraint = posture_object.get_edge_constraint(sim=sim)
                                     final_constraint = final_constraint.generate_constraint_with_new_geometry(edge_constraint.geometry, routing_surface=edge_constraint.routing_surface)
         if gsi_handlers.posture_graph_handlers.archiver.enabled:
             gsi_handlers.posture_graph_handlers.add_possible_constraints(sim, final_constraint, 'Pre Revised Constraint')
@@ -1556,13 +1563,23 @@ class TransitionSequenceController:
         self.add_on_target_location_changed_callback(target)
 
     def add_on_target_location_changed_callback(self, target):
+        target = target.part_owner if target.is_part else target
         if target not in self._location_changed_targets:
             target.register_on_location_changed(self._target_location_changed)
             self._location_changed_targets.add(target)
 
     def _target_location_changed(self, obj, *args, **kwargs):
-        if self.interaction.carry_target is obj or self.interaction.target is obj:
-            self.derail(DerailReason.CONSTRAINTS_CHANGED, self.interaction.sim)
+        carry_target = self.interaction.carry_target
+        if carry_target is not None:
+            carry_target = carry_target.part_owner if carry_target.is_part else carry_target
+        interaction_target = self.interaction.target
+        if interaction_target is not None:
+            interaction_target = interaction_target.part_owner if interaction_target.is_part else interaction_target
+        if carry_target is obj or interaction_target is obj:
+            if self.interaction.sim is None:
+                logger.error('Trying to derail a transition for interaction {} with a None Sim', self.interaction, owner='camilogarcia')
+            else:
+                self.derail(DerailReason.CONSTRAINTS_CHANGED, self.interaction.sim)
         else:
             obj.unregister_on_location_changed(self._target_location_changed)
             self._location_changed_targets.remove(obj)
@@ -1599,7 +1616,6 @@ class TransitionSequenceController:
             return result
             yield
         name = self.interaction.__class__.__name__.replace('-', '_')
-        name = str(self.interaction.id) + '_' + name
         name_f = create_custom_named_profiler_function(name, use_generator=True)
         result = yield from name_f(lambda : self._get_transitions_for_sim(*args, **kwargs))
         return result
@@ -1803,7 +1819,13 @@ class TransitionSequenceController:
                     logger.error('While evaluating interaction {}, could not find any substitutions for {}', interaction, final_constraint, owner='manus')
                     return final_constraint
                 else:
-                    new_posture_state_spec = PostureStateSpec(FrozenPostureManifest(new_posture_manifest), posture_state_spec.slot_manifest, posture_state_spec.body_target)
+                    body_target_in_spec = posture_state_spec.body_target
+                    if body_target_in_spec is None or body_target_in_spec == PostureSpecVariable.ANYTHING:
+                        if posture_state_spec.is_vehicle_only_spec():
+                            parented_vehicle = sim.parented_vehicle
+                            if parented_vehicle is not None:
+                                body_target_in_spec = parented_vehicle
+                    new_posture_state_spec = PostureStateSpec(FrozenPostureManifest(new_posture_manifest), posture_state_spec.slot_manifest, body_target_in_spec)
                     new_constraint = constraint.generate_constraint_with_posture_spec(new_posture_state_spec)
                     new_constraints.append(new_constraint)
                     new_final_constraint = create_constraint_set(new_constraints)
@@ -2107,9 +2129,6 @@ class TransitionSequenceController:
         for sim in self._sim_data:
             self.advance_path(sim, prime_path=True)
 
-    def _can_change_outfits_from_posture(self, posture):
-        return posture.posture_type == StandSuperInteraction.STAND_POSTURE_TYPE or posture.posture_type == SIM_SWIM_POSTURE_TYPE
-
     def _assign_source_interaction_to_posture_state(self, sim, si, posture_state):
         source_interaction = None
         potential_source_sis = [source_si for source_si in (sim.si_state if si is None else itertools.chain((si,), sim.si_state)) if source_si.provided_posture_type is not None]
@@ -2126,6 +2145,32 @@ class TransitionSequenceController:
                     break
         return source_interaction
 
+    def _get_transition_path_clothing_change(self, path_nodes, sim_info):
+
+        def get_node_water_height(path_node):
+            return get_water_depth(path_node.position[0], path_node.position[2], path_node.routing_surface_id.secondary_id)
+
+        if services.terrain_service.ocean_object() is None:
+            return
+        (swimwear_water_depth, swimwear_outfit_change_reason) = OceanTuning.get_actor_swimwear_change_info(sim_info)
+        if swimwear_water_depth is None:
+            return
+        if swimwear_outfit_change_reason is None:
+            return
+        else:
+            should_change_into_swimwear = False
+            prev_node_in_water = get_node_water_height(path_nodes[0]) > swimwear_water_depth
+            for node in path_nodes[1:]:
+                current_node_in_water = get_node_water_height(node) > swimwear_water_depth
+                if current_node_in_water:
+                    if not prev_node_in_water:
+                        should_change_into_swimwear = True
+                        break
+                prev_node_in_water = current_node_in_water
+            if should_change_into_swimwear:
+                outfit = sim_info.get_outfit_for_clothing_change(self.interaction, swimwear_outfit_change_reason)
+                return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason(outfit, do_spin=True, interaction=self.interaction, change_reason=self._get_transition_path_clothing_change.__name__), flush_all_animations)
+
     def create_transition(self, create_posture_state_func, si, current_transition, var_map, participant_type, sim, *additional_sims):
         posture_state = create_posture_state_func(var_map)
         if posture_state is None:
@@ -2137,8 +2182,8 @@ class TransitionSequenceController:
             return lambda _: False
         last_nonmobile_posture_with_entry_change = None
         remaining_transitions = self.get_remaining_transitions(sim)
-        if self._can_change_outfits_from_posture(sim.posture_state.body):
-            if not any(self._can_change_outfits_from_posture(remaining_transition.body_posture) for remaining_transition in remaining_transitions):
+        if sim.posture_state.body.supports_outfit_change:
+            if not any(remaining_transition.body_posture.supports_outfit_change for remaining_transition in remaining_transitions):
                 for remaining_transition in reversed(remaining_transitions):
                     if remaining_transition.body_posture.outfit_change:
                         if remaining_transition.body_posture.posture_type is not posture_state.body.posture_type:
@@ -2146,7 +2191,7 @@ class TransitionSequenceController:
                                 last_nonmobile_posture_with_entry_change = remaining_transition.body_posture
                                 break
         if last_nonmobile_posture_with_entry_change:
-            entry_change = last_nonmobile_posture_with_entry_change.post_route_clothing_change(last_nonmobile_posture_with_entry_change, self.interaction, do_spin=True, sim_info=sim.sim_info)
+            entry_change = last_nonmobile_posture_with_entry_change.post_route_clothing_change(self.interaction, do_spin=True, sim_info=sim.sim_info)
         elif posture_state.body.outfit_change:
             entry_change = posture_state.body.post_route_clothing_change(self.interaction, do_spin=True, sim_info=sim.sim_info)
         else:
@@ -2156,7 +2201,7 @@ class TransitionSequenceController:
         on_route_change = None
         if not self._processed_on_route_change:
             if entry_change is None:
-                if self._can_change_outfits_from_posture(sim.posture_state.body) or self._can_change_outfits_from_posture(posture_state.body):
+                if self.sim.posture_state.body.supports_outfit_change or posture_state.body.supports_outfit_change:
                     on_route_change = self.interaction.pre_route_clothing_change(do_spin=not sim.should_route_instantly())
                     self._processed_on_route_change = True
         exit_change = sim.posture_state.body.exit_clothing_change(self.interaction, sim_info=sim.sim_info, do_spin=True)
@@ -2171,8 +2216,8 @@ class TransitionSequenceController:
         outdoor_streetwear_change = self.outdoor_streetwear_change.get(sim.id, None)
         if clothing_change is None:
             if outdoor_streetwear_change is not None:
-                if self._can_change_outfits_from_posture(sim.posture_state.body) or self._can_change_outfits_from_posture(posture_state.body):
-                    clothing_change = build_critical_section(sim.sim_info.get_change_outfit_element(outdoor_streetwear_change, do_spin=True, interaction=self.interaction), flush_all_animations)
+                if sim.posture_state.body.supports_outfit_change or posture_state.body.supports_outfit_change:
+                    clothing_change = build_critical_section(sim.sim_info.get_change_outfit_element_and_archive_change_reason(outdoor_streetwear_change, do_spin=True, interaction=self.interaction, change_reason=OutfitChangeReason.WeatherBased), flush_all_animations)
                     del self.outdoor_streetwear_change[sim.id]
         context = PostureContext(self.interaction.context.source, self.interaction.priority, self.interaction.context.pick)
         owning_interaction = None
@@ -2216,6 +2261,10 @@ class TransitionSequenceController:
             final_transform = sims4.math.Transform(sims4.math.Vector3(*final_node.position), sims4.math.Quaternion(*final_node.orientation))
             final_transform_constraint = interactions.constraints.Transform(final_transform, routing_surface=final_node.routing_surface_id)
             posture_state.add_constraint(final_node, final_transform_constraint)
+            path_nodes = list(transition_spec.path.nodes)
+            path_clothing_change = self._get_transition_path_clothing_change(path_nodes, sim.sim_info)
+            if path_clothing_change is not None:
+                clothing_change = path_clothing_change
         else:
             final_node = None
         sim.si_state.pre_resolve_posture_change(posture_state)
@@ -2225,12 +2274,12 @@ class TransitionSequenceController:
             posture_state.remove_constraint(final_node)
         transition = PostureStateTransition(posture_state, source_interaction, context, var_map, transition_spec, self.interaction, owning_interaction, self.get_transition_should_reserve(sim), transition_spec.final_constraint)
         if clothing_change is not None:
-            if self._can_change_outfits_from_posture(sim.posture_state.body):
+            if sim.posture_state.body.supports_outfit_change:
                 if posture_state.body.saved_exit_clothing_change is not None:
                     sequence = build_critical_section_with_finally(clothing_change, transition, lambda _: posture_state.body.ensure_exit_clothing_change_application())
                 else:
                     sequence = (clothing_change, transition)
-            elif self._can_change_outfits_from_posture(posture_state.body):
+            elif posture_state.body.supports_outfit_change:
                 if sim.posture_state.body.saved_exit_clothing_change is not None:
                     body_posture = sim.posture_state.body
                     sequence = build_critical_section_with_finally(transition, clothing_change, lambda _: body_posture.ensure_exit_clothing_change_application())
@@ -2694,6 +2743,181 @@ class TransitionSequenceController:
         self.derail(DerailReason.WAIT_TO_BE_PUT_DOWN, sim)
         return (None, None, None, None, animation_work)
 
+    def _handle_vehicle_transition_info(self, sim, actor_transitions, current_state, next_state):
+        vehicle = current_state.body[BODY_TARGET_INDEX]
+        vehicle_component = vehicle.vehicle_component if vehicle is not None else None
+        current_posture_on_vehicle = vehicle_component is not None
+        next_posture_on_vehicle = next_state.is_on_vehicle()
+        if current_posture_on_vehicle and not next_posture_on_vehicle and self._vehicle_transition_state != VehicleTransitionState.DISMOUNTING:
+            remaining_transition_specs = self._get_path_spec(sim).remaining_original_transition_specs()
+            for spec in remaining_transition_specs:
+                if spec.path is not None:
+                    final_position = spec.path.final_location.transform.translation
+                    if (final_position - vehicle.position).magnitude_squared() < vehicle_component.minimum_route_distance*vehicle_component.minimum_route_distance:
+                        break
+                    execute_result = vehicle_component.push_dismount_affordance(sim, final_position, depend_on_si=self.interaction)
+                    if execute_result:
+                        self.derail(DerailReason.MUST_EXIT_MOBILE_POSTURE_OBJECT, sim)
+                    break
+            if not self.interaction.is_cancel_aop:
+                self._vehicle_transition_state = VehicleTransitionState.DISMOUNTING
+            return
+        if not current_posture_on_vehicle and self._vehicle_transition_state == VehicleTransitionState.DISMOUNTING:
+            self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+            path_spec = self._get_path_spec(sim)
+            previous_posture_spec = path_spec.previous_posture_spec
+            if current_state == previous_posture_spec:
+                path_progress = path_spec.path_progress
+                previous_posture_spec = path_spec.path[path_progress - 2] if path_progress >= 2 else None
+            if previous_posture_spec is not None:
+                vehicle = previous_posture_spec.body_target
+                vehicle_component = vehicle.vehicle_component if vehicle is not None else None
+                if vehicle_component is not None and (not self._should_skip_vehicle_retrieval(path_spec.remaining_original_transition_specs()) and (vehicle_component.retrieve_tuning is not None and (sim.routing_surface == vehicle.routing_surface and (sim.household_id == vehicle.household_owner_id and vehicle.inventoryitem_component is not None)))) and self.sim.inventory_component.can_add(vehicle):
+                    execute_result = vehicle_component.push_retrieve_vehicle_affordance(sim, depend_on_si=self.interaction)
+                    if execute_result:
+                        self.derail(DerailReason.MUST_EXIT_MOBILE_POSTURE_OBJECT, sim)
+                        return
+                    else:
+                        is_vehicle_posture_change = current_posture_on_vehicle or next_posture_on_vehicle
+                        if not is_vehicle_posture_change and not (not self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and not self._vehicle_transition_state == VehicleTransitionState.MOUNTING):
+                            path_spec = self._get_path_spec(sim)
+                            remaining_transition_specs = path_spec.remaining_original_transition_specs()
+                            next_spec = remaining_transition_specs[0]
+                            mounted = False
+                            final_spec = remaining_transition_specs[-1] if remaining_transition_specs else None
+                            final_body_target = final_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
+                            if next_spec.path is not None:
+                                if final_body_target is not None or any(next_spec.portal_obj is not None for next_spec in remaining_transition_specs):
+                                    for vehicle in sim.inventory_component.vehicle_objects_gen():
+                                        target_vehicle_component = vehicle.vehicle_component
+                                        if target_vehicle_component.deploy_tuning is not None:
+                                            if sim.routing_surface.type in target_vehicle_component.allowed_surfaces:
+                                                if next_spec.path.length() > target_vehicle_component.minimum_route_distance:
+                                                    execute_result = target_vehicle_component.push_deploy_vehicle_affordance(sim, depend_on_si=self.interaction)
+                                                    if execute_result:
+                                                        self._vehicle_transition_state = VehicleTransitionState.DEPLOYING
+                                                        self._deployed_vehicle = weakref.ref(vehicle)
+                                                        self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                                                        mounted = True
+                                                        break
+                            if not mounted:
+                                previous_spec = path_spec.previous_transition_spec
+                                if previous_spec is not None and previous_spec.portal_obj is not None and next_spec.path is not None:
+                                    self._mount_vehicle_post_portal_transition(sim, previous_spec, next_spec)
+                        elif not is_vehicle_posture_change and self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and self.deployed_vehicle is not None:
+                            current_vehicle = self.deployed_vehicle
+                            execute_result = current_vehicle.vehicle_component.push_drive_affordance(sim, depend_on_si=self.interaction)
+                            if execute_result:
+                                self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+                                self._deployed_vehicle = None
+                                self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                                return
+                else:
+                    is_vehicle_posture_change = current_posture_on_vehicle or next_posture_on_vehicle
+                    if not is_vehicle_posture_change and not (not self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and not self._vehicle_transition_state == VehicleTransitionState.MOUNTING):
+                        path_spec = self._get_path_spec(sim)
+                        remaining_transition_specs = path_spec.remaining_original_transition_specs()
+                        next_spec = remaining_transition_specs[0]
+                        mounted = False
+                        final_spec = remaining_transition_specs[-1] if remaining_transition_specs else None
+                        final_body_target = final_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
+                        if next_spec.path is not None:
+                            if final_body_target is not None or any(next_spec.portal_obj is not None for next_spec in remaining_transition_specs):
+                                for vehicle in sim.inventory_component.vehicle_objects_gen():
+                                    target_vehicle_component = vehicle.vehicle_component
+                                    if target_vehicle_component.deploy_tuning is not None:
+                                        if sim.routing_surface.type in target_vehicle_component.allowed_surfaces:
+                                            if next_spec.path.length() > target_vehicle_component.minimum_route_distance:
+                                                execute_result = target_vehicle_component.push_deploy_vehicle_affordance(sim, depend_on_si=self.interaction)
+                                                if execute_result:
+                                                    self._vehicle_transition_state = VehicleTransitionState.DEPLOYING
+                                                    self._deployed_vehicle = weakref.ref(vehicle)
+                                                    self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                                                    mounted = True
+                                                    break
+                        if not mounted:
+                            previous_spec = path_spec.previous_transition_spec
+                            if previous_spec is not None and previous_spec.portal_obj is not None and next_spec.path is not None:
+                                self._mount_vehicle_post_portal_transition(sim, previous_spec, next_spec)
+                    elif not is_vehicle_posture_change and self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and self.deployed_vehicle is not None:
+                        current_vehicle = self.deployed_vehicle
+                        execute_result = current_vehicle.vehicle_component.push_drive_affordance(sim, depend_on_si=self.interaction)
+                        if execute_result:
+                            self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+                            self._deployed_vehicle = None
+                            self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                            return
+            else:
+                is_vehicle_posture_change = current_posture_on_vehicle or next_posture_on_vehicle
+                if not is_vehicle_posture_change and not (not self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and not self._vehicle_transition_state == VehicleTransitionState.MOUNTING):
+                    path_spec = self._get_path_spec(sim)
+                    remaining_transition_specs = path_spec.remaining_original_transition_specs()
+                    next_spec = remaining_transition_specs[0]
+                    mounted = False
+                    final_spec = remaining_transition_specs[-1] if remaining_transition_specs else None
+                    final_body_target = final_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
+                    if next_spec.path is not None:
+                        if final_body_target is not None or any(next_spec.portal_obj is not None for next_spec in remaining_transition_specs):
+                            for vehicle in sim.inventory_component.vehicle_objects_gen():
+                                target_vehicle_component = vehicle.vehicle_component
+                                if target_vehicle_component.deploy_tuning is not None:
+                                    if sim.routing_surface.type in target_vehicle_component.allowed_surfaces:
+                                        if next_spec.path.length() > target_vehicle_component.minimum_route_distance:
+                                            execute_result = target_vehicle_component.push_deploy_vehicle_affordance(sim, depend_on_si=self.interaction)
+                                            if execute_result:
+                                                self._vehicle_transition_state = VehicleTransitionState.DEPLOYING
+                                                self._deployed_vehicle = weakref.ref(vehicle)
+                                                self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                                                mounted = True
+                                                break
+                    if not mounted:
+                        previous_spec = path_spec.previous_transition_spec
+                        if previous_spec is not None and previous_spec.portal_obj is not None and next_spec.path is not None:
+                            self._mount_vehicle_post_portal_transition(sim, previous_spec, next_spec)
+                elif not is_vehicle_posture_change and self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and self.deployed_vehicle is not None:
+                    current_vehicle = self.deployed_vehicle
+                    execute_result = current_vehicle.vehicle_component.push_drive_affordance(sim, depend_on_si=self.interaction)
+                    if execute_result:
+                        self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+                        self._deployed_vehicle = None
+                        self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                        return
+        else:
+            is_vehicle_posture_change = current_posture_on_vehicle or next_posture_on_vehicle
+            if not is_vehicle_posture_change and not (not self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and not self._vehicle_transition_state == VehicleTransitionState.MOUNTING):
+                path_spec = self._get_path_spec(sim)
+                remaining_transition_specs = path_spec.remaining_original_transition_specs()
+                next_spec = remaining_transition_specs[0]
+                mounted = False
+                final_spec = remaining_transition_specs[-1] if remaining_transition_specs else None
+                final_body_target = final_spec.posture_spec[BODY_INDEX][BODY_TARGET_INDEX]
+                if next_spec.path is not None:
+                    if final_body_target is not None or any(next_spec.portal_obj is not None for next_spec in remaining_transition_specs):
+                        for vehicle in sim.inventory_component.vehicle_objects_gen():
+                            target_vehicle_component = vehicle.vehicle_component
+                            if target_vehicle_component.deploy_tuning is not None:
+                                if sim.routing_surface.type in target_vehicle_component.allowed_surfaces:
+                                    if next_spec.path.length() > target_vehicle_component.minimum_route_distance:
+                                        execute_result = target_vehicle_component.push_deploy_vehicle_affordance(sim, depend_on_si=self.interaction)
+                                        if execute_result:
+                                            self._vehicle_transition_state = VehicleTransitionState.DEPLOYING
+                                            self._deployed_vehicle = weakref.ref(vehicle)
+                                            self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                                            mounted = True
+                                            break
+                if not mounted:
+                    previous_spec = path_spec.previous_transition_spec
+                    if previous_spec is not None and previous_spec.portal_obj is not None and next_spec.path is not None:
+                        self._mount_vehicle_post_portal_transition(sim, previous_spec, next_spec)
+            elif not is_vehicle_posture_change and self._vehicle_transition_state == VehicleTransitionState.DEPLOYING and self.deployed_vehicle is not None:
+                current_vehicle = self.deployed_vehicle
+                execute_result = current_vehicle.vehicle_component.push_drive_affordance(sim, depend_on_si=self.interaction)
+                if execute_result:
+                    self._vehicle_transition_state = VehicleTransitionState.NO_STATE
+                    self._deployed_vehicle = None
+                    self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                    return
+
     def _handle_formation_transition_info(self, sim):
         master = sim.routing_master if not sim.get_routing_slave_data() else sim
         if master is None:
@@ -2748,12 +2972,14 @@ class TransitionSequenceController:
                 self.derail(DerailReason.WAIT_FOR_FORMATION_SLAVE, sim)
             return
         slave_data = master.get_formation_data_for_slave(sim)
-        if master.routing_component.current_path is not None and master.routing_component.current_path.length() > slave_data.route_length_minimum:
-            self.derail(DerailReason.MASTER_SIM_ROUTING, sim)
-        if master.transition_controller is not None:
-            transition_spec = master.transition_controller.get_transition_spec(master)
-            if transition_spec is not None and (transition_spec.path is not None and transition_spec.path.length() > slave_data.route_length_minimum) and self.interaction.provided_posture_type is None:
+        if master.is_sim:
+            if master.routing_component.current_path is not None and master.routing_component.current_path.length() > slave_data.route_length_minimum:
                 self.derail(DerailReason.MASTER_SIM_ROUTING, sim)
+                return
+            if master.transition_controller is not None:
+                transition_spec = master.transition_controller.get_transition_spec(master)
+                if transition_spec is not None and (transition_spec.path is not None and transition_spec.path.length() > slave_data.route_length_minimum) and self.interaction.provided_posture_type is None:
+                    self.derail(DerailReason.MASTER_SIM_ROUTING, sim)
 
     def _handle_deferred_putdown(self, sim, current_state, next_state):
         carry_targets = sim.posture_state.carry_targets
@@ -2782,6 +3008,7 @@ class TransitionSequenceController:
         current_state = sim.posture_state.get_posture_spec(var_map)
         next_state = actor_transitions[0]
         work = None
+        self._handle_vehicle_transition_info(sim, actor_transitions, current_state, next_state)
         self._handle_formation_transition_info(sim)
         self._handle_deferred_putdown(sim, current_state, next_state)
         (privacy_status, privacy_interaction) = self._get_privacy_status(sim)
@@ -3010,3 +3237,33 @@ class TransitionSequenceController:
                     yield
         return True
         yield
+
+    def _should_skip_vehicle_retrieval(self, remaining_transition_specs):
+        for spec in remaining_transition_specs:
+            if spec.portal_obj is None:
+                continue
+            portal_inst = spec.portal_obj.get_portal_by_id(spec.portal_id)
+            if portal_inst is None:
+                continue
+            portal_template = portal_inst.portal_template
+            if portal_template.use_vehicle_after_traversal:
+                return True
+            break
+        return False
+
+    def _mount_vehicle_post_portal_transition(self, sim, previous_spec, next_spec):
+        portal_object = previous_spec.portal_obj
+        portal_id = previous_spec.portal_id
+        vehicles = portal_object.portal_component.get_vehicles_nearby_portal_id(portal_id)
+        vehicles.sort(key=lambda vehicle: vehicle.household_owner_id == sim.household_id, reverse=True)
+        for vehicle in vehicles:
+            if vehicle.household_owner_id is not None and vehicle.household_owner_id != 0 and vehicle.household_owner_id != sim.household_id:
+                continue
+            vehicle_component = vehicle.vehicle_component
+            if next_spec.path.length() > vehicle_component.minimum_route_distance:
+                execute_result = vehicle.vehicle_component.push_drive_affordance(sim, depend_on_si=self.interaction)
+                if execute_result:
+                    self._vehicle_transition_state = VehicleTransitionState.MOUNTING
+                    self.derail(DerailReason.CONSTRAINTS_CHANGED, sim)
+                    return True
+        return False

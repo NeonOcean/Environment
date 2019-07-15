@@ -2,7 +2,7 @@ import itertools
 from protocolbuffers import DistributorOps_pb2, Commodities_pb2 as commodity_protocol
 from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
-from distributor.shared_messages import send_relationship_op
+from distributor.shared_messages import send_relationship_op, build_icon_info_msg, IconInfoData
 from distributor.system import Distributor
 from relationships import global_relationship_tuning
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
@@ -11,6 +11,7 @@ from relationships.relationship_bit_lock import RelationshipBitLock
 from relationships.relationship_data import BidirectionalRelationshipData, UnidirectionalRelationshipData
 from relationships.relationship_enums import RelationshipDirection
 from sims.sim_info_lod import SimInfoLODLevel
+from sims4.localization import LocalizationHelperTuning
 from singletons import EMPTY_SET, DEFAULT
 import alarms
 import date_and_time
@@ -20,7 +21,7 @@ import sims4.log
 logger = sims4.log.Logger('Relationship', default_owner='jjacobson')
 
 class Relationship:
-    __slots__ = ('_sim_id_a', '_sim_id_b', '_bi_directional_relationship_data', '_sim_a_relationship_data', '_sim_b_relationship_data', '_level_change_watcher_id', '_culling_alarm_handle', '_last_update_time', '_relationship_multipliers', '__weakref__', '_is_object_rel', '_target_object_id', '_target_object_manager_id', '_target_object_instance_id')
+    __slots__ = ('_sim_id_a', '_sim_id_b', '_bi_directional_relationship_data', '_sim_a_relationship_data', '_sim_b_relationship_data', '_level_change_watcher_id', '_culling_alarm_handle', '_last_update_time', '_relationship_multipliers', '__weakref__', '_is_object_rel', '_target_object_id', '_target_object_manager_id', '_target_object_instance_id', '_object_relationship_name')
 
     def __init__(self, sim_id_a:int, sim_id_b:int, obj_def_id=None):
         self._is_object_rel = False
@@ -31,6 +32,7 @@ class Relationship:
             self._target_object_id = 0
             self._target_object_manager_id = 0
             self._target_object_instance_id = 0
+            self._object_relationship_name = None
         elif sim_id_a < sim_id_b:
             self._sim_id_a = sim_id_a
             self._sim_id_b = sim_id_b
@@ -149,10 +151,13 @@ class Relationship:
             track_bits.add(track.get_bit_for_client().guid64)
         return track_bits
 
-    def _build_object_relationship_update_proto(self, actor_sim_info, member_obj_def_id, deltas=None):
+    def _build_object_relationship_update_proto(self, actor_sim_info, member_obj_def_id, deltas=None, name_override=None):
         msg = commodity_protocol.RelationshipUpdate()
         actor_sim_id = actor_sim_info.sim_id
         msg.actor_sim_id = actor_sim_id
+        if name_override is not None:
+            loc_custom_name = LocalizationHelperTuning.get_raw_text(name_override)
+            build_icon_info_msg(IconInfoData(), loc_custom_name, msg.target_icon_override)
         if self._target_object_id == 0:
             target_object = None
             tag_set = services.relationship_service().get_mapped_tag_set_of_id(member_obj_def_id)
@@ -224,7 +229,7 @@ class Relationship:
         if sim_info_a is not None and sim_info_a.is_npc:
             return
         if sim_info_a is not None:
-            op = self._build_object_relationship_update_proto(sim_info_a, self._sim_id_b, deltas=deltas)
+            op = self._build_object_relationship_update_proto(sim_info_a, self._sim_id_b, deltas=deltas, name_override=self.get_object_rel_name())
             if op is not None:
                 send_relationship_op(sim_info_a, op)
 
@@ -388,16 +393,19 @@ class Relationship:
         sim_info_b = self.find_sim_info_b()
         if sim_info_b is None:
             return
-        if sim_info_a.household is None or sim_info_b.household is None:
+        household_a = sim_info_a.household
+        household_b = sim_info_b.household
+        if household_a is None or household_b is None:
             return
-        home_zone_id_a = sim_info_a.household.home_zone_id
-        home_zone_id_b = sim_info_b.household.home_zone_id
+        home_zone_id_a = household_a.home_zone_id
+        home_zone_id_b = household_b.home_zone_id
         if home_zone_id_a == home_zone_id_b:
             return
         if home_zone_id_a == 0 or home_zone_id_b == 0:
             return
-        sim_a_home_zone_proto_buffer = services.get_persistence_service().get_zone_proto_buff(home_zone_id_a)
-        sim_b_home_zone_proto_buffer = services.get_persistence_service().get_zone_proto_buff(home_zone_id_b)
+        persistence_service = services.get_persistence_service()
+        sim_a_home_zone_proto_buffer = persistence_service.get_zone_proto_buff(home_zone_id_a)
+        sim_b_home_zone_proto_buffer = persistence_service.get_zone_proto_buff(home_zone_id_b)
         if sim_a_home_zone_proto_buffer is None or sim_b_home_zone_proto_buffer is None:
             logger.error('Invalid zone protocol buffer in Relationship.add_neighbor_bit_if_necessary() between {} and {}', sim_info_a, sim_info_b)
             return
@@ -568,6 +576,8 @@ class Relationship:
         relationship_msg.target_object_id = self._target_object_id
         relationship_msg.target_object_manager_id = self._target_object_manager_id
         relationship_msg.target_object_instance_id = self._target_object_instance_id
+        if self._object_relationship_name is not None:
+            relationship_msg.object_relationship_name = self._object_relationship_name
 
     def load_relationship(self, relationship_msg):
         self._bi_directional_relationship_data.load_relationship_data(relationship_msg.bidirectional_relationship_data)
@@ -580,6 +590,8 @@ class Relationship:
         self._target_object_id = relationship_msg.target_object_id
         self._target_object_manager_id = relationship_msg.target_object_manager_id
         self._target_object_instance_id = relationship_msg.target_object_instance_id
+        if relationship_msg.object_relationship_name:
+            self._object_relationship_name = relationship_msg.object_relationship_name
 
     def build_printable_string_of_bits(self, sim_id):
         return '\t\t{}'.format('\n\t\t'.join(map(str, self.get_bit_instances(sim_id))))
@@ -630,3 +642,10 @@ class Relationship:
 
     def is_object_rel(self):
         return self._is_object_rel
+
+    def get_object_rel_name(self):
+        return self._object_relationship_name
+
+    def set_object_rel_name(self, name):
+        if self._is_object_rel:
+            self._object_relationship_name = name

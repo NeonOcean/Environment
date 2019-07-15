@@ -3,6 +3,7 @@ from element_utils import soft_sleep_forever
 from interactions.priority import PriorityExtended
 from interactions.utils.loot import LootActions, LootOperationList
 from objects.components import Component, types, componentmethod
+from objects.components.utils.footprint_toggle_mixin import FootprintToggleMixin
 from routing.object_routing.object_routing_behavior import ObjectRoutingBehavior
 from sims.master_controller import WorkRequest
 from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableMapping, TunableReference, OptionalTunable, TunableTuple, TunableList
@@ -11,7 +12,7 @@ import services
 import sims4.resources
 from event_testing.resolver import SingleObjectResolver
 
-class ObjectRoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_name=types.OBJECT_ROUTING_COMPONENT):
+class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory, AutoFactoryInit, component_name=types.OBJECT_ROUTING_COMPONENT):
     FACTORY_TUNABLES = {'routing_behavior_map': TunableMapping(description='\n            A mapping of states to behavior. When the object enters a state, its\n            corresponding routing behavior is started.\n            ', key_type=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'), value_type=OptionalTunable(tunable=ObjectRoutingBehavior.TunableReference(), enabled_by_default=True, enabled_name='Start_Behavior', disabled_name='Stop_All_Behavior', disabled_value=UNSET)), 'privacy_rules': OptionalTunable(description='\n            If enabled, this object will care about privacy regions.\n            ', tunable=TunableTuple(description='\n                Privacy rules for this object.\n                ', on_enter=TunableTuple(description='\n                    Tuning for when this object is considered a violator of\n                    privacy.\n                    ', loot_list=TunableList(description='\n                        A list of loot operations to apply when the object\n                        enters a privacy region.\n                        ', tunable=LootActions.TunableReference(pack_safe=True)))))}
 
     def __init__(self, *args, **kwargs):
@@ -56,10 +57,12 @@ class ObjectRoutingComponent(Component, HasTunableFactory, AutoFactoryInit, comp
     def add_callbacks(self):
         if self.privacy_rules:
             self.owner.register_on_location_changed(self._check_privacy)
+        self.register_routing_event_callbacks()
 
     def remove_callbacks(self):
         if self.owner.is_on_location_changed_callback_registered(self._check_privacy):
             self.owner.unregister_on_location_changed(self._check_privacy)
+        self.unregister_routing_event_callbacks()
 
     def handle_privacy_violation(self, privacy):
         if not self.privacy_rules:

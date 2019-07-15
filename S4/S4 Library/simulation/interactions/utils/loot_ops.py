@@ -64,21 +64,22 @@ class LifeExtensionLootOp(BaseLootOperation):
             subject.decrement_age_progress(self.days_from_aging_progress)
 
 class StateChangeLootOp(BaseLootOperation):
-    FACTORY_TUNABLES = {'description': '\n            This loot will change the state of the subject.\n            ', 'state_value': TunableStateValueReference()}
+    FACTORY_TUNABLES = {'description': '\n            This loot will change the state of the subject.\n            ', 'state_value': TunableStateValueReference(), 'force_update': Tunable(description="\n            If checked, force update the subject's state.\n            ", tunable_type=bool, default=False)}
 
     @TunableFactory.factory_option
     def subject_participant_type_options(**kwargs):
         return {'subject': TunableVariant(description='\n            The subject of this loot.\n            ', participant=TunableEnumEntry(description='"\n                The participant type for the subject of this loot.\n                ', tunable_type=ParticipantType, default=ParticipantType.Actor, invalid_enums=(ParticipantType.Invalid,)), all_objects_with_tag=TunableEnumEntry(description='\n                All objects with this tag.\n                ', tunable_type=tag.Tag, default=tag.Tag.INVALID, invalid_enums=(tag.Tag.INVALID,)), default='participant')}
 
-    def __init__(self, state_value, **kwargs):
+    def __init__(self, state_value, force_update, **kwargs):
         super().__init__(**kwargs)
         self.state_value = state_value
+        self.force_update = force_update
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
         subject_obj = self._get_object_from_recipient(subject)
         if subject_obj is not None:
             state_value = self.state_value
-            subject_obj.set_state(state_value.state, state_value)
+            subject_obj.set_state(state_value.state, state_value, force_update=self.force_update)
 
 class DialogLootOp(BaseLootOperation):
     FACTORY_TUNABLES = {'dialog': TunableVariant(description='\n            Type of dialog to show.\n            ', notification=UiDialogNotification.TunableFactory(description='\n                This text will display in a notification pop up when completed.\n                '), dialog_ok=UiDialogOk.TunableFactory(description='\n                Display a dialog with an okay button.\n                '), aspiration_progress=UiDialogAspirationProgress.TunableFactory(description="\n                Display a dialog that will show the Sim's progress towards one\n                or more aspirations.\n                "), default='notification')}

@@ -167,6 +167,7 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
                                         if cur_obj.visibility is not None:
                                             ret_dict['additional_data'].append({'dataId': 'Visibility', 'dataValue': str(cur_obj.visibility.visibility)})
                                             ret_dict['additional_data'].append({'dataId': 'Opacity', 'dataValue': str(cur_obj.opacity)})
+                                        ret_dict['additional_data'].append({'dataId': 'Model State', 'dataValue': str(cur_obj.state_index)})
                                         if hasattr(cur_obj, 'commodity_flags'):
                                             commodity_flags_by_name = sorted([str(commodity_flag.__name__) for commodity_flag in cur_obj.commodity_flags])
                                         else:
@@ -390,6 +391,7 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
         if cur_obj.visibility is not None:
             ret_dict['additional_data'].append({'dataId': 'Visibility', 'dataValue': str(cur_obj.visibility.visibility)})
             ret_dict['additional_data'].append({'dataId': 'Opacity', 'dataValue': str(cur_obj.opacity)})
+        ret_dict['additional_data'].append({'dataId': 'Model State', 'dataValue': str(cur_obj.state_index)})
         if hasattr(cur_obj, 'commodity_flags'):
             commodity_flags_by_name = sorted([str(commodity_flag.__name__) for commodity_flag in cur_obj.commodity_flags])
         else:

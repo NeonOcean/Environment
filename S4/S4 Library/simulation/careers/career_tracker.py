@@ -1,10 +1,11 @@
 import itertools
 import protocolbuffers
 from careers.career_custom_data import CustomCareerData
-from careers.career_enums import CareerCategory, WORK_CAREER_CATEGORIES
+from careers.career_enums import WORK_CAREER_CATEGORIES, CareerCategory
 from careers.career_history import CareerHistory
 from careers.career_tuning import Career
 from careers.retirement import Retirement
+from careers.career_enums import CareerShiftType
 from date_and_time import DATE_AND_TIME_ZERO
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver
@@ -70,9 +71,12 @@ class CareerTracker(SimInfoTracker):
     def has_career_outfit(self):
         return any(career.has_outfit() for career in self._careers.values())
 
-    def _on_confirmation_dialog_response(self, dialog, new_career):
+    def has_part_time_career_outfit(self):
+        return any(career.has_outfit() and career.career_category == CareerCategory.AdultPartTime for career in self._careers.values())
+
+    def _on_confirmation_dialog_response(self, dialog, new_career, schedule_shift_override=CareerShiftType.ALL_DAY):
         if dialog.accepted:
-            self.add_career(new_career)
+            self.add_career(new_career, schedule_shift_override=schedule_shift_override)
 
     def set_custom_career_data(self, **kwargs):
         if self._custom_data is None:
@@ -91,18 +95,21 @@ class CareerTracker(SimInfoTracker):
         if send_update:
             self.resend_career_data()
 
-    def add_career(self, new_career, show_confirmation_dialog=False, user_level_override=None, career_level_override=None, give_skipped_rewards=True, defer_rewards=False, post_quit_msg=True):
+    def add_career(self, new_career, show_confirmation_dialog=False, user_level_override=None, career_level_override=None, give_skipped_rewards=True, defer_rewards=False, post_quit_msg=True, schedule_shift_override=CareerShiftType.ALL_DAY, show_join_msg=True):
         if show_confirmation_dialog:
             (level, _, track) = new_career.get_career_entry_data(career_history=self._career_history, user_level_override=user_level_override, career_level_override=career_level_override)
             career_level_tuning = track.career_levels[level]
             if self._retirement is not None:
-                self._retirement.send_dialog(Career.UNRETIRE_DIALOG, career_level_tuning.title(self._sim_info), icon_override=DEFAULT, on_response=lambda dialog: self._on_confirmation_dialog_response(dialog, new_career))
+                self._retirement.send_dialog(Career.UNRETIRE_DIALOG, career_level_tuning.title(self._sim_info), icon_override=DEFAULT, on_response=lambda dialog: self._on_confirmation_dialog_response(dialog, new_career, schedule_shift_override=schedule_shift_override))
                 return
             if new_career.can_quit:
-                quittable_careers = self.get_quittable_careers()
+                quittable_careers = self.get_quittable_careers(schedule_shift_type=schedule_shift_override)
                 if quittable_careers:
                     career = next(iter(quittable_careers.values()))
-                    career.send_career_message(Career.SWITCH_JOBS_DIALOG, career_level_tuning.title(self._sim_info), icon_override=DEFAULT, on_response=lambda dialog: self._on_confirmation_dialog_response(dialog, new_career))
+                    switch_jobs_dialog = Career.SWITCH_JOBS_DIALOG
+                    if len(quittable_careers) > 1:
+                        switch_jobs_dialog = Career.SWITCH_MANY_JOBS_DIALOG
+                    career.send_career_message(switch_jobs_dialog, career_level_tuning.title(self._sim_info), icon_override=DEFAULT, on_response=lambda dialog: self._on_confirmation_dialog_response(dialog, new_career, schedule_shift_override=schedule_shift_override))
                     return
         self.end_retirement()
         self.remove_custom_career_data(send_update=False)
@@ -110,9 +117,9 @@ class CareerTracker(SimInfoTracker):
             logger.callstack('Attempting to add career {} sim {} is already in.', new_career, self._sim_info)
             return
         if new_career.can_quit:
-            self.quit_quittable_careers(post_quit_msg=post_quit_msg)
+            self.quit_quittable_careers(post_quit_msg=post_quit_msg, schedule_shift_type=schedule_shift_override)
         self._careers[new_career.guid64] = new_career
-        new_career.join_career(career_history=self._career_history, user_level_override=user_level_override, career_level_override=career_level_override, give_skipped_rewards=give_skipped_rewards, defer_rewards=defer_rewards)
+        new_career.join_career(career_history=self._career_history, user_level_override=user_level_override, career_level_override=career_level_override, give_skipped_rewards=give_skipped_rewards, defer_rewards=defer_rewards, schedule_shift_override=schedule_shift_override, show_join_msg=show_join_msg)
         self.resend_career_data()
 
     def remove_career(self, career_uid, post_quit_msg=True):
@@ -126,6 +133,15 @@ class CareerTracker(SimInfoTracker):
         for (career_uid, career) in list(self._careers.items()):
             if not career.is_valid_career():
                 self.remove_career(career_uid, post_quit_msg=False)
+
+    def add_ageup_careers(self):
+        for career in list(self._careers.values()):
+            if career.current_level_tuning.ageup_branch_career is not None:
+                new_career = career.current_level_tuning.ageup_branch_career(self._sim_info)
+                default_shift_type = CareerShiftType.EVENING
+                if career.schedule_shift_type != CareerShiftType.ALL_DAY:
+                    default_shift_type = career.schedule_shift_type
+                self.add_career(new_career, user_level_override=career.user_level, post_quit_msg=False, schedule_shift_override=default_shift_type, show_join_msg=False)
 
     def get_career_by_uid(self, career_uid):
         if career_uid in self._careers:
@@ -147,12 +163,12 @@ class CareerTracker(SimInfoTracker):
             return True
         return False
 
-    def get_quittable_careers(self):
-        quittable_careers = dict((uid, career) for (uid, career) in self._careers.items() if career.can_quit)
+    def get_quittable_careers(self, schedule_shift_type=CareerShiftType.ALL_DAY):
+        quittable_careers = dict((uid, career) for (uid, career) in self._careers.items() if career.can_quit if career.get_is_quittable_shift(schedule_shift_type))
         return quittable_careers
 
-    def quit_quittable_careers(self, post_quit_msg=True):
-        for career_uid in self.get_quittable_careers():
+    def quit_quittable_careers(self, post_quit_msg=True, schedule_shift_type=CareerShiftType.ALL_DAY):
+        for career_uid in self.get_quittable_careers(schedule_shift_type):
             self.remove_career(career_uid, post_quit_msg=post_quit_msg)
 
     def get_at_work_career(self):
@@ -206,7 +222,7 @@ class CareerTracker(SimInfoTracker):
         if career.user_level > highest_level:
             highest_level = career.user_level
         time_of_leave = services.time_service().sim_now if from_leave else DATE_AND_TIME_ZERO
-        self._career_history[career.guid64] = CareerHistory(career_track=career.current_track_tuning, level=career.level, user_level=career.user_level, overmax_level=career.overmax_level, highest_level=highest_level, time_of_leave=time_of_leave, daily_pay=career.get_daily_pay(), days_worked=career.days_worked_statistic.get_value(), active_days_worked=career.active_days_worked_statistic.get_value(), player_rewards_deferred=career.player_rewards_deferred)
+        self._career_history[career.guid64] = CareerHistory(career_track=career.current_track_tuning, level=career.level, user_level=career.user_level, overmax_level=career.overmax_level, highest_level=highest_level, time_of_leave=time_of_leave, daily_pay=career.get_daily_pay(), days_worked=career.days_worked_statistic.get_value(), active_days_worked=career.active_days_worked_statistic.get_value(), player_rewards_deferred=career.player_rewards_deferred, schedule_shift_type=career.schedule_shift_type)
 
     def get_highest_level_reached(self, career_uid):
         entry = self._career_history.get(career_uid)
@@ -239,12 +255,12 @@ class CareerTracker(SimInfoTracker):
         if self._retirement is not None:
             self._retirement.start()
 
-    def set_gig(self, gig, gig_time):
+    def set_gig(self, gig, gig_time, gig_customer=None):
         gig_career = self.get_career_by_uid(gig.career.guid64)
         if gig_career is None:
-            logger.error("Tried to set gig {} for career {} on sim {} but sim doesn't have career.", gig, career, self._sim_info)
+            logger.error("Tried to set gig {} for career {} on sim {} but sim doesn't have career.", gig, gig.career, self._sim_info)
             return
-        gig_career.set_gig(gig, gig_time)
+        gig_career.set_gig(gig, gig_time, gig_customer=gig_customer)
         self.resend_career_data()
 
     def on_sim_added_to_skewer(self):

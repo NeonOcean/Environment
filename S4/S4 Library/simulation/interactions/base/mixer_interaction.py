@@ -5,15 +5,17 @@ from element_utils import build_critical_section_with_finally
 from event_testing.results import TestResult
 from interactions import ParticipantType
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import Interaction, TargetType, LockGuaranteedOnSIWhileRunning, LOCK_GUARANTEED_ON_SI_WHILE_RUNNING, InteractionQueuePreparationStatus
+from interactions.base.interaction import Interaction, TargetType
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.constraints import RequiredSlotSingle
 from interactions.context import InteractionContext, QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
+from interactions.utils.interaction_liabilities import LockGuaranteedOnSIWhileRunning, LOCK_GUARANTEED_ON_SI_WHILE_RUNNING
 from interactions.utils.outcome import TunableOutcome
 from sims4.geometry import ANIMATION_SLOT_EPSILON
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableSet, TunableInterval, TunableSimMinute, TunableMapping, TunableList, TunableRange, TunableEnumEntry
+from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableInterval, TunableSimMinute, TunableList, TunableRange, TunableEnumEntry
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod, classproperty, flexproperty
 from singletons import DEFAULT, EMPTY_SET
@@ -308,7 +310,7 @@ class MixerInteraction(Interaction):
             no_geometry_mixer_state = mixer_constraint.generate_alternate_geometry_constraint(None)
             test_intersection = no_geometry_posture_state.intersect(no_geometry_mixer_state)
             ret = test_intersection.valid
-        if not ret and error_on_fail:
+        if not ret and error_on_fail and no_geometry_posture_state.valid:
             si_constraint_list = ''.join('\n        ' + str(c) for c in no_geometry_posture_state)
             mi_constraint_list = ''.join('\n        ' + str(c) for c in mixer_constraint_tentative)
             mx_constraint_list = ''.join('\n        ' + str(c) for c in no_geometry_mixer_state)

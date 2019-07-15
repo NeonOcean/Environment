@@ -61,7 +61,6 @@ class PythonParser(GenericASTBuilder):
             'imports_cont',
             'kvlist_n',
             # Python 3.6+
-            'joined_str',
             'come_from_loops',
             ]
         self.collect = frozenset(nt_list)
@@ -83,7 +82,7 @@ class PythonParser(GenericASTBuilder):
         # FIXME: would love to do expr, sstmts, stmts and
         # so on but that would require major changes to the
         # semantic actions
-        self.singleton = frozenset(('str', 'joined_str', 'store', '_stmts', 'suite_stmts_opt',
+        self.singleton = frozenset(('str', 'store', '_stmts', 'suite_stmts_opt',
                                     'inplace_op'))
         # Instructions filled in from scanner
         self.insts = []
@@ -499,6 +498,7 @@ class PythonParser(GenericASTBuilder):
     def p_expr(self, args):
         '''
         expr ::= _mklambda
+        expr ::= LOAD_CODE
         expr ::= LOAD_FAST
         expr ::= LOAD_NAME
         expr ::= LOAD_CONST
@@ -804,7 +804,6 @@ def python_parser(version, co, out=sys.stdout, showasm=False,
 if __name__ == '__main__':
     def parse_test(co):
         from uncompyle6 import PYTHON_VERSION, IS_PYPY
-        ast = python_parser('2.7.13', co, showasm=True, is_pypy=True)
         ast = python_parser(PYTHON_VERSION, co, showasm=True, is_pypy=IS_PYPY)
         print(ast)
         return

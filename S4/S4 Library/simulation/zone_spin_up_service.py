@@ -5,7 +5,7 @@ import itertools
 import time
 from careers import coworker
 from crafting.recipe import destroy_unentitled_craftables
-from objects import ALL_HIDDEN_REASONS
+from objects import ALL_HIDDEN_REASONS, components
 from objects.components.types import PORTAL_COMPONENT, FOOTPRINT_COMPONENT
 from persistence_error_types import ErrorCodes, generate_exception_code, generate_exception_callstack
 from sims4.localization import TunableLocalizedString
@@ -242,7 +242,6 @@ class _PrepareLotState(_ZoneSpinUpState):
         zone = services.current_zone()
         client = zone.zone_spin_up_service._client_connect_data.client
         destroy_unentitled_craftables()
-        GlobalLotTuningAndCleanup.cleanup_objects(lot=zone.lot)
         game_services.service_manager.on_cleanup_zone_objects(client)
         zone.service_manager.on_cleanup_zone_objects(client)
         venue_service = services.venue_service()
@@ -308,6 +307,17 @@ class _RestoreSIState(_ZoneSpinUpState):
         services.sim_info_manager().restore_sim_si_state()
         return _ZoneSpinUpStateResult.DONE
 
+class _GlobalLotTuningAndCleanupState(_ZoneSpinUpState):
+
+    def exception_error_code(self):
+        return ErrorCodes.GLOBAL_LOT_TUNING_AND_CLEANUP_FAILED
+
+    def on_enter(self):
+        super().on_enter()
+        zone = services.current_zone()
+        GlobalLotTuningAndCleanup.cleanup_objects(lot=zone.lot)
+        return _ZoneSpinUpStateResult.DONE
+
 class _RestoreCareerState(_ZoneSpinUpState):
 
     def exception_error_code(self):
@@ -371,6 +381,16 @@ class _FixupInventoryState(_ZoneSpinUpState):
             sim_info.fixup_inventory()
         return _ZoneSpinUpStateResult.DONE
 
+class _DestroyUnclaimedObjectsState(_ZoneSpinUpState):
+
+    def exception_error_code(self):
+        return ErrorCodes.DESTROY_UNCLAIMED_OBJECTS_STATE_FAILED
+
+    def on_enter(self):
+        super().on_enter()
+        services.object_manager().destroy_unclaimed_objects()
+        return _ZoneSpinUpStateResult.DONE
+
 class _WaitForSimSpawnerService(_ZoneSpinUpState):
 
     def exception_error_code(self):
@@ -411,6 +431,18 @@ class _WaitForSimSpawnerService(_ZoneSpinUpState):
         for script_object in sim_info_manager.instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
             script_object.finalize(active_household_id=active_household_id)
         super().on_exit()
+
+class _ZoneModifierSpinUpState(_ZoneSpinUpState):
+
+    def exception_error_code(self):
+        return ErrorCodes.ZONE_MODIFIER_SPIN_UP_STATE_FAILED
+
+    def on_enter(self):
+        super().on_enter()
+        zone_modifier_service = services.get_zone_modifier_service()
+        if zone_modifier_service:
+            zone_modifier_service.spin_up()
+        return _ZoneSpinUpStateResult.DONE
 
 class _PrerollAutonomyState(_ZoneSpinUpState):
 
@@ -702,7 +734,7 @@ class ZoneSpinUpService(sims4.service_manager.Service):
 
     @property
     def _playable_sequence(self):
-        return (_StopCaching, _LoadHouseholdsAndSimInfosState, _PremadeSimFixupState, _SetupPortalsState, _SelectZoneDirectorState, _DestinationWorldCleanUp, _DetectAndCleanupInvalidObjectsState, _SetObjectOwnershipState, _FinalizeObjectsState, _SetupSurfacePortalsState, _WaitForNavmeshState, _SpawnSimsState, _SituationCommonState, _FixupInventoryState, _WaitForSimSpawnerService, _PrepareLotState, _AwayActionsState, _InitializeDoorServiceState, _SetMailboxOwnerState, _StartNoWaitingState, _RestoreRabbitHoleState, _RestoreSIState, _RestoreCareerState, _RestoreMissingPetsState, _PrerollAutonomyState, _PushSimsToGoHomeState, _SetActiveSimState, _ScheduleStartupDramaNodesState, _StartupCommandsState, _StartCaching, _FinalPlayableState, _EndNoWaitingState)
+        return (_StopCaching, _LoadHouseholdsAndSimInfosState, _PremadeSimFixupState, _SetupPortalsState, _SelectZoneDirectorState, _DestinationWorldCleanUp, _DetectAndCleanupInvalidObjectsState, _SetObjectOwnershipState, _FinalizeObjectsState, _SetupSurfacePortalsState, _WaitForNavmeshState, _SpawnSimsState, _SituationCommonState, _FixupInventoryState, _DestroyUnclaimedObjectsState, _WaitForSimSpawnerService, _ZoneModifierSpinUpState, _PrepareLotState, _AwayActionsState, _InitializeDoorServiceState, _SetMailboxOwnerState, _StartNoWaitingState, _RestoreRabbitHoleState, _RestoreSIState, _GlobalLotTuningAndCleanupState, _RestoreCareerState, _RestoreMissingPetsState, _PrerollAutonomyState, _PushSimsToGoHomeState, _SetActiveSimState, _ScheduleStartupDramaNodesState, _StartupCommandsState, _StartCaching, _FinalPlayableState, _EndNoWaitingState)
 
     @property
     def _hitting_their_marks_state_sequence(self):
@@ -785,7 +817,6 @@ class ZoneSpinUpService(sims4.service_manager.Service):
         self._client_connect_data = None
 
     def process_zone_loaded(self):
-        services.lot_spawner_service_instance().setup_spawner()
         services.business_service().process_zone_loaded()
 
     def apply_save_lock(self):

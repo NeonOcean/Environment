@@ -1,7 +1,9 @@
 from event_testing.resolver import SingleObjectResolver
+from event_testing.statistic_tests import StatThresholdTest
 from interactions import ParticipantType
 from objects.components.inventory_elements import InventoryTransferFakePerform, DeliverBillFakePerform
 from objects.components.state import TunableStateValueReference
+from objects.components.types import VEHICLE_COMPONENT
 from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableTuple, AutoFactoryInit, TunableVariant, TunableSingletonFactory, TunableSimMinute, HasTunableSingletonFactory
 import event_testing.results
 import event_testing.state_tests
@@ -63,7 +65,9 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
     SET_STATE = 1
     INVENTORY_TRANSFER = 2
     DELIVER_BILLS = 3
-    FACTORY_TUNABLES = {'description': '\n        Tune modifications to apply to all objects on a lot.\n        Can do state changes, destroy certain items, etc.\n        \n        EX: for auto cleaning, tune to have objects with Dirtiness state that\n        equals dirty to be set to the clean state and tune to have dirty dishes\n        and spoiled food to be deleted\n        ', 'modifications': TunableList(description="\n            A list of where the elements define how to modify objects on the\n            lot. Each entry is a triplet of an object modification action\n            (currently either destroy the object or set its state), a list of\n            tests to run on the object to determine if we should actually apply\n            the modification, and a priority in case some modifications should\n            take precedence over other ones when both of their tests pass.\n            \n            EX: test list: object's dirtiness state != dirtiness clean\n            action: set state to Dirtiness_clean\n            \n            So dirty objects will become clean\n            ", tunable=TunableTuple(action=TunableVariant(set_state=TunableTuple(action_value=TunableStateValueReference(description='An object state to set the object to', pack_safe=True), locked_args={'action_type': SET_STATE}), destroy_object=TunableTuple(locked_args={'action_type': DESTROY_OBJECT}), inventory_transfer=TunableTuple(action_value=InventoryTransferFakePerform.TunableFactory(), locked_args={'action_type': INVENTORY_TRANSFER}), deliver_bills=TunableTuple(action_value=DeliverBillFakePerform.TunableFactory(), locked_args={'action_type': DELIVER_BILLS})), tests=TunableObjectModifyTestSet(description='\n                    All least one subtest group (AKA one list item) must pass\n                    within this list before the action associated with this\n                    tuning will be run.\n                    ', additional_tests={'elapsed_time': TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None})})))}
+    SET_ON_FIRE = 4
+    CLEANUP_VEHICLE = 5
+    FACTORY_TUNABLES = {'description': '\n        Tune modifications to apply to all objects on a lot.\n        Can do state changes, destroy certain items, etc.\n        \n        EX: for auto cleaning, tune to have objects with Dirtiness state that\n        equals dirty to be set to the clean state and tune to have dirty dishes\n        and spoiled food to be deleted\n        ', 'modifications': TunableList(description="\n            A list of where the elements define how to modify objects on the\n            lot. Each entry is a triplet of an object modification action\n            (currently either destroy the object or set its state), a list of\n            tests to run on the object to determine if we should actually apply\n            the modification, and a priority in case some modifications should\n            take precedence over other ones when both of their tests pass.\n            \n            EX: test list: object's dirtiness state != dirtiness clean\n            action: set state to Dirtiness_clean\n            \n            So dirty objects will become clean\n            ", tunable=TunableTuple(action=TunableVariant(set_state=TunableTuple(action_value=TunableStateValueReference(description='An object state to set the object to', pack_safe=True), locked_args={'action_type': SET_STATE}), destroy_object=TunableTuple(locked_args={'action_type': DESTROY_OBJECT}), inventory_transfer=TunableTuple(action_value=InventoryTransferFakePerform.TunableFactory(), locked_args={'action_type': INVENTORY_TRANSFER}), deliver_bills=TunableTuple(action_value=DeliverBillFakePerform.TunableFactory(), locked_args={'action_type': DELIVER_BILLS}), set_on_fire=TunableTuple(locked_args={'action_type': SET_ON_FIRE}), cleanup_vehicle=TunableTuple(description='\n                        Cleanup vehicles that are left around.\n                        ', locked_args={'action_type': CLEANUP_VEHICLE})), tests=TunableObjectModifyTestSet(description='\n                    All least one subtest group (AKA one list item) must pass\n                    within this list before the action associated with this\n                    tuning will be run.\n                    ', additional_tests={'elapsed_time': TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None}), 'statistic': StatThresholdTest.TunableFactory(locked_args={'tooltip': None})})))}
 
     def modify_objects(self, object_criteria=None):
         objects_to_destroy = []
@@ -89,14 +93,16 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
                     new_state_value = action.action_value
                     if obj.state_component and obj.has_state(new_state_value.state):
                         obj.set_state(new_state_value.state, new_state_value, immediate=True)
-                        if action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
-                            element = action.action_value()
-                            element._do_behavior()
-                        else:
-                            raise NotImplementedError
                 elif action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
                     element = action.action_value()
                     element._do_behavior()
+                elif action_type == ModifyAllLotItems.SET_ON_FIRE:
+                    fire_service = services.get_fire_service()
+                    fire_service.spawn_fire_at_object(obj)
+                elif action_type == ModifyAllLotItems.CLEANUP_VEHICLE:
+                    if self._should_cleanup_vehicle(obj):
+                        objects_to_destroy.append(obj)
+                        raise NotImplementedError
                 else:
                     raise NotImplementedError
             if modified:
@@ -105,3 +111,14 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
             obj.destroy(source=self, cause='Destruction requested by modify lot tuning')
         objects_to_destroy = None
         return num_modified
+
+    def _should_cleanup_vehicle(self, obj):
+        vehicle_component = obj.get_component(VEHICLE_COMPONENT)
+        if vehicle_component is None:
+            return False
+        household_owner_id = obj.get_household_owner_id()
+        if household_owner_id is not None and household_owner_id != 0:
+            return False
+        elif obj.interaction_refs:
+            return False
+        return True

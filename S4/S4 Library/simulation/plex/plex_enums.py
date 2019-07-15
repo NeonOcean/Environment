@@ -7,3 +7,4 @@ class PlexBuildingType(enum.Int):
     PENTHOUSE_PLEX = 2
     INVALID = 3
     EXPLORABLE = 4
+    COASTAL = 5

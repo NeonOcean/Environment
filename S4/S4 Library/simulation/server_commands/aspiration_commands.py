@@ -71,7 +71,7 @@ def complete_objective(objective_type:TunableInstanceParam(sims4.resources.Types
         aspiration_manager = services.get_instance_manager(sims4.resources.Types.ASPIRATION)
         for aspiration_id in aspiration_manager.types:
             aspiration = aspiration_manager.get(aspiration_id)
-            if aspiration.aspiration_type == AspriationType.FULL_ASPIRATION and aspiration.complete_only_in_sequence and not aspiration_tracker.aspiration_in_sequence(aspiration):
+            if aspiration.aspiration_type == AspriationType.FULL_ASPIRATION and aspiration.do_not_register_events_on_load and not aspiration_tracker.aspiration_in_sequence(aspiration):
                 continue
             for aspiration_objective in aspiration.objectives:
                 if objective_type.guid64 == aspiration_objective.guid64 and aspiration_tracker.validate_and_return_completed_status(aspiration):

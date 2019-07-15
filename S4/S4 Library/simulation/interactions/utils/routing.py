@@ -3,11 +3,15 @@ from animation.animation_utils import flush_all_animations
 from distributor.ops import GenericProtocolBufferOp
 from element_utils import soft_sleep_forever, build_critical_section
 from placement import FGLTuning
+from routing import SurfaceType, SurfaceIdentifier
+from routing.portals.portal_enums import PathSplitType
 from routing.walkstyle.walkstyle_behavior import WalksStyleBehavior
 from sims4.geometry import QtCircle, build_rectangle_from_two_points_and_radius
 from sims4.tuning.tunable import Tunable
 from sims4.utils import Result
 from teleport.teleport_helper import TeleportHelper
+from terrain import get_water_depth_at_location, get_water_depth
+from world.ocean_tuning import OceanTuning
 import build_buy
 import clock
 import distributor.ops
@@ -94,7 +98,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             return False
         return True
 
-    def __init__(self, actor, path, track_override=None, callback_fn=None):
+    def __init__(self, actor, path, track_override=None, callback_fn=None, mask_override=None):
         super().__init__()
         self.actor = actor
         self.path = path
@@ -102,12 +106,14 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
         self.start_time = None
         self.update_walkstyle = False
         self.track_override = track_override
+        self.mask_override = mask_override
         self._callback_fn = callback_fn
         self._time_to_shave = 0
         self.wait_time = 0
         self.finished = False
         self._time_offset = 0.0
         self.canceled = False
+        self.canceled_msg_sent = False
         self._sleep_element = None
         self._animation_sleep_end = 0
 
@@ -189,7 +195,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             cur_node = path_nodes[index]
             prev_node = path_nodes[index - 1]
             segment_time = cur_node.time - prev_node.time
-            position_diff = sims4.math.Vector2(cur_node.position[0] - prev_node.position[0], cur_node.position[2] - prev_node.position[2])
+            position_diff = sims4.math.Vector3(cur_node.position[0] - prev_node.position[0], cur_node.position[1] - prev_node.position[1], cur_node.position[2] - prev_node.position[2])
             segment_distance = position_diff.magnitude()
             if seconds_left > segment_time:
                 total_distance_left += segment_distance
@@ -233,8 +239,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                 final_position = sims4.math.Vector3(*self.path.nodes[-1].position)
                 distance = (self.actor.position - final_position).magnitude_2d_squared()
                 level = self.actor.routing_surface.secondary_id
-                is_in_pool = build_buy.is_location_pool(self.actor.zone_id, final_position, level)
-                if not is_in_pool and (self.path.force_ghost_route or distance > teleport_routing.teleport_min_distance or from_liability):
+                is_in_water = self.actor.should_be_swimming_at_position(final_position, level)
+                if not is_in_water and (self.path.force_ghost_route or distance > teleport_routing.teleport_min_distance or from_liability):
                     (sequence, animation_interaction) = TeleportHelper.generate_teleport_sequence(self.actor, teleport_routing, self.path.nodes[-1], cost)
                     try:
                         result = yield from element_utils.run_child(timeline, build_critical_section(sequence, flush_all_animations))
@@ -264,7 +270,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                     try:
                         final_path_node = self.path.nodes[-1]
                         final_position = sims4.math.Vector3(*final_path_node.position)
-                        final_orientation = sims4.math.Quaternion(*final_path_node.orientation)
+                        final_orientation = self.path.final_orientation_override or sims4.math.Quaternion(*final_path_node.orientation)
                         self.actor.set_routing_path(self.path)
                         self.start_time = services.time_service().sim_now
                         if self.actor.is_sim:
@@ -276,15 +282,14 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                                     primitive.detach(self.actor)
                         with distributor.system.Distributor.instance().dependent_block():
                             self.attach(self.actor)
-                            if self.actor.is_sim:
-                                self.actor.routing_component.schedule_and_process_route_events_for_new_path(self.path)
+                            self.actor.routing_component.schedule_and_process_route_events_for_new_path(self.path)
                         if self.actor.is_sim:
                             self.actor.last_animation_factory = None
-                            for slave_data in self.actor.get_routing_slave_data():
-                                if slave_data.slave.is_sim:
-                                    slave_data.slave.last_animation_factory = None
                             if not self.actor.posture.rerequests_idles:
                                 yield from element_utils.run_child(timeline, build_critical_section(self.actor.posture.get_idle_behavior(), flush_all_animations))
+                        for slave_data in self.actor.get_routing_slave_data():
+                            if slave_data.slave.is_sim:
+                                slave_data.slave.last_animation_factory = None
                         self._sleep_element = elements.SoftSleepElement(self._next_update_interval(self._current_time()))
                         yield from element_utils.run_child(timeline, self._sleep_element)
                         self._sleep_element = None
@@ -301,9 +306,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                             if self.canceled:
                                 break
                             if self.finished:
-                                if not self.actor.is_sim:
-                                    break
-                                elif not self.actor.routing_component.route_event_context.has_scheduled_events() and current_time > self._animation_sleep_end:
+                                if not self.actor.routing_component.route_event_context.has_scheduled_events() and current_time > self._animation_sleep_end:
                                     break
                             else:
                                 if self.update_walkstyle:
@@ -313,8 +316,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                                     self.update_walkstyle = False
                                 else:
                                     self.update_routing_location(current_time)
-                                if self.actor.is_sim:
-                                    update_client |= self.actor.routing_component.update_route_events_for_current_path(self.path, current_time, self._time_offset)
+                                update_client |= self.actor.routing_component.update_route_events_for_current_path(self.path, current_time, self._time_offset)
                                 if update_client:
                                     self.send_updated_msg()
                             if current_time > self.path.nodes[-1].time*2.0 + 5.0:
@@ -324,37 +326,39 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                             yield from element_utils.run_child(timeline, self._sleep_element)
                             self._sleep_element = None
                         if self.canceled:
-                            cancellation_info = self.choose_cancellation_time()
-                            if cancellation_info:
-                                self.send_canceled_msg(cancellation_info[0])
-                                (transform, routing_surface) = self.path.get_location_data_at_time(cancellation_info[0])
-                                location = self.actor.location.clone(routing_surface=routing_surface, transform=transform)
-                                if location.parent is not None:
-                                    interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
-                                    logger.error('{} is following a path but was somehow parented to {}. Interaction: {}', self.actor, location.parent, interaction)
-                                self.actor.update_slave_positions_for_path(self.path, transform, final_orientation, routing_surface, distribute=False)
-                                self.path.add_intended_location_to_quadtree(location)
-                                if self.actor.is_sim:
-                                    with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ROUTE_FAILURE, sim=self.actor) as hook:
-                                        hook.write_int(TELEMETRY_FIELD_ID, self.id)
-                                        hook.write_float(TELEMETRY_FIELD_POSX, transform.translation.x)
-                                        hook.write_float(TELEMETRY_FIELD_POSY, transform.translation.y)
-                                        hook.write_float(TELEMETRY_FIELD_POSZ, transform.translation.z)
-                                self.actor.location = location
-                                while True:
-                                    if self.finished:
-                                        break
-                                    current_time = self._current_time()
-                                    if current_time > self.path.nodes[-1].time*2.0 + 5.0:
-                                        break
-                                    next_interval = self._next_update_interval(current_time)
-                                    self._sleep_element = elements.SoftSleepElement(next_interval)
-                                    yield from element_utils.run_child(timeline, self._sleep_element)
-                                    self._sleep_element = None
-                                return False
-                                yield
-                            with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ROUTE_FAILURE) as hook:
-                                hook.write_int(TELEMETRY_FIELD_ID, self.id)
+                            if not self.canceled_msg_sent:
+                                cancellation_info = self.choose_cancellation_time()
+                                if cancellation_info:
+                                    (transform, routing_surface) = self.path.get_location_data_at_time(cancellation_info[0])
+                                    location = self.actor.location.clone(routing_surface=routing_surface, transform=transform)
+                                    self.send_canceled_msg(cancellation_info[0], transform.orientation)
+                                    self.canceled_msg_sent = True
+                                    if location.parent is not None:
+                                        interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
+                                        logger.error('{} is following a path but was somehow parented to {}. Interaction: {}', self.actor, location.parent, interaction)
+                                    self.path.add_intended_location_to_quadtree(location)
+                                    if self.actor.is_sim:
+                                        with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ROUTE_FAILURE, sim=self.actor) as hook:
+                                            hook.write_int(TELEMETRY_FIELD_ID, self.id)
+                                            hook.write_float(TELEMETRY_FIELD_POSX, transform.translation.x)
+                                            hook.write_float(TELEMETRY_FIELD_POSY, transform.translation.y)
+                                            hook.write_float(TELEMETRY_FIELD_POSZ, transform.translation.z)
+                                    self.actor.location = location
+                                    self.actor.update_slave_positions_for_path(self.path, transform, transform.orientation, routing_surface, canceled=True)
+                                    while True:
+                                        if self.finished:
+                                            break
+                                        current_time = self._current_time()
+                                        if current_time > self.path.nodes[-1].time*2.0 + 5.0:
+                                            break
+                                        next_interval = self._next_update_interval(current_time)
+                                        self._sleep_element = elements.SoftSleepElement(next_interval)
+                                        yield from element_utils.run_child(timeline, self._sleep_element)
+                                        self._sleep_element = None
+                                    return False
+                                    yield
+                                with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ROUTE_FAILURE) as hook:
+                                    hook.write_int(TELEMETRY_FIELD_ID, self.id)
                         routing_surface = final_path_node.routing_surface_id
                         final_position.y = services.terrain_service.terrain_object().get_routing_surface_height_at(final_position.x, final_position.z, routing_surface)
                         transform = sims4.math.Transform(final_position, final_orientation)
@@ -445,7 +449,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
         if self.actor.should_route_instantly():
             return
         try:
-            msg_src = distributor.ops.create_route_msg_src(self.id, self.actor, self.path, self.start_time, self.wait_time, track_override=self.track_override)
+            msg_src = distributor.ops.create_route_msg_src(self.id, self.actor, self.path, self.start_time, self.wait_time, track_override=self.track_override, mask_override=self.mask_override)
             self.actor.routing_component.append_route_events_to_route_msg(msg_src)
             self.serialize_op(msg, msg_src, protocols.Operation.FOLLOW_ROUTE)
         except Exception as e:
@@ -463,7 +467,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             self.actor.set_routing_path(self.path)
             self.actor.routing_component.schedule_and_process_route_events_for_new_path(self.path)
             with distributor.system.Distributor.instance().dependent_block():
-                msg_src = distributor.ops.create_route_msg_src(self.id, self.actor, self.path, start_time, wait_time, track_override=self.track_override)
+                msg_src = distributor.ops.create_route_msg_src(self.id, self.actor, self.path, start_time, wait_time, track_override=self.track_override, mask_override=self.mask_override)
                 self.actor.routing_component.append_route_events_to_route_msg(msg_src)
                 msg = GenericProtocolBufferOp(protocols.Operation.FOLLOW_ROUTE, msg_src)
                 distributor.system.Distributor.instance().add_op(self.actor, msg)
@@ -479,8 +483,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             self.actor.move_to(routing_surface=routing_surface, transform=transform)
             self.actor.set_routing_path(None)
 
-    def send_canceled_msg(self, time):
-        cancel_op = distributor.ops.RouteCancel(self.id, time)
+    def send_canceled_msg(self, time, orientation):
+        cancel_op = distributor.ops.RouteCancel(self.id, time, orientation)
         distributor.ops.record(self.actor, cancel_op)
 
     def send_updated_msg(self):
@@ -527,6 +531,7 @@ class PlanRoute(elements.SubclassableGeneratorElement):
         force_ghost = False
         try:
             effective_ghost_route = context.ghost_route
+            effective_discourage_key_mask = context.get_discourage_key_mask()
             if self.sim.is_sim:
                 (teleport_route, _, _) = self.sim.sim_info.get_active_teleport_style()
                 from carry.carry_utils import get_carried_objects_gen
@@ -543,14 +548,23 @@ class PlanRoute(elements.SubclassableGeneratorElement):
                             context.ghost_route = False
                             teleport_route = None
                             break
+                wading_interval = OceanTuning.get_actor_wading_interval(self.sim)
             else:
                 teleport_route = None
+                wading_interval = None
             if not effective_ghost_route:
                 if teleport_route is not None:
                     conectivity_result = routing.test_connectivity_pt_pt(self.sim.routing_location, self.path.route.goals[0].location, self.sim.routing_context)
                     if not conectivity_result:
                         context.ghost_route = True
                         force_ghost = True
+            if wading_interval is not None:
+                start_location = self.sim.routing_location
+                water_height_at_start_location = get_water_depth_at_location(start_location)
+                target_location = self.path.route.goals[0].location
+                water_height_at_target_location = get_water_depth_at_location(target_location)
+                if water_height_at_start_location > wading_interval.lower_bound or water_height_at_target_location > wading_interval.lower_bound:
+                    context.set_discourage_key_mask(effective_discourage_key_mask | routing.FOOTPRINT_DISCOURAGE_KEY_LANDINGSTRIP)
             if self.path.status == routing.Path.PLANSTATUS_NONE:
                 yield from self.generate_path(timeline)
             if not effective_ghost_route and teleport_route is not None:
@@ -572,6 +586,7 @@ class PlanRoute(elements.SubclassableGeneratorElement):
             yield
         finally:
             context.ghost_route = effective_ghost_route
+            context.set_discourage_key_mask(effective_discourage_key_mask)
 
     def generate_path(self, timeline):
         start_time = services.time_service().sim_now
@@ -611,8 +626,8 @@ class PlanRoute(elements.SubclassableGeneratorElement):
                 new_route.path.copy(self.route.path)
                 new_path = routing.Path(self.path.sim, new_route)
                 new_path.status = self.path.status
-                new_path._start_ids = self.path._start_ids
-                new_path._goal_ids = self.path._goal_ids
+                new_path.start_ids = self.path.start_ids
+                new_path.goal_ids = self.path.goal_ids
                 result_path = new_path
                 if gsi_handlers.routing_handlers.archiver.enabled:
                     gsi_handlers.routing_handlers.archive_plan(self.sim, self.path, ticks, (services.time_service().sim_now - start_time).in_real_world_seconds())
@@ -620,29 +635,18 @@ class PlanRoute(elements.SubclassableGeneratorElement):
                 if num_nodes > 0 and self.sim.is_sim:
                     start_index = 0
                     current_index = 0
+                    object_manager = services.object_manager(services.current_zone_id())
                     for n in self.path.nodes:
                         if n.portal_object_id != 0:
-                            portal_object = services.object_manager(services.current_zone_id()).get(n.portal_object_id)
+                            portal_id = n.portal_id
+                            portal_object = object_manager.get(n.portal_object_id)
                             if portal_object is not None:
-                                if portal_object.split_path_on_portal(n.portal_id):
-                                    new_path.nodes.clip_nodes(start_index, current_index)
-                                    start_index = current_index + 1
-                                    if gsi_handlers.routing_handlers.archiver.enabled:
-                                        gsi_handlers.routing_handlers.archive_plan(self.sim, new_path, ticks, (services.time_service().sim_now - start_time).in_real_world_seconds())
-                                    if start_index < num_nodes:
-                                        new_route = routing.Route(self.route.origin, self.route.goals, additional_origins=self.route.origins, routing_context=self.route.context)
-                                        new_route.path.copy(self.route.path)
-                                        next_path = routing.Path(self.path.sim, new_route)
-                                        next_path.status = self.path.status
-                                        next_path._start_ids = self.path._start_ids
-                                        next_path._goal_ids = self.path._goal_ids
-                                        new_path.next_path = next_path
-                                        new_path.portal_obj = portal_object.get_portal_owner(n.portal_id)
-                                        new_path.portal_id = n.portal_id
-                                        new_path = next_path
-                                    else:
-                                        new_path = None
-                        current_index = current_index + 1
+                                path_split_type = portal_object.split_path_on_portal(portal_id)
+                                if path_split_type == PathSplitType.PathSplitType_Split:
+                                    (new_path, start_index) = self._split_path_at_portal(start_index, current_index, new_path, portal_object, portal_id, start_time, ticks, num_nodes)
+                                elif path_split_type == PathSplitType.PathSplitType_LadderSplit:
+                                    (new_path, start_index) = self._split_path_at_ladder_portal(start_index, current_index, new_path, portal_object, portal_id)
+                        current_index += 1
                     if new_path is not None and start_index > 0:
                         end_index = current_index - 1
                         new_path.nodes.clip_nodes(start_index, end_index)
@@ -661,22 +665,66 @@ class PlanRoute(elements.SubclassableGeneratorElement):
             else:
                 self.path.set_status(routing.Path.PLANSTATUS_FAILED)
 
-def get_route_element_for_path(sim, path, interaction=None, lockout_target=None, handle_failure=False, callback_fn=None, force_follow_path=False):
+    def _split_path_at_portal(self, start_index, current_index, new_path, portal_object, portal_id, start_time, ticks, num_nodes):
+        logger.assert_raise(start_index < current_index, 'Start index is less than current index while trying to split paths.')
+        new_path.nodes.clip_nodes(start_index, current_index)
+        start_index = current_index + 1
+        if gsi_handlers.routing_handlers.archiver.enabled:
+            gsi_handlers.routing_handlers.archive_plan(self.sim, new_path, ticks, (services.time_service().sim_now - start_time).in_real_world_seconds())
+        if start_index < num_nodes:
+            new_route = routing.Route(self.route.origin, self.route.goals, additional_origins=self.route.origins, routing_context=self.route.context)
+            new_route.path.copy(self.route.path)
+            next_path = routing.Path(self.path.sim, new_route)
+            next_path.status = self.path.status
+            next_path.start_ids = self.path.start_ids
+            next_path.goal_ids = self.path.goal_ids
+            new_path.portal_obj = portal_object.get_portal_owner(portal_id)
+            new_path.portal_id = portal_id
+            new_path.next_path = next_path
+            new_path = next_path
+        else:
+            new_path = None
+        return (new_path, start_index)
+
+    def _split_path_at_ladder_portal(self, start_index, current_index, new_path, portal_object, portal_id):
+        new_path.nodes.clip_nodes(start_index, current_index + 1)
+        new_path.portal_obj = portal_object.get_portal_owner(portal_id)
+        new_path.portal_id = portal_id
+        portal_inst = portal_object.get_portal_by_id(portal_id)
+        portal_loc = portal_inst.get_portal_locations(portal_id)[1]
+        new_path.final_orientation_override = portal_loc.orientation
+        second_route = routing.Route(self.route.origin, self.route.goals, additional_origins=self.route.origins, routing_context=self.route.context)
+        second_route.path.copy(self.route.path)
+        second_path = routing.Path(self.path.sim, second_route)
+        second_path.status = self.path.status
+        second_path.start_ids = self.path.start_ids
+        second_path.goal_ids = self.path.goal_ids
+        new_path.next_path = second_path
+        return (second_path, current_index + 1)
+
+def get_route_element_for_path(sim, path, interaction=None, lockout_target=None, handle_failure=False, callback_fn=None, force_follow_path=False, track_override=None, mask_override=None):
+    routing_agent = sim
+    parent_obj = sim.parent
+    if not parent_obj is None:
+        if not parent_obj.is_sim:
+            if not parent_obj.routing_component is None:
+                routing_agent = parent_obj
 
     def route_gen(timeline):
-        result = yield from do_route(timeline, sim, path, lockout_target, handle_failure, interaction=interaction, callback_fn=callback_fn, force_follow_path=force_follow_path)
+        result = yield from do_route(timeline, routing_agent, path, lockout_target, handle_failure, interaction=interaction, callback_fn=callback_fn, force_follow_path=force_follow_path, track_override=track_override, mask_override=mask_override)
         return result
         yield
 
     return route_gen
 
-def do_route(timeline, sim, path, lockout_target, handle_failure, interaction=None, callback_fn=None, force_follow_path=False):
+def do_route(timeline, agent, path, lockout_target, handle_failure, interaction=None, callback_fn=None, force_follow_path=False, track_override=None, mask_override=None):
     from autonomy.autonomy_modes import AutonomyMode
 
     def _route(timeline):
-        origin_location = sim.routing_location
+        origin_location = agent.routing_location
+        agent_is_sim = agent.is_sim
         if path.status == routing.Path.PLANSTATUS_READY:
-            if not force_follow_path and not FollowPath.should_follow_path(sim, path):
+            if not force_follow_path and not FollowPath.should_follow_path(agent, path):
                 if callback_fn is not None:
                     result = callback_fn(0)
                     if result == FollowPath.Action.CANCEL:
@@ -690,29 +738,30 @@ def do_route(timeline, sim, path, lockout_target, handle_failure, interaction=No
                 if route_action == FollowPath.Action.CANCEL:
                     return False
                     yield
-            if sim.position != origin_location.position:
-                logger.error("Route-to-position has outdated starting location. Sim's position ({}) is {:0.2f}m from the original starting position ({})", sim.position, (sim.position - origin_location.position).magnitude(), origin_location.position)
-            sequence = FollowPath(sim, path, callback_fn=callback_fn)
+            if agent.position != origin_location.position:
+                logger.error("Route-to-position has outdated starting location. Sim's position ({}) is {:0.2f}m from the original starting position ({})", agent.position, (agent.position - origin_location.position).magnitude(), origin_location.position)
+            sequence = FollowPath(agent, path, callback_fn=callback_fn, track_override=track_override, mask_override=mask_override)
             if interaction is not None:
-                for buff in sim.get_active_buff_types():
-                    periodic_stat_change = buff.routing_periodic_stat_change
-                    if periodic_stat_change is None:
-                        continue
-                    sequence = periodic_stat_change(interaction, sequence=sequence)
-                sequence = sim.with_skill_bar_suppression(sequence=sequence)
+                if agent_is_sim:
+                    for buff in agent.get_active_buff_types():
+                        periodic_stat_change = buff.routing_periodic_stat_change
+                        if periodic_stat_change is None:
+                            continue
+                        sequence = periodic_stat_change(interaction, sequence=sequence)
+                    sequence = agent.with_skill_bar_suppression(sequence=sequence)
             if path.is_route_fail():
                 if handle_failure:
                     yield from element_utils.run_child(timeline, sequence)
-                if lockout_target is not None:
-                    sim.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
+                if lockout_target is not None and agent_is_sim:
+                    agent.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
                 return Result.ROUTE_FAILED
                 yield
             critical_element = elements.WithFinallyElement(sequence, lambda _: path.remove_intended_location_from_quadtree())
             result = yield from element_utils.run_child(timeline, critical_element)
             return result
             yield
-        if lockout_target is not None:
-            sim.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
+        if lockout_target is not None and agent_is_sim:
+            agent.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
         return Result.ROUTE_PLAN_FAILED
         yield
 
@@ -720,7 +769,13 @@ def do_route(timeline, sim, path, lockout_target, handle_failure, interaction=No
     return result
     yield
 
-def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ignore_sim=True, max_dist=None, height_tolerance=None, stay_outside=False, fallback_routing_surface=None, object_id=None, participant_to_face=None, facing_radius=None, stay_on_world=False):
+class PoolSurfaceOverride:
+
+    def __init__(self, water_depth, model_suite_state_index=None):
+        self.water_depth = water_depth
+        self.model_suite_state_index = model_suite_state_index
+
+def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ignore_sim=True, max_dist=None, height_tolerance=None, stay_outside=False, stay_in_connectivity_group=True, ignore_restrictions=False, fallback_routing_surface=None, object_id=None, participant_to_face=None, facing_radius=None, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, force_pool_surface_water_depth=None, min_water_depth=None, max_water_depth=None, fallback_starting_position=None, fallback_min_water_depth=None, fallback_max_water_depth=None):
     max_facing_angle_diff = sims4.math.PI*2
     if max_dist is None:
         max_dist = FGLTuning.MAX_FGL_DISTANCE
@@ -735,26 +790,42 @@ def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ign
         ignored_object_ids = (sim.id, target_sim.id)
     if relative_obj.parent is not None:
         relative_obj = relative_obj.parent
-    if relative_obj.routing_component is not None:
-        (reference_transform, reference_routing_surface) = relative_obj.routing_component.get_approximate_cancel_location()
+    if use_intended_location:
+        if relative_obj.routing_component is not None:
+            (reference_transform, reference_routing_surface) = relative_obj.routing_component.get_approximate_cancel_location()
+        else:
+            reference_transform = relative_obj.intended_transform
+            reference_routing_surface = relative_obj.intended_routing_surface
     else:
-        reference_transform = relative_obj.intended_transform
-        reference_routing_surface = relative_obj.intended_routing_surface
+        reference_transform = relative_obj.transform
+        reference_routing_surface = relative_obj.routing_surface
+    if reference_routing_surface.type != SurfaceType.SURFACETYPE_POOL:
+        if force_pool_surface_water_depth is not None:
+            depth = get_water_depth(reference_transform.translation.x, reference_transform.translation.z, reference_routing_surface.secondary_id)
+            if force_pool_surface_water_depth.water_depth < depth:
+                reference_routing_surface = SurfaceIdentifier(reference_routing_surface.primary_id, reference_routing_surface.secondary_id, SurfaceType.SURFACETYPE_POOL)
+                if force_pool_surface_water_depth.model_suite_state_index is not None:
+                    model_suite_state_index = force_pool_surface_water_depth.model_suite_state_index
+                if min_water_depth is None:
+                    min_water_depth = force_pool_surface_water_depth.water_depth
+                else:
+                    min_water_depth = max(min_water_depth, force_pool_surface_water_depth.water_depth)
+            elif max_water_depth is None:
+                max_water_depth = force_pool_surface_water_depth.water_depth
+            else:
+                max_water_depth = min(max_water_depth, force_pool_surface_water_depth.water_depth)
     reference_forward = reference_transform.orientation.transform_vector(relative_obj.forward_direction_for_picking)
     if relative_obj.is_sim:
         additional_interaction_jig_fgl_distance = relative_obj.posture_state.body.additional_interaction_jig_fgl_distance
     else:
         additional_interaction_jig_fgl_distance = 0
     starting_position = reference_transform.translation
-    if additional_interaction_jig_fgl_distance != 0:
-        extended_transform = sims4.math.Transform(reference_transform.translation, reference_transform.orientation)
-        extended_position = starting_position + reference_forward*additional_interaction_jig_fgl_distance
-        extended_transform.translation = extended_position
-        (result, _) = relative_obj.check_line_of_sight(extended_transform, verbose=True)
-        if result == routing.RAYCAST_HIT_TYPE_NONE:
-            starting_position = extended_position
     if fallback_routing_surface is not None and not placement.surface_supports_object_placement(reference_routing_surface, jig_definition.id):
         fgl_routing_surface = fallback_routing_surface
+        if fallback_starting_position is not None:
+            starting_position = fallback_starting_position
+        min_water_depth = fallback_min_water_depth
+        max_water_depth = fallback_max_water_depth
     elif stay_on_world:
         if relative_obj.level is None:
             fgl_level = sim.level
@@ -765,22 +836,48 @@ def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ign
         fgl_routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_WORLD)
     else:
         fgl_routing_surface = reference_routing_surface
-    search_flags = placement.FGLSearchFlag.STAY_IN_CONNECTED_CONNECTIVITY_GROUP | placement.FGLSearchFlag.SHOULD_TEST_ROUTING | placement.FGLSearchFlag.ALLOW_TOO_CLOSE_TO_OBSTACLE | placement.FGLSearchFlag.CALCULATE_RESULT_TERRAIN_HEIGHTS
+    if additional_interaction_jig_fgl_distance != 0:
+        extended_transform = sims4.math.Transform(reference_transform.translation, reference_transform.orientation)
+        extended_position = starting_position + reference_forward*additional_interaction_jig_fgl_distance
+        extended_transform.translation = extended_position
+        (result, _) = relative_obj.check_line_of_sight(extended_transform, verbose=True)
+        if result == routing.RAYCAST_HIT_TYPE_NONE:
+            starting_position = extended_position
+    search_flags = placement.FGLSearchFlag.SHOULD_TEST_ROUTING | placement.FGLSearchFlag.ALLOW_TOO_CLOSE_TO_OBSTACLE | placement.FGLSearchFlag.CALCULATE_RESULT_TERRAIN_HEIGHTS
+    if stay_in_connectivity_group:
+        search_flags |= placement.FGLSearchFlag.STAY_IN_CONNECTED_CONNECTIVITY_GROUP
     if stay_outside:
         search_flags |= placement.FGLSearchFlag.STAY_OUTSIDE
     if object_id is not None:
         search_flags |= placement.FGLSearchFlag.SHOULD_TEST_BUILDBUY
     if participant_to_face is not None and facing_radius is not None:
         starting_location = placement.create_starting_location(participant_to_face.position, routing_surface=fgl_routing_surface)
-        restriction = sims4.geometry.RelativeFacingWithCircle(participant_to_face.position, sims4.math.PI, facing_radius)
-        offset_restriction = None
+        if ignore_restrictions:
+            restrictions = None
+        else:
+            restrictions = (sims4.geometry.RelativeFacingWithCircle(participant_to_face.position, sims4.math.PI, facing_radius),)
+        offset_restrictions = None
     else:
         starting_location = placement.create_starting_location(position=starting_position, orientation=reference_transform.orientation, routing_surface=fgl_routing_surface)
-        facing_angle = sims4.math.yaw_quaternion_to_angle(reference_transform.orientation)
-        restriction = sims4.geometry.AbsoluteOrientationRange(min_angle=facing_angle - max_facing_angle_diff, max_angle=facing_angle + max_facing_angle_diff, ideal_angle=facing_angle, weight=1.0)
-        offset_restriction = sims4.geometry.RelativeFacingRange(reference_transform.translation, max_facing_angle_diff*2)
-    scoring_function = placement.ScoringFunctionRadial(reference_transform.translation, 0, 0, max_dist)
-    fgl_context = placement.FindGoodLocationContext(starting_location, routing_context=sim.routing_context, ignored_object_ids=ignored_object_ids, max_distance=max_dist, height_tolerance=height_tolerance, restrictions=(restriction,), offset_restrictions=(offset_restriction,) if offset_restriction else None, scoring_functions=(scoring_function,), object_id=object_id, object_footprints=(jig_definition.get_footprint(),), max_results=1, max_steps=10, search_flags=search_flags)
+        if ignore_restrictions:
+            restrictions = None
+            offset_restrictions = None
+        else:
+            facing_angle = sims4.math.yaw_quaternion_to_angle(reference_transform.orientation)
+            restrictions = (sims4.geometry.AbsoluteOrientationRange(min_angle=facing_angle - max_facing_angle_diff, max_angle=facing_angle + max_facing_angle_diff, ideal_angle=facing_angle, weight=1.0),)
+            offset_restrictions = (sims4.geometry.RelativeFacingRange(reference_transform.translation, max_facing_angle_diff*2),)
+    score_max_dist = max(max_dist, 2.0*(reference_transform.translation - starting_location.transform.translation).magnitude())
+    scoring_functions = (placement.ScoringFunctionRadial(reference_transform.translation, 0, 0, score_max_dist),)
+    object_footprint = jig_definition.get_footprint(0 if model_suite_state_index is None else model_suite_state_index)
+    try:
+        (lower_bound, upper_bound) = placement.get_placement_footprint_bounds(object_footprint)
+        delta_x = upper_bound.x - lower_bound.x
+        delta_z = upper_bound.z - lower_bound.z
+        position_increment = min(delta_x, delta_z)*placement.FGL_FOOTPRINT_POSITION_INCREMENT_MULTIPLIER
+        position_increment = max(position_increment, placement.FGL_DEFAULT_POSITION_INCREMENT)
+    except RuntimeError:
+        position_increment = placement.FGL_DEFAULT_POSITION_INCREMENT
+    fgl_context = placement.FindGoodLocationContext(starting_location, routing_context=sim.routing_context, ignored_object_ids=ignored_object_ids, max_distance=max_dist, height_tolerance=height_tolerance, restrictions=restrictions, offset_restrictions=offset_restrictions, scoring_functions=scoring_functions, object_id=object_id, object_def_state_index=model_suite_state_index, object_footprints=(object_footprint,), max_results=1, max_steps=10, search_flags=search_flags, min_water_depth=min_water_depth, max_water_depth=max_water_depth, position_increment=position_increment)
     return fgl_context
 
 def get_two_person_transforms_for_jig(jig_definition, jig_transform, routing_surface, sim_index, target_index):
@@ -802,7 +899,7 @@ def get_transforms_for_jig(jig_definition, jig_transform, num_of_sims):
         sim_index += 1
     return transform_result
 
-def fgl_and_get_two_person_transforms_for_jig(jig_definition, sim, sim_index, target_sim, target_index, stay_outside, constraint_polygon=None, fallback_routing_surface=None):
+def fgl_and_get_two_person_transforms_for_jig(jig_definition, sim, sim_index, target_sim, target_index, stay_outside, constraint_polygon=None, fallback_routing_surface=None, **kwargs):
     if constraint_polygon is None:
         key = (sim.id, sim_index, target_sim.id, target_index, jig_definition.id)
         data = target_sim.two_person_social_transforms.get(key)
@@ -810,7 +907,7 @@ def fgl_and_get_two_person_transforms_for_jig(jig_definition, sim, sim_index, ta
             return data
     else:
         key = None
-    fgl_context = get_fgl_context_for_jig_definition(jig_definition, sim, target_sim, height_tolerance=FGLTuning.SOCIAL_FGL_HEIGHT_TOLERANCE, stay_outside=stay_outside, fallback_routing_surface=fallback_routing_surface)
+    fgl_context = get_fgl_context_for_jig_definition(jig_definition, sim, target_sim, height_tolerance=FGLTuning.SOCIAL_FGL_HEIGHT_TOLERANCE, stay_outside=stay_outside, fallback_routing_surface=fallback_routing_surface, **kwargs)
     if constraint_polygon is not None:
         if isinstance(constraint_polygon, sims4.geometry.CompoundPolygon):
             for cp in constraint_polygon:

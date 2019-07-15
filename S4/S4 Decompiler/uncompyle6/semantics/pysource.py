@@ -26,7 +26,7 @@ Upper levels of the grammar is a more-or-less conventional grammar for
 Python.
 """
 
-# The below is a bit long, but still it is somehwat abbreviated.
+# The below is a bit long, but still it is somewhat abbreviated.
 # See https://github.com/rocky/python-uncompyle6/wiki/Table-driven-semantic-actions.
 # for a more complete explanation, nicely marked up and with examples.
 #
@@ -363,7 +363,10 @@ class SourceWalker(GenericASTTraversal, object):
     def write(self, *data):
         if (len(data) == 0) or (len(data) == 1 and data[0] == ''):
             return
-        out = ''.join((str(j) for j in data))
+        if not PYTHON3:
+            out = ''.join((unicode(j) for j in data))
+        else:
+            out = ''.join((str(j) for j in data))
         n = 0
         for i in out:
             if i == '\n':
@@ -607,17 +610,22 @@ class SourceWalker(GenericASTTraversal, object):
             else:
                 self.write(repr(data))
         else:
+            if not PYTHON3:
+                try:
+                    repr(data).encode("ascii")
+                except UnicodeEncodeError:
+                    self.write('u')
             self.write(repr(data))
         # LOAD_CONST is a terminal, so stop processing/recursing early
         self.prune()
 
-    def n_delete_subscr(self, node):
+    def n_delete_subscript(self, node):
         if node[-2][0] == 'build_list' and node[-2][0][-1].kind.startswith('BUILD_TUPLE'):
             if node[-2][0][-1] != 'BUILD_TUPLE_0':
                 node[-2][0].kind = 'build_tuple2'
         self.default(node)
 
-    n_store_subscript = n_subscript = n_delete_subscr
+    n_store_subscript = n_subscript = n_delete_subscript
 
     # Note: this node is only in Python 2.x
     # FIXME: figure out how to get this into customization
@@ -638,15 +646,48 @@ class SourceWalker(GenericASTTraversal, object):
         self.println()
         self.prune() # stop recursing
 
+    # preprocess is used for handling chains of
+    # if elif elif
     def n_ifelsestmt(self, node, preprocess=False):
+        """
+        Here we turn:
+
+          if ...
+          else
+             if ..
+
+        into:
+
+          if ..
+          elif ...
+
+          [else ...]
+
+        where appropriate
+        """
         else_suite = node[3]
 
         n = else_suite[0]
+        old_stmts = None
 
-        if len(n) == 1 == len(n[0]) and n[0] == '_stmts':
-            n = n[0][0][0]
-        elif n[0].kind in ('lastc_stmt', 'lastl_stmt'):
+        if len(n) == 1 == len(n[0]) and n[0] == 'stmt':
             n = n[0][0]
+        elif n[0].kind in ('lastc_stmt', 'lastl_stmt'):
+            n = n[0]
+            if n[0].kind in ('ifstmt', 'iflaststmt', 'iflaststmtl', 'ifelsestmtl', 'ifelsestmtc'):
+                # This seems needed for Python 2.5-2.7
+                n = n[0]
+                pass
+            pass
+        elif ( len(n) > 1 and 1 == len(n[0]) and n[0] == 'stmt'
+               and n[1].kind == "stmt" ):
+            else_suite_stmts = n[0]
+            if else_suite_stmts[0].kind not in ('ifstmt', 'iflaststmt', 'ifelsestmtl'):
+                if not preprocess:
+                    self.default(node)
+                return
+            old_stmts = n
+            n = else_suite_stmts[0]
         else:
             if not preprocess:
                 self.default(node)
@@ -666,6 +707,18 @@ class SourceWalker(GenericASTTraversal, object):
             elif n.kind in ('ifelsestmt', 'ifelsestmtc', 'ifelsestmtl'):
                 n.kind = 'elifelsestmt'
         if not preprocess:
+            if old_stmts:
+                if n.kind == "elifstmt":
+                    trailing_else = SyntaxTree("stmts", old_stmts[1:])
+                    # We use elifelsestmtr because it has 3 nodes
+                    elifelse_stmt = SyntaxTree(
+                        'elifelsestmtr', [n[0], n[1], trailing_else])
+                    node[3] = elifelse_stmt
+                    pass
+                else:
+                    # Other cases for n.kind may happen here
+                    return
+                pass
             self.default(node)
 
     n_ifelsestmtc = n_ifelsestmtl = n_ifelsestmt
@@ -1100,6 +1153,9 @@ class SourceWalker(GenericASTTraversal, object):
             comp_store = ast[3]
 
         have_not = False
+
+        # Iterate to find the innermost store
+        # We'll come back to the list iteration below.
         while n in ('list_iter', 'comp_iter'):
             # iterate one nesting deeper
             if self.version == 3.0 and len(n) == 3:
@@ -1109,7 +1165,7 @@ class SourceWalker(GenericASTTraversal, object):
                 n = n[0]
 
             if n in ('list_for', 'comp_for'):
-                if n[2] == 'store':
+                if n[2] == 'store' and not store:
                     store = n[2]
                 n = n[3]
             elif n in ('list_if', 'list_if_not', 'comp_if', 'comp_if_not'):
@@ -1153,11 +1209,12 @@ class SourceWalker(GenericASTTraversal, object):
         self.write(' in ')
         self.preorder(node[-3])
 
+        # Here is where we handle nested list iterations.
         if ast == 'list_comp' and self.version != 3.0:
             list_iter = ast[1]
             assert list_iter == 'list_iter'
-            if list_iter == 'list_for':
-                self.preorder(list_iter[3])
+            if list_iter[0] == 'list_for':
+                self.preorder(list_iter[0][3])
                 self.prec = p
                 return
             pass
@@ -1168,6 +1225,7 @@ class SourceWalker(GenericASTTraversal, object):
             self.write(' if ')
             if have_not:
                 self.write('not ')
+            self.prec = 27
             self.preorder(if_node)
             pass
         self.prec = p
@@ -1423,22 +1481,20 @@ class SourceWalker(GenericASTTraversal, object):
         n = len(node) - 1
         if node.kind != 'expr':
             if node == 'kwarg':
-                self.write('(')
-                self.template_engine(('%[0]{pattr}=%c', 1), node)
-                self.write(')')
+                self.template_engine(('(%[0]{attr}=%c)', 1), node)
                 return
 
             kwargs = None
             assert node[n].kind.startswith('CALL_FUNCTION')
 
             if node[n].kind.startswith('CALL_FUNCTION_KW'):
-                # 3.6+ starts does this
+                # 3.6+ starts doing this
                 kwargs = node[n-1].attr
                 assert isinstance(kwargs, tuple)
                 i = n - (len(kwargs)+1)
                 j = 1 + n - node[n].attr
             else:
-                start = n-2
+                i = start = n-2
                 for i in range(start, 0, -1):
                     if not node[i].kind in ['expr', 'call', 'LOAD_CLASSNAME']:
                         break
@@ -1771,9 +1827,15 @@ class SourceWalker(GenericASTTraversal, object):
                     self.write(', ')
             self.prune()
             return
+
         for n in node[1:]:
             if n[0].kind == 'unpack':
                 n[0].kind = 'unpack_w_parens'
+
+        # In Python 2.4, unpack is used in (a, b, c) of:
+        #   except RuntimeError, (a, b, c):
+        if self.version < 2.7:
+            node.kind = 'unpack_w_parens'
         self.default(node)
 
     n_unpack_w_parens = n_unpack
@@ -1836,11 +1898,7 @@ class SourceWalker(GenericASTTraversal, object):
             typ = m.group('type') or '{'
             node = startnode
             if m.group('child'):
-                try:
-                    node = node[int(m.group('child'))]
-                except:
-                    from trepan.api import debug; debug()
-                    pass
+                node = node[int(m.group('child'))]
 
             if   typ == '%':	self.write('%')
             elif typ == '+':
@@ -2100,6 +2158,7 @@ class SourceWalker(GenericASTTraversal, object):
         except:
             pass
 
+
         have_qualname = False
         if self.version < 3.0:
             # Should we ditch this in favor of the "else" case?
@@ -2115,7 +2174,7 @@ class SourceWalker(GenericASTTraversal, object):
             # which are not simple classes like the < 3 case.
             try:
                 if (first_stmt[0] == 'assign' and
-                    first_stmt[0][0][0] == 'LOAD_CONST' and
+                    first_stmt[0][0][0] == 'LOAD_STR' and
                     first_stmt[0][1] == 'store' and
                     first_stmt[0][1][0] == Token('STORE_NAME', pattr='__qualname__')):
                     have_qualname = True
@@ -2261,22 +2320,6 @@ DEFAULT_DEBUG_OPTS = {
     'grammar': False
 }
 
-# This interface is deprecated. Use simpler code_deparse.
-def deparse_code(version, co, out=sys.stdout, showasm=None, showast=False,
-                 showgrammar=False, code_objects={}, compile_mode='exec',
-                 is_pypy=IS_PYPY, walker=SourceWalker):
-    debug_opts = {
-        'asm': showasm,
-        'ast': showast,
-        'grammar': showgrammar
-    }
-    return code_deparse(co, out,
-                        version=version,
-                        debug_opts=debug_opts,
-                        code_objects=code_objects,
-                        compile_mode=compile_mode,
-                        is_pypy=is_pypy, walker=walker)
-
 def code_deparse(co, out=sys.stdout, version=None, debug_opts=DEFAULT_DEBUG_OPTS,
                  code_objects={}, compile_mode='exec', is_pypy=IS_PYPY, walker=SourceWalker):
     """
@@ -2324,13 +2367,28 @@ def code_deparse(co, out=sys.stdout, version=None, debug_opts=DEFAULT_DEBUG_OPTS
 
     assert not nonlocals
 
+    if version >= 3.0:
+        load_op = 'LOAD_STR'
+    else:
+        load_op = 'LOAD_CONST'
+
     # convert leading '__doc__ = "..." into doc string
     try:
-        if deparsed.ast[0][0] == ASSIGN_DOC_STRING(co.co_consts[0]):
+        stmts = deparsed.ast
+        first_stmt = stmts[0][0]
+        if version >= 3.6:
+            if first_stmt[0] == 'SETUP_ANNOTATIONS':
+                del stmts[0]
+                assert stmts[0] == 'sstmt'
+                # Nuke sstmt
+                first_stmt = stmts[0][0]
+                pass
+            pass
+        if first_stmt == ASSIGN_DOC_STRING(co.co_consts[0], load_op):
             print_docstring(deparsed, '', co.co_consts[0])
-            del deparsed.ast[0]
-        if deparsed.ast[-1] == RETURN_NONE:
-            deparsed.ast.pop() # remove last node
+            del stmts[0]
+        if stmts[-1] == RETURN_NONE:
+            stmts.pop() # remove last node
             # todo: if empty, add 'pass'
     except:
         pass
@@ -2362,7 +2420,7 @@ def deparse_code2str(code, out=sys.stdout, version=None,
     """Return the deparsed text for a Python code object. `out` is where any intermediate
     output for assembly or tree output will be sent.
     """
-    return deparse_code(version, code, out, showasm=debug_opts.get('asm', None),
+    return code_deparse(code, out, version, showasm=debug_opts.get('asm', None),
                         showast=debug_opts.get('tree', None),
                         showgrammar=debug_opts.get('grammar', None), code_objects=code_objects,
                         compile_mode=compile_mode, is_pypy=is_pypy, walker=walker).text

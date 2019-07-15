@@ -286,5 +286,6 @@ class ResetAndDeleteService(sims4.service_manager.Service):
         self._build_buy_reset_sims = set()
 
     def on_build_buy_exit(self):
-        self.trigger_batch_reset(self._build_buy_reset_sims, ResetReason.RESET_EXPECTED, 'Sims Reset During Build Buy. Resetting again on build buy exit.')
+        if self._build_buy_reset_sims:
+            self.trigger_batch_reset(self._build_buy_reset_sims, ResetReason.RESET_EXPECTED, 'Sims Reset During Build Buy. Resetting again on build buy exit.')
         self._build_buy_reset_sims = None

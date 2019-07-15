@@ -1,9 +1,11 @@
+import random
 from event_testing.resolver import SingleSimResolver
 from event_testing.test_events import TestEvent
 from sims4.resources import Types
 from sims4.service_manager import Service
 from zone_modifier.zone_modifier import ZoneModifierWeeklySchedule
 from zone_modifier.zone_modifier_display_info import ZoneModifierDisplayInfo
+import alarms
 import services
 import sims4.telemetry
 import telemetry_helper
@@ -19,20 +21,32 @@ class ZoneModifierService(Service):
         super().__init__(*args, **kwargs)
         self._zone_id_to_modifier_cache = dict()
         self._scheduler = None
+        self._action_alarm_handles = set()
+        self._zone_mod_spin_up_state_complete = False
 
     def load(self, zone_data=None):
         self.get_zone_modifiers(services.current_zone_id())
 
     def start(self):
         services.get_event_manager().register_single_event(self, TestEvent.SimActiveLotStatusChanged)
-        self._register_zone_interaction_triggers()
+        self._run_start_actions()
         self._setup_zone_modifier_schedules()
+
+    def spin_up(self):
+        self._run_spin_up_actions()
+        self._zone_mod_spin_up_state_complete = True
 
     def stop(self):
         services.get_event_manager().unregister_single_event(self, TestEvent.SimActiveLotStatusChanged)
-        self._unregister_zone_interaction_triggers()
+        self._run_stop_actions()
+        self._clear_action_alarms()
         if self._scheduler is not None:
             self._scheduler.destroy()
+
+    def on_all_households_and_sim_infos_loaded(self, *args):
+        zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
+        for zone_modifier in zone_modifiers:
+            zone_modifier.start_household_actions()
 
     def handle_event(self, sim_info, event, resolver):
         if event == TestEvent.SimActiveLotStatusChanged:
@@ -40,6 +54,8 @@ class ZoneModifierService(Service):
             sim_on_lot = resolver.get_resolved_arg('on_active_lot')
             zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
             for zone_modifier in zone_modifiers:
+                if not self._zone_mod_spin_up_state_complete and zone_modifier.ignore_route_events_during_zone_spin_up:
+                    continue
                 loot_list = zone_modifier.enter_lot_loot if sim_on_lot else zone_modifier.exit_lot_loot
                 for loot in loot_list:
                     loot.apply_to_resolver(loot_resolver)
@@ -72,11 +88,11 @@ class ZoneModifierService(Service):
         for removed_modifier in removed_modifiers:
             with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_REMOVE_TRAIT) as hook:
                 hook.write_int(TELEMETRY_FIELD_TRAIT_ID, removed_modifier.guid64)
-            removed_modifier.unregister_interaction_triggers()
+            removed_modifier.on_remove_actions()
         for added_modifier in added_modifiers:
             with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ADD_TRAIT) as hook:
                 hook.write_int(TELEMETRY_FIELD_TRAIT_ID, added_modifier.guid64)
-            added_modifier.register_interaction_triggers()
+            added_modifier.on_add_actions()
         self._setup_zone_modifier_schedules()
 
     def get_zone_modifiers(self, zone_id, force_refresh=False, force_cache=False):
@@ -118,18 +134,35 @@ class ZoneModifierService(Service):
                 return display_info
 
     def _on_scheduled_alarm(self, scheduler, alarm_data, extra_data):
+        if random.random() >= alarm_data.entry.chance:
+            return
         for action in alarm_data.entry.actions:
             action.perform()
+        continuation_actions = alarm_data.entry.continuation_actions
+        for continuation in continuation_actions:
+            continuation.perform_action()
 
-    def _register_zone_interaction_triggers(self):
+    def _run_start_actions(self):
         zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
         for zone_modifier in zone_modifiers:
-            zone_modifier.register_interaction_triggers()
+            zone_modifier.on_start_actions()
 
-    def _unregister_zone_interaction_triggers(self):
+    def _run_spin_up_actions(self):
         zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
         for zone_modifier in zone_modifiers:
-            zone_modifier.unregister_interaction_triggers()
+            zone_modifier.on_spin_up_actions()
+
+    def _run_stop_actions(self):
+        zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
+        for zone_modifier in zone_modifiers:
+            zone_modifier.on_stop_actions()
+
+    def run_zone_modifier_schedule_entry(self, schedule_entry):
+        for action in schedule_entry.actions:
+            action.perform()
+        continuation_actions = schedule_entry.continuation_actions
+        for continuation in continuation_actions:
+            continuation.perform_action()
 
     def _setup_zone_modifier_schedules(self):
         if self._scheduler is not None:
@@ -139,3 +172,21 @@ class ZoneModifierService(Service):
         for zone_modifier in zone_modifiers:
             self._scheduler.merge_schedule(zone_modifier.schedule(init_only=True))
         self._scheduler.schedule_next_alarm()
+
+    def create_action_alarm(self, alarm_time, callback):
+
+        def callback_wrapper(handle):
+            self._action_alarm_handles.discard(handle)
+            callback()
+
+        handle = alarms.add_alarm(self, alarm_time, callback_wrapper)
+        self._action_alarm_handles.add(handle)
+
+    def cancel_action_alarm(self, handle):
+        self._action_alarm_handles.discard(handle)
+        handle.cancel()
+
+    def _clear_action_alarms(self):
+        for handle in self._action_alarm_handles:
+            handle.cancel()
+        self._action_alarm_handles.clear()

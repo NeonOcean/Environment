@@ -95,8 +95,8 @@ class RelationshipTracker(SimInfoTracker):
     def set_default_tracks(self, target_sim, update_romance=True, family_member=False, default_track_overrides=None, bits_only=False):
         services.relationship_service().set_default_tracks(self._sim_info.sim_id, target_sim.sim_id, update_romance=update_romance, family_member=family_member, default_track_overrides=default_track_overrides, bits_only=bits_only)
 
-    def add_relationship_bit(self, target_sim_id:int, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True):
-        services.relationship_service().add_relationship_bit(self._sim_info.sim_id, target_sim_id, bit_to_add=bit_to_add, force_add=force_add, from_load=from_load, send_rel_change_event=send_rel_change_event)
+    def add_relationship_bit(self, target_sim_id:int, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True, allow_readdition=True):
+        services.relationship_service().add_relationship_bit(self._sim_info.sim_id, target_sim_id, bit_to_add=bit_to_add, force_add=force_add, from_load=from_load, send_rel_change_event=send_rel_change_event, allow_readdition=allow_readdition)
 
     def remove_relationship_bit(self, target_sim_id:int, bit, send_rel_change_event=True):
         services.relationship_service().remove_relationship_bit(self._sim_info.sim_id, target_sim_id, bit, send_rel_change_event=send_rel_change_event)
@@ -136,9 +136,6 @@ class RelationshipTracker(SimInfoTracker):
 
     def add_relationship_appropriateness_buffs(self, target_sim_id:int):
         services.relationship_service().add_relationship_appropriateness_buffs(self._sim_info.sim_id, target_sim_id)
-
-    def add_neighbor_bit_if_necessary(self):
-        services.relationship_service().add_neighbor_bit_if_necessary(self._sim_info.sim_id)
 
     def get_depth_sorted_rel_bit_list(self, target_sim_id):
         return services.relationship_service().get_depth_sorted_rel_bit_list(self._sim_info.sim_id, target_sim_id)

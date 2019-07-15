@@ -6,7 +6,8 @@ from event_testing import test_events
 from event_testing.resolver import DoubleSimResolver
 from event_testing.results import TestResult
 from interactions import TargetType, ParticipantType
-from interactions.base.interaction import Interaction, InteractionQueuePreparationStatus
+from interactions.base.interaction import Interaction
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.base.mixer_interaction import MixerInteraction
 from interactions.social import SocialInteractionMixin
 from interactions.utils.outcome import TunableOutcome
@@ -105,7 +106,8 @@ class SocialMixerInteraction(SocialInteractionMixin, MixerInteraction):
         if self.super_interaction is not None and self.super_interaction.is_finishing:
             return InteractionQueuePreparationStatus.FAILURE
             yield
-        return super().prepare_gen(timeline, **kwargs)
+        result = yield from super().prepare_gen(timeline, **kwargs)
+        return result
         yield
 
     def perform_gen(self, timeline):

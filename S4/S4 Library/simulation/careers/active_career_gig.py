@@ -86,8 +86,8 @@ class ActiveGig(Gig):
         self._cast_list_ids.extend(gig_proto_buff.cast_list)
 
     @classmethod
-    def build_gig_msg(cls, msg, sim, gig_time=None, audition_time=None):
-        super().build_gig_msg(msg, sim, gig_time=gig_time)
+    def build_gig_msg(cls, msg, sim, audition_time=None, **kwargs):
+        super().build_gig_msg(msg, sim, **kwargs)
         if audition_time is not None:
             msg.audition_time = audition_time
 

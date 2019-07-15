@@ -7,7 +7,7 @@ class RouteEventTypeEmpty(RouteEventDataBase, HasTunableFactory, AutoFactoryInit
     def prepare(self, actor):
         pass
 
-    def execute(self, actor):
+    def execute(self, actor, **kwargs):
         pass
 
     def process(self, actor):

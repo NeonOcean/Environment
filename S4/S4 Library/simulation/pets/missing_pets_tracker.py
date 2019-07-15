@@ -7,6 +7,7 @@ from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.results import EnqueueResult
 from event_testing.tests import TunableTestSet
 from filters.sim_filter_service import SimFilterGlobalBlacklistReason
+from households.household_tracker import HouseholdTracker
 from interactions.context import InteractionContext, QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority
@@ -21,7 +22,7 @@ import routing
 import services
 import sims4
 
-class MissingPetsTracker:
+class MissingPetsTracker(HouseholdTracker):
     RUN_AWAY_CHANCE = TunablePercent(description='\n        Chance for the pet to run away.\n        ', default=50)
     RUN_AWAY_INTERACTION = TunablePackSafeReference(description='\n        Affordance to push on pet to run away.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
     RUN_AWAY_INTERACTION_TAG = TunableEnumEntry(description='\n        Tag to specify the run away interaction.\n        ', tunable_type=Tag, default=Tag.INVALID, pack_safe=True)
@@ -43,6 +44,9 @@ class MissingPetsTracker:
 
     def __init__(self, household, *args, **kwargs):
         self._household = household
+        self._initialize_pet_tracker_attributes()
+
+    def _initialize_pet_tracker_attributes(self):
         self._missing_pet_id = 0
         self._test_alarm = None
         self._return_alarm = None
@@ -246,6 +250,9 @@ class MissingPetsTracker:
         self._cooldown_alarm = None
         test_interval = clock.interval_in_sim_minutes(self.TEST_INTERVAL)
         self._add_test_alarm(test_interval)
+
+    def household_lod_cleanup(self):
+        self._initialize_pet_tracker_attributes()
 
     def save_data(self, household_msg):
         if self._missing_pet_id != 0:

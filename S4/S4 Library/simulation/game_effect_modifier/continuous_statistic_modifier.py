@@ -17,7 +17,7 @@ class ContinuousStatisticModifier(HasTunableSingletonFactory, BaseGameEffectModi
     FACTORY_TUNABLES = {'description': "\n        The modifier to add to the current statistic modifier of this continuous statistic,\n        resulting in it's increase or decrease over time. Adding this modifier to something by\n        default doesn't change, i.e. a skill, will start that skill to be added to over time.\n        ", 'statistic': TunablePackSafeReference(description='\n        "The statistic we are operating on.', manager=services.statistic_manager()), 'modifier_value': Tunable(description='\n        The value to add to the modifier. Can be negative.', tunable_type=float, default=0), 'verify_tunable_callback': _verify_tunable_callback}
 
     def __init__(self, statistic, modifier_value, **kwargs):
-        BaseGameEffectModifier.__init__(self, GameEffectType.CONTINUOUS_STATISTIC_MODIFIER)
+        super().__init__(GameEffectType.CONTINUOUS_STATISTIC_MODIFIER)
         self.statistic = statistic
         self.modifier_value = modifier_value
 

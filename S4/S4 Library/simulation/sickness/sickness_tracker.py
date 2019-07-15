@@ -1,64 +1,14 @@
 from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from sickness.sickness_tuning import SicknessTuning
+from sims.sim_info_lod import SimInfoLODLevel
+from sims.sim_info_tracker import SimInfoTracker
 import services
 import sims4.resources
 
-class HasSicknessTrackerMixin:
+class SicknessTracker(SimInfoTracker):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._sickness_tracker = SicknessTracker()
-
-    @property
-    def sickness_tracker(self):
-        return self._sickness_tracker
-
-    @property
-    def current_sickness(self):
-        return self._sickness_tracker.current_sickness
-
-    def has_sickness_tracking(self):
-        return self._sickness_tracker.current_sickness is not None
-
-    def is_sick(self):
-        return self._sickness_tracker.current_sickness is not None and self._sickness_tracker.current_sickness.considered_sick
-
-    def has_sickness(self, sickness):
-        return self.has_sickness_tracking() and self._sickness_tracker.current_sickness is sickness
-
-    def had_sickness(self, sickness):
-        return sickness in self._sickness_tracker.previous_sicknesses
-
-    def record_last_progress(self, progress):
-        self._sickness_tracker.record_last_progress(progress)
-
-    def discover_symptom(self, symptom):
-        self._sickness_tracker.discover_symptom(symptom)
-
-    def track_examination(self, affordance):
-        self._sickness_tracker.track_examination(affordance)
-
-    def track_treatment(self, affordance):
-        self._sickness_tracker.track_treatment(affordance)
-
-    def rule_out_treatment(self, affordance):
-        self._sickness_tracker.rule_out_treatment(affordance)
-
-    def was_symptom_discovered(self, symptom):
-        return symptom in self._sickness_tracker.discovered_symptoms
-
-    def was_exam_performed(self, affordance):
-        return affordance in self._sickness_tracker.exams_performed
-
-    def was_treatment_performed(self, affordance):
-        return affordance in self._sickness_tracker.treatments_performed
-
-    def was_treatment_ruled_out(self, affordance):
-        return affordance in self._sickness_tracker.ruled_out_treatments
-
-class SicknessTracker:
-
-    def __init__(self):
+    def __init__(self, sim_info):
+        self._sim_info = sim_info
         self._current_sickness = None
         self._previous_sicknesses = []
         self._discovered_symptoms = []
@@ -156,6 +106,9 @@ class SicknessTracker:
         sickness_data.treatments_ruled_out.extend(treatment.guid64 for treatment in self._treatments_ruled_out)
         sickness_data.is_discovered = self._discovered_sickness
 
+    def should_persist_data(self):
+        return self._current_sickness or self.previous_sicknesses
+
     def load_sickness_tracker_data(self, data):
         self.clear_diagnosis_data()
         self._previous_sicknesses.clear()
@@ -177,3 +130,13 @@ class SicknessTracker:
             self._treatments_performed.update(treatment for treatment in treatments_performed if treatment is not None)
             treatments_ruled_out = [interaction_manager.get(interaction_guid) for interaction_guid in current_sickness_data.treatments_ruled_out]
             self._treatments_ruled_out.update(treatment for treatment in treatments_ruled_out if treatment is not None)
+
+    def on_lod_update(self, old_lod, new_lod):
+        if new_lod == SimInfoLODLevel.MINIMUM:
+            self.clean_up()
+
+    def clean_up(self):
+        self._sim_info = None
+        self._current_sickness = None
+        self.clear_diagnosis_data()
+        self._previous_sicknesses.clear()

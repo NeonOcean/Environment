@@ -86,6 +86,8 @@ class UserFootprintHelper:
         nearby_sims = placement.get_nearby_sims_gen(polygon.centroid(), routing_surface, radius=polygon.radius(), exclude=exclude)
         for near_sim in nearby_sims:
             if sims4.geometry.test_point_in_polygon(near_sim.position, polygon):
+                if near_sim.parent is not None:
+                    continue
                 total_constraint = near_sim.si_state.get_total_constraint(include_inertial_sis=True, force_inertial_sis=True)
                 (single_point, _) = total_constraint.single_point()
                 if single_point is not None:

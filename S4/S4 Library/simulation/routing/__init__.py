@@ -1,10 +1,11 @@
 from _math import Quaternion, Vector3, Transform
 import weakref
-import build_buy
 import enum
+import sims4.reload
+from objects.proxy import ProxyObject
+import build_buy
 import placement
 import services
-import sims4.reload
 try:
     import _pathing
 except ImportError:
@@ -190,6 +191,15 @@ except ImportError:
 
     object_routing_surfaces = (SurfaceType.SURFACETYPE_OBJECT, SurfaceType.SURFACETYPE_POOL)
 
+    class FootprintType(enum.Int, export=False):
+        FOOTPRINT_TYPE_WORLD = 1
+        FOOTPRINT_TYPE_LANDING_STRIP = 2
+        FOOTPRINT_TYPE_LOT = 3
+        FOOTPRINT_TYPE_BUILD = 4
+        FOOTPRINT_TYPE_PATH = 5
+        FOOTPRINT_TYPE_OBJECT = 6
+        FOOTPRINT_TYPE_OVERRIDE = 7
+
     class RoutingContext:
 
         def __init__(self):
@@ -247,12 +257,14 @@ except ImportError:
     GOAL_STATUS_SUCCESS_LOCAL = 4096
     FOOTPRINT_KEY_ON_LOT = 1
     FOOTPRINT_KEY_OFF_LOT = 2
-    FOOTPRINT_KEY_REQUIRE_NO_CARRY = 3
-    FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT = 4
-    FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT = 5
-    FOOTPRINT_KEY_REQUIRE_FLOATING = 6
-    FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT = 7
+    FOOTPRINT_KEY_REQUIRE_NO_CARRY = 4
+    FOOTPRINT_KEY_REQUIRE_SMALL_HEIGHT = 8
+    FOOTPRINT_KEY_REQUIRE_TINY_HEIGHT = 16
+    FOOTPRINT_KEY_REQUIRE_FLOATING = 32
+    FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT = 64
     FOOTPRINT_KEY_DEFAULT = FOOTPRINT_KEY_ON_LOT | FOOTPRINT_KEY_OFF_LOT
+    FOOTPRINT_DISCOURAGE_KEY_DEFAULT = 0
+    FOOTPRINT_DISCOURAGE_KEY_LANDINGSTRIP = 1
     SPECIES_FLAG_RESERVE_INDEX = 16
 
     class EstimatePathFlag(enum.IntFlags, export=False):
@@ -334,6 +346,15 @@ else:
         SURFACETYPE_OBJECT = _pathing.SURFACETYPE_OBJECT
         SURFACETYPE_POOL = _pathing.SURFACETYPE_POOL
 
+    class FootprintType(enum.Int, export=False):
+        FOOTPRINT_TYPE_WORLD = _pathing.FOOTPRINT_TYPE_WORLD
+        FOOTPRINT_TYPE_LANDING_STRIP = _pathing.FOOTPRINT_TYPE_LANDING_STRIP
+        FOOTPRINT_TYPE_LOT = _pathing.FOOTPRINT_TYPE_LOT
+        FOOTPRINT_TYPE_BUILD = _pathing.FOOTPRINT_TYPE_BUILD
+        FOOTPRINT_TYPE_PATH = _pathing.FOOTPRINT_TYPE_PATH
+        FOOTPRINT_TYPE_OBJECT = _pathing.FOOTPRINT_TYPE_OBJECT
+        FOOTPRINT_TYPE_OVERRIDE = _pathing.FOOTPRINT_TYPE_OVERRIDE
+
     object_routing_surfaces = (SurfaceType.SURFACETYPE_OBJECT, SurfaceType.SURFACETYPE_POOL)
 
     def test_connectivity_math_locations(loc1:sims4.math.Location, loc2:sims4.math.Location, routing_context):
@@ -388,6 +409,8 @@ else:
     FOOTPRINT_KEY_REQUIRE_FLOATING = _pathing.FOOTPRINT_KEY_REQUIRE_FLOATING
     FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT = _pathing.FOOTPRINT_KEY_REQUIRE_LARGE_HEIGHT
     FOOTPRINT_KEY_DEFAULT = _pathing.FOOTPRINT_KEY_DEFAULT
+    FOOTPRINT_DISCOURAGE_KEY_LANDINGSTRIP = _pathing.FOOTPRINT_DISCOURAGE_KEY_LANDINGSTRIP
+    FOOTPRINT_DISCOURAGE_KEY_DEFAULT = _pathing.FOOTPRINT_DISCOURAGE_KEY_DEFAULT
     SPECIES_FLAG_RESERVE_INDEX = _pathing.SPECIES_FLAG_RESERVE_INDEX
 
     class EstimatePathFlag(enum.IntFlags, export=False):
@@ -486,12 +509,15 @@ class Path:
         self.status = Path.PLANSTATUS_NONE
         self.route = route
         self.nodes = route.path
-        self._start_ids = {}
-        self._goal_ids = {}
+        self.start_ids = {}
+        self.goal_ids = {}
         self._sim_ref = weakref.ref(sim)
+        self.blended_orientation = False
         self.next_path = None
         self._portal_object_ref = None
+        self.portal_id = 0
         self.force_ghost_route = False
+        self.final_orientation_override = None
 
     def __len__(self):
         return len(self.nodes)
@@ -519,12 +545,20 @@ class Path:
     @property
     def selected_start(self):
         (start_id, _) = self.nodes.selected_start_tag_tuple
-        return self._start_ids[start_id]
+        return self.start_ids[start_id]
 
     @property
     def selected_goal(self):
         (goal_id, _) = self.nodes.selected_tag_tuple
-        return self._goal_ids[goal_id]
+        return self.goal_ids[goal_id]
+
+    @property
+    def start_location(self):
+        if not self.nodes:
+            return
+        initial_node = self.nodes[0]
+        location = Location(sims4.math.Vector3(*initial_node.position), sims4.math.Quaternion(*initial_node.orientation), initial_node.routing_surface_id)
+        return location
 
     @property
     def final_location(self):
@@ -541,7 +575,12 @@ class Path:
 
     @portal_obj.setter
     def portal_obj(self, value):
-        self._portal_object_ref = weakref.ref(value) if value is not None else None
+        if value is None:
+            self._portal_object_ref = None
+        elif issubclass(value.__class__, ProxyObject):
+            self._portal_object_ref = value.ref()
+        else:
+            self._portal_object_ref = weakref.ref(value)
 
     def set_status(self, status):
         cur_path = self
@@ -550,11 +589,11 @@ class Path:
             cur_path = cur_path.next_path
 
     def add_start(self, start):
-        self._start_ids[id(start)] = start
+        self.start_ids[id(start)] = start
         self.nodes.add_start(start.location, start.cost, (id(start), 0))
 
     def add_goal(self, goal):
-        self._goal_ids[id(goal)] = goal
+        self.goal_ids[id(goal)] = goal
         self.nodes.add_goal(goal.location, goal.cost, (id(goal), 0), goal.group)
 
     def add_waypoint(self, waypoint):
@@ -581,7 +620,7 @@ class Path:
         routing_surface = self.node_at_time(time).routing_surface_id
         translation = Vector3(*self.nodes.position_at_time(time))
         translation.y = services.terrain_service.terrain_object().get_routing_surface_height_at(translation.x, translation.z, routing_surface)
-        orientation = Quaternion(*self.nodes.orientation_at_time(time))
+        orientation = Quaternion(*self.nodes.orientation_at_time(time, self.blended_orientation))
         return (Transform(translation, orientation), routing_surface)
 
     def get_location_data_along_path_gen(self, time_step=0.3, start_time=0, end_time=None):
@@ -599,10 +638,19 @@ class Path:
         last_node = self.nodes[last_node_index]
         time = first_node.time
         end_time = last_node.time
-        while time < end_time:
-            (transform, routing_surface) = self.get_location_data_at_time(time)
-            yield (transform, routing_surface, time)
-            time += time_step
+        if time == end_time == 0.0:
+            routing_surface = first_node.routing_surface_id
+            dist = 0.0
+            while True:
+                while dist < 1.0:
+                    pos = sims4.math.vector_interpolate(Vector3(*first_node.position), Vector3(*last_node.position), dist)
+                    dist += time_step
+                    yield (Transform(pos, Quaternion(*first_node.orientation)), first_node.routing_surface_id, 0.0)
+        else:
+            while time < end_time:
+                (transform, routing_surface) = self.get_location_data_at_time(time)
+                yield (transform, routing_surface, time)
+                time += time_step
 
     def node_at_time(self, time):
         if self.nodes:

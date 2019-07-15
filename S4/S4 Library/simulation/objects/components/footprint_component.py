@@ -193,6 +193,8 @@ class FootprintComponent(NativeComponent, component_name=FOOTPRINT_COMPONENT, ke
         self.footprints_enabled = True
 
     def on_location_changed(self, *_, **__):
+        if self.owner.routing_component is not None and self.owner.routing_component.is_moving:
+            return
         if self.owner.id:
             self.update_footprint()
 

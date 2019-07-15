@@ -125,7 +125,7 @@ class ConditionalActionManager:
         self._attached = True
         satisfied_groups = set(group for group in self if group.satisfied)
         for group in satisfied_groups:
-            self._callback(group)
+            callback(group)
 
     def detach_conditions(self, owner, exiting=False):
         for condition_group in self:

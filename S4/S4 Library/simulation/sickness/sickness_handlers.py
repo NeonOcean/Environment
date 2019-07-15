@@ -31,6 +31,8 @@ with sick_sim_schema.add_has_many('Treatments Ruled Out', GsiGridSchema) as sub_
 def generate_sick_sim_view():
     sim_data = []
     for sim_info in tuple(services.sim_info_manager().values()):
+        if sim_info.sickness_tracker is None:
+            continue
         if not sim_info.has_sickness_tracking():
             continue
         sickness = sim_info.current_sickness
@@ -58,6 +60,8 @@ def generate_non_sick_sim_view():
     sim_data = []
     sickness_service = services.get_sickness_service()
     for sim_info in tuple(services.sim_info_manager().values()):
+        if sim_info.sickness_tracker is None:
+            continue
         resolver = SingleSimResolver(sim_info)
         if not sim_info.is_sick():
             if not sickness_service.can_become_sick(resolver):

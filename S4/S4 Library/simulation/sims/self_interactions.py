@@ -197,7 +197,7 @@ class GoToSpecificLotTravelInteraction(SuperInteraction):
         yield
 
 class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
-    INSTANCE_TUNABLES = {'front_door_constraint': TunableWelcomeConstraint(description="\n            The Front Door Constraint for when the active lot is the Sim's home\n            lot.\n            ", radius=5.0, tuning_group=GroupNames.TRAVEL), 'home_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is on\n            the current street, but is not active. We should be tuning the\n            Arrival Spawner Tag(s) here.\n            ", tuning_group=GroupNames.TRAVEL), 'street_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is\n            not on the current street. We should likely be tuning Walkby Spawner\n            Tags here.\n            ", tuning_group=GroupNames.TRAVEL), 'attend_career': Tunable(description='\n            If set, Sim will automatically go to work after going home.\n            ', tunable_type=bool, default=False)}
+    INSTANCE_TUNABLES = {'front_door_constraint': TunableWelcomeConstraint(description="\n            The Front Door Constraint for when the active lot is the Sim's home\n            lot.\n            ", radius=5.0, tuning_group=GroupNames.TRAVEL), 'home_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is on\n            the current street, but is not active. We should be tuning the\n            Arrival Spawner Tag(s) here.\n            ", tuning_group=GroupNames.TRAVEL), 'street_spawn_point_constraint': TunableSpawnPoint(description="\n            This is the Spawn Point Constraint for when the Sim's home lot is\n            not on the current street. We should likely be tuning Walkby Spawner\n            Tags here.\n            ", tuning_group=GroupNames.TRAVEL), 'attend_career': Tunable(description='\n            If set, Sim will automatically go to work after going home.\n            ', tunable_type=bool, default=False), 'force_allow_autonomous_travel': Tunable(description="\n            In most cases we don't want household sims traveling home autonomously.\n            If checked, this override will allow it for certain edge cases,\n            such as for sending household children home for the ClothingOptional lot trait.\n            ", tunable_type=bool, default=False)}
 
     def __init__(self, aop, context, to_zone_id=DEFAULT, **kwargs):
         if to_zone_id is DEFAULT:
@@ -217,7 +217,7 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
             return test_result
         if target is not None and target is not sim:
             return TestResult(False, 'Self Interactions cannot target other Sims.')
-        if not sim.sim_info.is_npc and context.source == InteractionContext.SOURCE_AUTONOMY:
+        if not sim.sim_info.is_npc and not cls.force_allow_autonomous_travel and context.source == InteractionContext.SOURCE_AUTONOMY:
             return TestResult(False, 'Selectable Sims cannot go home autonomously.')
         test_result = cls.travel_test(context)
         if not test_result:
@@ -230,7 +230,9 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
         if not test_result:
             return test_result
         sim = context.sim
-        if services.current_zone_id() == sim.sim_info.vacation_or_home_zone_id and sim.intended_position_on_active_lot:
+        current_zone = services.current_zone()
+        active_lot = current_zone.lot
+        if current_zone.id == sim.sim_info.vacation_or_home_zone_id and active_lot.is_position_on_lot(sim.position):
             return TestResult(False, 'Selectable Sims cannot go home if they are already at home.')
         return TestResult.TRUE
 
@@ -329,7 +331,7 @@ class NPCLeaveLotInteraction(TravelInteraction):
                 if dialog is not None:
                     dialog.show_dialog()
                 break
-            actor.sim_info.goodbye_notification = None
+        actor.sim_info.clear_goodbye_notification()
         return super().run_pre_transition_behavior()
 
     @classmethod

@@ -17,10 +17,10 @@ logger = sims4.log.Logger('Animation')
 @unique_id('actor_id')
 class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, AutoFactoryInit):
     JOINT_NAME_CURRENT_POSITION = 1899928870
-    FACTORY_TUNABLES = {'effect_name': Tunable(description='\n            The name of the effect to play.\n            ', tunable_type=str, default=''), 'joint_name': OptionalTunable(description='\n            Specify if the visual effect is attached to a slot and, if so, which\n            slot.\n            ', tunable=TunableStringHash32(description='\n                The name of the slot this effect is attached to.\n                ', default='_FX_'), enabled_by_default=True, enabled_name='Slot', disabled_name='Current_Position', disabled_value=JOINT_NAME_CURRENT_POSITION)}
+    FACTORY_TUNABLES = {'effect_name': Tunable(description='\n            The name of the effect to play.\n            ', tunable_type=str, default=''), 'joint_name': OptionalTunable(description='\n            Specify if the visual effect is attached to a slot and, if so, which\n            slot.\n            ', tunable=TunableStringHash32(description='\n                The name of the slot this effect is attached to.\n                ', default='_FX_'), enabled_by_default=True, enabled_name='Slot', disabled_name='Current_Position', disabled_value=JOINT_NAME_CURRENT_POSITION), 'play_immediate': Tunable(description='\n            If checked, this effect will be triggered immediately, nothing\n            will block.\n\n            ex. VFX will be played immediately while \n            the Sim is routing or animating.\n            ', tunable_type=bool, default=False)}
 
-    def __init__(self, target, effect_name='', joint_name=0, target_actor_id=0, target_joint_name_hash=0, mirror_effect=False, auto_on_effect=False, target_joint_offset=None, callback_event_id=None, store_target_position=False, transform_override=None, **kwargs):
-        super().__init__(effect_name=effect_name, joint_name=joint_name, **kwargs)
+    def __init__(self, target, effect_name='', joint_name=0, target_actor_id=0, target_joint_name_hash=0, mirror_effect=False, auto_on_effect=False, target_joint_offset=None, play_immediate=False, callback_event_id=None, store_target_position=False, transform_override=None, **kwargs):
+        super().__init__(effect_name=effect_name, joint_name=joint_name, play_immediate=play_immediate, immediate=play_immediate, **kwargs)
         self.target = target
         if target is not None:
             if target.inventoryitem_component is not None:
@@ -40,6 +40,7 @@ class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, 
         self.mirror_effect = mirror_effect
         self._stop_type = SOFT_TRANSITION
         self.target_joint_offset = target_joint_offset
+        self.immediate = play_immediate
         self.callback_event_id = callback_event_id
         self.store_target_position = store_target_position
 
@@ -101,7 +102,7 @@ class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, 
 
     def detach(self, *objects):
         super().detach(*objects)
-        op = StopVFX(self.target.id, self.actor_id, stop_type=self._stop_type)
+        op = StopVFX(self.target.id, self.actor_id, stop_type=self._stop_type, immediate=self.immediate)
         distributor.ops.record(self.target, op)
         logger.info('VFX {} on {} STOP'.format(self.effect_name, self.target))
 

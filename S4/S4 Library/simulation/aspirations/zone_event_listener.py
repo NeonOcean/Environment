@@ -32,4 +32,4 @@ class ZoneDirectorEventListener(AspirationBasic):
             return
         sim_info.aspiration_tracker.handle_event(cls, event, resolver)
 
-lock_instance_tunables(ZoneDirectorEventListener, complete_only_in_sequence=True, screen_slam=None)
+lock_instance_tunables(ZoneDirectorEventListener, do_not_register_events_on_load=True, screen_slam=None)

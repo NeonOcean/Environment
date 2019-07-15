@@ -25,11 +25,11 @@ class ObjectCriteriaAndSpecificTests(ObjectCriteriaTest):
     FACTORY_TUNABLES = {'additional_object_tests': TunableObjectTestSet(description='\n            If checked, any craftable object (such as a painting) must be finished\n            for it to be considered.\n            ')}
     __slots__ = ('additional_object_tests',)
 
-    def get_total_value_and_number_of_matches(self, active_household_id, current_zone, objects_to_test, positional_relationship_participants):
+    def get_total_value_and_number_of_matches(self, active_household_id, active_sim_id, current_zone, objects_to_test, positional_relationship_participants):
         number_of_matches = 0
         total_value = 0
         for obj in objects_to_test:
-            if self.object_meets_criteria(obj, active_household_id, current_zone, positional_relationship_participants=positional_relationship_participants):
+            if self.object_meets_criteria(obj, active_household_id, active_sim_id, current_zone, positional_relationship_participants=positional_relationship_participants):
                 if self.additional_object_tests:
                     resolver = SingleObjectResolver(obj)
                     if not self.additional_object_tests.run_tests(resolver):

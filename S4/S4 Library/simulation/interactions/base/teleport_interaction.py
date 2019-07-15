@@ -1,6 +1,5 @@
 from event_testing.results import TestResult
 from interactions.base.super_interaction import SuperInteraction
-from interactions.utils.routing import get_fgl_context_for_jig_definition
 from objects.terrain import TerrainSuperInteraction
 from sims4.tuning.tunable import OptionalTunable, TunableReference, Tunable
 from sims4.tuning.tunable_base import GroupNames

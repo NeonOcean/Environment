@@ -1,3 +1,4 @@
+from routing.portals.portal_enums import PathSplitType
 from routing.portals.portal_event import TunablePortalEventVariant
 from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableList
 
@@ -16,6 +17,10 @@ class _PortalTypeDataBase(HasTunableSingletonFactory, AutoFactoryInit):
     def requires_los_between_points(self):
         return True
 
+    @property
+    def lock_portal_on_use(self):
+        return True
+
     def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
         pass
 
@@ -26,6 +31,9 @@ class _PortalTypeDataBase(HasTunableSingletonFactory, AutoFactoryInit):
             event.time = max(0, time + portal_event.time)
             event.type = portal_event.get_portal_event_type()
             event.data = op.SerializeToString()
+
+    def get_portal_asm_params(self, portal_instance, portal_id, sim):
+        return {}
 
     def get_destination_objects(self):
         return ()
@@ -43,4 +51,7 @@ class _PortalTypeDataBase(HasTunableSingletonFactory, AutoFactoryInit):
         return False
 
     def split_path_on_portal(self):
-        return False
+        return PathSplitType.PathSplitType_DontSplit
+
+    def provide_route_events(self, *args, **kwargs):
+        pass

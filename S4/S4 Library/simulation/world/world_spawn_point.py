@@ -1,5 +1,4 @@
 from _math import Vector3Immutable, Vector3
-import collections
 import random
 from world.spawn_point import SpawnPoint
 import build_buy
@@ -10,7 +9,6 @@ import sims4.log
 import sims4.math
 import sims4.random
 logger = sims4.log.Logger('Spawn Points', default_owner='tingyul')
-WorldSpawnPointParam = collections.namedtuple('WorldSpawnPointParam', ('center', 'footprint_id', 'rotation', 'scale', 'obj_def_guid', 'lot_id'))
 
 class WorldSpawnPoint(SpawnPoint):
     SPAWN_POINT_SLOTS = 8
@@ -20,14 +18,14 @@ class WorldSpawnPoint(SpawnPoint):
     SPAWN_POINT_SLOT_COLUMNS = 4
     SPAWN_POINT_JITTER = 0.3
 
-    def __init__(self, spawn_point_index, spawn_point_param, zone_id, spawn_point_id=None):
-        super().__init__(spawn_point_param.lot_id, zone_id, spawn_point_id=spawn_point_id)
+    def __init__(self, spawn_point_index, locator, zone_id, spawn_point_id=None):
+        super().__init__(locator.lot_id, zone_id, spawn_point_id=spawn_point_id)
         self.spawn_point_index = spawn_point_index
-        self._center = spawn_point_param.center
-        self._footprint_id = spawn_point_param.footprint_id
-        self._rotation = spawn_point_param.rotation
-        self._scale = spawn_point_param.scale
-        self._obj_def_guid = spawn_point_param.obj_def_guid
+        self._center = locator.position
+        self._footprint_id = locator.footprint_id
+        self._rotation = locator.rotation
+        self._scale = locator.scale
+        self._obj_def_guid = locator.obj_def_guid
         self._random_indices = [x for x in range(WorldSpawnPoint.SPAWN_POINT_SLOTS)]
         random.shuffle(self._random_indices)
         self._spawn_index = 0

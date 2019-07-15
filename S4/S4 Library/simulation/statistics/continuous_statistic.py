@@ -174,6 +174,9 @@ class ContinuousStatistic(BaseStatistic):
         return listener_removed
 
     def _insert_callback_listener(self, callback_data:_ContinuousStatisticCallbackData):
+        if self._tracker is not None and self._tracker.suppress_callback_alarm_calculation:
+            self._statistic_callback_listeners.append(callback_data)
+            return
         self._update_value()
         trigger_interval = self._calculate_minutes_until_value_is_reached_through_decay(callback_data.threshold.value, callback_data.threshold)
         callback_data.reset_trigger_time(trigger_interval)
@@ -349,6 +352,8 @@ class ContinuousStatistic(BaseStatistic):
     def _update_callback_listeners(self, old_value=0, new_value=0, resort_list=True):
         if not self._statistic_callback_listeners:
             return
+        if self._tracker is not None and self._tracker.suppress_callback_alarm_calculation:
+            return
         self._update_value()
         callback_tuple = None
         if old_value <= new_value:
@@ -370,6 +375,8 @@ class ContinuousStatistic(BaseStatistic):
 
     def _update_active_callback(self):
         if self._suppress_update_active_callbacks:
+            return
+        if self._tracker is not None and self._tracker.suppress_callback_alarm_calculation:
             return
         if not self._statistic_callback_listeners:
             if self._active_callback is not None or self._alarm_handle:
@@ -552,6 +559,9 @@ class ContinuousStatistic(BaseStatistic):
     def needs_fixup_on_load(self):
         return False
 
+    def needs_fixup_on_load_for_objects(self):
+        return False
+
     def has_auto_satisfy_value(self):
         return False
 
@@ -620,7 +630,7 @@ class ContinuousStatistic(BaseStatistic):
         return True
 
     def should_display_delayed_decay_warning(self):
-        if self._decay_rate_modifier == 0:
+        if self._decay_rate_modifier == 0 or self.delayed_decay_rate.decay_warning is None:
             return False
         return True
 

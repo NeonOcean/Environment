@@ -5,7 +5,7 @@ from animation import AnimationContext
 from animation.animation_constants import AUTO_EXIT_REF_TAG
 from element_utils import build_critical_section, build_critical_section_with_finally, build_element, must_run
 from routing import PathPlanContext
-from sims.sim_info_types import Species
+from sims.sim_info_types import Species, SpeciesExtended, Age
 from sims4.callback_utils import protected_callback
 from sims4.utils import setdefault_callable
 from singletons import UNSET
@@ -182,6 +182,14 @@ class StubActor:
     @property
     def species(self):
         return self._species
+
+    @property
+    def extended_species(self):
+        return SpeciesExtended(self._species)
+
+    @property
+    def age(self):
+        return UNSET
 
     def get_anim_overrides(self, target_name):
         if self.template is not None:

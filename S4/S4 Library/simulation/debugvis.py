@@ -1,7 +1,9 @@
 from interactions.utils import routing_constants
+from routing import LocationBase, SurfaceType
 from sims4.color import Color
 from sims4.geometry import CompoundPolygon, make_perturb_gen
-from terrain import get_terrain_height, get_terrain_center
+from terrain import get_terrain_height, get_terrain_center, get_water_depth
+import routing
 import services
 import sims4.math
 try:
@@ -144,9 +146,9 @@ class Context:
                     head_end = _get_vector_from_offset_angle(endpoint, head_angle, end_len)
                     self.add_segment(endpoint, head_end, color=color, altitude=altitude, routing_surface=routing_surface)
 
-    def add_arrow_for_transform(self, transform, length=0.5, color=None, altitude=None):
+    def add_arrow_for_transform(self, transform, length=0.5, color=None, altitude=None, routing_surface=None):
         angle = sims4.math.yaw_quaternion_to_angle(transform.orientation)
-        self.add_arrow(transform.translation, angle, length=length, color=color, altitude=altitude)
+        self.add_arrow(transform.translation, angle, length=length, color=color, altitude=altitude, routing_surface=routing_surface)
 
     def add_text_screen(self, p, text, **kwargs):
         self.layer.add_text_screen(p, text, **kwargs)
@@ -160,11 +162,73 @@ class Context:
     def add_text_object(self, obj, offset, text, bone_index=-1, **kwargs):
         self.layer.add_text_object(obj.id, offset, text, bone_index=bone_index, **kwargs)
 
+    def add_arch(self, a, b, height:float=4.0, detail:int=2, color_a=None, color_b=None):
+        detail = sims4.math.clamp(2, detail, 20)
+        height = sims4.math.clamp(0.1, height, 50.0)
+        color_a = self.default_color if color_a is None else color_a
+        color_b = self.default_color if color_b is None else color_b
+        if isinstance(a, sims4.math.Location) or isinstance(a, LocationBase):
+            point_a = a.transform.translation
+            point_b = b.transform.translation
+            self.add_point(point_a, color=color_a, routing_surface=a.routing_surface)
+            if a.routing_surface.type != SurfaceType.SURFACETYPE_OBJECT:
+                self.add_arrow_for_transform(a.transform, length=0.25, color=color_a, routing_surface=a.routing_surface)
+            self.add_point(point_b, color=color_b, routing_surface=b.routing_surface)
+            if b.routing_surface.type != SurfaceType.SURFACETYPE_OBJECT:
+                self.add_arrow_for_transform(b.transform, length=0.25, color=color_b, routing_surface=b.routing_surface)
+        elif isinstance(a, sims4.math.Transform):
+            point_a = a.translation
+            point_b = b.translation
+            self.add_point(point_a, color=color_a)
+            self.add_arrow_for_transform(a, color=color_a)
+            self.add_point(point_b, color=color_b)
+            self.add_arrow_for_transform(b, color=color_b)
+        elif isinstance(a, sims4.math.Vector3):
+            point_a = a
+            point_b = b
+            self.add_point(point_a, color=color_a)
+            self.add_point(point_b, color=color_b)
+        else:
+            return
+        highest_point = point_a if point_a.y > point_b.y else point_b
+        a0 = point_a
+        a1 = sims4.math.Vector3(point_a.x, highest_point.y + height, point_a.z)
+        a2 = sims4.math.Vector3(point_b.x, highest_point.y + height, point_b.z)
+        a3 = point_b
+        t0 = 0.0
+        t1 = 0.0
+        t_delta = 1/detail
+        p0 = sims4.math.Vector3(a0.x, a0.y, a0.z)
+        p1 = None
+        for _ in range(detail):
+            t1 = t0 + t_delta
+            color = sims4.color.interpolate(color_a, color_b, t0 + t_delta*0.5)
+            b0 = sims4.math.vector_interpolate(a0, a1, t1)
+            b1 = sims4.math.vector_interpolate(a1, a2, t1)
+            b2 = sims4.math.vector_interpolate(a2, a3, t1)
+            c0 = sims4.math.vector_interpolate(b0, b1, t1)
+            c1 = sims4.math.vector_interpolate(b1, b2, t1)
+            p1 = sims4.math.vector_interpolate(c0, c1, t1)
+            self.add_segment_absolute(p0, p1, color=color)
+            t0 = t1
+            p0 = p1
+
     def _apply_altitude(self, v, altitude, routing_surface=None):
         if altitude is None or altitude is KEEP_ALTITUDE:
             return v
         final_surface = routing_surface if routing_surface is not None else self.routing_surface
-        h = get_terrain_height(v.x, v.z, routing_surface=final_surface)
+        if final_surface:
+            level = final_surface.secondary_id
+        else:
+            level = 0
+        zone_id = services.current_zone_id()
+        world_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_WORLD)
+        water_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+        object_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_OBJECT)
+        world_height = get_terrain_height(v.x, v.z, routing_surface=world_surface)
+        water_height = get_terrain_height(v.x, v.z, routing_surface=water_surface)
+        object_height = get_terrain_height(v.x, v.z, routing_surface=object_surface)
+        h = max(world_height, water_height, object_height)
         if h == routing_constants.INVALID_TERRAIN_HEIGHT:
             h = get_terrain_center().y
         return sims4.math.Vector3(v.x, h + altitude, v.z)

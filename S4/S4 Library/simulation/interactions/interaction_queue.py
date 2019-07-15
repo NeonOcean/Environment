@@ -5,12 +5,14 @@ from carry.pick_up_sim_liability import PickUpSimLiability
 from clock import ClockSpeedMode
 from event_testing.resolver import InteractionResolver
 from event_testing.results import TestResult
-from interactions import PipelineProgress
-from interactions.base.interaction import CANCEL_AOP_LIABILITY, InteractionFailureOptions, InteractionQueuePreparationStatus
+from interactions import ParticipantType, PipelineProgress
+from interactions.base.interaction import InteractionFailureOptions
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.constraints import Nowhere
 from interactions.context import InteractionBucketType, InteractionContext, InteractionSource, QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
 from interactions.priority import Priority, can_priority_displace, can_displace
+from interactions.utils.interaction_liabilities import CANCEL_AOP_LIABILITY
 from postures.transition_sequence import TransitionSequenceController, DerailReason
 from sims.sim_log import log_interaction
 from sims4.callback_utils import CallableList
@@ -389,7 +391,8 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                                             logger.exception('Error in prepare_gen for mixer interaction')
                                             result = False
                                         if result != InteractionQueuePreparationStatus.FAILURE:
-                                            head.pipeline_progress = PipelineProgress.PREPARED
+                                            if result == InteractionQueuePreparationStatus.SUCCESS:
+                                                head.pipeline_progress = PipelineProgress.PREPARED
                                             if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
                                                 return
                                                 head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
@@ -904,7 +907,8 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                             logger.exception('Error in prepare_gen for mixer interaction')
                             result = False
                         if result != InteractionQueuePreparationStatus.FAILURE:
-                            head.pipeline_progress = PipelineProgress.PREPARED
+                            if result == InteractionQueuePreparationStatus.SUCCESS:
+                                head.pipeline_progress = PipelineProgress.PREPARED
                             if result == InteractionQueuePreparationStatus.NEEDS_DERAIL:
                                 return
                                 head.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Failed to Prepare Interaction.')
@@ -1860,8 +1864,12 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             return False
         if next_interaction.is_related_to(running_interaction):
             return False
-        elif running_interaction.is_super and next_interaction.is_super and sim.si_state.are_sis_compatible(running_interaction, next_interaction):
-            return False
+        elif running_interaction.is_super and next_interaction.is_super:
+            participant_type_a = running_interaction.get_participant_type(sim)
+            participant_type_b = next_interaction.get_participant_type(sim)
+            compatible = sim.si_state.are_sis_compatible(running_interaction, next_interaction, participant_type_a=participant_type_a, participant_type_b=participant_type_b)
+            if compatible:
+                return False
         return True
 
     def _apply_next_pressure(self):

@@ -1,9 +1,9 @@
 from protocolbuffers import Dialog_pb2
 from distributor.shared_messages import create_icon_info_msg, IconInfoData
 from interactions.utils.tunable_icon import TunableIcon
-from sims4.localization import TunableLocalizedString, TunableLocalizedStringFactory, LocalizationHelperTuning
-from sims4.tuning.tunable import TunableList, TunableTuple, TunableReference, OptionalTunable, Tunable
-from ui.ui_dialog import UiDialogOk
+from sims4.localization import TunableLocalizedStringFactory
+from sims4.tuning.tunable import TunableList, TunableTuple, TunableReference, OptionalTunable, Tunable, TunableVariant
+from ui.ui_dialog import UiDialogOk, UiDialogOkCancel
 import services
 import sims4.resources
 import sims4.log
@@ -71,3 +71,8 @@ class UiDialogAspirationProgress(UiDialogOk):
             icon_data = IconInfoData(icon_resource=icon_resource)
             msg.icon_infos.append(create_icon_info_msg(icon_data, name=name, desc=desc, tooltip=tooltip))
         return msg
+
+class TunableUiDialogVariant(TunableVariant):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, dialog_ok=UiDialogOk.TunableFactory(), dialog_ok_cancel=UiDialogOkCancel.TunableFactory(), dialog_icon_label=UiDialogLabeledIcons.TunableFactory(), default='dialog_ok', **kwargs)

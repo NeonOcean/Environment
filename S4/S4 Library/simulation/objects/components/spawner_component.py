@@ -6,8 +6,9 @@ from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from autonomy.autonomy_modifier import AutonomyModifier
 from objects.components import Component, types, componentmethod, componentmethod_with_fallback
 from objects.components.state import TunableStateValueReference
-from objects.components.types import SPAWNER_COMPONENT
+from objects.components.types import SPAWNER_COMPONENT, PORTAL_COMPONENT
 from objects.object_enums import ItemLocation
+from routing.portals.portal_component import PortalComponent
 from scheduler import WeeklySchedule
 from server_commands.argument_helpers import RequiredTargetParam
 from sims4.random import weighted_random_item
@@ -33,7 +34,9 @@ class SpawnerTuning(HasTunableReference, HasTunableSingletonFactory, AutoFactory
     GROUND_SPAWNER = 1
     SLOT_SPAWNER = 2
     INTERACTION_SPAWNER = 3
-    INSTANCE_TUNABLES = {'object_reference': TunableList(description='\n            List of objects the spawner can create.  When the random check \n            picks this value from the weight calculation it will give all\n            the items tuned on this list.\n            ', tunable=TunableVariant(description='\n                Specify the means by which will the spawner will create the object.\n                ', object_definition=ObjectCreator.TunableFactory(get_definition=(True,)), recipe=RecipeCreator.TunableFactory(), default='object_definition')), 'spawn_weight': TunableRange(description='\n            Weight that object will have on the probability calculation \n            of which object to spawn.\n            ', tunable_type=int, default=1, minimum=0), 'spawn_chance': TunablePercent(description='\n             The chance that the spawned object will actually be created.\n             This is in case we want spawned objects to not be created in a \n             predictable behavior and the change of "nothing happening" be \n             available.\n             ', default=100), 'spawner_option': TunableVariant(description='\n            Type of spawners to create:\n            Ground type - Spawned object will appear on the floor at a tunable \n            radius from the spawner object.\n            Slot type - Spawned object will appear on an available slot of \n            a tunable slot type in the spawner object.\n            Interaction type - Spawned objects will appear on the inventory\n            when player makes a gather-harvest-scavenge interaction on them. \n            ', ground_spawning=TunableTuple(radius=TunableRange(description='\n                    Max radius at which the spawned object should appear\n                    ', tunable_type=int, default=1, minimum=0), restrictions=TunableList(description='\n                    List of orientation restrictions used by FGL \n                    when searching for a place to put the object.\n                    \n                    Will only apply to off-lot spawners.\n                    ', tunable=TunableOrientationRestriction()), placement_scoring=TunableList(description='\n                    List of scoring functions used by FGL to determine\n                    best places to put the object.\n\n                    Will only apply to off-lot spawners.\n                    ', tunable=TunablePlacementScoringFunction()), force_states=TunableList(description='\n                    List of states the created object will be pushed to.\n                    ', tunable=TunableStateValueReference(pack_safe=True)), force_initialization_spawn=OptionalTunable(description='\n                    If checked, objects with this component will force a \n                    spawning of objects on initialization.  This is mainly used\n                    for objects on the open street where we want to fake that \n                    some time has already passed.  \n                    Additionally, if checked, objects will force the states\n                    on this list instead of the force_states list on the \n                    general spawner tuning, this way we can add some custom\n                    states only for the initialization spawn.\n                    ', tunable=TunableList(description='\n                        List of states the created object will have when\n                        initialized.\n                        ', tunable=TunableStateValueReference())), location_test=TunableTuple(is_outside=OptionalTunable(description='\n                        If checked, will verify if the spawned object is \n                        located outside. \n                        If unchecked will test the object is not outside\n                        ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_natural_ground=OptionalTunable(description='\n                        If checked, will verify the spawned object is on \n                        natural ground.\n                        If unchecked will test the object is not on natural \n                        ground\n                        ', disabled_name="Don't_Test", tunable=Tunable(bool, True))), locked_args={'spawn_type': GROUND_SPAWNER}), slot_spawning=TunableTuple(slot_type=TunableReference(description='\n                    Slot type where spawned objects should appear\n                    ', manager=services.get_instance_manager(sims4.resources.Types.SLOT_TYPE)), force_initialization_spawn=OptionalTunable(description='\n                    If enabled, objects with this component will force a \n                    spawning of objects on initialization.  This is mainly used\n                    for objects on the open street where we want to fake that \n                    some time has already passed.\n                    ', tunable=TunableRange(description='\n                        The number of objects to be created.\n                        ', tunable_type=int, minimum=1, default=1)), state_mapping=TunableMapping(description='\n                    Mapping of states from the spawner object into the possible\n                    states that the spawned object may have\n                    ', key_type=TunableStateValueReference(), value_type=TunableList(description='\n                        List of possible children for a parent state\n                        ', tunable=TunableTuple(description='\n                            Pair of weight and possible state that the spawned \n                            object may have\n                            ', weight=TunableRange(description='\n                                Weight that object will have on the probability calculation \n                                of which object to spawn.\n                                ', tunable_type=int, default=1, minimum=0), child_state=TunableStateValueReference()))), locked_args={'spawn_type': SLOT_SPAWNER}), interaction_spawning=TunableTuple(locked_args={'spawn_type': INTERACTION_SPAWNER})), 'spawn_times': OptionalTunable(description='\n            Schedule of when the spawners should trigger.\n            If this time is tuned spawners will trigger according to this \n            schedule instead of the spawner commodities.   \n            This should be used for spawners that are on the open neighborhood \n            so that those spawners are time based instead of commodity based.\n            ', tunable=WeeklySchedule.TunableFactory(), disabled_name='No_custom_spawn_times', enabled_name='Set_custom_spawn_times')}
+    SPAWNER_LOCATION = 0
+    PORTAL_LOCATION = 1
+    INSTANCE_TUNABLES = {'object_reference': TunableList(description='\n            List of objects the spawner can create.  When the random check \n            picks this value from the weight calculation it will give all\n            the items tuned on this list.\n            ', tunable=TunableVariant(description='\n                Specify the means by which will the spawner will create the object.\n                ', object_definition=ObjectCreator.TunableFactory(get_definition=(True,)), recipe=RecipeCreator.TunableFactory(), default='object_definition')), 'spawn_weight': TunableRange(description='\n            Weight that object will have on the probability calculation \n            of which object to spawn.\n            ', tunable_type=int, default=1, minimum=0), 'spawn_chance': TunablePercent(description='\n             The chance that the spawned object will actually be created.\n             This is in case we want spawned objects to not be created in a \n             predictable behavior and the change of "nothing happening" be \n             available.\n             ', default=100), 'spawner_option': TunableVariant(description='\n            Type of spawners to create:\n            Ground type - Spawned object will appear on the floor at a tunable \n            radius from the spawner object.\n            Slot type - Spawned object will appear on an available slot of \n            a tunable slot type in the spawner object.\n            Interaction type - Spawned objects will appear on the inventory\n            when player makes a gather-harvest-scavenge interaction on them. \n            ', ground_spawning=TunableTuple(radius=TunableRange(description='\n                    Max radius at which the spawned object should appear\n                    ', tunable_type=int, default=1, minimum=0), min_radius=TunableRange(description='\n                    Minimum distance away from the portal location to\n                    start looking for a good location.\n                    ', tunable_type=int, default=0, minimum=0), restrictions=TunableList(description='\n                    List of orientation restrictions used by FGL \n                    when searching for a place to put the object.\n                    \n                    Will only apply to off-lot spawners.\n                    ', tunable=TunableOrientationRestriction()), placement_scoring=TunableList(description='\n                    List of scoring functions used by FGL to determine\n                    best places to put the object.\n\n                    Will only apply to off-lot spawners.\n                    ', tunable=TunablePlacementScoringFunction()), force_states=TunableList(description='\n                    List of states the created object will be pushed to.\n                    ', tunable=TunableStateValueReference(pack_safe=True)), force_initialization_spawn=OptionalTunable(description='\n                    If checked, objects with this component will force a \n                    spawning of objects on initialization.  This is mainly used\n                    for objects on the open street where we want to fake that \n                    some time has already passed.  \n                    Additionally, if checked, objects will force the states\n                    on this list instead of the force_states list on the \n                    general spawner tuning, this way we can add some custom\n                    states only for the initialization spawn.\n                    ', tunable=TunableList(description='\n                        List of states the created object will have when\n                        initialized.\n                        ', tunable=TunableStateValueReference())), location_test=TunableTuple(is_outside=OptionalTunable(description='\n                        If checked, will verify if the spawned object is \n                        located outside. \n                        If unchecked will test the object is not outside\n                        ', disabled_name="Don't_Test", tunable=Tunable(bool, True)), is_natural_ground=OptionalTunable(description='\n                        If checked, will verify the spawned object is on \n                        natural ground.\n                        If unchecked will test the object is not on natural \n                        ground\n                        ', disabled_name="Don't_Test", tunable=Tunable(bool, True))), starting_location=TunableVariant(description='\n                    The location at which we want to start attempting to place\n                    the object we are creating.\n                    ', spawner_location=TunableTuple(description='\n                        If selected the object will be spawned near the\n                        location of the spawner object.\n                        ', consider_source_object_footprint=Tunable(description="\n                            If True, then the source object's footprints will\n                            be considered in the creation of FGL context.\n                            \n                            Example: If the source is invisible, then setting\n                            this to False would allow the spawned object to be\n                            located at its spawner's location. If the source\n                            is a visible object, then setting this to True would\n                            force the spawned object to be offset by any existing\n                            footprints on the source.\n                            ", tunable_type=bool, default=False), locked_args={'location_type': SPAWNER_LOCATION}), portal_location=TunableTuple(description='\n                        If selected the object will be spanwed near the\n                        location of the specified portal type and start or end\n                        location\n                        ', portal_type=TunableReference(description='\n                            A reference to the type of portal to use for the\n                            starting location.\n                            ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('PortalData',)), portal_direction=TunableVariant(description='\n                            Choose between the There and Back of the portal.\n                            This will not work properly if the portal is\n                            missing a Back and Back is specified here.\n                            ', locked_args={'there': PortalComponent.PORTAL_DIRECTION_THERE, 'back': PortalComponent.PORTAL_DIRECTION_BACK}, default='there'), portal_location=TunableVariant(description='\n                            Choose between the entry and exit location of the\n                            portal.\n                            ', locked_args={'entry': PortalComponent.PORTAL_LOCATION_ENTRY, 'exit': PortalComponent.PORTAL_LOCATION_EXIT}, default='entry'), locked_args={'location_type': PORTAL_LOCATION}), default='spawner_location'), locked_args={'spawn_type': GROUND_SPAWNER}), slot_spawning=TunableTuple(slot_type=TunableReference(description='\n                    Slot type where spawned objects should appear\n                    ', manager=services.get_instance_manager(sims4.resources.Types.SLOT_TYPE)), force_initialization_spawn=OptionalTunable(description='\n                    If enabled, objects with this component will force a \n                    spawning of objects on initialization.  This is mainly used\n                    for objects on the open street where we want to fake that \n                    some time has already passed.\n                    ', tunable=TunableRange(description='\n                        The number of objects to be created.\n                        ', tunable_type=int, minimum=1, default=1)), state_mapping=TunableMapping(description='\n                    Mapping of states from the spawner object into the possible\n                    states that the spawned object may have\n                    ', key_type=TunableStateValueReference(), value_type=TunableList(description='\n                        List of possible children for a parent state\n                        ', tunable=TunableTuple(description='\n                            Pair of weight and possible state that the spawned \n                            object may have\n                            ', weight=TunableRange(description='\n                                Weight that object will have on the probability calculation \n                                of which object to spawn.\n                                ', tunable_type=int, default=1, minimum=0), child_state=TunableStateValueReference()))), locked_args={'spawn_type': SLOT_SPAWNER}), interaction_spawning=TunableTuple(locked_args={'spawn_type': INTERACTION_SPAWNER})), 'spawn_times': OptionalTunable(description='\n            Schedule of when the spawners should trigger.\n            If this time is tuned spawners will trigger according to this \n            schedule instead of the spawner commodities.   \n            This should be used for spawners that are on the open neighborhood \n            so that those spawners are time based instead of commodity based.\n            ', tunable=WeeklySchedule.TunableFactory(), disabled_name='No_custom_spawn_times', enabled_name='Set_custom_spawn_times')}
     FACTORY_TUNABLES = INSTANCE_TUNABLES
 
     @flexmethod
@@ -55,6 +58,13 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     SLOT_SPAWNER_DECAY_COMMODITY = TunableReference(description='\n        Commodity which will trigger the slot spawner of an object on decay.\n        ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC))
     SPAWNER_COMMODITY_RESET_VARIANCE = TunableRange(description='\n        Max variance to apply when the spawn commodity is being reset to its\n        threshold value.  This is meant to add some randomness on how spawners\n        will create objects.\n        \n        e.g.  After a spawner creates an objects its spawn statistic will go\n        back to 100-RandomValue from 0 to Variance this way it wont always start\n        at the same time\n        ', tunable_type=int, default=0, minimum=0)
 
+    @staticmethod
+    def _verify_tunable_callback(instance_class, tunable_name, source, **kwargs):
+        for spawner_data in kwargs['spawner_data']:
+            if spawner_data.spawner_option.spawn_type == SpawnerTuning.GROUND_SPAWNER:
+                if spawner_data.spawner_option.min_radius > spawner_data.spawner_option.radius:
+                    logger.error("The tuning for a spawner component ({}) has a min_distance value that is greater than the max_distance value. This doesn't make sense, please fix this tuning.", instance_class)
+
     class _SpawnFiremeterGlobal(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'value': Tunable(description='\n                The maximum number of objects that this spawner can have created\n                at one point.\n                ', tunable_type=int, default=1)}
 
@@ -69,7 +79,7 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
                 if obj.state_value_active(state_value):
                     return value
 
-    FACTORY_TUNABLES = {'spawner_data': TunableList(description='\n            Data corresponding at what objects will the spawner create and \n            their type which will define how they will be created\n            ', tunable=TunableVariant(description='\n                Option to tune the spawner data through a factory which will\n                be tuned per object, or through a reference which may be reused \n                by multiple objects \n                ', spawnerdata_factory=SpawnerTuning.TunableFactory(), spawnerdata_reference=SpawnerTuning.TunableReference(), default='spawnerdata_reference')), 'spawn_firemeter': OptionalTunable(description='\n            If set, spawner will be limited to spawn this number of objects\n            at the same time.  \n            ', tunable=TunableVariant(global_firemeter=_SpawnFiremeterGlobal.TunableFactory(), state_based_firemeter=_SpawnFiremeterStateBased.TunableFactory(), default='global_firemeter')), 'reset_spawner_count': OptionalTunable(description='\n            If enabled then we only reset the commodity a specific number of\n            times.\n            ', tunable=TunableRange(description='\n                If checked we will reset the spawner commodity when we spawn an\n                object using it.\n                ', tunable_type=int, default=1, minimum=1)), 'spawned_object_count_triggers': TunableMapping(description='\n            A list of paired triggers and spawner actions. At each trigger,\n            the paired action is completed on the spawner. The trigger occurs \n            at a total spawned object threshold.\n            ', key_type=Tunable(description='\n                Total spawned object threshold.\n                ', tunable_type=int, default=1), value_type=TunableVariant(description='\n                Spawner Action, disable or enable. Disabling prevents objects\n                from spawning and removes all timers. Enabling the spawner resets\n                the object count and creates alarms.\n                ', tunable_enum=TunableEnumEntry(description='\n                    The game state of the Spawner Object that triggers the spawner action.\n                    ', tunable_type=SpawnerActionEnum, default=SpawnerActionEnum.SPAWNER_DISABLE))), 'spawn_time_span_override': OptionalTunable(description='\n            A start and end delay that override the zone information and \n            determine a time span within which a random time is selected for \n            the spawned object to be created.\n            ', tunable=TunableTuple(spawn_delayed_start_override=TunableRange(description='\n                    This is the minimum amount of sim minutes we wait before we\n                    start spawning objects.\n                    ', tunable_type=int, default=15, minimum=0), spawn_delayed_end_override=TunableRange(description='\n                    This is the maximum amount of sim minutes we wait before we\n                    start spawning objects for the first time.\n                    ', tunable_type=int, default=60, minimum=0)))}
+    FACTORY_TUNABLES = {'spawner_data': TunableList(description='\n            Data corresponding at what objects will the spawner create and \n            their type which will define how they will be created\n            ', tunable=TunableVariant(description='\n                Option to tune the spawner data through a factory which will\n                be tuned per object, or through a reference which may be reused \n                by multiple objects \n                ', spawnerdata_factory=SpawnerTuning.TunableFactory(), spawnerdata_reference=SpawnerTuning.TunableReference(), default='spawnerdata_reference')), 'spawn_firemeter': OptionalTunable(description='\n            If set, spawner will be limited to spawn this number of objects\n            at the same time.  \n            ', tunable=TunableVariant(global_firemeter=_SpawnFiremeterGlobal.TunableFactory(), state_based_firemeter=_SpawnFiremeterStateBased.TunableFactory(), default='global_firemeter')), 'reset_spawner_count': OptionalTunable(description='\n            If enabled then we only reset the commodity a specific number of\n            times.\n            ', tunable=TunableTuple(description='\n                Data associated with reset_spawner_count. \n                ', max_count=TunableRange(description='\n                    If checked we will reset the spawner commodity when we spawn an\n                    object using it.\n                    ', tunable_type=int, default=1, minimum=1), respawn_destroyed_objects=Tunable(description='\n                    If this is checked then we will keep an up to date count\n                    on number of objects spawned, and if enough are destroyed\n                    to get back below the max_count we will start spawning them\n                    again.    \n                    ', tunable_type=bool, default=False))), 'spawned_object_count_triggers': TunableMapping(description='\n            A list of paired triggers and spawner actions. At each trigger,\n            the paired action is completed on the spawner. The trigger occurs \n            at a total spawned object threshold.\n            ', key_type=Tunable(description='\n                Total spawned object threshold.\n                ', tunable_type=int, default=1), value_type=TunableVariant(description='\n                Spawner Action, disable or enable. Disabling prevents objects\n                from spawning and removes all timers. Enabling the spawner resets\n                the object count and creates alarms.\n                ', tunable_enum=TunableEnumEntry(description='\n                    The game state of the Spawner Object that triggers the spawner action.\n                    ', tunable_type=SpawnerActionEnum, default=SpawnerActionEnum.SPAWNER_DISABLE))), 'spawn_time_span_override': OptionalTunable(description='\n            A start and end delay that override the zone information and \n            determine a time span within which a random time is selected for \n            the spawned object to be created.\n            ', tunable=TunableTuple(spawn_delayed_start_override=TunableRange(description='\n                    This is the minimum amount of sim minutes we wait before we\n                    start spawning objects.\n                    ', tunable_type=int, default=15, minimum=0), spawn_delayed_end_override=TunableRange(description='\n                    This is the maximum amount of sim minutes we wait before we\n                    start spawning objects for the first time.\n                    ', tunable_type=int, default=60, minimum=0))), 'verify_tunable_callback': _verify_tunable_callback}
 
     def __init__(self, owner, *args, **kwargs):
         super().__init__(owner, *args, **kwargs)
@@ -130,13 +140,22 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
             return
         if self.reset_spawner_count is None:
             self.reset_spawn_commodity(stat)
-        elif self._times_commodity_reset < self.reset_spawner_count:
-            self._times_commodity_reset += 1
-            self.reset_spawn_commodity(stat)
         else:
-            statistic_modifier = AutonomyModifier(locked_stats=(stat.stat_type,))
-            self.owner.add_statistic_modifier(statistic_modifier)
-            return
+            if self.reset_spawner_count.respawn_destroyed_objects:
+                self._times_commodity_reset = 0
+                for obj in self._spawned_objects:
+                    if obj is not None:
+                        self._times_commodity_reset += 1
+            if self._times_commodity_reset < self.reset_spawner_count.max_count:
+                self._times_commodity_reset += 1
+                self.reset_spawn_commodity(stat)
+            else:
+                if not self.reset_spawner_count.respawn_destroyed_objects:
+                    statistic_modifier = AutonomyModifier(locked_stats=(stat.stat_type,))
+                    self.owner.add_statistic_modifier(statistic_modifier)
+                else:
+                    self.reset_spawn_commodity(stat)
+                return
         self._spawn_object()
 
     def trigger_time_spawner(self, scheduler, alarm_data, trigger_cooldown):
@@ -166,7 +185,8 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
             spawn_type = spawn_result.spawner_option.spawn_type
             if spawn_type == SpawnerTuning.GROUND_SPAWNER:
                 radius = spawn_result.spawner_option.radius
-                self.create_object_on_ground(self.owner, spawn_result, radius, force_initialization_spawn)
+                min_radius = spawn_result.spawner_option.min_radius
+                self._create_object_on_ground(spawn_result, radius, min_radius, force_initialization_spawn)
             if spawn_type == SpawnerTuning.SLOT_SPAWNER:
                 slot_types = {spawn_result.spawner_option.slot_type}
                 if force_initialization_spawn and spawn_result.spawner_option.force_initialization_spawn is not None:
@@ -174,11 +194,12 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
                 else:
                     create_object_count = create_slot_obj_count
                 for _ in range(create_object_count):
-                    self.create_object_on_slot(self.owner, spawn_result, slot_types)
+                    self._create_object_on_slot(spawn_result, slot_types)
 
-    def create_object_on_slot(self, source_object, spawner_data, slot_types):
+    def _create_object_on_slot(self, spawner_data, slot_types):
         spawn_list = list(spawner_data.object_reference)
         parent_loc_type = self._get_inherited_spawn_location_type()
+        source_object = self.owner
         for runtime_slot in source_object.get_runtime_slots_gen(slot_types=slot_types):
             if not spawn_list:
                 return
@@ -204,31 +225,42 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
                 state_result = weighted_random_item(weight_pairs)
                 child_obj.set_state(state_result.state, state_result)
 
-    def create_object_on_ground(self, source_object, spawner_data, max_distance, force_initialization_spawn):
+    def _create_object_on_ground(self, spawner_data, max_distance, min_distance, force_initialization_spawn):
+        source_object = self.owner
         spawn_list = list(spawner_data.object_reference)
         parent_loc_type = self._get_inherited_spawn_location_type()
+        starting_location_tuning = spawner_data.spawner_option.starting_location
+        if spawner_data.spawner_option.starting_location.location_type == SpawnerTuning.PORTAL_LOCATION:
+            portal_component = self.owner.get_component(PORTAL_COMPONENT)
+            if portal_component is None:
+                logger.error("Trying to spawn objects relative to a portal position and the spawner object ({}) doesn't have a portal component. No objects will be spawned.", self.owner)
+                return
+            portal_location = portal_component.get_portal_location_by_type(starting_location_tuning.portal_type, starting_location_tuning.portal_direction, starting_location_tuning.portal_location)
+            if portal_location is None:
+                logger.error('Unable to find a location relative to the specified portal type, location, and direction. No objects will be spawned.')
+                return
+        if starting_location_tuning.location_type == SpawnerTuning.PORTAL_LOCATION:
+            starting_location = placement.create_starting_location(position=portal_location.position, routing_surface=portal_location.routing_surface)
+        else:
+            starting_location = placement.create_starting_location(position=source_object.position, routing_surface=source_object.routing_surface)
         for obj in spawn_list:
-            if not services.lot_spawner_service_instance().check_spawner_firemeter():
-                logger.info('SpawnerComponent: Firemeter reached, object {} will not spawn', obj)
-                return
-            created_obj = spawner_data.create_spawned_object(source_object, obj, loc_type=parent_loc_type)
-            if created_obj is None:
-                logger.error('SpawnerComponent: Spawner {} failed to create object: {}', source_object, obj, owner='camilogarcia')
-                return
-            created_obj.opacity = 0
-            created_obj.location = sims4.math.Location(sims4.math.Transform(self.owner.position, self.owner.orientation), self.owner.routing_surface)
-            if self.owner.is_on_active_lot():
-                starting_location = placement.create_starting_location(position=created_obj.position)
-                fgl_context = placement.create_fgl_context_for_object(starting_location, created_obj, max_distance=max_distance, height_tolerance=GlobalObjectSpawnerTuning.SPAWN_ON_GROUND_FGL_HEIGHT_TOLERANCE)
+            created_obj_location = sims4.math.Location(sims4.math.Transform(source_object.position, source_object.orientation), source_object.routing_surface)
+            if source_object.is_on_active_lot():
+                fgl_context = placement.create_fgl_context_for_object(starting_location, obj, test_buildbuy_allowed=False, max_distance=max_distance, min_distance=min_distance, height_tolerance=GlobalObjectSpawnerTuning.SPAWN_ON_GROUND_FGL_HEIGHT_TOLERANCE)
             else:
-                starting_location = placement.create_starting_location(position=created_obj.position)
-                restrictions = [restriction(location=created_obj.location) for restriction in spawner_data.spawner_option.restrictions] or None
-                scoring_functions = [placement_scoring(location=created_obj.location) for placement_scoring in spawner_data.spawner_option.placement_scoring] or None
-                fgl_context = placement.create_fgl_context_for_object_off_lot(starting_location, created_obj, max_distance=max_distance, height_tolerance=GlobalObjectSpawnerTuning.SPAWN_ON_GROUND_FGL_HEIGHT_TOLERANCE, restrictions=restrictions, scoring_functions=scoring_functions, ignored_object_ids=(self.owner.id,))
+                restrictions = [restriction(location=created_obj_location) for restriction in spawner_data.spawner_option.restrictions] or None
+                scoring_functions = [placement_scoring(location=created_obj_location) for placement_scoring in spawner_data.spawner_option.placement_scoring] or None
+                ignored_object_ids = (source_object.id,) if not spawner_data.spawner_option.starting_location.consider_source_object_footprint else ()
+                fgl_context = placement.create_fgl_context_for_object_off_lot(starting_location, None, location=created_obj_location, footprint=obj.definition.get_footprint(), max_distance=max_distance, min_distance=min_distance, height_tolerance=GlobalObjectSpawnerTuning.SPAWN_ON_GROUND_FGL_HEIGHT_TOLERANCE, restrictions=restrictions, scoring_functions=scoring_functions, ignored_object_ids=ignored_object_ids)
             (position, orientation) = placement.find_good_location(fgl_context)
             if position is not None:
-                created_obj.location = sims4.math.Location(sims4.math.Transform(position, orientation), source_object.routing_surface)
-                services.lot_spawner_service_instance().register_spawned_object(created_obj)
+                created_obj_location = sims4.math.Location(sims4.math.Transform(position, orientation), starting_location.routing_surface)
+                created_obj = spawner_data.create_spawned_object(source_object, obj, loc_type=parent_loc_type)
+                if created_obj is None:
+                    logger.error('SpawnerComponent: Spawner {} failed to create object: {}', source_object, obj, owner='shouse')
+                    return
+                created_obj.location = created_obj_location
+                created_obj.opacity = 0
                 if force_initialization_spawn:
                     force_states = spawner_data.spawner_option.force_initialization_spawn
                     created_obj.force_spawn_object(spawn_type=SpawnerTuning.SLOT_SPAWNER)
@@ -239,8 +271,7 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
                         created_obj.set_state(force_state.state, force_state)
                 created_obj.fade_in()
             else:
-                logger.info('SpawnerComponent: FGL failed, object {} will not spawn for spawner {}', created_obj, self.owner)
-                created_obj.destroy(source=self.owner, cause='SpawnerComponent: FGL failed, object will not spawn.')
+                logger.info('SpawnerComponent: FGL failed, object {} will not spawn for spawner {}', obj.definition, source_object)
 
     def reset_spawn_commodity(self, stat):
         reset_value = stat.max_value - randint(0, self.SPAWNER_COMMODITY_RESET_VARIANCE)
@@ -287,6 +318,10 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
     def on_remove(self, *_, **__):
         self._destroy_spawner_alarm()
         self._destroy_time_based_spawners()
+
+    def on_child_removed(self, child, new_parent=None):
+        if child in self._spawned_objects:
+            self._spawned_objects.remove(child)
 
     def on_client_connect(self, client):
         for created_obj_id in self._spawned_object_ids:

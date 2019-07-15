@@ -51,6 +51,6 @@ class SimsInConstraintTests(HasTunableSingletonFactory, AutoFactoryInit, event_t
                     total_constraint = total_constraint.intersect(tuned_constraint.create_constraint(None, target))
                     if not total_constraint.valid:
                         return TestResult(False, 'Constraint {} relative to {} is invalid.', tuned_constraint, target, tooltip=self.tooltip)
-                if any(total_constraint.geometry.test_transform(sim.transform) and (total_constraint.is_routing_surface_valid(sim.routing_surface) and not self.test_set(DoubleSimResolver(test_actor, sim.sim_info))) for sim in instanced_sims):
+                if any(total_constraint.geometry.test_transform(sim.transform) and (total_constraint.is_routing_surface_valid(sim.routing_surface) and (total_constraint.is_location_water_depth_valid(sim.location) and (total_constraint.is_location_terrain_tags_valid(sim.location) and not self.test_set(DoubleSimResolver(test_actor, sim.sim_info))))) for sim in instanced_sims):
                     return TestResult(False, 'Sims In Constraint Test Failed.', tooltip=self.tooltip)
         return TestResult.TRUE

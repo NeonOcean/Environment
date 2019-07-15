@@ -88,6 +88,10 @@ class ObjectClusterService(Service):
             else:
                 self._dirty_cluster_cache = False
 
+    def on_teardown(self):
+        for cluster_request in self._cluster_requests:
+            cluster_request.on_teardown()
+
 class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'density_epsilon': TunableDistanceSquared(description='\n            A constant that defines whether or not two objects are reachable.\n            ', default=2.82), 'facing_angle': OptionalTunable(description='\n            If set, then objects in a cluster must satisfy facing requirements.\n            ', tunable=TunableAngle(description='\n                An angle that defines the facing requirements for the purposes\n                of clustering and centroid facing.\n                ', default=sims4.math.PI)), 'minimum_size': TunableRange(description='\n            The minimum required size for clusters. Group of objects less than\n            this constant will not form clusters.\n            ', tunable_type=int, minimum=2, default=3), 'line_of_sight_constraint': TunableLineOfSightData(description='\n            The line of sight parameters for generated clusters.\n            '), 'radius_buffer': TunableRange(description='\n            An additional distance (in meters) that will be added to the radius\n            of a cluster. The size of a cluster is based on the objects in it.\n            We need to add an additional amount to ensure that the object is\n            included in the (non-exact) circle constraint.\n            ', tunable_type=float, minimum=0, default=0.5)}
     FACING_EPSILON = 0.01
@@ -104,6 +108,9 @@ class ObjectClusterRequest(HasTunableFactory, AutoFactoryInit):
         self._combination_to_update_cache = None
         self._reachable_cache = {}
         services.current_zone().object_cluster_service.register_cluster_request(self)
+
+    def on_teardown(self):
+        self._reachable_cache = {}
 
     def get_clusters_gen(self, regenerate=False):
         if self._dirty or regenerate:

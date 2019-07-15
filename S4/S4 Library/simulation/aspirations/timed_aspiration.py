@@ -44,7 +44,7 @@ class TimedAspiration(TimedAspirationDefinitionDisplayMixin, AspirationBasic):
         for loot_action in cls.on_cancel_loot_actions:
             loot_action.apply_to_resolver(resolver)
 
-lock_instance_tunables(TimedAspiration, complete_only_in_sequence=True)
+lock_instance_tunables(TimedAspiration, do_not_register_events_on_load=True)
 
 class TimedAspirationData:
 

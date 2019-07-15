@@ -6,6 +6,7 @@ import collections
 from adaptive_clock_speed import AdaptiveClockSpeed
 from clock import ClockSpeedMultiplierType, ClockSpeedMode
 from gsi_handlers.performance_handlers import generate_statistics
+from indexed_manager import object_load_times
 from interactions.utils.death import DeathType
 from objects.components.types import STATE_COMPONENT
 from relationships.relationship_enums import RelationshipBitCullingPrevention, RelationshipDecayMetricKeys, RelationshipDirection
@@ -18,18 +19,24 @@ from sims4.commands import CommandType
 from sims4.profiler_utils import create_custom_named_profiler_function
 from sims4.tuning.tunable import Tunable
 from sims4.utils import create_csv
+from singletons import UNSET
 from story_progression.story_progression_action_relationship_culling import StoryProgressionRelationshipCulling
 import autonomy.autonomy_util
 import enum
 import event_testing
+import indexed_manager
 import performance.performance_constants as consts
 import services
 import sims4.commands
-POINTS_PER_INTERACTION = 0.25
-POINTS_PER_AUTONOMOUS_INTERACTION = 1
-POINTS_PER_PROVIDED_POSTURE_INTERACTION = 3
-POINTS_PER_CLIENT_STATE_TUNING = 0.33
-POINTS_PER_OBJECT_PART = 1
+POINTS_PER_INTERACTION = -0.00513
+POINTS_PER_AUTONOMOUS_INTERACTION = 0.007287
+POINTS_PER_PROVIDED_POSTURE_INTERACTION = 0.079084
+POINTS_PER_CLIENT_STATE_TUNING = 0.02182
+POINTS_PER_CLIENT_STATE_CHANGE_TUNING = -0.01336
+POINTS_PER_OBJECT_PART = -0.04883
+POINTS_PER_STATISTIC = 0
+POINTS_PER_COMMODITY = 0
+CLIENT_STATE_OPS_TO_IGNORE = ['autonomy_modifiers']
 RelationshipMetrics = namedtuple('RelationshipMetrics', ('rels', 'rels_active', 'rels_played', 'rels_unplayed', 'rel_bits_one_way', 'rel_bits_bi', 'rel_tracks'))
 
 @sims4.commands.Command('performance.log_alarms')
@@ -623,6 +630,8 @@ def analyze_global(_connection=None):
     commodity_status(_connection=_connection)
     output('==Environment==')
     log_object_statistics_summary(_connection=_connection)
+    output('-==Object Score==-')
+    score_objects_in_world(verbose=False, _connection=_connection)
 
 @sims4.commands.Command('performance.analyze.runtime.enable', command_type=CommandType.Automation)
 def analyze_begin(_connection=None):
@@ -679,11 +688,11 @@ def _score_all_objects(object_score_counter):
     for obj in all_objects:
         if obj.is_sim:
             continue
+        obj_type = obj.definition
         if obj.is_on_active_lot():
-            on_lot_objects[type(obj)] += 1
+            on_lot_objects[obj_type] += 1
         else:
-            off_lot_objects[type(obj)] += 1
-        obj_type = type(obj)
+            off_lot_objects[obj_type] += 1
         if obj_type in object_score_counter:
             continue
         for super_affordance in obj.super_affordances():
@@ -694,20 +703,49 @@ def _score_all_objects(object_score_counter):
                 object_score_counter[obj_type]['provided_posture'] += POINTS_PER_PROVIDED_POSTURE_INTERACTION
         if obj.has_component(STATE_COMPONENT):
             object_score_counter[obj_type]['state_component'] += 1
-            object_score_counter[obj_type]['state_component'] += len(obj.get_component(STATE_COMPONENT)._client_states)*POINTS_PER_CLIENT_STATE_TUNING
+            for (_, client_state_values) in obj.get_component(STATE_COMPONENT)._client_states.items():
+                object_score_counter[obj_type]['state_component'] += 1*POINTS_PER_CLIENT_STATE_TUNING
+                client_change_op_count = _num_client_state_ops_changing_client(client_state_values)
+                object_score_counter[obj_type]['client_change_tuning'] += client_change_op_count*POINTS_PER_CLIENT_STATE_CHANGE_TUNING
         if obj.parts:
-            object_score_counter[type(obj)]['parts'] += len(obj.parts)*POINTS_PER_OBJECT_PART
+            object_score_counter[obj_type]['parts'] += len(obj.parts)*POINTS_PER_OBJECT_PART
+        if obj.statistic_tracker is not None:
+            object_score_counter[obj_type]['statistics'] += len(obj.statistic_tracker)*POINTS_PER_STATISTIC
+        if obj.commodity_tracker is not None:
+            object_score_counter[obj_type]['commodities'] += len(obj.commodity_tracker)*POINTS_PER_COMMODITY
     return (on_lot_objects, off_lot_objects)
+
+def _num_client_state_ops_changing_client(client_state_values):
+    count = 0
+    for client_state_value in client_state_values:
+        count += _get_num_client_changing_ops(client_state_value.new_client_state.ops)
+    for target_client_state_value in client_state_values.values():
+        count += _get_num_client_changing_ops(target_client_state_value.ops)
+    return count
+
+def _get_num_client_changing_ops(ops):
+    count = 0
+    for (op, value) in ops.items():
+        if _client_state_op_has_client_change(op, value):
+            count += 1
+    return count
+
+def _client_state_op_has_client_change(op, value):
+    if op in CLIENT_STATE_OPS_TO_IGNORE:
+        return False
+    elif value is UNSET or value is None:
+        return False
+    return True
 
 def _get_total_object_score(counter, scores, output, verbose):
     overall_score = 0
     for obj_type in counter:
-        occurences = counter[obj_type]
+        occurrences = counter[obj_type]
         object_data = scores[obj_type]
         object_score = sum(object_data.values())
-        overall_score += occurences*object_score
+        overall_score += occurrences*object_score
         if verbose:
-            output('\tObject {} appears {} times at a score of {} for a total contribution of ({})'.format(obj_type.__name__, occurences, object_score, occurences*object_score))
+            output('\tObject {} appears {} times at a score of {} for a total contribution of ({})'.format(obj_type.__name__, occurrences, object_score, occurrences*object_score))
     if verbose:
         output('Total Score is {}'.format(overall_score))
     return overall_score
@@ -718,7 +756,7 @@ def dump_object_scores(_connection=None):
     (on_lot_objects, off_lot_objects) = _score_all_objects(object_scores)
 
     def _score_objects_callback(file):
-        file.write('Object,On Lot,Off Lot,Interaction,Autonomous,provided posture,state component,parts,total\n')
+        file.write('Object,total,On Lot,Off Lot,Interaction,Autonomous,provided posture,state component,client change tuning,parts,stats,commodities\n')
         for object_type in object_scores:
             _dump_object_to_file(object_type, object_scores, on_lot_objects, off_lot_objects, file)
 
@@ -726,4 +764,43 @@ def dump_object_scores(_connection=None):
 
 def _dump_object_to_file(object_type, object_scores, on_lot_objects, off_lot_objects, file):
     object_counter = object_scores[object_type]
-    file.write('{},{},{},{},{},{},{},{},{}\n'.format(object_type, on_lot_objects[object_type], off_lot_objects[object_type], object_counter['interaction'], object_counter['autonomous'], object_counter['provided_posture'], object_counter['state_component'], object_counter['parts'], sum(object_counter.values())))
+    file.write('{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(object_type, sum(object_counter.values()), on_lot_objects[object_type], off_lot_objects[object_type], object_counter['interaction'], object_counter['autonomous'], object_counter['provided_posture'], object_counter['state_component'], object_counter['client_change_tuning'], object_counter['parts'], object_counter['statistics'], object_counter['commodities']))
+
+@sims4.commands.Command('performance.display_object_load_times', command_type=CommandType.Automation)
+def display_object_load_times(_connection=None):
+    if not indexed_manager.capture_load_times:
+        return False
+    cheat_output = sims4.commands.Output(_connection)
+    for (object_class, object_load_data) in object_load_times.items():
+        if not isinstance(object_class, str):
+            cheat_output('{}: Object Manager Add Time {} : Component Load Time {} : Number of times added {} : number of times loaded {}'.format(object_class, object_load_data.time_spent_adding, object_load_data.time_spent_loading, object_load_data.adds, object_load_data.loads))
+    time_adding = sum([y.time_spent_adding for (x, y) in object_load_times.items() if not isinstance(x, str)])
+    time_loading = sum([y.time_spent_loading for (x, y) in object_load_times.items() if not isinstance(x, str)])
+    cheat_output('Total time spent adding objects : {}'.format(time_adding))
+    cheat_output('Total time spent loading components : {}'.format(time_loading))
+    cheat_output('Time spent loading households : {}'.format(object_load_times['household']))
+    cheat_output('Time spent building posture graph: {}'.format(object_load_times['posture_graph']))
+    cheat_output('Time spent loading into the zone: {}'.format(object_load_times['lot_load']))
+
+@sims4.commands.Command('performance.dump_object_load_times', command_type=CommandType.Automation)
+def dump_object_load_times(_connection=None):
+    if not indexed_manager.capture_load_times:
+        return False
+
+    def _object_load_time_callback(file):
+        file.write('Object,AddTime,LoadTime,Adds,Loads\n')
+        for (object_class, object_load_data) in object_load_times.items():
+            if not isinstance(object_class, str):
+                file.write('{},{},{},{},{}\n'.format(object_class, object_load_data.time_spent_adding, object_load_data.time_spent_loading, object_load_data.adds, object_load_data.loads))
+        time_adding = sum([y.time_spent_adding for (x, y) in object_load_times.items() if not isinstance(x, str)])
+        time_loading = sum([y.time_spent_loading for (x, y) in object_load_times.items() if not isinstance(x, str)])
+        file.write(',{},{}\n'.format(time_adding, time_loading))
+        file.write('Household,{}\n'.format(object_load_times['household']))
+        file.write('Posture Graph,{}\n'.format(object_load_times['posture_graph']))
+        file.write('Lot Load,{}\n'.format(object_load_times['lot_load']))
+
+    create_csv('object_load_times', _object_load_time_callback, _connection)
+
+@sims4.commands.Command('performance.toggle_object_load_capture', command_type=CommandType.Automation)
+def _toggle_object_load_capture(_connection=None):
+    indexed_manager.capture_load_times = not indexed_manager.capture_load_times

@@ -4,14 +4,13 @@ from event_testing.results import TestResult
 from interactions import ParticipantType
 from interactions.base.super_interaction import SuperInteraction
 from interactions.base.tuningless_interaction import create_tuningless_superinteraction
-from interactions.constraints import Anywhere, Nowhere, Constraint, build_weighted_cone
+from interactions.constraints import Constraint, build_weighted_cone, WaterDepthIntervals, OceanStartLocationConstraint, ANYWHERE, Nowhere
 from interactions.utils.routing import PlanRoute
 from objects.pools import pool_utils
 from sims4.collections import frozendict
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.utils import flexmethod, classproperty
 from singletons import DEFAULT
-import build_buy
 import element_utils
 import interactions
 import routing
@@ -54,7 +53,7 @@ class SitOrStandSuperInteraction(SuperInteraction):
     @flexmethod
     def constraint_intersection(cls, inst, sim=DEFAULT, participant_type=ParticipantType.Actor, **kwargs):
         if inst is None or participant_type != ParticipantType.Actor or inst._constraint_to_satisfy is None:
-            return Anywhere()
+            return ANYWHERE
         if inst._constraint_to_satisfy is not DEFAULT:
             return inst._constraint_to_satisfy
         if sim is DEFAULT:
@@ -90,29 +89,6 @@ class ForceSatisfyConstraintSuperInteraction(SatisfyConstraintSuperInteraction):
 
 create_tuningless_superinteraction(ForceSatisfyConstraintSuperInteraction)
 
-class GetOutOfPoolSuperInteraction(SitOrStandSuperInteraction):
-    PERIMETER_WIDTH = 2.0
-
-    def __init__(self, aop, context, *args, constraint_to_satisfy=DEFAULT, run_element=None, is_adjustment_interaction=False, **kwargs):
-        if constraint_to_satisfy is not DEFAULT:
-            raise ValueError('Cannot specify a constraint to satisfy.')
-        constraint_to_satisfy = self._get_constraint(context.sim)
-        super().__init__(aop, context, *args, constraint_to_satisfy=constraint_to_satisfy, **kwargs)
-
-    @classmethod
-    def _test(cls, *args, **kwargs):
-        return super(SitOrStandSuperInteraction, cls)._test(*args, **kwargs)
-
-    def _get_constraint(self, sim):
-        sim_block_id = sim.block_id
-        for pool in pool_utils.get_main_pool_objects_gen():
-            if pool.block_id == sim_block_id:
-                break
-        else:
-            logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
-            return Anywhere()
-        return pool.get_edge_constraint(constraint_width=self.PERIMETER_WIDTH)
-
 class ExitMobilePostureSuperInteraction(SuperInteraction):
     PERIMETER_WIDTH = 2.0
 
@@ -131,37 +107,17 @@ class ExitMobilePostureSuperInteraction(SuperInteraction):
 
     @classmethod
     def _get_exit_mobile_posture_constraint(cls, sim, participant_type=ParticipantType.Actor):
-        zone_id = services.current_zone_id()
-        if build_buy.is_location_pool(zone_id, sim.position, sim.level):
-            return cls._get_pool_constraint(sim)
+        posture_graph_service = services.current_zone().posture_graph_service
+        posture_obj = posture_graph_service.get_compatible_mobile_posture_target(sim)
+        if posture_obj is not None:
+            return posture_obj.get_edge_constraint(sim=sim)
         else:
-            posture_graph_service = services.current_zone().posture_graph_service
-            compatible_postures_and_targets = posture_graph_service.get_compatible_mobile_postures_and_targets(sim)
-            if compatible_postures_and_targets:
-                for (obj, compatible_postures) in compatible_postures_and_targets.items():
-                    posture_obj = obj
-                    if sim.posture_state is None or sim.posture_state.body.posture_type in compatible_postures:
-                        break
-                return posture_obj.get_edge_constraint()
-            else:
-                return STAND_AT_NONE_CONSTRAINT
-        return STAND_AT_NONE_CONSTRAINT
-
-    @classmethod
-    def _get_pool_constraint(cls, sim):
-        sim_block_id = sim.block_id
-        for pool in pool_utils.get_main_pool_objects_gen():
-            if pool.block_id == sim_block_id:
-                break
-        else:
-            logger.error("Attempt to get out of a pool when the Sim's block ID doesn't match any pool's block ID. \n    Sim block ID = {}\n    Sim: {}", sim_block_id, sim, owner='bhill')
-            return Anywhere()
-        return pool.get_edge_constraint(constraint_width=cls.PERIMETER_WIDTH)
+            return STAND_AT_NONE_CONSTRAINT
 
     @flexmethod
     def constraint_intersection(cls, inst, sim=DEFAULT, participant_type=ParticipantType.Actor, **kwargs):
         if participant_type != ParticipantType.Actor:
-            return Anywhere()
+            return ANYWHERE
         inst_or_cls = inst if inst is not None else cls
         if sim is DEFAULT:
             sim = inst_or_cls.get_participant(participant_type)

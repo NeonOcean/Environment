@@ -1,14 +1,17 @@
-from protocolbuffers import FileSerialization_pb2
 import weakref
+from protocolbuffers import FileSerialization_pb2
+import sims4.log
 from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT
+from interactions.constraints import Constraint
 from objects.components import componentmethod, types
 from objects.components.inventory import InventoryComponent
 from objects.components.inventory_enums import InventoryType
 from objects.components.inventory_item import InventoryItemComponent
 from objects.mixins import ProvidedAffordanceData, AffordanceCacheMixin
 from objects.object_enums import ItemLocation
+from postures.posture_state_spec import create_body_posture_state_spec
+from sims.sim_info_types import Species
 import services
-import sims4.log
 logger = sims4.log.Logger('Inventory', default_owner='tingyul')
 
 class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_name=types.INVENTORY_COMPONENT):
@@ -17,6 +20,7 @@ class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_
         super().__init__(*args, **kwargs)
         self._shelved_objects = None
         self._object_providing_affordances = None
+        self._vehicle_objects = None
 
     @property
     def inventory_type(self):
@@ -28,6 +32,14 @@ class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_
 
     @componentmethod
     def get_inventory_access_constraint(self, sim, is_put, carry_target, use_owner_as_target_for_resolver=False):
+        carry_posture = self.owner.posture_state.get_carry_posture(carry_target)
+        if carry_posture is not None:
+            posture_manifest = carry_posture.get_provided_postures(species=sim.species)
+            if sim.species != Species.DOG:
+                posture_manifest = posture_manifest.__class__(e for e in posture_manifest if e.specific != 'swim')
+            posture_manifest = posture_manifest.replace_actor(for_actor=self.owner)
+            posture_state_spec = create_body_posture_state_spec(posture_manifest)
+            return Constraint(posture_state_spec=posture_state_spec)
         return STAND_OR_SIT_CONSTRAINT
 
     @componentmethod
@@ -118,6 +130,21 @@ class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_
             if not self._object_providing_affordances:
                 self._object_providing_affordances = None
             self.update_affordance_caches()
+
+    def vehicle_objects_gen(self):
+        if self._vehicle_objects is not None:
+            yield from self._vehicle_objects
+
+    def add_vehicle_object(self, obj):
+        if self._vehicle_objects is None:
+            self._vehicle_objects = weakref.WeakSet()
+        self._vehicle_objects.add(obj)
+
+    def remove_vehicle_object(self, obj):
+        if self._vehicle_objects is not None:
+            self._vehicle_objects.remove(obj)
+            if not self._vehicle_objects:
+                self._vehicle_objects = None
 
     def _should_create_object(self, definition_id):
         if self.owner.household.id == services.active_household_id():

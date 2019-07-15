@@ -72,14 +72,15 @@ class NarrativeService(Service):
         save_slot_data.gameplay_data.narrative_service = narrative_proto
 
     def on_zone_load(self):
-        startup_narratives = set(self.INITIAL_NARRATIVES)
-        startup_narratives -= self._active_narratives.keys() | self._completed_narratives
-        for narrative_to_start in startup_narratives:
-            self._active_narratives[narrative_to_start] = narrative_to_start()
-            self._send_narrative_start_telemetry(narrative_to_start)
-        self._setup_environment_settings(immediate=True)
-        for narrative_instance in self._active_narratives.values():
-            narrative_instance.on_zone_load()
+        with services.conditional_layer_service().defer_conditional_layer_event_processing():
+            startup_narratives = set(self.INITIAL_NARRATIVES)
+            startup_narratives -= self._active_narratives.keys() | self._completed_narratives
+            for narrative_to_start in startup_narratives:
+                self._active_narratives[narrative_to_start] = narrative_to_start()
+                self._send_narrative_start_telemetry(narrative_to_start)
+            self._handle_narrative_updates(custom_keys=startup_narratives, immediate=True)
+            for narrative_instance in self._active_narratives.values():
+                narrative_instance.on_zone_load()
 
     def should_suppress_travel_sting(self):
         return any(n.should_suppress_travel_sting for n in self._active_narratives.values())
@@ -91,9 +92,27 @@ class NarrativeService(Service):
     def active_narratives(self):
         return tuple(self._active_narratives)
 
+    def get_active_narrative_instances(self):
+        return self._active_narratives.items()
+
     @property
     def completed_narratives(self):
         return tuple(self._completed_narratives)
+
+    def handle_narrative_event_progression(self, event, amount):
+        narratives_to_end = set()
+        narratives_to_start = set()
+        for (narrative_cls, narrative_inst) in self._active_narratives.items():
+            linked_narratives_to_start = narrative_inst.apply_progression_for_event(event, amount)
+            if linked_narratives_to_start:
+                narratives_to_start.update(linked_narratives_to_start)
+                narratives_to_end.add(narrative_cls)
+        for end_narrative in narratives_to_end:
+            self.end_narrative(end_narrative, do_handle_updates=False)
+        for start_narrative in narratives_to_start:
+            self.start_narrative(start_narrative, do_handle_updates=False)
+        process_event_custom_keys = narratives_to_end.union(narratives_to_start)
+        self._handle_narrative_updates(custom_keys=process_event_custom_keys)
 
     def handle_narrative_event(self, event:NarrativeEvent):
         narratives_to_end = set()
@@ -107,25 +126,27 @@ class NarrativeService(Service):
             self.end_narrative(end_narrative, do_handle_updates=False)
         for start_narrative in narratives_to_start:
             self.start_narrative(start_narrative, do_handle_updates=False)
-        self._handle_narrative_updates()
+        process_event_custom_keys = narratives_to_end.union(narratives_to_start)
+        self._handle_narrative_updates(custom_keys=process_event_custom_keys)
 
     def start_narrative(self, narrative, do_handle_updates=True):
         if narrative in self._active_narratives:
             return
-        for active_narrative in tuple(self._active_narratives):
-            if active_narrative.narrative_groups & narrative.narrative_groups:
-                self.end_narrative(active_narrative)
-        narrative_instance = narrative()
-        narrative_instance.start()
-        self._active_narratives[narrative] = narrative_instance
-        self._send_narrative_start_telemetry(narrative)
-        if do_handle_updates:
-            self._handle_narrative_updates()
+        with services.conditional_layer_service().defer_conditional_layer_event_processing():
+            for active_narrative in tuple(self._active_narratives):
+                if active_narrative.narrative_groups & narrative.narrative_groups:
+                    self.end_narrative(active_narrative)
+            narrative_instance = narrative()
+            narrative_instance.start()
+            self._active_narratives[narrative] = narrative_instance
+            self._send_narrative_start_telemetry(narrative)
+            if do_handle_updates:
+                self._handle_narrative_updates(custom_keys=(narrative,))
 
-    def _handle_narrative_updates(self):
-        services.get_event_manager().process_event(TestEvent.NarrativesUpdated)
+    def _handle_narrative_updates(self, custom_keys=(), immediate=False):
+        services.get_event_manager().process_event(TestEvent.NarrativesUpdated, custom_keys=custom_keys)
         self._schedule_narrative_aware_object_updates()
-        self._setup_environment_settings()
+        self._setup_environment_settings(immediate=immediate)
 
     def _setup_environment_settings(self, immediate=False):
         start_time = services.time_service().sim_now
@@ -171,7 +192,7 @@ class NarrativeService(Service):
         del self._active_narratives[narrative]
         self._completed_narratives.add(narrative)
         if do_handle_updates:
-            self._handle_narrative_updates()
+            self._handle_narrative_updates(custom_keys=(narrative,))
 
     def reset_completion(self, narrative):
         self._completed_narratives.remove(narrative)

@@ -155,7 +155,8 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         current_initial_commodities = self._sim_info.get_initial_commodities()
         commodities_to_remove = previous_initial_commodities - current_initial_commodities
         for commodity_to_remove in commodities_to_remove:
-            commodity_to_remove.core = False
+            commodity_inst = self._sim_info.commodity_tracker.get_statistic(commodity_to_remove)
+            commodity_inst.core = False
             self._sim_info.commodity_tracker.remove_statistic(commodity_to_remove)
         commodities_to_add = current_initial_commodities - previous_initial_commodities
         for commodity_to_add in commodities_to_add:
@@ -173,7 +174,10 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         if initial_commodities_modified:
             self._update_initial_commodities(trait, previous_initial_commodities)
         if not trait.buffs_add_on_spawn_only or self._sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-            self._add_buffs(trait)
+            try:
+                self._add_buffs(trait)
+            except Exception as e:
+                logger.exception('Error adding buffs while adding trait: {0}. {1}.', trait.__name__, e, owner='asantos')
         self._add_vfx_mask(trait, send_op=not from_load)
         self._add_day_night_tracking(trait)
         self.update_trait_effects()

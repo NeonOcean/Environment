@@ -367,11 +367,6 @@ class WhimsTracker(SimInfoTracker):
         self._try_and_thrash_whims(whimset.activated_priority)
 
     def debug_activate_whim(self, whim):
-        sim = self._sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED)
-        pretest = whim.can_be_given_as_goal(sim, None)
-        if not pretest:
-            logger.error('Whim {} failed pre-tests: {}', whim, pretest.reason)
-            return
         whim_data = self._active_whims[0]
         if whim_data.whim is not None:
             self._remove_whim(whim_data.whim, TelemetryWhimEvents.CANCELED)

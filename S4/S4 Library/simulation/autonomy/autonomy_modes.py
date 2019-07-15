@@ -843,7 +843,7 @@ class FullAutonomy(_SuperInteractionAutonomy):
         if sim.is_player_active():
             return TestResult(False, 'Sim actively being played.')
         master = sim.routing_master
-        if master is not None:
+        if master is not None and master.is_sim:
             slave_data = master.get_formation_data_for_slave(sim)
             master_path = master.routing_component.current_path
             if master_path is not None and slave_data.should_slave_for_path(master_path):
@@ -22371,7 +22371,7 @@ class FullAutonomy(_SuperInteractionAutonomy):
         interaction_to_shutdown = None
         invalidate_interaction = True
         try:
-            if aop.target.parts is None and (interaction.target is None or interaction.target.parts is None) and not self._request.is_script_request:
+            if (aop.target is None or aop.target.parts is None) and (interaction.target is None or interaction.target.parts is None) and not self._request.is_script_request:
                 handler = interaction.get_interaction_reservation_handler(sim=self._sim)
                 if handler is not None and not handler.may_reserve():
                     if self._request.record_test_result is not None:

@@ -111,11 +111,9 @@ class Archiver(BaseArchiver):
         num_records = len(archive_list)
         if num_records > num_max_records:
             diff = num_records - num_max_records
-            archive_list = archive_list[diff:]
-            if self._sim_specific:
-                archive_data[self._type_name][object_id] = archive_list
-            else:
-                archive_data[self._type_name] = archive_list
+            while diff > 0:
+                del archive_list[0]
+                diff -= 1
 
 class ArchiveRecord:
     __slots__ = ('zone_id', 'object_id', 'timestamp', 'uid', 'compressed_json')

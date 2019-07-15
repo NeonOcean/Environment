@@ -406,8 +406,6 @@ class SetGoodbyeNotificationElement(XevtTriggeredElement):
     def _do_behavior(self):
         participants = self.interaction.get_participants(self.participant)
         for participant in participants:
-            if participant.sim_info.goodbye_notification == self.NEVER_USE_NOTIFICATION_NO_MATTER_WHAT:
-                continue
             if participant.sim_info.goodbye_notification is None and self.only_set_if_notification_already_set:
                 continue
-            participant.sim_info.goodbye_notification = self.goodbye_notification
+            participant.sim_info.try_to_set_goodbye_notification(self.goodbye_notification)

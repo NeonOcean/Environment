@@ -13,15 +13,15 @@ class HasDisplayTextMixin:
         else:
             self.__display_text = text
 
-    def get_display_text(self):
+    def get_display_text(self, resolver=None):
         if self.__display_text == self.TEXT_USE_DEFAULT:
-            return self._get_display_text()
+            return self._get_display_text(resolver=resolver)
         if self.__display_text == self.TEXT_NONE:
             return
-        return self.__display_text(*self._get_display_text_tokens())
+        return self.__display_text(*self._get_display_text_tokens(resolver=resolver))
 
-    def _get_display_text(self):
+    def _get_display_text(self, resolver=None):
         pass
 
-    def _get_display_text_tokens(self):
+    def _get_display_text_tokens(self, resolver=None):
         return ()

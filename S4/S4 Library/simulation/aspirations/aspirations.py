@@ -98,7 +98,7 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
         if not super()._should_handle_event(milestone, event, resolver):
             return False
         aspiration = milestone
-        if aspiration.aspiration_type == AspriationType.FULL_ASPIRATION and aspiration.complete_only_in_sequence:
+        if aspiration.aspiration_type == AspriationType.FULL_ASPIRATION and aspiration.do_not_register_events_on_load:
             return self.aspiration_in_sequence(aspiration)
         if aspiration.aspiration_type == AspriationType.TIMED_ASPIRATION:
             return aspiration in self._timed_aspirations

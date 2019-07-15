@@ -173,7 +173,7 @@ class Club:
             return False
         if not venue_type.allowed_for_clubs:
             return False
-        if venue_type.residential:
+        if venue_type.is_residential:
             zone_data = persistence_service.get_zone_proto_buff(zone_id)
             if zone_data is None:
                 return False
@@ -709,3 +709,6 @@ class Club:
     def populate_localization_token(self, token):
         token.type = LocalizedStringToken.STRING
         token.text_string = self.name
+
+    def has_members(self):
+        return len(self.members) > 0

@@ -1,7 +1,12 @@
+import itertools
 from _collections import defaultdict
 from contextlib import contextmanager
 from protocolbuffers import GameplaySaveData_pb2
+from protocolbuffers.DistributorOps_pb2 import Operation
+from protocolbuffers.UI_pb2 import HovertipCreated
+from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
+from distributor.system import Distributor
 from event_testing.resolver import DoubleSimResolver
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
 from relationships.relationship import Relationship
@@ -129,6 +134,7 @@ class RelationshipService(Service):
         self._create_relationship_callbacks = defaultdict(CallableList)
         self._suppress_client_updates = False
         self._legacy_relationship_data_storage = defaultdict(dict)
+        self._pre_on_all_households_and_sim_infos_loaded = True
 
     def __iter__(self):
         yield from self._relationships.values()
@@ -174,7 +180,6 @@ class RelationshipService(Service):
                     self.destroy_relationship(relationship_msg.sim_id_a, relationship_msg.sim_id_b)
             for relationship_msg in save_slot_data_msg.gameplay_data.relationship_service.object_relationships:
                 try:
-                    member_obj_def = relationship_msg.sim_id_b
                     relationship = self._find_object_relationship(relationship_msg.sim_id_a, None, target_def_id=relationship_msg.sim_id_b, from_load=True, create=True)
                     relationship.load_object_relationship(relationship_msg)
                 except:
@@ -250,6 +255,7 @@ class RelationshipService(Service):
     def on_all_households_and_sim_infos_loaded(self, client):
         self._process_legacy_relationship_data()
         sim_info_manager = services.sim_info_manager()
+        self._pre_on_all_households_and_sim_infos_loaded = False
         for (sim_ids, relationship) in tuple(self._relationships.items()):
             sim_id_a = sim_ids[0]
             sim_id_b = sim_ids[1]
@@ -261,10 +267,10 @@ class RelationshipService(Service):
                 logger.error('Rel Tracker found/deleted a rel with a Min LOD between Sim A: {} Sim B: {}', sim_info_a, sim_info_b)
                 self.destroy_relationship(sim_id_a, sim_id_b, notify_client=False)
             else:
-                if not sim_info_a.is_player_sim:
-                    if sim_info_b.is_player_sim:
-                        relationship.enable_player_sim_track_decay()
-                relationship.enable_player_sim_track_decay()
+                if sim_info_a.is_player_sim or sim_info_b.is_player_sim:
+                    relationship.enable_player_sim_track_decay()
+                relationship.relationship_track_tracker.set_callback_alarm_calculation_supression(False)
+        self._add_neighbor_bits()
 
     def on_sim_creation(self, sim):
         for relationship in self._sim_relationships[sim.sim_id]:
@@ -411,11 +417,13 @@ class RelationshipService(Service):
                             gender_preference_statistic.set_value(gender_preference_statistic.max_value)
             logger.info('Set default tracks {:25} -> {:25} as {}', sim_info_a.full_name, sim_info_b.full_name, key)
 
-    def add_relationship_bit(self, actor_sim_id:int, target_sim_id:int, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True):
+    def add_relationship_bit(self, actor_sim_id:int, target_sim_id:int, bit_to_add, force_add=False, from_load=False, send_rel_change_event=True, allow_readdition=True):
         if not self._validate_bit(bit_to_add, actor_sim_id, target_sim_id):
             return
         relationship = self._find_relationship(actor_sim_id, target_sim_id, True)
         if not relationship:
+            return
+        if not allow_readdition and relationship.has_bit(actor_sim_id, bit_to_add):
             return
         relationship.add_relationship_bit(actor_sim_id, target_sim_id, bit_to_add, force_add=force_add, from_load=from_load, send_rel_change_event=send_rel_change_event)
 
@@ -500,9 +508,25 @@ class RelationshipService(Service):
         if relationship is not None:
             relationship.add_relationship_appropriateness_buffs(actor_sim_id)
 
-    def add_neighbor_bit_if_necessary(self, sim_id):
-        for relationship in self._get_relationships_for_sim(sim_id):
-            relationship.add_neighbor_bit_if_necessary()
+    def _add_neighbor_bits(self):
+        world_to_households = defaultdict(list)
+        persistence_service = services.get_persistence_service()
+        for household in services.household_manager().values():
+            home_zone_id = household.home_zone_id
+            if home_zone_id != 0:
+                sim_home_zone_proto_buffer = persistence_service.get_zone_proto_buff(home_zone_id)
+                if sim_home_zone_proto_buffer is None:
+                    logger.error('Invalid zone protocol buffer in RelationshipService._add_neighbor_bits() for {}', household)
+                else:
+                    world_to_households[sim_home_zone_proto_buffer.world_id].append(household)
+        for households in world_to_households.values():
+            for (household_a, household_b) in itertools.combinations(households, 2):
+                for (sim_info_a, sim_info_b) in itertools.product(household_a, household_b):
+                    sim_info_id_a = sim_info_a.id
+                    sim_info_id_b = sim_info_b.id
+                    relationship = self._find_relationship(sim_info_id_a, sim_info_id_b)
+                    if relationship is not None:
+                        relationship.add_relationship_bit(sim_info_id_a, sim_info_id_b, RelationshipGlobalTuning.NEIGHBOR_RELATIONSHIP_BIT, notify_client=False, send_rel_change_event=False)
 
     def get_knowledge(self, actor_sim_id, target_sim_id:int, initialize=False):
         relationship = self._find_relationship(actor_sim_id, target_sim_id, create=initialize)
@@ -568,6 +592,8 @@ class RelationshipService(Service):
             else:
                 logger.debug('Creating relationship for {0} and {1}', sim_id_a, sim_id_b)
                 relationship = Relationship(sim_id_a, sim_id_b)
+                if self._pre_on_all_households_and_sim_infos_loaded:
+                    relationship.relationship_track_tracker.set_callback_alarm_calculation_supression(True)
                 self._relationships[key] = relationship
                 self._sim_relationships[sim_id_a].append(relationship)
                 self._sim_relationships[sim_id_b].append(relationship)
@@ -750,6 +776,18 @@ class RelationshipService(Service):
             return
         return relationship.get_relationship_bit_lock(sim_id_a, relationship_bit_lock)
 
+    def update_object_type_name(self, name, sim_id_a, object_id_b, name_override_obj):
+        name_override_obj.add_ui_metadata('custom_name', name)
+        name_override_obj.update_ui_metadata()
+        hovertip_created_msg = HovertipCreated()
+        Distributor.instance().add_op(name_override_obj, GenericProtocolBufferOp(Operation.HOVERTIP_CREATED, hovertip_created_msg))
+        obj_tag_set = self.get_mapped_tag_set_of_id(object_id_b)
+        object_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
+        if not object_relationship:
+            return
+        object_relationship.set_object_rel_name(name)
+        object_relationship.send_object_relationship_info()
+
     def has_object_relationship_track(self, sim_id_a, obj_tag_set, relationship_track):
         obj_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
         if obj_relationship is None:
@@ -897,11 +935,18 @@ class RelationshipService(Service):
         obj_tag_set = self._def_id_to_tag_set_map.get(obj.definition.id, None)
         if obj_tag_set is None:
             return object_rel_override_id
+        active_sim = services.get_active_sim()
+        if active_sim is None:
+            return object_rel_override_id
         key = (services.get_active_sim().id, obj_tag_set)
         object_relationship = self._object_relationships.get(key, None)
         if object_relationship is not None:
             object_rel_override_id = object_relationship._target_object_instance_id
         return object_rel_override_id
+
+    def get_object_relationship(self, sim_id, obj_tag_set):
+        key = (sim_id, obj_tag_set)
+        return self._object_relationships.get(key)
 
     def _create_object_relationship(self, sim_id_a, obj_tag_set, target_def_id:int, from_load=False):
         defs_in_set = list(services.definition_manager().get_definitions_for_tags_gen(obj_tag_set.tags))

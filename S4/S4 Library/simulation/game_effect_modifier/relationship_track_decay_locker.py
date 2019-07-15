@@ -10,7 +10,7 @@ class RelationshipTrackDecayLocker(HasTunableSingletonFactory, BaseGameEffectMod
     tunable = (TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',)),)
 
     def __init__(self, relationship_track, **kwargs):
-        BaseGameEffectModifier.__init__(self, GameEffectType.RELATIONSHIP_TRACK_DECAY_LOCKER, **kwargs)
+        super().__init__(GameEffectType.RELATIONSHIP_TRACK_DECAY_LOCKER)
         self._track_type = relationship_track
 
     def apply_modifier(self, sim_info):

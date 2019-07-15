@@ -156,8 +156,8 @@ class RoutingFormationBehavior(HasTunableFactory, AutoFactoryInit):
     def slave(self):
         return self._slave
 
-    def handle_event(self, sim_info, event_type, *args, **kwargs):
-        if self.master.sim_info is not sim_info:
+    def handle_event(self, actor, event_type, *args, **kwargs):
+        if self.master is not actor:
             return
         for trigger in self._triggers:
             if event_type in trigger.get_events():

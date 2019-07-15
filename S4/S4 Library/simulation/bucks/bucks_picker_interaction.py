@@ -2,11 +2,12 @@ from bucks.bucks_enums import BucksType
 from bucks.bucks_utils import BucksUtils
 from interactions import ParticipantTypeSingleSim
 from interactions.base.picker_interaction import PickerSuperInteraction
-from interactions.utils.tunable import TunableContinuation
+from sims4.localization import LocalizationHelperTuning
 from sims4.tuning.tunable import Tunable, TunableEnumEntry, TunableList
-from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
 from ui.ui_dialog_picker import ObjectPickerRow
+from interactions.utils.tunable import TunableContinuation
+from sims4.tuning.tunable_base import GroupNames
 
 class BucksPerkPickerSuperInteraction(PickerSuperInteraction):
     INSTANCE_TUNABLES = {'is_add': Tunable(description='\n            If this interaction is trying to add a bucks perk to the sim or to\n            remove a bucks perk from the sim.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.PICKERTUNING), 'bucks_type': TunableEnumEntry(description='\n            The type of Bucks required to unlock/lock this perk.\n            ', tunable_type=BucksType, default=BucksType.INVALID, pack_safe=True, invalid_enums=(BucksType.INVALID,), tuning_group=GroupNames.PICKERTUNING), 'continuations': TunableList(description='\n            List of continuations to push if a buff is actually selected.\n            ', tunable=TunableContinuation(), tuning_group=GroupNames.PICKERTUNING), 'subject': TunableEnumEntry(description='\n            From whom the BucksPerks should be added/removed.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.TargetSim, tuning_group=GroupNames.PICKERTUNING)}

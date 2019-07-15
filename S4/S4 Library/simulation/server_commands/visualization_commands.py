@@ -14,8 +14,10 @@ from visualization.constraint_visualizer import SimConstraintVisualizer, SimLOSV
 from visualization.ensemble_visualizer import EnsembleVisualizer
 from visualization.formation_visualizer import RoutingFormationVisualizer
 from visualization.jig_visualizer import JigVisualizer
+from visualization.locator_visualizer import LocatorVisualizer
 from visualization.mood_visualizer import MoodVisualizer
 from visualization.path_goal_visualizer import PathGoalVisualizer
+from visualization.portal_visualizer import PortalVisualizer
 from visualization.quad_tree_visualizer import QuadTreeVisualizer
 from visualization.sim_position_visualizer import SimPositionVisualizer
 from visualization.social_group_visualizer import SocialGroupVisualizer
@@ -25,6 +27,7 @@ from visualization.transition_path_visualizer import ShortestTransitionPathVisua
 import indexed_manager
 import objects.components
 import postures.posture
+import routing.waypoints
 import routing
 import services
 import sims.sim
@@ -50,6 +53,9 @@ with sims4.reload.protected(globals()):
     _autonomy_timer_visualizers = {}
     _draw_visualizers = {}
     _ensemble_visualizers = {}
+    _locator_visualizers = {}
+    _portal_visualizers = {}
+    _waypoint_visualizers = {}
     _all_mood_visualization_enabled = set()
     _all_autonomy_timer_visualization_enabled = set()
 
@@ -156,6 +162,18 @@ def _stop_all_sim_visualizer(_connection, container):
     for handle in tuple(container):
         vis_name = handle[1]
         _stop_visualizer(_connection, vis_name, container, handle)
+
+@sims4.commands.Command('debugvis.waypoints.start', command_type=sims4.commands.CommandType.Automation)
+def debugvis_waypoints_start(_connection=None):
+    routing.waypoints.waypoint_generator.enable_waypoint_visualization = True
+    sims4.commands.client_cheat('debugvis.layer.enable {}'.format(routing.waypoints.waypoint_generator.DEBUGVIS_WAYPOINT_LAYER_NAME), _connection)
+    sims4.commands.output('Waypoint Visualization Enabled', _connection)
+
+@sims4.commands.Command('debugvis.waypoints.stop', command_type=sims4.commands.CommandType.Automation)
+def debugvis_waypoints_stop(_connection=None):
+    routing.waypoints.waypoint_generator.enable_waypoint_visualization = False
+    sims4.commands.client_cheat('debugvis.layer.disable {}'.format(routing.waypoints.waypoint_generator.DEBUGVIS_WAYPOINT_LAYER_NAME), _connection)
+    sims4.commands.output('Waypoint Visualization Disabled', _connection)
 
 @sims4.commands.Command('debugvis.socials.start')
 def debugvis_socials_start(opt_sim:OptionalTargetParam=None, _connection=None):
@@ -281,6 +299,51 @@ def debugvis_spawn_points_start(_connection=None):
 @sims4.commands.Command('debugvis.spawn_points.stop', command_type=sims4.commands.CommandType.Automation)
 def debugvis_spawn_points_stop(_connection=None):
     if not _stop_visualizer(_connection, 'spawn_points', _spawn_point_visualizers, 0):
+        return 0
+    return 1
+
+LOCATOR_VIS_NAME = 'locators'
+
+@sims4.commands.Command('debugvis.locators.start', command_type=sims4.commands.CommandType.Automation)
+def debugvis_locators_start(_connection=None):
+    handle = 0
+    layer = _create_layer(LOCATOR_VIS_NAME, handle)
+    visualizer = LocatorVisualizer(layer)
+    sims4.commands.output('Locator Visualization Enabled', _connection)
+    if not _start_visualizer(_connection, LOCATOR_VIS_NAME, _locator_visualizers, handle, visualizer, layer=layer):
+        return 0
+    return 1
+
+@sims4.commands.Command('debugvis.locators.stop', command_type=sims4.commands.CommandType.Automation)
+def debugvis_locators_stop(_connection=None):
+    sims4.commands.output('Locator Visualization Disabled', _connection)
+    if not _stop_visualizer(_connection, LOCATOR_VIS_NAME, _locator_visualizers, 0):
+        return 0
+    return 1
+
+PORTAL_VIS_NAME = 'portals'
+
+@sims4.commands.Command('debugvis.portals.start', command_type=sims4.commands.CommandType.Automation)
+def debugvis_portals_start(portal_obj_id:int=0, there_id:int=0, back_id:int=0, _connection=None):
+    handle = portal_obj_id
+    portal_id = there_id or back_id
+    if handle:
+        _stop_visualizer(_connection, PORTAL_VIS_NAME, _portal_visualizers, handle)
+    layer = _create_layer(PORTAL_VIS_NAME, handle)
+    visualizer = PortalVisualizer(layer, portal_obj_id=portal_obj_id, portal_id=portal_id)
+    sims4.commands.output('Portal Visualization Enabled', _connection)
+    if not _start_visualizer(_connection, LOCATOR_VIS_NAME, _portal_visualizers, handle, visualizer, layer=layer):
+        return 0
+    return 1
+
+@sims4.commands.Command('debugvis.portals.stop', command_type=sims4.commands.CommandType.Automation)
+def debugvis_portals_stop(portal_obj_id:int=0, _connection=None):
+    sims4.commands.output('Portal Visualization Disabled', _connection)
+    if not portal_obj_id:
+        handles = [handle for handle in _portal_visualizers]
+        for handle in handles:
+            _stop_visualizer(_connection, PORTAL_VIS_NAME, _portal_visualizers, handle)
+    if not _stop_visualizer(_connection, PORTAL_VIS_NAME, _portal_visualizers, portal_obj_id):
         return 0
     return 1
 
@@ -519,23 +582,6 @@ def debugvis_transition_constraints_start(_connection=None):
 @sims4.commands.Command('debugvis.transitions.stop')
 def debugvis_transition_constraints_stop(_connection=None):
     if not _stop_visualizer(_connection, 'transitions', _constraint_layer_visualizers, 0):
-        return 0
-    return 1
-
-SURFACE_PORTAL_VIZ_NAME = 'surface_portals'
-
-@sims4.commands.Command('debugvis.visualize_portals.start', command_type=sims4.commands.CommandType.Automation)
-def debugvis_surface_portals_start(_connection=None):
-    handle = 0
-    layer = _create_layer(SURFACE_PORTAL_VIZ_NAME, handle)
-    visualizer = SurfacePortalVisualizer(layer)
-    if not _start_visualizer(_connection, SURFACE_PORTAL_VIZ_NAME, _constraint_layer_visualizers, handle, visualizer, layer=layer):
-        return 0
-    return 1
-
-@sims4.commands.Command('debugvis.visualize_portals.stop')
-def debugvis_surface_portals_stop(_connection=None):
-    if not _stop_visualizer(_connection, SURFACE_PORTAL_VIZ_NAME, _constraint_layer_visualizers, 0):
         return 0
     return 1
 

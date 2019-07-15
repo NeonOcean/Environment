@@ -75,6 +75,9 @@ class CareerLootOp(BaseLootOperation):
         if subject is None:
             return
         for career in self._get_careers(subject, resolver):
+            if not career is None:
+                if career.is_visible_career:
+                    self._apply_to_career(subject, career, resolver)
             self._apply_to_career(subject, career, resolver)
 
     def _apply_to_career(self, sim_info, career, resolver):

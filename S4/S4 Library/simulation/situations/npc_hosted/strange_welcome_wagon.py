@@ -91,6 +91,10 @@ class StrangePreWelcomeWagon(SituationComplexCommon):
         if self._fruitcake_id is not None:
             writer.write_uint64(FRUITCAKE_TOKEN, self._fruitcake_id)
 
+    @property
+    def _bearer_recipes(self):
+        return (self._fruitcake_recipe,)
+
     def start_situation(self):
         super().start_situation()
         if services.get_door_service().has_front_door():

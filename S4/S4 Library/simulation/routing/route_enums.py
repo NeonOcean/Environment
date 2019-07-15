@@ -2,8 +2,8 @@ from sims4.tuning.dynamic_enum import DynamicEnum
 import enum
 
 class RouteEventType(enum.Int, export=False):
-    BUFF_REPEAT = 1
-    BUFF_SINGLE = 2
+    LOW_REPEAT = 1
+    LOW_SINGLE = 2
     BROADCASTER = 3
     INTERACTION_PRE = 4
     INTERACTION_POST = 5

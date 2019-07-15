@@ -167,7 +167,7 @@ class TunableOutfitChange(TunableVariant):
                 if outfit_change_reason is not None:
                     return sim_info.get_outfit_change(interaction, outfit_change_reason, do_spin=do_spin, **kwargs)
             (category, index) = self.on_entry.outfit_to_modify(sim_info, self.on_entry.generator)
-            return build_critical_section(sim_info.get_change_outfit_element((category, index), do_spin=do_spin, interaction=interaction, **kwargs), flush_all_animations)
+            return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason((category, index), do_spin=do_spin, interaction=interaction, change_reason=interaction, **kwargs), flush_all_animations)
 
         def get_on_exit_change(self, interaction, sim_info=DEFAULT, **kwargs):
             sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info
@@ -179,7 +179,7 @@ class TunableOutfitChange(TunableVariant):
                     return
                 else:
                     (category, index) = choice.outfit_to_modify(sim_info, choice.generator)
-                    return build_critical_section(sim_info.get_change_outfit_element((category, index), interaction=interaction, **kwargs), flush_all_animations)
+                    return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason((category, index), interaction=interaction, change_reason=interaction, **kwargs), flush_all_animations)
 
         def choose_on_exit_clothing_change(self, sim_info):
             resolver = SingleSimResolver(sim_info)
@@ -242,7 +242,7 @@ class TunableOutfitChange(TunableVariant):
             outfit = self._get_outfit(interaction)
             if outfit is not None:
                 sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info
-                return build_critical_section(sim_info.get_change_outfit_element(outfit, interaction=interaction, **kwargs), flush_all_animations)
+                return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason(outfit, interaction=interaction, change_reason=interaction, **kwargs), flush_all_animations)
 
         def has_entry_change(self, interaction, **kwargs):
             return self.timing.is_entry_change
@@ -300,13 +300,13 @@ class TunableOutfitChange(TunableVariant):
                     return sim_info.get_outfit_change(interaction, outfit_change_reason, **kwargs)
             outfit_change = self._get_outfit_change_internal(interaction, sim_info)
             if outfit_change is not None:
-                return build_critical_section(sim_info.get_change_outfit_element(outfit_change.entry_outfit, interaction=interaction, **kwargs), flush_all_animations)
+                return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason(outfit_change.entry_outfit, interaction=interaction, change_reason=interaction, **kwargs), flush_all_animations)
 
         def get_on_exit_change(self, interaction, sim_info=DEFAULT, **kwargs):
             sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info
             outfit_change = self._get_outfit_change_internal(interaction, sim_info)
             if outfit_change is not None:
-                return build_critical_section(sim_info.get_change_outfit_element(outfit_change.exit_outfit, interaction=interaction, **kwargs), flush_all_animations)
+                return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason(outfit_change.exit_outfit, interaction=interaction, change_reason=interaction, **kwargs), flush_all_animations)
 
         def get_on_entry_outfit(self, interaction, sim_info=DEFAULT):
             sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info

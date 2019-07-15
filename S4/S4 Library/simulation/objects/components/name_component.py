@@ -85,11 +85,13 @@ class NameComponent(Component, HasTunableFactory, component_name=types.NAME_COMP
         return False
 
     @componentmethod
-    def set_custom_name(self, name):
+    def set_custom_name(self, name, actor_sim_id=None):
         if self.allow_name:
             self.owner.custom_name = name if name else None
             if isinstance(self.owner, ClientObjectMixin):
                 self.owner.update_tooltip_field(TooltipFieldsComplete.custom_name, name, priority=NAME_COMPONENT_TOOLTIP_PRIORITY, should_update=True)
+            if actor_sim_id is not None and services.relationship_service().get_mapped_tag_set_of_id(self.owner.definition.id):
+                services.relationship_service().update_object_type_name(name, actor_sim_id, self.owner.definition.id, self.owner)
             self._call_name_changed_callback()
             return True
         return False
@@ -220,3 +222,21 @@ class TransferNameLootOp(BaseTargetedLootOperation):
                 target_name_component.set_custom_description(subject.custom_description)
                 if self._clear_subject_description:
                     subject_name_component.remove_custom_description()
+
+class SetNameFromObjectRelationship(BaseTargetedLootOperation):
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        ownable_component = target.get_component(types.OWNABLE_COMPONENT)
+        name_component = target.get_component(types.NAME_COMPONENT)
+        if ownable_component is not None and name_component is not None:
+            sim_owner_id = ownable_component.get_sim_owner_id()
+            obj_def_id = target.definition.id
+            relationship_service = services.relationship_service()
+            obj_tag_set = relationship_service.get_mapped_tag_set_of_id(obj_def_id)
+            if obj_tag_set is not None:
+                obj_relationship = relationship_service.get_object_relationship(sim_owner_id, obj_tag_set)
+                if obj_relationship is not None and obj_relationship.get_object_rel_name() is not None:
+                    name_component.set_custom_name(obj_relationship.get_object_rel_name())
+        else:
+            logger.error('Target {} needs to have both ownable and name components. Please fix {} in tuning.', target, self)
+            return

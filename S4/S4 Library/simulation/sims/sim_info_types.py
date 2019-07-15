@@ -101,6 +101,16 @@ class Age(enum.Int):
     def get_age_from_animation_param(age):
         return Age(age.upper())
 
+    @staticmethod
+    def get_portal_flag(value):
+        if value == Age.TODDLER:
+            return PortalFlags.AGE_TODDLER
+        if value == Age.CHILD:
+            return PortalFlags.AGE_CHILD
+        if value in (Age.TEEN, Age.YOUNGADULT, Age.ADULT, Age.ELDER):
+            return PortalFlags.AGE_TYAE
+        return PortalFlags.DEFAULT
+
 class SimInfoSpawnerTags:
     SIM_SPAWNER_TAGS = TunableList(description='\n        A list of tags for Sims to spawn when traveling and moving on/off lot.\n        Note: Tags are resolved in order until a spawn point has been found that\n        contains the tag.\n        ', tunable=TunableEnumEntry(tunable_type=Tag, default=Tag.INVALID))
 

@@ -9,6 +9,16 @@ class WhiteBlackList:
         self._whitelist = whitelist
         self._blacklist = blacklist
 
+    def get_items(self):
+        items = set()
+        if self._whitelist:
+            for item in self._whitelist.get_items():
+                items.add(item)
+        if self._blacklist:
+            for item in self._blacklist.get_items():
+                items.add(item)
+        return items
+
     def test_collection(self, items):
         if self._whitelist is not None and not self._whitelist.test_collection(items):
             return False

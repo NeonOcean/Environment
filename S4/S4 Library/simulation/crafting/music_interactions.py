@@ -6,11 +6,11 @@ from element_utils import build_critical_section_with_finally
 from event_testing.resolver import SingleSimResolver
 from interactions import ParticipantTypeSingle
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import CancelInteractionsOnExitLiability, CANCEL_INTERACTION_ON_EXIT_LIABILITY
 from interactions.base.mixer_interaction import MixerInteraction
 from interactions.base.super_interaction import SuperInteraction
 from interactions.interaction_finisher import FinishingType
 from interactions.social.social_super_interaction import SocialSuperInteraction
+from interactions.utils.interaction_liabilities import CANCEL_INTERACTION_ON_EXIT_LIABILITY, CancelInteractionsOnExitLiability
 from objects import ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED
 from sims4.tuning.tunable import Tunable, TunableList, TunableReference, TunableEnumEntry, OptionalTunable
 from sims4.utils import flexmethod, classproperty

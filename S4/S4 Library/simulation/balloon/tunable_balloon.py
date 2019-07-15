@@ -3,7 +3,8 @@ from balloon.balloon_enums import BALLOON_TYPE_LOOKUP
 from balloon.balloon_request import BalloonRequest
 from balloon.balloon_variant import BalloonVariant
 from interactions import ParticipantType
-from sims4.tuning.tunable import TunableFactory, Tunable, TunableEnumFlags, TunableList, TunableRange, TunablePercent
+from sims4.tuning.geometric import TunableVector3
+from sims4.tuning.tunable import TunableFactory, Tunable, TunableEnumFlags, TunableList, TunableRange, TunablePercent, OptionalTunable
 import gsi_handlers
 import sims4.log
 logger = sims4.log.Logger('Balloons')
@@ -14,7 +15,7 @@ class TunableBalloon(TunableFactory):
     BALLOON_DURATION = Tunable(description='\n        The duration, in seconds, that a balloon should last.\n        ', tunable_type=float, default=3.0)
 
     @staticmethod
-    def factory(interaction, balloon_target, balloon_choices, balloon_delay, balloon_delay_random_offset, balloon_chance, used_sim_set=None, balloon_target_override=None, sequence=None, **kwargs):
+    def factory(interaction, balloon_target, balloon_choices, balloon_delay, balloon_delay_random_offset, balloon_chance, balloon_view_offset, used_sim_set=None, balloon_target_override=None, sequence=None, **kwargs):
         balloon_requests = []
         if interaction is None:
             return balloon_requests
@@ -50,7 +51,7 @@ class TunableBalloon(TunableFactory):
                             continue
                         (balloon_type, priority) = BALLOON_TYPE_LOOKUP[balloon_icon.balloon_type]
                         balloon_overlay = balloon_icon.overlay
-                        request = BalloonRequest(sim, icon_info[0], icon_info[1], balloon_overlay, balloon_type, priority, TunableBalloon.BALLOON_DURATION, balloon_delay, balloon_delay_random_offset, category_icon)
+                        request = BalloonRequest(sim, icon_info[0], icon_info[1], balloon_overlay, balloon_type, priority, TunableBalloon.BALLOON_DURATION, balloon_delay, balloon_delay_random_offset, category_icon, balloon_view_offset)
                         balloon_requests.append(request)
             if sequence is not None:
                 return (balloon_requests, sequence)
@@ -59,7 +60,7 @@ class TunableBalloon(TunableFactory):
     FACTORY_TYPE = factory
 
     def __init__(self, *args, **kwargs):
-        super().__init__(balloon_target=TunableEnumFlags(description='\n                             Who to play balloons over relative to the interaction. \n                             Generally, balloon tuning will use either balloon_animation_target \n                             or balloon_target.\n                             ', enum_type=ParticipantType, default=ParticipantType.Invalid, invalid_enums=(ParticipantType.Invalid,), minlength=1), balloon_choices=TunableList(description='\n                             A list of the balloons and balloon categories\n                             ', tunable=BalloonVariant.TunableFactory()), balloon_delay=Tunable(float, None, description='\n                             If set, the number of seconds after the start of the animation to \n                             trigger the balloon. A negative number will count backwards from the \n                             end of the animation.'), balloon_delay_random_offset=TunableRange(float, 0, minimum=0, description='\n                             The amount of randomization that is added to balloon requests. \n                             Will always offset the delay time later, and requires the delay \n                             time to be set to a number. A value of 0 has no randomization.'), balloon_chance=TunablePercent(100, description='\n                             The chance that the balloon will play.'), **kwargs)
+        super().__init__(balloon_target=TunableEnumFlags(description='\n                             Who to play balloons over relative to the interaction. \n                             Generally, balloon tuning will use either balloon_animation_target \n                             or balloon_target.\n                             ', enum_type=ParticipantType, default=ParticipantType.Invalid, invalid_enums=(ParticipantType.Invalid,), minlength=1), balloon_choices=TunableList(description='\n                             A list of the balloons and balloon categories\n                             ', tunable=BalloonVariant.TunableFactory()), balloon_delay=Tunable(float, None, description='\n                             If set, the number of seconds after the start of the animation to \n                             trigger the balloon. A negative number will count backwards from the \n                             end of the animation.'), balloon_delay_random_offset=TunableRange(float, 0, minimum=0, description='\n                             The amount of randomization that is added to balloon requests. \n                             Will always offset the delay time later, and requires the delay \n                             time to be set to a number. A value of 0 has no randomization.'), balloon_chance=TunablePercent(100, description='\n                             The chance that the balloon will play.'), balloon_view_offset=OptionalTunable(description='\n                             If enabled, the Vector3 offset from the balloon bone to the thought balloon. \n                             ', tunable=TunableVector3(default=TunableVector3.DEFAULT_ZERO)), **kwargs)
 
     @staticmethod
     def get_balloon_requests(interaction, overrides):

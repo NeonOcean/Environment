@@ -1,6 +1,7 @@
 import random
 from distributor.shared_messages import IconInfoData, EMPTY_ICON_INFO_DATA
 from interactions import ParticipantType, ParticipantTypeSingle
+from interactions.utils.interaction_liabilities import PRIVACY_LIABILITY
 from sims4.log import LEVEL_ERROR
 from sims4.tuning.tunable import TunableFactory, TunableResourceKey, TunableEnumFlags, TunableVariant, TunablePackSafeResourceKey
 import services
@@ -92,7 +93,6 @@ class TunablePrivacyIconFactory(TunableFactory):
         if balloon_target_override is not None:
             return IconInfoData(obj_instance=balloon_target_override)
         else:
-            from interactions.base.interaction import PRIVACY_LIABILITY
             privacy_liability = resolver.get_liability(PRIVACY_LIABILITY)
             if privacy_liability:
                 violators = privacy_liability.privacy.violators

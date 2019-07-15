@@ -1,4 +1,7 @@
 import random
+from sims4.localization import TunableLocalizedStringFactory
+import sims4.log
+import sims4.telemetry
 from clock import interval_in_sim_days
 from date_and_time import TimeSpan, create_time_span
 from distributor.ops import SetAgeProgress
@@ -8,21 +11,19 @@ from event_testing.resolver import SingleSimResolver
 from event_testing.test_events import TestEvent
 from interactions.context import InteractionContext
 from interactions.priority import Priority
+from interactions.utils.death import DeathType
 from objects import ALL_HIDDEN_REASONS
 from sims.aging.aging_statistic import AgeProgressContinuousStatistic
 from sims.aging.aging_tuning import AgeSpeeds, AgingTuning
 from sims.baby.baby_aging import baby_age_up
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_types import Age
-from sims4.localization import TunableLocalizedStringFactory
 from statistics.life_skill_statistic import LifeSkillStatistic
 from traits.trait_quirks import add_quirks
 import alarms
 import distributor.fields
 import distributor.ops
 import services
-import sims4.log
-import sims4.telemetry
 import telemetry_helper
 logger = sims4.log.Logger('Aging')
 TELEMETRY_CHANGE_AGE = 'AGES'
@@ -348,7 +349,12 @@ class AgingMixin:
                 self._create_auto_age_callback()
         elif self.is_npc:
             household = self.household
-            self.death_tracker.set_death_type(aging_data.old_age_interaction.death_type, is_off_lot_death=True)
+            old_age_interaction = aging_data.old_age_interaction
+            if old_age_interaction is not None and hasattr(old_age_interaction, 'death_type'):
+                death_type = old_age_interaction.death_type
+            else:
+                death_type = aging_data.old_age_npc_death_type_fallback
+            self.death_tracker.set_death_type(death_type, is_off_lot_death=True)
             household.handle_adultless_household()
 
     def set_aging_speed(self, speed:int):
@@ -414,6 +420,7 @@ class AgingMixin:
         self.appearance_tracker.evaluate_appearance_modifiers()
         self.resend_physical_attributes()
         self._update_age_trait(new_age, current_age)
+        self.career_tracker.add_ageup_careers()
         self.career_tracker.remove_invalid_careers()
         self.trait_tracker.remove_invalid_traits()
         if self.aspiration_tracker is not None:
@@ -526,3 +533,6 @@ class AgingMixin:
         if self._age_suppression_alarm_handle is not None:
             logger.warn("Trying to suppress aging when aging is already suppressed. You probably don't want to do be doing this.", owner='jjacobson')
         self._age_suppression_alarm_handle = alarms.add_alarm(self, create_time_span(minutes=AgingTuning.AGE_SUPPRESSION_ALARM_TIME), self._suppress_aging_callback, cross_zone=True)
+
+    def is_birthday(self):
+        return self._days_until_ready_to_age() <= 0

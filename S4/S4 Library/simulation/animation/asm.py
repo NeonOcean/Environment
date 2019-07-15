@@ -38,6 +38,7 @@ def clear_boundary_condition_logging():
 def purge_cache():
     Asm._bc_cache.clear()
     Asm._bc_cache_error_keys.clear()
+    Asm._bc_cache_localwork_keys.clear()
 
 sims4.callback_utils.add_callbacks(sims4.callback_utils.CallbackEvent.TUNING_CODE_RELOAD, purge_cache)
 do_params_match = _collection_utils.dictionary_intersection_values_match
@@ -140,6 +141,17 @@ class BoundaryConditionRelative:
 class Asm(native.animation.NativeAsm):
     _bc_cache = {}
     _bc_cache_error_keys = set()
+    _bc_cache_localwork_keys = defaultdict(set)
+
+    @staticmethod
+    def _is_same_actor(a:weakref.ref, b):
+        if a is None and b is None:
+            return True
+        if b is None:
+            return False
+        a_actor = a() if a is not None else None
+        a_actor_id = a_actor.id if a_actor is not None else 0
+        return a_actor_id == b.id
 
     def _log_bc_error(self, log, currently_set_actor_names, key, headline, actor_info):
         set_actor_names = []
@@ -209,6 +221,10 @@ class Asm(native.animation.NativeAsm):
     @property
     def on_state_changed_events(self):
         return self._on_state_changed_events
+
+    def dirty_boundary_conditions(self):
+        self._boundary_condition_dirty = True
+        self._bc_cache_localwork_keys[self.name].clear()
 
     def _validate_actor(self, actor):
         for existing_actor in self.actors_gen():
@@ -476,6 +492,7 @@ class Asm(native.animation.NativeAsm):
                 containment_slot_data_list.append((containment_transform, [(boundary_condition, slot_params_list)]))
         if cache_containment_slot_data_list:
             self._bc_cache[key] = tuple(containment_slot_data_list)
+            self._bc_cache_localwork_keys[self.name].add(key)
         return containment_slot_data_list
 
     def _make_boundary_conditions_list(self, actor, to_state_name, from_state_name, locked_params, entry=True, posture=DEFAULT, base_object_name=None, target=None):
@@ -490,7 +507,7 @@ class Asm(native.animation.NativeAsm):
         if posture is DEFAULT:
             posture = getattr(actor, 'posture', None)
         key = (self.name, actor_name, target_name, from_state_name, to_state_name, posture.name if posture is not None else None)
-        if self._boundary_condition_dirty or caches.USE_ACC_AND_BCC & caches.AccBccUsage.BCC != caches.AccBccUsage.BCC:
+        if caches.USE_ACC_AND_BCC & caches.AccBccUsage.BCC != caches.AccBccUsage.BCC or self._boundary_condition_dirty and key not in self._bc_cache_localwork_keys[self.name]:
             containment_slot_data_list = None
         else:
             containment_slot_data_list = self._bc_cache.get(key)
@@ -627,10 +644,9 @@ class Asm(native.animation.NativeAsm):
             suffix = actor.part_suffix
         if actor_name in self._actors:
             (old_actor, old_suffix, _) = self._actors[actor_name]
-            old_actor = old_actor() if old_actor is not None else None
-            if old_actor == actor and old_suffix == suffix:
+            if Asm._is_same_actor(old_actor, actor) and old_suffix == suffix:
                 actor_set = True
-            elif old_actor is None:
+            elif old_actor() is None:
                 if self._clear_actor(actor_name):
                     del self._actors[actor_name]
                     actor_set = False
@@ -666,9 +682,7 @@ class Asm(native.animation.NativeAsm):
             suffix = actor.part_suffix
         if actor_name in self._virtual_actors:
             for (old_actor, old_suffix) in self._virtual_actors[actor_name]:
-                old_actor = old_actor() if old_actor is not None else None
-                old_actor_id = old_actor.id if old_actor is not None else 0
-                if old_actor_id == actor.id:
+                if Asm._is_same_actor(old_actor, actor):
                     if old_suffix == suffix:
                         actor_set = True
                         break
@@ -701,8 +715,7 @@ class Asm(native.animation.NativeAsm):
         self._virtual_actors[name].remove((actor.ref(), suffix))
         deletes = []
         for (key, (target_ref, target_suffix)) in self._virtual_actor_relationships.items():
-            target = target_ref() if target_ref is not None else None
-            if target is actor:
+            if Asm._is_same_actor(target_ref, actor):
                 if target_suffix == suffix:
                     deletes.append(key)
         for key in deletes:
@@ -720,8 +733,8 @@ class Asm(native.animation.NativeAsm):
     def specialize_virtual_actor_relationship(self, actor_name, actor, actor_suffix, target_name, target, target_suffix):
         if (actor_name, target_name) in self._virtual_actor_relationships:
             (old_target_ref, old_target_suffix) = self._virtual_actor_relationships[(actor_name, target_name)]
-            old_target = old_target_ref() if old_target_ref is not None else None
-            if old_target is not target or old_target_suffix != target_suffix:
+            if not Asm._is_same_actor(old_target_ref, target) or old_target_suffix != target_suffix:
+                old_target = old_target_ref() if old_target_ref is not None else None
                 if old_target is None:
                     logger.error('Virtual actor {} on {} has been garbage collected, but is still in the specialization map', target_name, self)
                 else:
@@ -830,7 +843,7 @@ class Asm(native.animation.NativeAsm):
 
     def get_actor_name(self, obj):
         for (name, actor, _) in self.actors_info_gen():
-            if actor == obj:
+            if actor.id == obj.id:
                 return name
 
     def get_all_parameters(self):

@@ -270,6 +270,8 @@ class CareerTone(AwayAction):
         if career is None:
             logger.error('CareerTone {} trying to update performance when Sim {} not at work', self, self.sim_info, owner='tingyul')
             return
+        if career._upcoming_gig is not None and career._upcoming_gig.odd_job_tuning is not None:
+            return
         now = services.time_service().sim_now
         elapsed = now - self._last_update_time
         self._last_update_time = now

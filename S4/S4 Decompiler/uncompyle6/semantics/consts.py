@@ -27,75 +27,85 @@ else:
     maxint = sys.maxint
 
 
-# Operator precidence
-# See https://docs.python.org/2/reference/expressions.html
-# or https://docs.python.org/3/reference/expressions.html
-# for a list.
+# Operator precidence See
+# https://docs.python.org/2/reference/expressions.html#operator-precedence
+# or
+# https://docs.python.org/3/reference/expressions.html#operator-precedence
+# for a list. We keep the same top-to-botom order here as in the above links,
+# so we start with low precedence (high values) and go down in value.
 
-# Things at the top of this list below with low-value precidence will
-# tend to have parenthesis around them. Things at the bottom
+# Things at the bottom of this list below with high precedence (low value) will
+# tend to have parenthesis around them. Things at the top
 # of the list will tend not to have parenthesis around them.
-PRECEDENCE = {
-    'list':                   0,
-    'dict':                   0,
-    'unary_convert':          0,
-    'dict_comp':              0,
-    'set_comp':               0,
-    'set_comp_expr':          0,
-    'list_comp':              0,
-    'generator_exp':          0,
 
-    'attribute':              2,
-    'subscript':              2,
-    'subscript2':             2,
-    'store_subscript':        2,
-    'delete_subscr':          2,
+# Note: The values in this table are even numbers. Inside
+# various templates we use odd values. Avoiding equal-precedent comparisons
+# avoids ambiguity what to do when the precedence is equal.
+
+
+PRECEDENCE = {
+    'yield':                 102,
+    'yield_from':            102,
+
+    '_mklambda':              30,
+
+    'conditional':            28, # Conditional expression
+    'conditional_lamdba':     28, # Lambda expression
+    'conditional_not_lamdba': 28, # Lambda expression
+    'conditionalnot':         28,
+    'if_expr_true':           28,
+    'ret_cond':               28,
+
+    'or':                     26, # Boolean OR
+    'ret_or':                 26,
+
+    'and':                    24, # Boolean AND
+    'compare':                20, # in, not in, is, is not, <, <=, >, >=, !=, ==
+    'ret_and':                24,
+    'unary_not':              22, # Boolean NOT
+
+    'BINARY_AND':             14, # Bitwise AND
+    'BINARY_OR':              18, # Bitwise OR
+    'BINARY_XOR':             16, # Bitwise XOR
+
+    'BINARY_LSHIFT':          12, # Shifts <<
+    'BINARY_RSHIFT':          12, # Shifts >>
+
+    'BINARY_ADD':             10, # -
+    'BINARY_SUBTRACT':        10, # +
+
+    'BINARY_DIVIDE':          8,  # /
+    'BINARY_FLOOR_DIVIDE':    8,  # //
+    'BINARY_MATRIX_MULTIPLY': 8,  # @
+    'BINARY_MODULO':          8,  # Remainder, %
+    'BINARY_MULTIPLY':        8,  # *
+    'BINARY_TRUE_DIVIDE':     8,  # Division /
+
+    'unary_expr':             6,  # +x, -x, ~x
+
+    'BINARY_POWER':           4,  # Exponentiation, *
+
+    'attribute':              2,  # x.attribute
+    'buildslice2':            2,  # x[index]
+    'buildslice3':            2,  # x[index:index]
+    'call':                   2,  # x(arguments...)
+    'delete_subscript':       2,
     'slice0':                 2,
     'slice1':                 2,
     'slice2':                 2,
     'slice3':                 2,
-    'buildslice2':            2,
-    'buildslice3':            2,
-    'call':                   2,
+    'store_subscript':        2,
+    'subscript':              2,
+    'subscript2':             2,
 
-    'BINARY_POWER':           4,
-
-    'unary_expr':             6,
-
-    'BINARY_MULTIPLY':        8,
-    'BINARY_DIVIDE':          8,
-    'BINARY_TRUE_DIVIDE':     8,
-    'BINARY_FLOOR_DIVIDE':    8,
-    'BINARY_MODULO':          8,
-
-    'BINARY_ADD':             10,
-    'BINARY_SUBTRACT':        10,
-
-    'BINARY_LSHIFT':          12,
-    'BINARY_RSHIFT':          12,
-
-    'BINARY_AND':             14,
-    'BINARY_XOR':             16,
-    'BINARY_OR':              18,
-
-    'compare':                20,
-    'unary_not':              22,
-    'and':                    24,
-    'ret_and':                24,
-
-    'or':                     26,
-    'ret_or':                 26,
-
-    'conditional':            28,
-    'conditional_lamdba':     28,
-    'conditional_not_lamdba': 28,
-    'conditionalnot':         28,
-    'ret_cond':               28,
-
-    '_mklambda':              30,
-
-    'yield':                 101,
-    'yield_from':            101
+    'dict':                   0,  # {expressions...}
+    'dict_comp':              0,
+    'generator_exp':          0,  # (expressions...)
+    'list':                   0,  # [expressions...]
+    'list_comp':              0,
+    'set_comp':               0,
+    'set_comp_expr':          0,
+    'unary_convert':          0,
 }
 
 LINE_LENGTH = 80
@@ -118,10 +128,10 @@ PASS = SyntaxTree('stmts',
                  [ SyntaxTree('stmt',
                        [ SyntaxTree('pass', [])])])])
 
-ASSIGN_DOC_STRING = lambda doc_string: \
+ASSIGN_DOC_STRING = lambda doc_string, doc_load: \
   SyntaxTree('stmt',
       [ SyntaxTree('assign',
-            [ SyntaxTree('expr', [ Token('LOAD_CONST', pattr=doc_string) ]),
+            [ SyntaxTree('expr', [ Token(doc_load, pattr=doc_string, attr=doc_string) ]),
               SyntaxTree('store', [ Token('STORE_NAME', pattr='__doc__')])
             ])])
 
@@ -210,9 +220,10 @@ TABLE_DIRECT = {
 
     'IMPORT_FROM':              ( '%{pattr}', ),
     'attribute':	        ( '%c.%[1]{pattr}',
-                                (0, 'expr')),
-    'LOAD_FAST':	            ( '%{pattr}', ),
-    'LOAD_NAME':	            ( '%{pattr}', ),
+                                  (0, 'expr')),
+    'LOAD_STR':	                ( '%{pattr}', ),
+    'LOAD_FAST':	        ( '%{pattr}', ),
+    'LOAD_NAME':	        ( '%{pattr}', ),
     'LOAD_CLASSNAME':	        ( '%{pattr}', ),
     'LOAD_GLOBAL':	        ( '%{pattr}', ),
     'LOAD_DEREF':	        ( '%{pattr}', ),
@@ -221,7 +232,7 @@ TABLE_DIRECT = {
     'DELETE_FAST':	        ( '%|del %{pattr}\n', ),
     'DELETE_NAME':	        ( '%|del %{pattr}\n', ),
     'DELETE_GLOBAL':	        ( '%|del %{pattr}\n', ),
-    'delete_subscr':            ( '%|del %p[%c]\n',
+    'delete_subscript':         ( '%|del %p[%c]\n',
                                   (0, 'expr', PRECEDENCE['subscript']), (1, 'expr') ),
     'subscript':                ( '%p[%c]',
                                       (0, 'expr', PRECEDENCE['subscript']),
@@ -252,10 +263,11 @@ TABLE_DIRECT = {
 
     'list_iter':	    ( '%c', 0 ),
     'list_for':		    ( ' for %c in %c%c', 2, 0, 3 ),
-    'list_if':		    ( ' if %c%c', 0, 2 ),
-    'list_if_not':		( ' if not %p%c',
-                                  (0, 'expr', PRECEDENCE['unary_not']),
-                                  2 ),
+    'list_if':		    ( ' if %p%c',
+                              (0, 'expr', 27), 2 ),
+    'list_if_not':	    ( ' if not %p%c',
+                              (0, 'expr', PRECEDENCE['unary_not']),
+                              2 ),
     'lc_body':		    ( '', ),	# ignore when recursing
 
     'comp_iter':	    ( '%c', 0 ),
@@ -281,19 +293,19 @@ TABLE_DIRECT = {
     'and2':          	( '%c', 3 ),
     'or':           	( '%c or %c', 0, 2 ),
     'ret_or':           ( '%c or %c', 0, 2 ),
-    'conditional':      ( '%p if %p else %p', (2, 27), (0, 27), (4, 27) ),
-    'conditional_true': ( '%p if 1 else %p', (0, 27), (2, 27) ),
+    'conditional':      ( '%p if %c else %c',
+                          (2, 'expr', 27), 0, 4 ),
+    'if_expr_lambda':   ( '%p if %c else %c',
+                          (2, 'expr', 27), (0, 'expr'), 4 ),
+    'if_expr_true':     ( '%p if 1 else %c', (0, 'expr', 27), 2 ),
     'ret_cond':         ( '%p if %p else %p', (2, 27), (0, 27), (-1, 27) ),
     'conditional_not':  ( '%p if not %p else %p',
                           (2, 27),
                           (0, "expr", PRECEDENCE['unary_not']),
                           (4, 27) ),
-    'conditional_lambda':
-                        ( '%c if %c else %c',
-                          (2, 'expr'), 0, 4 ),
     'conditional_not_lambda':
-                        ( '%c if not %c else %c',
-                          (2, 'expr'), 0, 4 ),
+                        ( '%p if not %c else %c',
+                          (2, 'expr', 27), 0, 4 ),
 
     'compare_single':	    ( '%p %[-1]{pattr.replace("-", " ")} %p', (0, 19), (1, 19) ),
     'compare_chained':	    ( '%p %p', (0, 29), (1, 30)),
@@ -306,7 +318,7 @@ TABLE_DIRECT = {
     'mkfuncdeco0':  	    ( '%|def %c\n', 0),
     'classdefdeco':  	    ( '\n\n%c', 0),
     'classdefdeco1':  	    ( '%|@%c\n%c', 0, 1),
-    'kwarg':    	    ( '%[0]{pattr}=%c', 1),
+    'kwarg':    	    ( '%[0]{pattr}=%c', 1),  # Change when Python 2 does LOAD_STR
     'kwargs':    	    ( '%D', (0, maxint, ', ') ),
     'kwargs1':    	    ( '%D', (0, maxint, ', ') ),
 
@@ -338,23 +350,34 @@ TABLE_DIRECT = {
     'testtrue':         ( 'not %p',
                           (0, PRECEDENCE['unary_not']) ),
 
+    # Generally the args here are 0: (some sort of) "testexpr",
+    #                             1: (some sort of) "cstmts_opt",
+    #                             2 or 3: "else_suite"
+    # But unfortunately there are irregularities, For example, 2.6- uses "testexpr_then"
+    # and sometimes "cstmts" instead of "cstmts_opt" happens.
+    # Down the line we might isolate these into version-specific rules.
     'ifelsestmt':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 3 ),
     'ifelsestmtc':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 3 ),
     'ifelsestmtl':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 3 ),
+    'ifelsestmtr':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 2 ),
+    'ifelsestmtr2':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-\n\n', 0, 1, 3 ), # has COME_FROM in position 2
+
+
+    # "elif" forms are not generated by the parser but are created through tree
+    # transformations. See "n_ifelsestmt".
     'ifelifstmt':	( '%|if %c:\n%+%c%-%c', 0, 1, 3 ),
     'elifelifstmt':	( '%|elif %c:\n%+%c%-%c', 0, 1, 3 ),
     'elifstmt':		( '%|elif %c:\n%+%c%-', 0, 1 ),
     'elifelsestmt':	( '%|elif %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 3 ),
-    'ifelsestmtr':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-', 0, 1, 2 ),
-    'ifelsestmtr2':	( '%|if %c:\n%+%c%-%|else:\n%+%c%-\n\n', 0, 1, 3 ), # has COME_FROM
     'elifelsestmtr':	( '%|elif %c:\n%+%c%-%|else:\n%+%c%-\n\n', 0, 1, 2 ),
-    'elifelsestmtr2':	( '%|elif %c:\n%+%c%-%|else:\n%+%c%-\n\n', 0, 1, 3 ), # has COME_FROM
+    'elifelsestmtr2':	( '%|elif %c:\n%+%c%-%|else:\n%+%c%-\n\n', 0, 1, 3 ), # has COME_FROM in position 2
 
     'whileTruestmt':	( '%|while True:\n%+%c%-\n\n', 1 ),
     'whilestmt':	    ( '%|while %c:\n%+%c%-\n\n', 1, 2 ),
     'while1stmt':	    ( '%|while 1:\n%+%c%-\n\n', 1 ),
     'while1elsestmt':   ( '%|while 1:\n%+%c%-%|else:\n%+%c%-\n\n', 1, -2 ),
     'whileelsestmt':	( '%|while %c:\n%+%c%-%|else:\n%+%c%-\n\n', 1, 2, -2 ),
+    'whileelsestmt2':	( '%|while %c:\n%+%c%-%|else:\n%+%c%-\n\n', 1, 2, -3 ),
     'whileelselaststmt':	( '%|while %c:\n%+%c%-%|else:\n%+%c%-', 1, 2, -2 ),
 
     # Note: Python 3.8+ changes this
@@ -387,6 +410,8 @@ TABLE_DIRECT = {
     'tryfinallystmt':	( '%|try:\n%+%c%-%|finally:\n%+%c%-\n\n', 1, 5 ),
     'except':           ( '%|except:\n%+%c%-', 3 ),
     'except_cond1':	    ( '%|except %c:\n', 1 ),
+    'except_cond2':     ( '%|except %c as %c:\n',
+                          (1, 'expr'), (5, 'store') ),
     'except_suite':     ( '%+%c%-%C', 0, (1, maxint, '') ),
 
     # In Python 3.6, this is more complicated in the presence of "returns"

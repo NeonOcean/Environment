@@ -1,7 +1,16 @@
 from _math import Transform
 from _sims4_collections import frozendict
 from _weakrefset import WeakSet
+from native.animation import get_joint_transform_from_rig
 from protocolbuffers.FileSerialization_pb2 import LotCoord
+from sims4.callback_utils import CallableListConsumingExceptions
+from sims4.localization import LocalizationHelperTuning
+from sims4.tuning.tunable import Tunable, TunableList, TunableTuple, TunableResourceKey, OptionalTunable, TunableReference, TunableSet
+from sims4.tuning.tunable_base import FilterTag, GroupNames
+from sims4.utils import constproperty, classproperty
+from singletons import DEFAULT, UNSET, EMPTY_SET
+import sims4.log
+import sims4.protocol_buffer_utils
 from animation.posture_manifest_constants import STAND_AT_NONE_POSTURE_STATE_SPEC
 from autonomy.autonomy_modifier import TunableAutonomyModifier
 from build_buy import remove_object_from_buildbuy_system, add_object_to_buildbuy_system, invalidate_object_location, get_object_catalog_name, get_object_catalog_description, is_location_outside, is_location_natural_ground
@@ -12,25 +21,21 @@ from fire.flammability import TunableFlammableAreaVariant
 from interactions.constraint_variants import TunableConstraintVariant
 from interactions.constraints import Constraint
 from interactions.utils.routing import RouteTargetType
-from native.animation import get_joint_transform_from_rig
 from objects import VisibilityState
 from objects.client_object_mixin import ClientObjectMixin
 from objects.components import forward_to_components, ored_forward_to_components, forward_to_components_gen
 from objects.components.types import FOOTPRINT_COMPONENT
 from objects.game_object_properties import GameObjectProperty
-from objects.object_enums import ResetReason
+from objects.object_enums import ResetReason, ItemLocation
 from objects.persistence_groups import PersistenceGroups
 from objects.script_object import ScriptObject
 from postures import posture_graph
 from postures.posture import TunablePostureTypeListSnippet
+from postures.posture_graph import PostureGraphService
 from reservation.reservation_mixin import ReservationMixin
-from sims4.callback_utils import CallableListConsumingExceptions
-from sims4.localization import LocalizationHelperTuning
-from sims4.tuning.tunable import Tunable, TunableList, TunableTuple, TunableResourceKey, OptionalTunable
-from sims4.tuning.tunable_base import FilterTag, GroupNames
-from sims4.utils import constproperty
-from singletons import DEFAULT, UNSET
+from routing import SurfaceType, SurfaceIdentifier
 from snippets import TunableAffordanceFilterSnippet
+from terrain import get_water_depth_at_location
 import alarms
 import autonomy
 import build_buy
@@ -41,12 +46,21 @@ import placement
 import reset
 import routing
 import services
-import sims4.log
-import sims4.protocol_buffer_utils
 logger = sims4.log.Logger('Objects')
 
 class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.ResettableObjectMixin):
-    INSTANCE_TUNABLES = {'_transient_tuning': Tunable(description='\n            If transient the object will always be destroyed and never put down.\n            ', tunable_type=bool, default=False, tuning_filter=FilterTag.EXPERT_MODE, display_name='Transient'), 'additional_interaction_constraints': TunableList(description='\n            A list of constraints that must be fulfilled in order to run the \n            linked affordances. This should only be used when the same \n            affordance uses different constraints based on the object.\n            ', tunable=TunableTuple(constraint=TunableConstraintVariant(description='\n                    A constraint that must be fulfilled in order to interact with this object.\n                    '), affordance_links=TunableAffordanceFilterSnippet()), tuning_filter=FilterTag.EXPERT_MODE), 'autonomy_modifiers': TunableList(description='\n            List of autonomy modifiers that will be applied to the tuned\n            participant type.  These can be used to tune object variations.\n            ', tunable=TunableAutonomyModifier(locked_args={'commodities_to_add': (), 'score_multipliers': frozendict(), 'provided_affordance_compatibility': None, 'super_affordance_suppression_mode': autonomy.autonomy_modifier.SuperAffordanceSuppression.AUTONOMOUS_ONLY, 'suppress_self_affordances': False, 'only_scored_static_commodities': None, 'only_scored_stats': None, 'relationship_multipliers': None})), 'set_ico_as_carry_target': Tunable(description="\n            Whether or not the crafting process should set the carry target\n            to be the ICO.  Example Usage: Sheet Music has this set to false\n            because the sheet music is in the Sim's inventory and the Sim needs\n            to carry the guitar/violin.  This is a tunable on game object\n            because the ICO in the crafting process can be any game object.\n            ", tunable_type=bool, default=True), 'supported_posture_types': TunablePostureTypeListSnippet(description='\n            The postures supported by this part. If empty, assumes all postures \n            are supported.\n            '), '_add_to_posture_graph_if_parented': Tunable(description="\n            Whether or not the object should be added to the posture graph if it\n            is parented to an object that isn't a surface.  i.e. chairs that\n            should be seatable when slotted into a campfire (which isn't a surface)\n            ", tunable_type=bool, default=False), 'allow_preroll_multiple_targets': Tunable(description='\n            When checked allows multiple sims to target this object during \n            preroll autonomy. If not checked then the default preroll behavior\n            will happen.\n            \n            The default setting is to only allow each target to be targeted\n            once during preroll. However it makes sense in certain cases where\n            multiple sims can use the same object at the same time to allow\n            multiple targets.\n            ', tunable_type=bool, default=False), 'icon_override': OptionalTunable(description='\n            If enabled, the icon that will be displayed in the UI for this object.\n            This does not override the build/buy icon, which can be overriden\n            through the catalog.\n            ', tunable=TunableResourceKey(tuning_group=GroupNames.UI, resource_types=sims4.resources.CompoundTypes.IMAGE)), 'flammable_area': TunableFlammableAreaVariant(description='\n            How the object defines its area of flammability. This is used \n            by the fire service to build the quadtree of flammable objects.\n            ')}
+    INSTANCE_TUNABLES = {'_transient_tuning': Tunable(description='\n            If transient the object will always be destroyed and never put down.\n            ', tunable_type=bool, default=False, tuning_filter=FilterTag.EXPERT_MODE, display_name='Transient'), 'additional_interaction_constraints': TunableList(description='\n            A list of constraints that must be fulfilled in order to run the \n            linked affordances. This should only be used when the same \n            affordance uses different constraints based on the object.\n            ', tunable=TunableTuple(constraint=TunableConstraintVariant(description='\n                    A constraint that must be fulfilled in order to interact with this object.\n                    '), affordance_links=TunableAffordanceFilterSnippet()), tuning_filter=FilterTag.EXPERT_MODE), 'autonomy_modifiers': TunableList(description='\n            List of autonomy modifiers that will be applied to the tuned\n            participant type.  These can be used to tune object variations.\n            ', tunable=TunableAutonomyModifier(locked_args={'commodities_to_add': (), 'score_multipliers': frozendict(), 'provided_affordance_compatibility': None, 'super_affordance_suppression_mode': autonomy.autonomy_modifier.SuperAffordanceSuppression.AUTONOMOUS_ONLY, 'suppress_self_affordances': False, 'only_scored_static_commodities': None, 'only_scored_stats': None, 'relationship_multipliers': None})), 'set_ico_as_carry_target': Tunable(description="\n            Whether or not the crafting process should set the carry target\n            to be the ICO.  Example Usage: Sheet Music has this set to false\n            because the sheet music is in the Sim's inventory and the Sim needs\n            to carry the guitar/violin.  This is a tunable on game object\n            because the ICO in the crafting process can be any game object.\n            ", tunable_type=bool, default=True), 'supported_posture_types': TunablePostureTypeListSnippet(description='\n            The postures supported by this part. If empty, assumes all postures \n            are supported.\n            '), '_add_to_posture_graph_if_parented': Tunable(description="\n            Whether or not the object should be added to the posture graph if it\n            is parented to an object that isn't a surface.  i.e. chairs that\n            should be seatable when slotted into a campfire (which isn't a surface)\n            ", tunable_type=bool, default=False), 'allow_preroll_multiple_targets': Tunable(description='\n            When checked allows multiple sims to target this object during \n            preroll autonomy. If not checked then the default preroll behavior\n            will happen.\n            \n            The default setting is to only allow each target to be targeted\n            once during preroll. However it makes sense in certain cases where\n            multiple sims can use the same object at the same time to allow\n            multiple targets.\n            ', tunable_type=bool, default=False), 'icon_override': OptionalTunable(description='\n            If enabled, the icon that will be displayed in the UI for this object.\n            This does not override the build/buy icon, which can be overriden\n            through the catalog.\n            ', tunable=TunableResourceKey(tuning_group=GroupNames.UI, resource_types=sims4.resources.CompoundTypes.IMAGE)), 'flammable_area': TunableFlammableAreaVariant(description='\n            How the object defines its area of flammability. This is used \n            by the fire service to build the quadtree of flammable objects.\n            '), '_provided_mobile_posture_affordances': OptionalTunable(description="\n            If enabled, this object will add these postures to the posture\n            graph. We need to do this for mobile postures that have no body\n            target and we don't intend on them ever being included in searches\n            for getting from one place to another without this object somewhere\n            on the lot.\n            ", tunable=TunableSet(description='\n                The set of mobile posture providing interactions we want this\n                object to provide.\n                ', tunable=TunableReference(description='\n                    The posture providing interaction we want to add to the\n                    posture graph when this object is instanced.\n                    ', manager=services.affordance_manager(), pack_safe=True, class_restrictions='SuperInteraction'), minlength=1))}
+
+    @classmethod
+    def _verify_tuning_callback(cls):
+        if cls._provided_mobile_posture_affordances is not None:
+            for affordance in cls._provided_mobile_posture_affordances:
+                if affordance.provided_posture_type is None:
+                    logger.error("{} provides posture affordance {} but it doesn't provide a posture.", cls, affordance, owner='rmccord')
+                elif not affordance.provided_posture_type.unconstrained:
+                    logger.error('{} provides posture affordance {} but the provided posture is not unconstrained and therefore requires a body target.', cls, affordance, owner='rmccord')
+                elif affordance in PostureGraphService.POSTURE_PROVIDING_AFFORDANCES:
+                    logger.error('{} provides posture affordance {} but this is already provided by the posture graph in Posture Providing Affordances.', cls, affordance, owner='rmccord')
 
     def __init__(self, definition, **kwargs):
         super().__init__(definition, **kwargs)
@@ -214,7 +228,7 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
         p3 = transform.transform_point(sims4.math.Vector3(upper_bound.x, y, lower_bound.z))
         return ((p0, p1), (p1, p2), (p2, p3), (p3, p0))
 
-    def get_edge_constraint(self, constraint_width=1.0, inward_dir=False, return_constraint_list=False, los_reference_point=DEFAULT):
+    def get_edge_constraint(self, constraint_width=1.0, inward_dir=False, return_constraint_list=False, los_reference_point=DEFAULT, sim=None):
         edges = self.get_edges()
         polygons = []
         for (start, stop) in edges:
@@ -251,6 +265,10 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
                     self._created_constraints[constraint] = constraint.create_constraint(None, self)
             self._created_constraints_dirty = False
         return self._created_constraints.get(tuned_constraint)
+
+    @forward_to_components
+    def register_rebate_tests(self, test_set):
+        pass
 
     @forward_to_components
     def validate_definition(self):
@@ -354,12 +372,20 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
         else:
             return False
 
+    @property
+    def may_move(self):
+        return self.vehicle_component is not None or self.routing_component is not None and self.routing_component.object_routing_component is not None
+
     def get_surface_override_for_posture(self, source_posture_name):
         pass
 
     @property
     def add_to_posture_graph_if_parented(self):
         return self._add_to_posture_graph_if_parented
+
+    @classproperty
+    def provided_mobile_posture_affordances(cls):
+        return cls._provided_mobile_posture_affordances or EMPTY_SET
 
     def get_joint_transform_for_joint(self, joint_name):
         transform = get_joint_transform_from_rig(self.rig, joint_name)
@@ -393,6 +419,11 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             zone_id = services.current_zone_id()
             add_object_to_buildbuy_system(self.id, zone_id)
 
+    def _fixup_pool_surface(self):
+        if (self.item_location == ItemLocation.FROM_WORLD_FILE or self.item_location == ItemLocation.FROM_CONDITIONAL_LAYER) and (self.routing_surface.type != SurfaceType.SURFACETYPE_POOL and build_buy.PlacementFlags.REQUIRES_WATER_SURFACE & build_buy.get_object_placement_flags(self.definition.id)) and get_water_depth_at_location(self.location) > 0:
+            routing_surface = self.routing_surface
+            self.set_location(self.location.clone(routing_surface=SurfaceIdentifier(routing_surface.primary_id, routing_surface.secondary_id, SurfaceType.SURFACETYPE_POOL)))
+
     def _add_to_world(self):
         if self.persistence_group == PersistenceGroups.OBJECT:
             zone_id = services.current_zone_id()
@@ -409,9 +440,11 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
         if self.is_fire_related_object:
             fire_service = services.get_fire_service()
             self.register_on_location_changed(fire_service.flammable_object_location_changed)
+        posture_graph_service = services.posture_graph_service()
         if posture_graph.is_object_mobile_posture_compatible(self):
-            posture_graph_service = services.current_zone().posture_graph_service
             self.register_on_location_changed(posture_graph_service.mobile_posture_object_location_changed)
+        if self.provided_mobile_posture_affordances:
+            posture_graph_service.add_mobile_posture_provider(self)
         services.call_to_action_service().object_created(self)
         self.try_mark_as_new_object()
 
@@ -427,8 +460,10 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             fire_service = services.get_fire_service()
             if fire_service is not None:
                 self.unregister_on_location_changed(fire_service.flammable_object_location_changed)
+        posture_graph_service = services.posture_graph_service()
+        if self.provided_mobile_posture_affordances:
+            posture_graph_service.remove_mobile_posture_provider(self)
         if posture_graph.is_object_mobile_posture_compatible(self):
-            posture_graph_service = services.current_zone().posture_graph_service
             posture_graph_service.remove_object_from_mobile_posture_quadtree(self)
             self.unregister_on_location_changed(posture_graph_service.mobile_posture_object_location_changed)
 
@@ -456,6 +491,7 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
     def _location_changed(obj, old_loc, new_loc):
         if obj.zone_id:
             obj._update_location_callbacks(update_surface=old_loc.routing_surface != new_loc.routing_surface)
+        obj._fixup_pool_surface()
 
     @forward_to_components
     def _surface_type_changed(self):
@@ -468,6 +504,8 @@ class GameObject(ClientObjectMixin, ReservationMixin, ScriptObject, reset.Resett
             self._set_placed_inside()
 
     def _natural_ground_status_change(self, *_, **__):
+        if self.routing_surface is not None and self.routing_surface.type == SurfaceType.SURFACETYPE_POOL:
+            return
         if self.is_on_natural_ground():
             self._set_placed_on_natural_ground()
         else:

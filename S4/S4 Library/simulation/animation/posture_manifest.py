@@ -151,6 +151,10 @@ class PostureManifestBase:
         factory = type(self) if for_actor is None else PostureManifest
         return factory(entry.get_constraint_version(for_actor) for entry in self)
 
+    def replace_actor(self, for_actor=None):
+        factory = type(self) if for_actor is None else PostureManifest
+        return factory(entry.replace_actor(for_actor) for entry in self)
+
     def apply_actor_map(self, actor_map):
         return self.__class__(entry.apply_actor_map(actor_map) for entry in self)
 
@@ -256,6 +260,9 @@ class PostureManifestEntry(_PostureManifestEntry, InternMixin):
         if for_actor is None or self.actor not in _NOT_SPECIFIC_ACTOR:
             return self._with_overrides(level=MATCH_NONE_POSTURE_PARAM)
         return self._with_overrides(actor=for_actor, level=MATCH_NONE_POSTURE_PARAM)
+
+    def replace_actor(self, for_actor=None):
+        return self._with_overrides(actor=for_actor)
 
     def intern(self):
         return super().intern()

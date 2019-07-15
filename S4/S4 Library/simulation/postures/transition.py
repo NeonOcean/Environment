@@ -198,7 +198,7 @@ class PostureTransition(elements.SubclassableGeneratorElement):
         if self._transition_spec is not None and self._transition_spec.portal_obj is not None:
             portal_obj = self._transition_spec.portal_obj
             if self._transition_spec.portal_id is not None:
-                new_routing_surface = portal_obj.get_target_surface(self._transition_spec.portal_id, sim)
+                new_routing_surface = portal_obj.get_target_surface(self._transition_spec.portal_id)
         elif not dest.unconstrained and dest.target is not None:
             new_routing_surface = dest.target.routing_surface
         elif self._constraint is not None:
@@ -256,6 +256,7 @@ class PostureTransition(elements.SubclassableGeneratorElement):
                 dest_locked_params = self._transition_spec.locked_params
             dest_posture_spec = None
             import services
+            zone = services.current_zone()
             fire_service = services.get_fire_service()
             lot_on_fire = fire_service.fire_is_active
             distance_param = PostureTransition.calculate_distance_param(source.target, dest.target)
@@ -277,14 +278,17 @@ class PostureTransition(elements.SubclassableGeneratorElement):
                         transition_asm_params = sim.get_transition_asm_params()
                         dest_locked_params += transition_asm_params
                         source_locked_params += transition_asm_params
+                    transition_global_asm_params = sim.get_transition_global_asm_params()
+                    dest_locked_params += transition_global_asm_params
+                    source_locked_params += transition_global_asm_params
                     dest_posture_spec = self._transition_spec.posture_spec
             source_locked_params += self._locked_params
             dest_locked_params += self._locked_params
             if self._transition_spec is not None and self._transition_spec.portal_obj is not None:
                 target_override = self._transition_spec.portal_obj
-                portal_overrides = self._transition_spec.portal_obj.get_portal_anim_overrides()
-                source_locked_params += portal_overrides.params
-                dest_locked_params += portal_overrides.params
+                portal_params = self._transition_spec.portal_obj.get_portal_asm_params(self._transition_spec.portal_id, sim)
+                source_locked_params += portal_params
+                dest_locked_params += portal_params
             else:
                 target_override = None
 

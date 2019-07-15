@@ -24,15 +24,16 @@ class _WaypointGeneratorFootprint(_WaypointGeneratorBase):
         return self.get_constraint_for_waypoint(x, z)
 
     def get_start_constraint(self):
+        constraint = self.get_water_constraint()
         sim = self._context.sim
-        supported_postures = posture_graph.get_mobile_posture_types_for_object(self._target)
+        supported_postures = self._target.provided_mobile_posture_types
         if self._target.footprint_polygon.contains(sim.position) and sim.posture.posture_type in supported_postures and sim.level == self._target.level:
-            return Anywhere()
+            return constraint
         transform = self._target.transform
         corners = [transform.transform_point(sims4.math.Vector3(corner.x, 0, corner.z)) for corner in self.get_corners()]
         corners.reverse()
         geometry = sims4.geometry.RestrictedPolygon(sims4.geometry.CompoundPolygon(sims4.geometry.Polygon(corners)), ())
-        return Constraint(geometry=geometry, debug_name='FootprintConstraint', routing_surface=self._routing_surface)
+        return constraint.intersect(Constraint(geometry=geometry, debug_name='FootprintConstraint', routing_surface=self._routing_surface))
 
     def get_corners(self, radius=0):
         (corner_2, corner_0) = self._target.get_fooptrint_polygon_bounds()
@@ -47,7 +48,7 @@ class _WaypointGeneratorFootprint(_WaypointGeneratorBase):
         corner_3 += sims4.math.Vector3(-offset, 0, offset)
         return (corner_0, corner_1, corner_2, corner_3)
 
-    def get_waypoint_constraints_gen(self, sim, waypoint_count):
+    def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
         if not self._waypoint_constraints:
             quad_waypoint_count = waypoint_count + waypoint_count % 4
             corner_waypoint_count = int(quad_waypoint_count/4)
@@ -76,4 +77,5 @@ class _WaypointGeneratorFootprint(_WaypointGeneratorBase):
                 i_constraint += 1
             corner_num = len(self._waypoint_constraints) - corner_num - 1
             self._waypoint_constraints = self._waypoint_constraints[-corner_num:] + self._waypoint_constraints[:-corner_num]
+            self._waypoint_constraints = self.apply_water_constraint(self._waypoint_constraints)
         yield from self._waypoint_constraints

@@ -21,18 +21,17 @@ from event_testing.results import TestResult, EnqueueResult, ExecuteResult
 from interactions import ParticipantType, liability, ParticipantTypeSingle, ParticipantTypeSingleSim
 from interactions.aop import AffordanceObjectPair
 from interactions.base.basic import TunableBasicContentSet
-from interactions.base.interaction import CancelInteractionsOnExitLiability, CANCEL_INTERACTION_ON_EXIT_LIABILITY
 from interactions.base.mixer_interaction import MixerInteraction
 from interactions.base.picker_interaction import PickerSuperInteraction, AutonomousPickerSuperInteraction
 from interactions.base.picker_strategy import RecipePickerEnumerationStrategy
 from interactions.base.super_interaction import SuperInteraction, RallySource
 from interactions.constraints import Anywhere, Constraint, create_constraint_set, GLOBAL_STUB_ACTOR
-from interactions.context import InteractionSource
 from interactions.interaction_finisher import FinishingType
 from interactions.liability import Liability
 from interactions.payment.payment_source import get_tunable_payment_source_variant
 from interactions.utils.animation_reference import TunableAnimationReference
 from interactions.utils.interaction_elements import ParentObjectElement
+from interactions.utils.interaction_liabilities import CANCEL_INTERACTION_ON_EXIT_LIABILITY, CancelInteractionsOnExitLiability
 from interactions.utils.loot import LootOperationList
 from interactions.utils.reserve import TunableReserveObject
 from objects.components.state import state_change, TunableStateValueReference, TunableStateTypeReference
@@ -46,7 +45,7 @@ from postures.posture_specs import PostureSpecVariable
 from postures.posture_state_spec import PostureStateSpec
 from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning
 from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import TunableReference, TunableList, OptionalTunable, TunableEnumEntry, Tunable, TunableSet, TunableEnumWithFilter, TunableTuple, TunablePercent, TunableEnumSet, TunableVariant
+from sims4.tuning.tunable import TunableReference, TunableList, OptionalTunable, TunableEnumEntry, Tunable, TunableSet, TunableEnumWithFilter, TunableTuple, TunableEnumSet, TunableVariant
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod, flexproperty, classproperty
 from singletons import DEFAULT
@@ -71,7 +70,7 @@ PARTY_CRAFTING = 1
 CRAFT_FOR_SPECIFIC_PARTICIPANT = 2
 
 class StartCraftingMixin:
-    INSTANCE_TUNABLES = {'check_target_inventory': Tunable(description="\n            If checked, look through the target object's inventory for \n            gathering ingredients.\n            ", tunable_type=bool, default=False)}
+    INSTANCE_TUNABLES = {'check_target_inventory': Tunable(description="\n            If checked, look through the target object's inventory for \n            gathering ingredients.\n            ", tunable_type=bool, default=False), 'set_target_as_current_ico': Tunable(description='\n            After creating the crafting component, if this is checked, the\n            value of current_ico on the crafting_process will be set to the\n            target.\n            \n            This is a way to make an object that we are not creating as an ICO\n            to behave a bit like an ICO. By setting the current_ico to the\n            target it allows the crafting interactions to return the target as\n            the carry target, enabling the non ICO object to be carried to\n            where it needs to be.\n            \n            For an example of when you might want to set this consider the Kave\n            bowl. The Kava Bowl acts as both an ICO and a Final Product that\n            holds individual servings. The only way to carry the Kava Bowl to\n            the correct place to run the interaction is to set the current_ico\n            to the kava bowl despite it not actually being a traditional ICO.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -94,6 +93,10 @@ class StartCraftingMixin:
     def _handle_begin_crafting(self, recipe, crafter, ordering_sim=None, crafting_target=None, orderer_ids=DEFAULT, ingredients=(), funds_source=None, paying_sim=None):
         if orderer_ids is DEFAULT:
             orderer_ids = []
+        if not ingredients:
+            if hasattr(self, 'ingredient_source'):
+                if self.ingredient_source:
+                    ingredients = self._recipe_ingredients_map.get(recipe)
         if recipe.use_ingredients and ingredients is not None:
             (test_result, ingredients_to_consume) = self.validate_and_satisfy_ingredients(crafter, ingredients, all_ingredients_required=recipe.all_ingredients_required, crafting_target=crafting_target)
             if not test_result:
@@ -109,7 +112,10 @@ class StartCraftingMixin:
         if paying_sim is None:
             if ordering_sim is not None and crafter is not ordering_sim:
                 paying_sim = ordering_sim
-                is_retail = True
+                if hasattr(self, 'ingredient_source') and self.ingredient_source:
+                    is_retail = False
+                else:
+                    is_retail = True
             else:
                 paying_sim = crafter
         resolver = self.get_resolver()
@@ -127,7 +133,6 @@ class StartCraftingMixin:
                     test_result = TestResult(False, 'Failed to reserve ingredients in _handle_begin_crafting.')
                 else:
                     reserved_ingredients.append(ingredient_object)
-                    logger.error('Trying to consume ingredient {} thats not on an inventory.', ingredient_object, owner='camilogarcia')
             else:
                 logger.error('Trying to consume ingredient {} thats not on an inventory.', ingredient_object, owner='camilogarcia')
         original_target = None
@@ -136,6 +141,8 @@ class StartCraftingMixin:
         else:
             original_target = self.target
         self.crafting_process = CraftingProcess(self.context.sim, crafter, recipe, discounted_price, paying_sim, reserved_ingredients=reserved_ingredients, orderer_ids=orderer_ids, original_target=original_target, ingredient_quality_bonus=avg_quality_bonus, funds_source=funds_source)
+        if self.set_target_as_current_ico:
+            self.crafting_process.current_ico = original_target
         if test_result:
             result = self.crafting_process.push_si_for_first_phase(self, crafting_target)
             crafting_handlers.log_ingredient_calculation(self.crafting_process, crafter.id, ingredient_log)
@@ -211,7 +218,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
     def __init__(self, *args, recipe_ingredients_map=None, **kwargs):
         self._recipe_ingredients_map = recipe_ingredients_map
         choice_enumeration_strategy = RecipePickerEnumerationStrategy()
-        super().__init__(*args, choice_enumeration_strategy=choice_enumeration_strategy, **kwargs)
+        super().__init__(*args, choice_enumeration_strategy=choice_enumeration_strategy, recipe_ingredients_map=recipe_ingredients_map, **kwargs)
 
     @flexmethod
     def _use_ellipsized_name(cls, inst):
@@ -292,9 +299,12 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, crafter=DEFAULT, order_count=1, recipe_ingredients_map=None, funds_source=None, **kwargs):
         crafter = context.sim
-        candidate_ingredients = cls._get_ingredient_candidates(crafter, crafting_target=target)
+        inventory_target = target
+        subclass_of_order_interaction = issubclass(cls, StartCraftingOrderSuperInteraction)
+        inventory_target = inst.get_participant(participant_type=cls.ingredient_source)
+        candidate_ingredients = cls._get_ingredient_candidates(crafter, crafting_target=inventory_target)
         recipe_list = []
-        if not crafter is DEFAULT or inst is not None:
+        if not (not crafter is DEFAULT or subclass_of_order_interaction) or not cls.ingredient_source or inst is not None:
             inst._choice_enumeration_strategy.build_choice_list(inst)
             recipe_list = inst._choice_enumeration_strategy.choices
             resolver = inst.get_resolver()
@@ -303,13 +313,13 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
             resolver = cls.get_resolver(target=target, context=context)
         recipe_ingredients_map = {}
         for recipe in recipe_list:
-            adjusted_ingredient_price = 0
+            adjusted_ingredient_price = 1
             enable_recipe = True
+            has_required_ingredients = True
             recipe_ingredients_map[recipe] = []
             ingredients_used = {}
             ingredients_found_count = 0
             ingredients_needed_count = 0
-            has_required_ingredients = True
             for tuned_ingredient_factory in recipe.sorted_ingredient_requirements:
                 ingredient_requirement = tuned_ingredient_factory()
                 ingredient_requirement.attempt_satisfy_ingredients(candidate_ingredients, ingredients_used)
@@ -322,13 +332,14 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
             else:
                 adjusted_ingredient_price = (ingredients_needed_count - ingredients_found_count)/ingredients_needed_count
             adjusted_ingredient_price = (ingredients_needed_count - ingredients_found_count)/ingredients_needed_count
-            is_order_interaction = issubclass(cls, StartCraftingOrderSuperInteraction)
+            is_order_interaction = False
+            is_order_interaction = True
             (multiplier, discount_tooltip) = cls.price_multiplier.get_multiplier_and_tooltip(resolver)
             (original_price, discounted_price) = recipe.get_price(is_order_interaction, adjusted_ingredient_price, multiplier)
             original_price *= order_count
             discounted_price *= order_count
             recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=context.sim, funds_source=funds_source)
-            if not recipe.use_ingredients is not None or not ingredients_needed_count or recipe_test_result.visible:
+            if not (not recipe.use_ingredients is not None or not ingredients_needed_count or subclass_of_order_interaction) or cls.ingredient_source and has_required_ingredients or recipe_test_result.visible:
                 ingredient_display_list = tuple(ingredient_requirement.get_display_data() for ingredient_requirement in recipe_ingredients_map.get(recipe, ()))
                 if recipe_test_result.errors:
                     if len(recipe_test_result.errors) > 1:
@@ -354,7 +365,14 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                                 else:
                                     recipe_icon = IconInfoData(recipe.icon_override)
                                 tooltip = discount_tooltip
-                                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=multiplier != 1)
+                                is_discounted = False
+                                if not multiplier != 1 or not discount_tooltip is not None or multiplier != 1:
+                                    is_discounted = True
+                                else:
+                                    is_order_interaction_with_source_and_ingredients = subclass_of_order_interaction and (cls.ingredient_source and has_required_ingredients)
+                                    is_start_interaction_with_ingredients = not subclass_of_order_interaction and (issubclass(cls, StartCraftingSuperInteraction) and has_required_ingredients)
+                                    is_discounted = is_order_interaction_with_source_and_ingredients or is_start_interaction_with_ingredients
+                                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted)
                                 yield row
                         else:
                             tooltip = functools.partial(IngredientTuning.OPTIONAL_INGREDIENT_LIST_STRING, ingredients_list_string)
@@ -366,7 +384,14 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                 else:
                     recipe_icon = IconInfoData(recipe.icon_override)
                 tooltip = discount_tooltip
-                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=multiplier != 1)
+                is_discounted = False
+                if not multiplier != 1 or not discount_tooltip is not None or multiplier != 1:
+                    is_discounted = True
+                else:
+                    is_order_interaction_with_source_and_ingredients = subclass_of_order_interaction and (cls.ingredient_source and has_required_ingredients)
+                    is_start_interaction_with_ingredients = not subclass_of_order_interaction and (issubclass(cls, StartCraftingSuperInteraction) and has_required_ingredients)
+                    is_discounted = is_order_interaction_with_source_and_ingredients or is_start_interaction_with_ingredients
+                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted)
                 yield row
         if not recipe_ingredients_map is None or inst is not None:
             inst._recipe_ingredients_map = recipe_ingredients_map
@@ -479,7 +504,7 @@ class StartCraftingOrderHandler:
         return result
 
 class StartCraftingOrderSuperInteraction(StartCraftingSuperInteraction):
-    INSTANCE_TUNABLES = {'crafter': TunableEnumEntry(description='\n            Who or what to apply this test to\n            ', tunable_type=ParticipantType, default=ParticipantType.Object), 'order_craft_affordance': TunableReference(description='\n            The affordance used to order the chosen craft\n            ', manager=services.affordance_manager()), 'order_wait_affordance': TunableReference(description='\n            The affordance used to wait for an ordered craft\n            ', manager=services.affordance_manager()), 'tooltip_crafting_almost_done': OptionalTunable(description='\n            If enabled and the crafter is crafting a recipe on its final\n            phase, the order will be greyed out with this tooltip.\n            ', tunable=TunableLocalizedStringFactory(description='"\n                Grayed-out tooltip message when another order can\'t be added because the crafter is almost done.\n                ', default=1860708663), enabled_name='tooltip', disabled_name='hidden')}
+    INSTANCE_TUNABLES = {'crafter': TunableEnumEntry(description='\n            Who or what to apply this test to\n            ', tunable_type=ParticipantType, default=ParticipantType.Object), 'order_craft_affordance': TunableReference(description='\n            The affordance used to order the chosen craft\n            ', manager=services.affordance_manager()), 'order_wait_affordance': TunableReference(description='\n            The affordance used to wait for an ordered craft\n            ', manager=services.affordance_manager()), 'tooltip_crafting_almost_done': OptionalTunable(description='\n            If enabled and the crafter is crafting a recipe on its final\n            phase, the order will be greyed out with this tooltip.\n            ', tunable=TunableLocalizedStringFactory(description='"\n                Grayed-out tooltip message when another order can\'t be added because the crafter is almost done.\n                ', default=1860708663), enabled_name='tooltip', disabled_name='hidden'), 'ingredient_source': OptionalTunable(description='\n            The ingredient source from which to get crafting ingredients from.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantType, default=ParticipantType.Actor))}
 
     @classmethod
     def _test(cls, target, context, **kwargs):
@@ -523,7 +548,7 @@ class StartCraftingOrderSuperInteraction(StartCraftingSuperInteraction):
 
 lock_instance_tunables(StartCraftingOrderSuperInteraction, basic_reserve_object=None)
 
-class StartCraftingAutonomouslySuperInteraction(AutonomousPickerSuperInteraction, StartCraftingMixin):
+class StartCraftingAutonomouslySuperInteraction(StartCraftingMixin, AutonomousPickerSuperInteraction):
     INSTANCE_TUNABLES = {'recipes': TunableList(description='\n            The recipes a Sim can craft.\n            ', tunable=TunableReference(description='\n                Recipe to craft.\n                ', manager=services.recipe_manager(), pack_safe=True, reload_dependent=True)), 'test_reserve_object': TunableReserveObject(description="\n            The reservation type to use when testing for this interaction's\n            autonomous availability.\n            "), 'craft_for_other_sims': TunableVariant(description='\n            Options for crafting this drink for other sims.\n            ', no_other_sims=TunableTuple(description="\n                Don't craft this for any other sims.\n                ", locked_args={'option': NO_OTHER_SIMS}), party_crafting=TunableTuple(description='\n                Craft for all for the Sims in a rally source.\n                ', rally_source=TunableEnumSet(description='\n                    A list of different sources that we want to use to figure\n                    out the Sims to craft drinks for.\n                    ', enum_type=RallySource, enum_default=RallySource.ENSEMBLE, default_enum_list=frozenset((RallySource.ENSEMBLE,))), locked_args={'option': PARTY_CRAFTING}), craft_for_specific_participant=TunableTuple(description='\n                Craft for the Sim of a specific participant type. \n                ', participant=TunableEnumEntry(description='\n                    The specific participant that we want to craft for. \n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.PickedSim), locked_args={'option': CRAFT_FOR_SPECIFIC_PARTICIPANT}), default='no_other_sims'), 'price_multiplier': TunableMultiplier.TunableFactory(description='\n            Tested multipliers to apply to the price of the item.\n            ')}
 
     @classmethod
@@ -566,8 +591,7 @@ class StartCraftingAutonomouslySuperInteraction(AutonomousPickerSuperInteraction
 
     def __init__(self, *args, **kwargs):
         choice_enumeration_strategy = RecipePickerEnumerationStrategy()
-        AutonomousPickerSuperInteraction.__init__(self, *args, choice_enumeration_strategy=choice_enumeration_strategy, **kwargs)
-        StartCraftingMixin.__init__(self)
+        super().__init__(*args, choice_enumeration_strategy=choice_enumeration_strategy, **kwargs)
 
     @property
     def create_target(self):
@@ -1275,7 +1299,7 @@ class CraftingPhaseStagingSuperInteraction(CraftingPhaseSuperInteractionMixin, S
         yield
 
 class CraftingPhaseTransferCraftingComponentSuperInteraction(CraftingPhaseStagingSuperInteraction):
-    INSTANCE_TUNABLES = {'crafting_component_recipient': TunableEnumEntry(ParticipantType, ParticipantType.Object, description='The participant of this interaction to which the Crafting process is transferred.')}
+    INSTANCE_TUNABLES = {'crafting_component_recipient': TunableEnumEntry(description='\n            The participant of this interaction to which the Crafting process is transferred.\n            ', tunable_type=ParticipantType, default=ParticipantType.Object)}
 
     def build_basic_elements(self, sequence):
         super_basic_elements = super().build_basic_elements(sequence=sequence)
@@ -1296,7 +1320,7 @@ class CraftingPhaseTransferCraftingComponentSuperInteraction(CraftingPhaseStagin
 
 class GrabServingSuperInteraction(SuperInteraction):
     GRAB_WHILE_STANDING_PENALTY = Tunable(description='\n        An additional penalty to apply to the constraint of grabbing a serving\n        of food while standing so Sims will prefer to sit before grabbing the\n        food if possible.\n        ', tunable_type=int, default=5)
-    INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(one_shot=True, no_content=True, default='no_content'), 'posture_type': TunableReference(description='\n            Posture to use to carry the object.\n            ', manager=services.posture_manager()), 'si_to_push': TunableReference(description='\n            SI to push after picking up the object. ATTENTION: Any ads\n            specified by the SI to push will bubble up and attach themselves to\n            the _Grab interaction!\n            ', manager=services.affordance_manager(), allow_none=True), 'transferred_stats': TunableList(description='\n            A list of stats to be copied over to the grabbed object.\n            ', tunable=TunableReference(manager=services.statistic_manager())), 'transferred_states': TunableList(description='\n            A list of states to be copied over to the grabbed object.\n            ', tunable=TunableStateTypeReference(pack_safe=True)), 'default_grab_serving_animation': TunableAnimationReference(description='\n             The animation to play for this interaction in the case that the\n             object we are grabbing is not in an inventory.  If the object is\n             in an inventory, we will dynamically generate the animation we\n             need to grab it.\n             '), 'use_linked_recipe_mapping': Tunable(description='\n            If enabled, when this interaction creates the recipe, instead of\n            using the base recipe it will look into the recipe linked\n            recipe tuning and find what recipes it can generate.\n            This is used to support multiple recipes generated from the same\n            multiserve.\n            i.e. Ice cream carton can generate bowls, milkshakes and cones.\n            ', tunable_type=bool, default=False), 'decrease_serving': Tunable(description='\n            If checked then we will decrease the number of servings by 1 when\n            this interaction is run.\n            ', tunable_type=bool, default=True), 'consume_affordances_override': TunableList(description='\n            A list of consume affordances to attempt to run on the consumable.\n            \n            This is a priority based list - the affordances will test in the\n            order they are tuned, running the first one that passes.\n            \n            If none pass, this reverts to using the consume affordance tuned on\n            the consumable.\n            ', tunable=TunableReference(description='\n                An affordance to test and potentially run on the consumable.\n                ', manager=services.affordance_manager(), class_restrictions=('SuperInteraction',), pack_safe=True))}
+    INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(one_shot=True, no_content=True, default='no_content'), 'posture_type': TunableReference(description='\n            Posture to use to carry the object.\n            ', manager=services.posture_manager()), 'si_to_push': TunableReference(description='\n            SI to push after picking up the object. ATTENTION: Any ads\n            specified by the SI to push will bubble up and attach themselves to\n            the _Grab interaction!\n            ', manager=services.affordance_manager(), allow_none=True), 'transferred_stats': TunableList(description='\n            A list of stats to be copied over to the grabbed object.\n            ', tunable=TunableReference(manager=services.statistic_manager())), 'transferred_states': TunableList(description='\n            A list of states to be copied over to the grabbed object.\n            ', tunable=TunableStateTypeReference(pack_safe=True)), 'default_grab_serving_animation': TunableAnimationReference(description='\n             The animation to play for this interaction in the case that the\n             object we are grabbing is not in an inventory.  If the object is\n             in an inventory, we will dynamically generate the animation we\n             need to grab it.\n             '), 'use_linked_recipe_mapping': Tunable(description='\n            If enabled, when this interaction creates the recipe, instead of\n            using the base recipe it will look into the recipe linked\n            recipe tuning and find what recipes it can generate.\n            This is used to support multiple recipes generated from the same\n            multiserve.\n            i.e. Ice cream carton can generate bowls, milkshakes and cones.\n            ', tunable_type=bool, default=False), 'decrease_serving': Tunable(description='\n            If checked then we will decrease the number of servings by 1 when\n            this interaction is run.\n            ', tunable_type=bool, default=True), 'consume_affordances_override': TunableList(description='\n            A list of consume affordances to attempt to run on the consumable.\n            \n            This is a priority based list - the affordances will test in the\n            order they are tuned, running the first one that passes.\n            \n            If none pass, this reverts to using the consume affordance tuned on\n            the consumable.\n            ', tunable=TunableReference(description='\n                An affordance to test and potentially run on the consumable.\n                ', manager=services.affordance_manager(), class_restrictions=('SuperInteraction',), pack_safe=True)), 'use_base_recipe_on_setup': Tunable(description='\n            If enabled, the created serving will use the Base Object when being \n            set up. Otherwise, the recipe tuning will be used. In general, this \n            should stay checked. Unchecking this is useful for objects like the \n            Pit BBQ where a group serving is being pulled from another group \n            serving. The "Call to Meal" interactions will be forwarded correctly.\n            ', tunable_type=bool, default=True)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1408,15 +1432,18 @@ class GrabServingSuperInteraction(SuperInteraction):
                 mutated_listeners.remove(self.on_mutated)
 
     def setup_crafted_object(self, crafted_object):
+        recipe = self._get_recipe()
         crafting_process = self.target.get_crafting_process()
-        crafting_process.setup_crafted_object(crafted_object, use_base_recipe=True, is_final_product=True, owning_household_id_override=self.target.get_household_owner_id())
+        if not self.use_base_recipe_on_setup:
+            if self.use_linked_recipe_mapping:
+                crafting_process.recipe = recipe
+        crafting_process.setup_crafted_object(crafted_object, use_base_recipe=self.use_base_recipe_on_setup, is_final_product=True, owning_household_id_override=self.target.get_household_owner_id())
         self.setup_transferred_stats(crafted_object)
         self.setup_transferred_states(crafted_object)
         crafting_process.apply_simoleon_value(crafted_object, single_serving=True)
         if self.target.is_in_inventory():
             inventory_owner = self.target.get_inventory().owner
             inventory_owner.inventory_component.system_add_object(crafted_object)
-        recipe = self._get_recipe()
         for apply_state in reversed(recipe.final_product.apply_states):
             crafted_object.set_state(apply_state.state, apply_state)
         crafted_object.append_tags(recipe.apply_tags)

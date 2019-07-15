@@ -818,23 +818,19 @@ class TunableRange(Tunable):
         return export_dict
 
 class _TunableCollection(TunableBase):
-    __slots__ = ('_template', 'minlength', 'maxlength', '_default', 'allow_none', 'propagate_pack_safe_exception')
+    __slots__ = ('_template', '_default')
 
-    def __init__(self, tunable, description=None, minlength=None, maxlength=None, source_location=None, source_query=None, allow_none=False, propagate_pack_safe_exception=False, **kwargs):
+    def __init__(self, tunable, description=None, minlength=None, maxlength=None, source_location=None, source_query=None, allow_none=False, **kwargs):
         super().__init__(description=description, **kwargs)
         if source_location:
             source_location = '../' + source_location
         self._template = _to_tunable(tunable, source_location=source_location, source_query=source_query)
         self._has_callback |= self._template._has_callback
-        self.minlength = minlength
-        self.maxlength = maxlength
-        self.allow_none = allow_none
         if isinstance(tunable, TunableBase):
             self.cache_key = tunable.cache_key
         else:
             self.cache_key = tunable
         self.needs_deferring = True
-        self.propagate_pack_safe_exception = propagate_pack_safe_exception
 
     def _get_collection_types(self):
         raise NotImplementedError
@@ -863,21 +859,18 @@ class _TunableCollection(TunableBase):
                         logger.error("Incorrectly matched tuning types found in tuning for {0} in {1}. Expected '{2}', got '{3}'", tunable_name, source, current_tunable_tag, child_node.tag)
                         logger.error('ATTRS: {}'.format(child_node.items()))
                     value = tunable_instance.load_etree_node(node=child_node, source=source)
-                if not self.allow_none and value is None:
+                if False and not self.allow_none and value is None:
                     logger.error('None entry found in tunable list in {}.\nName: {}\nIndex: {}\nContent:{}', source, tunable_name, element_index, child_node)
                 else:
                     collection_fn(tunable_collection, value)
             except UnavailablePackSafeResourceError:
-                if self.propagate_pack_safe_exception:
-                    raise
-                else:
-                    continue
+                continue
             except TunableMinimumLengthError:
                 continue
             except:
                 logger.exception('Error while parsing tuning in {0}:', source)
                 logger.error('Failed to load element for {0} (index {1}): {2}. Skipping.', tunable_name, element_index, child_node)
-        if self.minlength is not None and len(tunable_collection) < self.minlength:
+        if False and self.minlength is not None and len(tunable_collection) < self.minlength:
             logger.info('Collection {} in {} has fewer than the minimum number of entries.', source, tunable_name)
             raise TunableMinimumLengthError
         return final_type(tunable_collection)
@@ -988,7 +981,7 @@ class TunableMapping(TunableList):
                 return TunableMapping.DEFAULT_MAPPING
             key_name = self._key_name
             value_name = self._value_name
-            if self.allow_none:
+            if False and self.allow_none:
                 dict_items = {getattr(item, key_name): getattr(item, value_name) for item in value}
             else:
                 dict_items = {getattr(item, key_name): getattr(item, value_name) for item in value if getattr(item, key_name) is not None if getattr(item, value_name) is not None}

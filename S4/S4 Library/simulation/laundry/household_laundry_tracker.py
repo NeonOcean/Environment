@@ -2,12 +2,13 @@ import random
 from date_and_time import DateAndTime
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver
+from households.household_tracker import HouseholdTracker
 from laundry.laundry_tuning import LaundryTuning
 import services
 import sims4
 logger = sims4.log.Logger('Laundry', default_owner='mkartika')
 
-class HouseholdLaundryTracker:
+class HouseholdLaundryTracker(HouseholdTracker):
 
     def __init__(self, household):
         self._owner = household
@@ -70,6 +71,9 @@ class HouseholdLaundryTracker:
     def reset(self):
         self._last_unload_laundry_time = None
         self._finished_laundry_conditions.clear()
+
+    def household_lod_cleanup(self):
+        self.reset()
 
     def save_data(self, household_msg):
         if self._last_unload_laundry_time is None:

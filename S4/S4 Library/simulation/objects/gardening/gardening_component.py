@@ -7,6 +7,7 @@ from objects.components import Component
 from objects.components.tooltip_component import TooltipProvidingComponentMixin
 from objects.gardening.gardening_spawner import FruitSpawnerData
 from objects.gardening.gardening_tuning import GardeningTuning
+from sims.rebate_manager import RebateCategoryEnum
 from sims4.localization import TunableLocalizedString, LocalizationHelperTuning
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, OptionalTunable, TunableTuple
 import services
@@ -38,6 +39,24 @@ class _GardeningComponent(AutoFactoryInit, Component, HasTunableFactory, Tooltip
 
     def on_add(self, *_, **__):
         self.owner.hover_tip = ui_protocols.UiObjectMetadata.HOVER_TIP_GARDENING
+        active_household = services.active_household()
+        if active_household is not None and services.current_zone_id() == active_household.zone_id and self.owner.is_on_active_lot():
+            if hasattr(self, 'fruit_name'):
+                return
+            rebate_manager = active_household.rebate_manager
+            rebate_manager.add_rebate_for_object(self.owner.id, RebateCategoryEnum.GAMEPLAY_OBJECT)
+
+    def register_rebate_tests(self, test_set):
+        for tests in test_set:
+            services.get_event_manager().register_tests(self, tests)
+
+    def handle_event(self, sim_info, event_type, resolver, **kwargs):
+        if resolver.event_kwargs.get('state_change_obj') is not self.owner:
+            return
+        active_household = services.active_household()
+        if active_household is not None and services.current_zone_id() == active_household.zone_id:
+            rebate_manager = active_household.rebate_manager
+            rebate_manager.add_rebate_for_object(self.owner.id, RebateCategoryEnum.GAMEPLAY_OBJECT)
 
     def _ui_metadata_gen(self):
         if GardeningTuning.is_spliced(self.owner):

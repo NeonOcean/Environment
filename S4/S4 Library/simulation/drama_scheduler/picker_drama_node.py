@@ -1,13 +1,15 @@
 import elements
+import enum
+import random
 from careers.career_gig import Gig
 from careers.career_tuning import Career
 from drama_scheduler.drama_node import BaseDramaNode, CooldownOption
 from drama_scheduler.drama_node_types import DramaNodeType
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.tests import TunableTestSet, TunableTestSetWithTooltip
 from interactions import ParticipantType
 from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import TunableReference, OptionalTunable, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, Tunable
+from sims4.tuning.tunable import TunableReference, OptionalTunable, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, Tunable, TunableEnumEntry
 from sims4.utils import classproperty
 import id_generator
 import services
@@ -19,7 +21,7 @@ class _PickerDramaNodeBehavior(HasTunableSingletonFactory, AutoFactoryInit):
     def create_picker_row(self, owner=None, **kwargs):
         raise NotImplementedError
 
-    def on_picked(self, owner=None):
+    def on_picked(self, owner=None, associated_sim_info=None):
         raise NotImplementedError
 
 class _ScheduleDramaNodePickerBehavior(_PickerDramaNodeBehavior):
@@ -35,7 +37,7 @@ class _ScheduleDramaNodePickerBehavior(_PickerDramaNodeBehavior):
         picker_row = self._saved_node.create_picker_row(owner=owner)
         return picker_row
 
-    def on_picked(self, owner=None):
+    def on_picked(self, owner=None, associated_sim_info=None):
         services.drama_scheduler_service().schedule_node(self.drama_node, SingleSimResolver(owner), specific_time=self._saved_node.get_picker_schedule_time(), drama_inst=self._saved_node)
 
 class _ScheduleCareerGigPickerBehavior(_PickerDramaNodeBehavior):
@@ -45,17 +47,16 @@ class _ScheduleCareerGigPickerBehavior(_PickerDramaNodeBehavior):
         super().__init__(*args, **kwargs)
         self._scheduled_time = None
 
-    def create_picker_row(self, owner, **kwargs):
-        self._owner = owner
+    def create_picker_row(self, owner, associated_sim_info=None, enabled=True, **kwargs):
         now = services.time_service().sim_now
         time_till_gig = self.career_gig.get_time_until_next_possible_gig(now)
         if time_till_gig is None:
             return
         self._scheduled_time = now + time_till_gig
-        picker_row = self.career_gig.create_picker_row(scheduled_time=self._scheduled_time, owner=owner)
+        picker_row = self.career_gig.create_picker_row(scheduled_time=self._scheduled_time, owner=owner, gig_customer=associated_sim_info, enabled=enabled)
         return picker_row
 
-    def on_picked(self, owner=None):
+    def on_picked(self, owner=None, associated_sim_info=None):
         sim_info = SingleSimResolver(owner).get_participant(ParticipantType.Actor)
         career = sim_info.career_tracker.get_career_by_uid(self.career_gig.career.guid64)
         if career is None:
@@ -64,10 +65,25 @@ class _ScheduleCareerGigPickerBehavior(_PickerDramaNodeBehavior):
             else:
                 logger.error('Tried to add gig {} to missing career {} on sim {}', self.career_gig, self.career_gig.career, sim_info)
                 return
-        sim_info.career_tracker.set_gig(self.career_gig, self._scheduled_time)
+        sim_info.career_tracker.set_gig(self.career_gig, self._scheduled_time, gig_customer=associated_sim_info)
+
+class PickBehavior(enum.Int):
+    DO_NOTHING = 0
+    REMOVE = 1
+    DISABLE_FOR_PICKING_SIM = 2
+    DISABLE_FOR_ALL_SIMS = 3
 
 class PickerDramaNode(BaseDramaNode, AutoFactoryInit):
-    INSTANCE_TUNABLES = {'behavior': TunableVariant(schedule_drama_node=_ScheduleDramaNodePickerBehavior.TunableFactory(description='\n                Drama node to schedule should the player pick this to run.\n                '), schedule_career_gig=_ScheduleCareerGigPickerBehavior.TunableFactory(description='\n                A gig to schedule should the player pick this to run.\n                ')), 'visibility_tests': TunableTestSetWithTooltip(description='\n            Tests that will be run on the picker owner of this PickerDramaNode\n            to determine if this node should appear in a picker.\n            '), 'replace_if_removed': Tunable(description='\n            If True, whenever we remove this node because it was selected in a picker, we will replace it with a new\n            valid node from the same bucket.\n            ', tunable_type=bool, default=False), 'remove_if_picked': Tunable(description="\n            If true, selecting this picker drama node will remove the picker\n            drama node from the drama scheduler and it won't appear in future\n            pickers.\n            ", tunable_type=bool, default=False)}
+    SIM_ID_TOKEN = 'associated_sim_id'
+    DISABLE_SIM_IDS_TOKEN = 'disable_sim_ids'
+    DISABLED_TOKEN = 'disabled'
+    INSTANCE_TUNABLES = {'behavior': TunableVariant(schedule_drama_node=_ScheduleDramaNodePickerBehavior.TunableFactory(description='\n                Drama node to schedule should the player pick this to run.\n                '), schedule_career_gig=_ScheduleCareerGigPickerBehavior.TunableFactory(description='\n                A gig to schedule should the player pick this to run.\n                ')), 'associated_sim_filter': OptionalTunable(description='\n            If tuned, will associate a sim with this drama node. Because they do\n            not have receivers or senders, picker drama nodes do not support the\n            normal flow for non-simless drama nodes.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.SIM_FILTER))), 'visibility_tests': TunableTestSetWithTooltip(description='\n            Tests that will be run on the picker owner of this PickerDramaNode\n            to determine if this node should appear in a picker.\n            '), 'on_pick_behavior': TunableEnumEntry(description='\n             Determines what happens to this PickerDramaNode if it is picked in\n             a picker. \n             ', tunable_type=PickBehavior, default=PickBehavior.DO_NOTHING), 'replace_if_removed': Tunable(description='\n            If True, whenever we remove this node because it was selected in a picker, we will replace it with a new\n            valid node from the same bucket.\n            ', tunable_type=bool, default=False)}
+
+    def __init__(self, uid=None, **kwargs):
+        super().__init__(uid=uid, **kwargs)
+        self._associated_sim_info = None
+        self._disable_sim_ids = set() if self.on_pick_behavior == PickBehavior.DISABLE_FOR_PICKING_SIM else None
+        self._disabled = False
 
     @classproperty
     def persist_when_active(cls):
@@ -81,11 +97,25 @@ class PickerDramaNode(BaseDramaNode, AutoFactoryInit):
     def simless(cls):
         return True
 
+    def setup(self, resolver, gsi_data=None, **kwargs):
+
+        def _on_filter_request_complete(results, *_, **__):
+            if self._associated_sim_info is not None:
+                return
+            if not results:
+                return
+            chosen_result = sims4.random.pop_weighted([(result.score, result) for result in results])
+            self._associated_sim_info = chosen_result.sim_info
+
+        if self.associated_sim_filter is not None:
+            services.sim_filter_service().submit_filter(self.associated_sim_filter, callback=_on_filter_request_complete, allow_yielding=True, gsi_source_fn=self.get_sim_filter_gsi_name)
+        return super().setup(resolver, gsi_data, **kwargs)
+
     def _run(self):
         return True
 
     def on_picker_choice(self, owner=None):
-        if self.remove_if_picked:
+        if self.on_pick_behavior == PickBehavior.REMOVE:
             if self.replace_if_removed:
                 selected_time = self.selected_time
 
@@ -107,25 +137,62 @@ class PickerDramaNode(BaseDramaNode, AutoFactoryInit):
                 sim_timeline = services.time_service().sim_timeline
                 self._element = sim_timeline.schedule(elements.GeneratorElement(schedule_new_node))
             services.drama_scheduler_service().cancel_scheduled_node(self._uid)
-        self.behavior.on_picked(owner)
+        elif self.on_pick_behavior == PickBehavior.DISABLE_FOR_PICKING_SIM:
+            self._disable_sim_ids.add(owner.id)
+        elif self.on_pick_behavior == PickBehavior.DISABLE_FOR_ALL_SIMS:
+            self._disabled = True
+        self.behavior.on_picked(owner=owner, associated_sim_info=self._associated_sim_info)
+
+    def _save_custom_data(self, writer):
+        if self._disable_sim_ids:
+            writer.write_uint64s(self.DISABLE_SIM_IDS_TOKEN, self._disable_sim_ids)
+        if self._associated_sim_info is not None:
+            writer.write_uint64(self.SIM_ID_TOKEN, self._associated_sim_info.id)
+        if self.on_pick_behavior == PickBehavior.DISABLE_FOR_ALL_SIMS:
+            writer.write_bool(self.DISABLED_TOKEN, self._disabled)
+
+    def _load_custom_data(self, reader):
+        if self.associated_sim_filter is not None:
+            sim_info_id = reader.read_uint64(self.SIM_ID_TOKEN, None)
+            if sim_info_id:
+                self._associated_sim_info = services.sim_info_manager().get(sim_info_id)
+                if self._associated_sim_info is None:
+                    return False
+        if self.on_pick_behavior == PickBehavior.DISABLE_FOR_PICKING_SIM:
+            self._disable_sim_ids = reader.read_uint64s(self.DISABLE_SIM_IDS_TOKEN, set())
+        if self.on_pick_behavior == PickBehavior.DISABLE_FOR_ALL_SIMS:
+            self._disabled = reader.read_bool(self.DISABLED_TOKEN, False)
+        return True
 
     def create_picker_row(self, owner=None, run_visibility_tests=True, disable_row_if_visibily_tests_fail=False, **kwargs):
-        disable_row = False
+        enabled = True
         tooltip_override = None
-        if run_visibility_tests and owner is not None:
-            resolver = SingleSimResolver(owner)
+        if self.associated_sim_filter is not None and self._associated_sim_info is None:
+            results = services.sim_filter_service().submit_filter(self.associated_sim_filter, callback=None, allow_yielding=False, gsi_source_fn=self.get_sim_filter_gsi_name)
+            if results:
+                self._associated_sim_info = random.choice(results).sim_info
+            else:
+                return
+        if owner is not None:
+            if self._associated_sim_info:
+                resolver = DoubleSimResolver(owner, self._associated_sim_info)
+            else:
+                resolver = SingleSimResolver(owner)
             result = self.visibility_tests.run_tests(resolver)
             if not result:
                 if disable_row_if_visibily_tests_fail:
                     tooltip_override = result.tooltip
-                    disable_row = True
+                    enabled = False
                 else:
                     return
-        picker_row = self.behavior.create_picker_row(owner=owner)
+        if (not run_visibility_tests or self._disable_sim_ids is not None) and owner.id in self._disable_sim_ids:
+            enabled = False
+        elif self._disabled:
+            enabled = False
+        picker_row = self.behavior.create_picker_row(owner=owner, associated_sim_info=self._associated_sim_info, enabled=enabled)
         if picker_row is not None:
             picker_row.tag = self
-            if disable_row:
-                picker_row.is_enable = False
+            if tooltip_override:
                 if tooltip_override:
                     picker_row.row_tooltip = tooltip_override
         return picker_row

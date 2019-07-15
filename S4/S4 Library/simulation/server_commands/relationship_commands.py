@@ -173,6 +173,19 @@ def print_object_relationship(sim_id:int, obj_def_id:int, _connection=None):
     stat_type = services.relationship_service().get_mapped_track_of_tag_set(obj_tag_set)
     sims4.commands.output('{} : Object Relationship Type Value between sim with sim id {} and object of def id {}.'.format(obj_relationship._rel_data.relationship_track_tracker.get_value(stat_type), sim_id, obj_def_id), _connection)
 
+@sims4.commands.Command('relationships.set_object_relationship_name', command_type=sims4.commands.CommandType.Live)
+def set_object_relationship_track_name(sim_id:int, obj_def_id:int, name:str, _connection=None):
+    relationship_service = services.relationship_service()
+    obj_tag_set = relationship_service.get_mapped_tag_set_of_id(obj_def_id)
+    if obj_tag_set is None:
+        sims4.commands.output('No rel exists', _connection)
+        return
+    obj_relationship = relationship_service.get_object_relationship(sim_id, obj_tag_set)
+    if obj_relationship is None:
+        sims4.commands.output('No rel exists', _connection)
+        return
+    obj_relationship.set_object_rel_name(name)
+
 @sims4.commands.Command('relationship.add_score', command_type=sims4.commands.CommandType.Automation)
 def add_score(source_sim_id:int, target_sim_id:int, score_delta:float, track_type:TunableInstanceParam(sims4.resources.Types.STATISTIC), _connection=None):
     source_sim_info = services.sim_info_manager().get(source_sim_id)

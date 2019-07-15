@@ -1,5 +1,5 @@
 from interactions import ParticipantType, ParticipantTypeSingle
-from interactions.base.interaction import InteractionQueuePreparationStatus
+from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.base.super_interaction import SuperInteraction
 from interactions.constraint_variants import TunableConstraintVariant
 from interactions.constraints import Anywhere

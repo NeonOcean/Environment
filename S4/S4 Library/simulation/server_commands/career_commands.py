@@ -2,6 +2,7 @@ from careers.career_base import set_career_event_override
 from careers.career_event_manager import CareerEventManager
 from careers.career_ops import CareerOps
 from careers.career_tuning import Career
+from careers.career_enums import CareerShiftType
 from event_testing.resolver import SingleSimResolver
 from interactions.context import QueueInsertStrategy
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam, OptionalSimInfoParam
@@ -15,7 +16,7 @@ import sims4.log
 logger = sims4.log.Logger('CareerCommand', default_owner='rrodgers')
 
 @sims4.commands.Command('careers.select', command_type=sims4.commands.CommandType.Live)
-def select_career(sim_id:int=None, career_instance_id:int=None, track_id:int=None, level:int=None, company_name_hash:int=None, reason:int=CareerOps.JOIN_CAREER, _connection=None):
+def select_career(sim_id:int=None, career_instance_id:int=None, track_id:int=None, level:int=None, company_name_hash:int=None, reason:int=CareerOps.JOIN_CAREER, schedule_shift_type:CareerShiftType=CareerShiftType.ALL_DAY, _connection=None):
     if sim_id is None or (career_instance_id is None or track_id is None) or level is None:
         logger.error('Not all of the data needed for the careers.select command was passed.')
         return False
@@ -45,7 +46,7 @@ def select_career(sim_id:int=None, career_instance_id:int=None, track_id:int=Non
         if current_career is not None:
             current_career.on_branch_selection(career_track)
         else:
-            career_tracker.add_career(career_type(sim_info), show_confirmation_dialog=True)
+            career_tracker.add_career(career_type(sim_info), show_confirmation_dialog=True, schedule_shift_override=schedule_shift_type)
     if reason == CareerOps.QUIT_CAREER:
         career_tracker.remove_career(career_instance_id)
 

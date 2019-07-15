@@ -68,6 +68,7 @@ class _PickerPieMenuProxyInteraction(ProxyInteraction):
 
     def _run_interaction_gen(self, timeline):
         yield from super()._run_interaction_gen(timeline)
-        self.on_choice_selected(self.picker_row_data.tag, ingredient_data=self._kwargs.get('recipe_ingredients_map'))
+        ingredient_data = self._kwargs.get('recipe_ingredients_map')
+        self.on_choice_selected(self.picker_row_data.tag, ingredient_data=ingredient_data, ingredient_check=ingredient_data is not None)
         return True
         yield

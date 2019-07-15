@@ -84,6 +84,13 @@ class BaseLootOperation(HasTunableSingletonFactory, HasDisplayTextMixin):
                 return False
         return test_result
 
+    def _get_display_text_tokens(self, resolver=None):
+        if resolver is not None:
+            subject = resolver.get_participant(self._subject)
+            target = resolver.get_participant(self._target_participant_type)
+            return (subject, target)
+        return ()
+
     @staticmethod
     def resolve_participants(participant, resolver):
         if isinstance(participant, tag.Tag):

@@ -14,6 +14,8 @@ from interactions.base.super_interaction import SuperInteraction
 from interactions.context import InteractionContext
 from objects.base_object import BaseObject
 from objects.components.state import TunableStateValueReference
+from objects.object_enums import PersistenceType
+from objects.pools import pool_utils
 from objects.proxy import ProxyObject
 from objects.script_object import ScriptObject
 from postures.posture_graph import supress_posture_graph_build
@@ -196,18 +198,23 @@ class GoHereSuperInteraction(TerrainSuperInteraction):
             posture_target = target.posture_target
             if posture_target is not None:
                 objects_to_ignore.update(posture_target.parenting_hierarchy_gen())
+        if context.sim is not None:
+            posture_target = context.sim.posture_target
+            if posture_target.vehicle_component is not None:
+                posture_target = posture_target.part_owner if posture_target.is_part else posture_target
+                objects_to_ignore.add(posture_target)
         try:
             for obj in objects_to_ignore:
-                if obj.routing_context is None:
-                    logger.error('Interaction {}.  Child object {} has not routing context.  Go here is trying to run GoHere on Target {} with an invalid child', cls, obj, target)
-                else:
-                    routing_context.ignore_footprint_contour(obj.routing_context.object_footprint_id)
+                footprint_component = obj.footprint_component
+                if footprint_component is not None:
+                    routing_context.ignore_footprint_contour(footprint_component.get_footprint_id())
             if not routing.test_connectivity_permissions_for_handle(routing.connectivity.Handle(routing_location), routing_context):
                 return TestResult(False, 'Cannot GoHere! Unroutable area.')
         finally:
             for obj in objects_to_ignore:
-                if obj.routing_context is not None:
-                    routing_context.remove_footprint_contour_override(obj.routing_context.object_footprint_id)
+                footprint_component = obj.footprint_component
+                if footprint_component is not None:
+                    routing_context.remove_footprint_contour_override(footprint_component.get_footprint_id())
         return TestResult.TRUE
 
     @classmethod
@@ -472,22 +479,22 @@ class Terrain(ScriptObject):
 
     check_line_of_sight = caches.uncached(ScriptObject.check_line_of_sight)
 
-lock_instance_tunables(Terrain, _persists=False, _world_file_object_persists=False, provides_terrain_interactions=False)
+lock_instance_tunables(Terrain, _persistence=PersistenceType.NONE, _world_file_object_persists=False, provides_terrain_interactions=False)
 
-class TerrainPoint(ProxyObject):
+class _LocationPoint(ProxyObject):
     _unproxied_attributes = ProxyObject._unproxied_attributes | {'_pick_location'}
 
-    @staticmethod
-    def create_for_position_and_orientation(position, routing_surface):
-        pick_location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
-        return TerrainPoint(pick_location)
+    def __new__(cls, location, proxy_obj, *args, **kwargs):
+        return super().__new__(cls, proxy_obj, *args, **kwargs)
 
-    def __new__(cls, location):
-        return super().__new__(cls, services.terrain_service.terrain_object())
-
-    def __init__(self, location):
-        super().__init__(services.terrain_service.terrain_object())
+    def __init__(self, location, proxy_obj, *args, **kwargs):
+        super().__init__(proxy_obj, *args, **kwargs)
         self._pick_location = location
+
+    @classmethod
+    def create_for_position_and_orientation(cls, position, routing_surface):
+        pick_location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+        return cls(pick_location)
 
     def __repr__(self):
         return standard_repr(self, standard_float_tuple_repr(*self.position))
@@ -600,6 +607,12 @@ class TerrainPoint(ProxyObject):
     def is_terrain():
         return True
 
+    def is_hidden(self):
+        return False
+
+    def is_outside(self):
+        return build_buy.is_location_outside(services.current_zone_id(), self.position, self.level)
+
     def is_on_natural_ground(self):
         return build_buy.is_location_natural_ground(services.current_zone_id(), self.position, self.level)
 
@@ -607,3 +620,27 @@ class TerrainPoint(ProxyObject):
     def is_on_active_lot(self, tolerance=0):
         lot = services.active_lot()
         return lot.is_position_on_lot(self.position, tolerance)
+
+class TerrainPoint(_LocationPoint):
+
+    def __new__(cls, location):
+        return super().__new__(cls, location, services.terrain_service.terrain_object())
+
+    def __init__(self, location):
+        super().__init__(location, services.terrain_service.terrain_object())
+
+class OceanPoint(_LocationPoint):
+
+    def __new__(cls, location):
+        return super().__new__(cls, location, services.terrain_service.ocean_object())
+
+    def __init__(self, location):
+        super().__init__(location, services.terrain_service.ocean_object())
+
+class PoolPoint(_LocationPoint):
+
+    def __new__(cls, location, pool):
+        return super().__new__(cls, location, pool)
+
+    def __init__(self, location, pool):
+        super().__init__(location, pool)

@@ -106,13 +106,13 @@ class StatisticOperation(BaseLootOperation):
         score = value/interval
         return score
 
-    def _get_display_text(self):
+    def _get_display_text(self, resolver=None):
         if self.stat.stat_name is not None:
             value = self.get_value()
             if value:
                 return self.DISPLAY_TEXT(*self._get_display_text_tokens())
 
-    def _get_display_text_tokens(self):
+    def _get_display_text_tokens(self, resolver=None):
         return (self.stat.stat_name, self.get_value())
 
 def _get_tunable_amount(gain_type=GAIN_TYPE_AMOUNT):
@@ -712,6 +712,14 @@ class RelationshipOperation(RelationshipOperationMixin, StatisticOperation, Base
         value = tracker.get_value(self._track)
         if self._track_range.lower_bound < value <= self._track_range.upper_bound:
             self._apply(tracker, target_sim, headline_icon_modifier=self._headline_icon_modifier, **kwargs)
+
+    def _get_display_text_tokens(self, resolver=None):
+        subject = None
+        target = None
+        if resolver is not None:
+            subject = resolver.get_participant(self._subject)
+            target = resolver.get_participant(self._target_participant_type)
+        return (subject, target, self.get_value())
 
 class RandomSimStatisticAddRelationship(RelationshipOperation):
     KNOWN_SIMS = 0

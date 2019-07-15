@@ -112,14 +112,14 @@ class Python27Parser(Python2Parser):
         compare_chained2 ::= expr COMPARE_OP return_lambda
         compare_chained2 ::= expr COMPARE_OP return_lambda
 
-        # conditional_true are for conditions which always evaluate true
+        # if_expr_true are for conditions which always evaluate true
         # There is dead or non-optional remnants of the condition code though,
         # and we use that to match on to reconstruct the source more accurately.
         # FIXME: we should do analysis and reduce *only* if there is dead code?
         #        right now we check that expr is "or". Any other nodes types?
 
-        expr             ::= conditional_true
-        conditional_true ::= expr JUMP_FORWARD expr COME_FROM
+        expr             ::= if_expr_true
+        if_expr_true     ::= expr JUMP_FORWARD expr COME_FROM
 
         conditional      ::= expr jmp_false expr JUMP_FORWARD expr COME_FROM
         conditional      ::= expr jmp_false expr JUMP_ABSOLUTE expr
@@ -127,6 +127,8 @@ class Python27Parser(Python2Parser):
 
     def p_stmt27(self, args):
         """
+        stmt ::= ifelsestmtr
+
         # assert condition
         assert        ::= assert_expr jmp_true LOAD_ASSERT RAISE_VARARGS_1
 
@@ -179,11 +181,14 @@ class Python27Parser(Python2Parser):
         ifelsestmtl       ::= testexpr c_stmts_opt JUMP_BACK else_suitel
         ifelsestmtl       ::= testexpr c_stmts_opt CONTINUE else_suitel
 
+        # "if"/"else" statement that ends in a RETURN
+        ifelsestmtr       ::= testexpr return_if_stmts COME_FROM returns
+
         # Common with 2.6
         return_if_lambda   ::= RETURN_END_IF_LAMBDA COME_FROM
-        stmt ::= conditional_lambda
-        stmt ::= conditional_not_lambda
-        conditional_lambda ::= expr jmp_false expr return_if_lambda
+        stmt               ::= if_expr_lambda
+        stmt               ::= conditional_not_lambda
+        if_expr_lambda     ::= expr jmp_false expr return_if_lambda
                                return_stmt_lambda LAMBDA_MARKER
         conditional_not_lambda
                            ::= expr jmp_true expr return_if_lambda
@@ -216,7 +221,7 @@ class Python27Parser(Python2Parser):
         self.check_reduce['raise_stmt1'] = 'AST'
         self.check_reduce['list_if_not'] = 'AST'
         self.check_reduce['list_if'] = 'AST'
-        self.check_reduce['conditional_true'] = 'AST'
+        self.check_reduce['if_expr_true'] = 'tokens'
         self.check_reduce['whilestmt'] = 'tokens'
         return
 
@@ -229,6 +234,12 @@ class Python27Parser(Python2Parser):
             return invalid
 
         if rule == ('and', ('expr', 'jmp_false', 'expr', '\\e_come_from_opt')):
+            # If the instruction after the instructions formin "and"  is an "YIELD_VALUE"
+            # then this is probably an "if" inside a comprehension.
+            if tokens[last] == 'YIELD_VALUE':
+                # Note: We might also consider testing last+1 being "POP_TOP"
+                return True
+
             # Test that jmp_false jumps to the end of "and"
             # or that it jumps to the same place as the end of "and"
             jmp_false = ast[1][0]
@@ -268,11 +279,8 @@ class Python27Parser(Python2Parser):
             while (tokens[i] != 'JUMP_BACK'):
                 i -= 1
             return tokens[i].attr != tokens[i-1].attr
-        # elif rule[0] == ('conditional_true'):
-        #     # FIXME: the below is a hack: we check expr for
-        #     # nodes that could have possibly been a been a Boolean.
-        #     # We should also look for the presence of dead code.
-        #     return ast[0] == 'expr' and ast[0] == 'or'
+        elif rule[0] == 'if_expr_true':
+            return (first) > 0 and tokens[first-1] == 'POP_JUMP_IF_FALSE'
 
         return False
 

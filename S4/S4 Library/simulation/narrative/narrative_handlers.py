@@ -11,6 +11,11 @@ narratives_schema.add_field('previously_completed', label='Previously Completed'
 with narratives_schema.add_has_many('Linked Narratives', GsiGridSchema) as sub_schema:
     sub_schema.add_field('event', label='Narrative Event')
     sub_schema.add_field('narrative', label='Linked Narrative')
+    sub_schema.add_field('progression_value', label='Progression Value')
+    sub_schema.add_field('above_link', label='Above Link')
+    sub_schema.add_field('above_threshold', label='Above Threshold')
+    sub_schema.add_field('below_link', label='Below Link')
+    sub_schema.add_field('below_threshold', label='Below Threshold')
 with narratives_schema.add_view_cheat('narrative.start_narrative', label='Start Narrative') as start_narrative_command:
     start_narrative_command.add_token_param('narrative')
 with narratives_schema.add_view_cheat('narrative.end_narrative', label='End Narrative') as end_narrative_command:
@@ -31,6 +36,11 @@ narratives_links_schema = GsiGridSchema(label='Narratives/Narrative Links', auto
 narratives_links_schema.add_field('event', label='Narrative Event', width=1)
 narratives_links_schema.add_field('narrative', label='Source Narrative', width=1)
 narratives_links_schema.add_field('narrative_link', label='Linked Narrative', width=1)
+narratives_links_schema.add_field('progression_value', label='Progression Value')
+narratives_links_schema.add_field('above_link', label='Above Link')
+narratives_links_schema.add_field('above_threshold', label='Above Threshold')
+narratives_links_schema.add_field('below_link', label='Below Link')
+narratives_links_schema.add_field('below_threshold', label='Below Threshold')
 with narratives_links_schema.add_view_cheat('narrative.trigger_event', label='Trigger Narrative Event') as trigger_narrative_command:
     trigger_narrative_command.add_token_param('event')
 
@@ -38,7 +48,10 @@ with narratives_links_schema.add_view_cheat('narrative.trigger_event', label='Tr
 def generate_narrative_links_view():
     narrative_links = []
     narrative_service = services.narrative_service()
-    for narrative in narrative_service.active_narratives:
-        for (event, linked_narrative) in narrative.narrative_links.items():
-            narrative_links.append({'event': str(event.name), 'narrative': str(narrative.__name__), 'narrative_link': str(linked_narrative.__name__)})
+    for (narrative_cls, narrative_instance) in narrative_service.get_active_narrative_instances():
+        for (event, linked_narrative) in narrative_cls.narrative_links.items():
+            narrative_links.append({'event': str(event.name), 'narrative': str(narrative_cls.__name__), 'narrative_link': str(linked_narrative.__name__)})
+        for (event, progression_value) in narrative_instance._narrative_progression.items():
+            narrative_threshold_link = narrative_instance.narrative_threshold_links[event]
+            narrative_links.append({'event': str(event.name), 'progression_value': str(progression_value), 'above_link': None if narrative_threshold_link.above_link is None else str(narrative_threshold_link.above_link.__name__), 'above_threshold': None if narrative_threshold_link.above_link is None else str(narrative_threshold_link.interval.upper_bound), 'below_link': None if narrative_threshold_link.below_link is None else str(narrative_threshold_link.below_link.__name__), 'below_threshold': None if narrative_threshold_link.below_link is None else str(narrative_threshold_link.interval.lower_bound)})
     return sorted(narrative_links, key=operator.itemgetter('event'))

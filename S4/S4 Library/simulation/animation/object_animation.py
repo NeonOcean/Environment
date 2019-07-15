@@ -1,9 +1,7 @@
-from protocolbuffers import Sims_pb2
 from animation.animation_element import animate_states
 from balloon.balloon_enums import BalloonTypeEnum, BALLOON_TYPE_LOOKUP
 from balloon.balloon_request import BalloonRequest
 from balloon.tunable_balloon import TunableBalloon
-from distributor.shared_messages import IconInfoData
 from element_utils import build_element
 from interactions.utils.tunable_icon import TunableIcon
 from objects.components.types import IDLE_COMPONENT
@@ -13,9 +11,10 @@ from sims4.tuning.tunable_base import SourceQueries
 from singletons import DEFAULT
 import animation
 import elements
-import enum
 import services
+import sims4.log
 import sims4.resources
+logger = sims4.log.Logger('ObjectAnimations', default_owner='rmccord')
 
 class ObjectPose(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.ANIMATION)):
     INSTANCE_TUNABLES = {'asm': TunableInteractionAsmResourceKey(description='\n            The animation state machine for this pose.\n            ', default=None), 'state_name': Tunable(description='\n            The animation state name for this pose.\n            ', tunable_type=str, default=None, source_location='asm', source_query=SourceQueries.ASMState)}
@@ -44,6 +43,7 @@ class ObjectAnimationElement(HasTunableReference, elements.ParentElement, metacl
     def get_asm(self, use_cache=True, **kwargs):
         idle_component = self.owner.get_component(IDLE_COMPONENT)
         if idle_component is None:
+            logger.error('Trying to setup an object animation {}, {} on an object {} with no Idle Component.', self, self.asm_key, self.owner)
             return
         asm = idle_component.get_asm(self.asm_key, self.actor_name, use_cache=self._use_asm_cache and use_cache, **kwargs)
         if self.target_name is not None and self.target is not None:

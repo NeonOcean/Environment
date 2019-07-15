@@ -187,7 +187,7 @@ class ComponentContainer:
         del self._component_instances[component_definition.instance_attr]
         component_definitions = list(self._component_definitions)
         component_definitions.remove(type(component_name))
-        self._component_definitions = tuple(sorted(component_definitions, key=lambda t: t.INAME))
+        self._component_definitions = tuple(sorted(component_definitions, key=lambda t: (-t.priority, t.INAME)))
         if not self._component_definitions:
             del self._component_definitions
             self._component_instances = {}

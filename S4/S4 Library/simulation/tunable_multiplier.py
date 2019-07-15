@@ -65,17 +65,28 @@ class TunableStatisticModifierCurve(HasTunableSingletonFactory, AutoFactoryInit)
 
     FACTORY_TUNABLES = {'statistic': TunablePackSafeReference(description="\n            The payout amount will be multiplied by this statistic's value.\n            ", manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)), 'subject': TunableEnumEntry(description='\n            The participant to look for the specified statistic on.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'multiplier': TunableVariant(description='\n            Define how the multiplier will be applied.\n            ', value_curve=TunableCurve(description='\n                The multiplier will be determined by interpolating against a\n                curve. The user-value is used. This means that a curve for\n                skills should have levels as its x-axis.\n                '), locked_args={'raw_value': None}, default='raw_value')}
 
+    def get_value(self, stat, sim):
+        return stat.convert_to_user_value(stat.get_value())
+
     def get_multiplier(self, resolver, sim):
         subject = resolver.get_participant(participant_type=self.subject, sim=sim)
         if subject is not None:
             stat = subject.get_stat_instance(self.statistic)
             if stat is not None:
-                value = stat.convert_to_user_value(stat.get_value())
+                value = self.get_value(stat, sim)
                 if self.multiplier is not None:
                     return self.multiplier.get(value)
                 else:
                     return value
         return 1.0
+
+class TunableSkillModifierCurve(TunableStatisticModifierCurve):
+    FACTORY_TUNABLES = {'statistic': TunablePackSafeReference(description="\n            The payout amount will be multiplied by this skill's value.\n            ", manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions=('Skill',)), 'use_effective_skill_level': Tunable(description='\n            If checked, the effective skill level will be used.\n            ', tunable_type=bool, default=False)}
+
+    def get_value(self, stat, sim):
+        if self.use_effective_skill_level:
+            return sim.get_effective_skill_level(stat)
+        return super().get_value(stat, sim)
 
 class TunableObjectCostModifierCurve(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            The object whose cost you want to base the multiplier on.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'multiplier_curve': TunableCurve(description=' \n            The multiplier will be determined by interpolating against a curve.\n            The value of the subject in simoleons is used. This means that a \n            curve for cost should have value at its x-axis.\n            ', x_axis_name='Value', y_axis_name='Multiplier')}

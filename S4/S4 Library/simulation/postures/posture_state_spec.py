@@ -159,14 +159,19 @@ class PostureStateSpec(_PostureStateSpec):
                 slot_child = slot_manifest_entry.actor
                 slot_parent = slot_manifest_entry.target
                 slot_child_is_carryable = False
+                slot_target = None
                 if isinstance(slot_child, str):
                     slot_target = None
                 elif isinstance(slot_child, Definition) or slot_child == AnimationParticipant.CREATE_TARGET:
                     slot_target = None
                     slot_var_map[PostureSpecVariable.SLOT_TEST_DEFINITION] = slot_child
                 elif hasattr(slot_child, 'manager'):
-                    included_sis = interaction.transition.get_included_sis().union((interaction,)) if interaction.transition is not None else (interaction,)
-                    slot_child_is_carryable = True if slot_child.has_component(CARRYABLE_COMPONENT) else False
+                    included_sis = []
+                    if interaction.transition is not None:
+                        included_sis = interaction.transition.get_included_sis().union((interaction,))
+                    else:
+                        included_sis = (interaction,)
+                    slot_child_is_carryable = True if not interaction is not None or slot_child.has_component(CARRYABLE_COMPONENT) else False
                     if slot_child_is_carryable and any(included_si.carry_target is slot_child for included_si in included_sis):
                         slot_var_map[PostureSpecVariable.CARRY_TARGET] = slot_child
                         slot_target = ANIMATION_PARTICIPANT_TO_POSTURE_SPEC_VARIABLE_MAP.get(slot_child, PostureSpecVariable.CARRY_TARGET)
@@ -293,6 +298,15 @@ class PostureStateSpec(_PostureStateSpec):
             if posture_manifest_entry.target_object_filter is not MATCH_ANY:
                 return True
         return False
+
+    def is_vehicle_only_spec(self):
+        if not self.posture_manifest:
+            return False
+        for posture_manifest_entry in self.posture_manifest:
+            for posture in posture_manifest_entry.posture_types:
+                if not posture.is_vehicle:
+                    return False
+        return True
 
 def create_body_posture_state_spec(posture_manifest, body_target=PostureSpecVariable.ANYTHING):
     return PostureStateSpec(posture_manifest, SlotManifest().intern(), body_target)

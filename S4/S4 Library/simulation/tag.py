@@ -20,9 +20,9 @@ class TunableTag(TunableEnumWithFilter):
 
 class TunableTags(TunableSet):
 
-    def __init__(self, filter_prefixes=None, pack_safe=True, minlength=None, maxlength=None, propagate_pack_safe_exception=False, **kwargs):
+    def __init__(self, filter_prefixes=None, pack_safe=True, minlength=None, maxlength=None, **kwargs):
         if filter_prefixes is None:
             tunable_fn = TunableEnumEntry
         else:
             tunable_fn = functools.partial(TunableEnumWithFilter, filter_prefixes=filter_prefixes)
-        super().__init__(tunable_fn(tunable_type=Tag, default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=pack_safe, **kwargs), minlength=minlength, maxlength=maxlength, propagate_pack_safe_exception=propagate_pack_safe_exception)
+        super().__init__(tunable_fn(tunable_type=Tag, default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=pack_safe, **kwargs), minlength=minlength, maxlength=maxlength)

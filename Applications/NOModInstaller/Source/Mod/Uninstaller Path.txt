@@ -1,1 +1,1 @@
-NeonOcean.Debug/Uninstall.exe
+NeonOcean.Order/Uninstall.exe

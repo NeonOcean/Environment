@@ -128,7 +128,7 @@ class GardeningPlantComponent(_GardeningComponent, component_name=objects.compon
         return False
 
     @componentmethod_with_fallback(lambda : None)
-    def get_notebook_information(self, reference_notebook_entry):
+    def get_notebook_information(self, reference_notebook_entry, notebook_sub_entries):
         root_stock = self._get_root_stock()
         if root_stock is None:
             return ()

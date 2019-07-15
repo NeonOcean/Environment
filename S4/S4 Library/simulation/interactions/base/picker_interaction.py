@@ -3,6 +3,7 @@ import functools
 from event_testing.resolver import SingleObjectResolver, InteractionResolver, SingleSimResolver, DoubleSimAndObjectResolver
 from event_testing.tests import TunableTestSet
 from filters.tunable import TunableSimFilter
+from fishing.fishing_tuning import FishingTuning
 from interactions import ParticipantType, ParticipantTypeSingle
 from interactions.aop import AffordanceObjectPair
 from interactions.base.immediate_interaction import ImmediateSuperInteraction
@@ -221,7 +222,13 @@ class SimPickerLinkContinuation(enum.Int):
     TARGET = 4
 
 class SimPickerMixin:
-    INSTANCE_TUNABLES = {'actor_continuation': TunableContinuation(description='\n            If specified, a continuation to push on the actor when a picker\n            selection has been made.\n            ', locked_args={'actor': ParticipantType.Actor}, tuning_group=GroupNames.PICKERTUNING), 'target_continuation': TunableContinuation(description='\n            If specified, a continuation to push on the target sim when a picker\n            selection has been made.\n            ', locked_args={'actor': ParticipantType.TargetSim}, tuning_group=GroupNames.PICKERTUNING), 'picked_continuation': TunableContinuation(description='\n            If specified, a continuation to push on each sim selected in the\n            picker.\n            ', locked_args={'actor': ParticipantType.Actor}, tuning_group=GroupNames.PICKERTUNING), 'continuations_are_sequential': Tunable(description='\n            This specifies that the continuations tuned in picked_continuation\n            are applied sequentially to the list of picked sims.\n            \n            e.g. The first continuation will be pushed on the first picked sim.\n            The second continuation will be pushed on the second picked sim,\n            etc. Note: There should never be more picked sims than\n            continuations, however, there can be less picked sims than\n            continuations, to allow for cases where the number of sims is a\n            range.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'link_continuation': TunableEnumEntry(description='\n            Which, if any, continuation should cancel if the other interaction\n            is canceled.\n            \n            e.g. if "ACTOR" is selected, then if any of the picked continuation\n            is canceled the actor continuation will also be canceled.\n            ', tunable_type=SimPickerLinkContinuation, default=SimPickerLinkContinuation.NEITHER, tuning_group=GroupNames.PICKERTUNING), 'sim_filter': OptionalTunable(description='\n            Optional Sim Filter to run Sims through. Otherwise we will just get\n            all Sims that pass the tests.\n            ', tunable=TunableSimFilter.TunableReference(description='\n                Sim Filter to run all Sims through before tests.\n                ', pack_safe=True), disabled_name='no_filter', enabled_name='sim_filter_selected', tuning_group=GroupNames.PICKERTUNING), 'sim_filter_household_override': OptionalTunable(description="\n            Sim filter by default uses the actor's household for household-\n            related filter terms, such as the In Family filter term. If this is\n            enabled, a different participant's household will be used. If the\n            participant is an object instead of a Sim, the object's owner\n            household will be used.\n            ", tunable=TunableEnumEntry(tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.TargetSim, invalid_enums=(ParticipantTypeSingle.Actor,)), tuning_group=GroupNames.PICKERTUNING), 'sim_filter_requesting_sim': TunableEnumEntry(description='\n            Determine which Sim filter requests are relative to. For example, if\n            you want all Sims in a romantic relationship with the target, tune\n            TargetSim here, and then a relationship filter.\n            \n            NOTE: Tuning filters is, performance-wise, preferable to tests.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Actor, tuning_group=GroupNames.PICKERTUNING), 'sim_tests': event_testing.tests.TunableTestSet(description='\n            A set of tests that are run against the prospective sims. At least\n            one test must pass in order for the prospective sim to show. All\n            sims will pass if there are no tests. Picked_sim is the participant\n            type for the prospective sim.\n            ', tuning_group=GroupNames.PICKERTUNING), 'include_uninstantiated_sims': Tunable(description='\n            If unchecked, uninstantiated sims will never be available in the\n            picker. if checked, they must still pass the filters and tests This\n            is an optimization tunable.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.PICKERTUNING), 'include_instantiated_sims': Tunable(description='\n            If unchecked, instantiated sims will never be available in the\n            picker. if checked, they must still pass the filters and tests.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.PICKERTUNING), 'include_actor_sim': Tunable(description='\n            If checked then the actor sim can be included in the picker options\n            and will not be blacklisted.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'include_target_sim': Tunable(description='\n            If checked then the target sim can be included in the picker options\n            and will not be blacklisted.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING)}
+    INSTANCE_TUNABLES = {'actor_continuation': TunableContinuation(description='\n            If specified, a continuation to push on the actor when a picker\n            selection has been made.\n            ', locked_args={'actor': ParticipantType.Actor}, tuning_group=GroupNames.PICKERTUNING), 'target_continuation': TunableContinuation(description='\n            If specified, a continuation to push on the target sim when a picker\n            selection has been made.\n            ', locked_args={'actor': ParticipantType.TargetSim}, tuning_group=GroupNames.PICKERTUNING), 'picked_continuation': TunableContinuation(description='\n            If specified, a continuation to push on each sim selected in the\n            picker.\n            ', locked_args={'actor': ParticipantType.Actor}, tuning_group=GroupNames.PICKERTUNING), 'continuations_are_sequential': Tunable(description='\n            This specifies that the continuations tuned in picked_continuation\n            are applied sequentially to the list of picked sims.\n            \n            e.g. The first continuation will be pushed on the first picked sim.\n            The second continuation will be pushed on the second picked sim,\n            etc. Note: There should never be more picked sims than\n            continuations, however, there can be less picked sims than\n            continuations, to allow for cases where the number of sims is a\n            range.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'link_continuation': TunableEnumEntry(description='\n            Which, if any, continuation should cancel if the other interaction\n            is canceled.\n            \n            e.g. if "ACTOR" is selected, then if any of the picked continuation\n            is canceled the actor continuation will also be canceled.\n            ', tunable_type=SimPickerLinkContinuation, default=SimPickerLinkContinuation.NEITHER, tuning_group=GroupNames.PICKERTUNING), 'sim_filter': OptionalTunable(description='\n            Optional Sim Filter to run Sims through. Otherwise we will just get\n            all Sims that pass the tests.\n            ', tunable=TunableSimFilter.TunableReference(description='\n                Sim Filter to run all Sims through before tests.\n                ', pack_safe=True), disabled_name='no_filter', enabled_name='sim_filter_selected', tuning_group=GroupNames.PICKERTUNING), 'sim_filter_household_override': OptionalTunable(description="\n            Sim filter by default uses the actor's household for household-\n            related filter terms, such as the In Family filter term. If this is\n            enabled, a different participant's household will be used. If the\n            participant is an object instead of a Sim, the object's owner\n            household will be used.\n            ", tunable=TunableEnumEntry(tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.TargetSim, invalid_enums=(ParticipantTypeSingle.Actor,)), tuning_group=GroupNames.PICKERTUNING), 'sim_filter_requesting_sim': TunableEnumEntry(description='\n            Determine which Sim filter requests are relative to. For example, if\n            you want all Sims in a romantic relationship with the target, tune\n            TargetSim here, and then a relationship filter.\n            \n            NOTE: Tuning filters is, performance-wise, preferable to tests.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Actor, tuning_group=GroupNames.PICKERTUNING), 'sim_tests': event_testing.tests.TunableTestSet(description='\n            A set of tests that are run against the prospective sims. At least\n            one test must pass in order for the prospective sim to show. All\n            sims will pass if there are no tests. Picked_sim is the participant\n            type for the prospective sim.\n            ', tuning_group=GroupNames.PICKERTUNING), 'include_uninstantiated_sims': Tunable(description='\n            If unchecked, uninstantiated sims will never be available in the\n            picker. if checked, they must still pass the filters and tests This\n            is an optimization tunable.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.PICKERTUNING), 'include_instantiated_sims': Tunable(description='\n            If unchecked, instantiated sims will never be available in the\n            picker. if checked, they must still pass the filters and tests.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.PICKERTUNING), 'include_actor_sim': Tunable(description='\n            If checked then the actor sim can be included in the picker options\n            and will not be blacklisted.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'include_target_sim': Tunable(description='\n            If checked then the target sim can be included in the picker options\n            and will not be blacklisted.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'radius': OptionalTunable(description='\n            If enabled then Sim must be in a certain range for consideration.\n            This should only be enabled when include_instantiated_sims is True\n            and include_uninstantiated_sims is False.\n            ', tunable=TunableRange(description='\n                Sim must be in a certain range for consideration.\n                ', tunable_type=int, default=5, minimum=1, maximum=50), tuning_group=GroupNames.PICKERTUNING)}
+
+    @classmethod
+    def _verify_tuning_callback(cls):
+        super()._verify_tuning_callback()
+        if (not cls.include_instantiated_sims or cls.include_uninstantiated_sims) and cls.radius is not None:
+            logger.error('Tuning: If include_instantiated_sims is False or include_uninstantiated_sims is True, radius should be disabled: {}', cls)
 
     @flexmethod
     def _get_requesting_sim_info_for_picker(cls, inst, context, *, target, **kwargs):
@@ -269,25 +276,56 @@ class SimPickerMixin:
                 continue
             if not inst_or_cls.include_instantiated_sims and sim_info.is_instanced():
                 continue
-            results = services.sim_filter_service().submit_filter(inst_or_cls.sim_filter, None, sim_constraints=(sim_info.sim_id,), requesting_sim_info=requesting_sim_info.sim_info, allow_yielding=False, household_id=household_id, gsi_source_fn=inst_or_cls.get_sim_filter_gsi_name)
-            if not results:
-                continue
-            if inst:
-                interaction_parameters = inst.interaction_parameters.copy()
-            else:
-                interaction_parameters = kwargs.copy()
-            interaction_parameters['picked_item_ids'] = {sim_info.sim_id}
-            resolver = InteractionResolver(cls, inst, target=target, context=context, **interaction_parameters)
-            if not (not not inst_or_cls.sim_tests and not inst_or_cls.sim_tests.run_tests(resolver)):
-                continue
-            if test_function is not None:
+            if inst_or_cls.radius is not None:
                 sim = sim_info.get_sim_instance()
                 if not sim is None:
-                    if not test_function(sim):
+                    if actor_sim_info is None:
                         continue
-                    yield results[0]
+                    actor_sim = actor_sim_info.get_sim_instance()
+                    if actor_sim is None:
+                        continue
+                    delta = actor_sim.intended_position - sim.intended_position
+                    if delta.magnitude() > inst_or_cls.radius:
+                        continue
+                    results = services.sim_filter_service().submit_filter(inst_or_cls.sim_filter, None, sim_constraints=(sim_info.sim_id,), requesting_sim_info=requesting_sim_info.sim_info, allow_yielding=False, household_id=household_id, gsi_source_fn=inst_or_cls.get_sim_filter_gsi_name)
+                    if not results:
+                        continue
+                    if inst:
+                        interaction_parameters = inst.interaction_parameters.copy()
+                    else:
+                        interaction_parameters = kwargs.copy()
+                    interaction_parameters['picked_item_ids'] = {sim_info.sim_id}
+                    resolver = InteractionResolver(cls, inst, target=target, context=context, **interaction_parameters)
+                    if not (not not inst_or_cls.sim_tests and not inst_or_cls.sim_tests.run_tests(resolver)):
+                        continue
+                    if test_function is not None:
+                        sim = sim_info.get_sim_instance()
+                        if not sim is None:
+                            if not test_function(sim):
+                                continue
+                            yield results[0]
+                    else:
+                        yield results[0]
             else:
-                yield results[0]
+                results = services.sim_filter_service().submit_filter(inst_or_cls.sim_filter, None, sim_constraints=(sim_info.sim_id,), requesting_sim_info=requesting_sim_info.sim_info, allow_yielding=False, household_id=household_id, gsi_source_fn=inst_or_cls.get_sim_filter_gsi_name)
+                if not results:
+                    continue
+                if inst:
+                    interaction_parameters = inst.interaction_parameters.copy()
+                else:
+                    interaction_parameters = kwargs.copy()
+                interaction_parameters['picked_item_ids'] = {sim_info.sim_id}
+                resolver = InteractionResolver(cls, inst, target=target, context=context, **interaction_parameters)
+                if not (not not inst_or_cls.sim_tests and not inst_or_cls.sim_tests.run_tests(resolver)):
+                    continue
+                if test_function is not None:
+                    sim = sim_info.get_sim_instance()
+                    if not sim is None:
+                        if not test_function(sim):
+                            continue
+                        yield results[0]
+                else:
+                    yield results[0]
 
     def _push_continuation(self, sim, tunable_continuation, sim_ids, insert_strategy, picked_zone_set):
         continuation = None
@@ -973,7 +1011,12 @@ class ObjectPickerInteraction(ObjectPickerMixin, PickerSingleChoiceSuperInteract
                 tokens = ()
             return self.text(*tokens)
 
-    INSTANCE_TUNABLES = {'picker_dialog': TunablePickerDialogVariant(description='\n            The object picker dialog.\n            ', available_picker_flags=ObjectPickerTuningFlags.OBJECT, tuning_group=GroupNames.PICKERTUNING), 'auto_pick': AutoPick(description='\n            If enabled, this interaction will pick one of the choices\n            available and push the continuation on it. It will be like the\n            interaction was run autonomously - no picker dialog will show up.\n            ', tuning_group=GroupNames.PICKERTUNING), 'fallback_description': OptionalTunable(description='\n            The fallback description if there is no recipe or custom description.\n            If disabled, (or referencing an unused tooltip field) The final\n            fallback is the catalog description.\n            ', tunable=TunableVariant(description='\n                Types of fallback descriptions\n                ', from_tooltip=_DescriptionFromTooltip.TunableFactory(), from_text=_DescriptionFromText.TunableFactory(), default='from_tooltip'), tuning_group=GroupNames.PICKERTUNING, enabled_by_default=True), 'show_rarity': Tunable(description='\n            If checked, the rarity will also be shown in the object picker. If\n            there is no object rarity for this object, nothing will be shown.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING)}
+    class _DescriptionFromFishingBait(HasTunableSingletonFactory, AutoFactoryInit):
+
+        def get_description(self, row_object, context=None, target=None):
+            return FishingTuning.get_fishing_bait_description(row_object)
+
+    INSTANCE_TUNABLES = {'picker_dialog': TunablePickerDialogVariant(description='\n            The object picker dialog.\n            ', available_picker_flags=ObjectPickerTuningFlags.OBJECT, tuning_group=GroupNames.PICKERTUNING), 'auto_pick': AutoPick(description='\n            If enabled, this interaction will pick one of the choices\n            available and push the continuation on it. It will be like the\n            interaction was run autonomously - no picker dialog will show up.\n            ', tuning_group=GroupNames.PICKERTUNING), 'fallback_description': OptionalTunable(description='\n            The fallback description if there is no recipe or custom description.\n            If disabled, (or referencing an unused tooltip field) The final\n            fallback is the catalog description.\n            ', tunable=TunableVariant(description='\n                Types of fallback descriptions\n                ', from_tooltip=_DescriptionFromTooltip.TunableFactory(), from_text=_DescriptionFromText.TunableFactory(), from_fishing_bait=_DescriptionFromFishingBait.TunableFactory(), default='from_tooltip'), tuning_group=GroupNames.PICKERTUNING, enabled_by_default=True), 'show_rarity': Tunable(description='\n            If checked, the rarity will also be shown in the object picker. If\n            there is no object rarity for this object, nothing will be shown.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING)}
 
     @flexmethod
     def _use_ellipsized_name(cls, inst):
@@ -1041,6 +1084,17 @@ class ObjectPickerInteraction(ObjectPickerMixin, PickerSingleChoiceSuperInteract
         self._show_picker_dialog(self.sim, target_sim=self.sim, target=self.target)
         return True
         yield
+
+    @classmethod
+    def has_valid_choice(cls, target, context, **kwargs):
+        obj_count = 0
+        for _ in cls._get_objects_gen(target, context):
+            obj_count += 1
+            if cls.picker_dialog:
+                if obj_count >= cls.picker_dialog.min_selectable:
+                    return True
+            return True
+        return False
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):

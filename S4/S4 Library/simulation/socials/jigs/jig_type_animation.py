@@ -4,6 +4,7 @@ from animation.animation_utils import StubActor
 from animation.asm import create_asm, do_params_match
 from interactions.utils.animation_reference import TunableAnimationReference
 from postures import PostureTrack
+from routing import FootprintType
 from sims.sim_info_types import SpeciesExtended
 from sims4.collections import frozendict
 from sims4.geometry import PolygonFootprint
@@ -81,4 +82,4 @@ class SocialJigAnimation(AutoFactoryInit, HasTunableSingletonFactory):
         reserved_space_a = get_default_reserve_space(sim_a.species, sim_a.age)
         reserved_space_b = get_default_reserve_space(sim_b.species, sim_b.age)
         polygon = _generate_poly_points(sim_a_transform.translation, sim_a_transform.orientation.transform_vector(Vector3.Z_AXIS()), sim_b_transform.translation, sim_b_transform.orientation.transform_vector(Vector3.Z_AXIS()), reserved_space_a.left, reserved_space_a.right, reserved_space_a.front, reserved_space_a.back, reserved_space_b.left, reserved_space_b.right, reserved_space_b.front, reserved_space_b.back)
-        return PolygonFootprint(polygon, routing_surface=sim_a.routing_surface, cost=25, footprint_type=6, enabled=True)
+        return PolygonFootprint(polygon, routing_surface=sim_a.routing_surface, cost=25, footprint_type=FootprintType.FOOTPRINT_TYPE_OBJECT, enabled=True)

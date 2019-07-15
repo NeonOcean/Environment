@@ -1,3 +1,4 @@
+from event_testing.resolver import SingleSimResolver
 from protocolbuffers import GameplaySaveData_pb2
 from date_and_time import TimeSpan
 from distributor.rollback import ProtocolBufferRollback
@@ -213,7 +214,10 @@ class RabbitHoleService(Service):
     def _attach_exit_conditions(self, sim_id):
         rabbit_hole = self._rabbit_holes[sim_id]
         exit_condition_callback = lambda _, sim_id=sim_id: self._remove_rabbit_hole(sim_id, canceled=True)
-        self._conditional_actions_manager.attach_conditions(rabbit_hole, rabbit_hole.exit_conditions, exit_condition_callback)
+        sim_info = services.sim_info_manager().get(sim_id)
+        exit_condition_test_resolver = SingleSimResolver(sim_info)
+        exit_conditions = (exit_condition for exit_condition in rabbit_hole.exit_conditions if exit_condition.tests.run_tests(exit_condition_test_resolver))
+        self._conditional_actions_manager.attach_conditions(rabbit_hole, exit_conditions, exit_condition_callback)
 
     def _detach_exit_conditions(self, rabbit_hole):
         self._conditional_actions_manager.detach_conditions(rabbit_hole)

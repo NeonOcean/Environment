@@ -58,7 +58,7 @@ def to_rgba_as_int(color):
 def interpolate(x, y, fraction):
     x_rgba = to_rgba(x)
     y_rgba = to_rgba(y)
-    z_rgba = [sims4.math.interpolate(w, v, fraction) for (v, w) in zip(x_rgba, y_rgba)]
+    z_rgba = [sims4.math.interpolate(w, v, fraction) for (w, v) in zip(x_rgba, y_rgba)]
     z = from_rgba(*z_rgba)
     return z
 

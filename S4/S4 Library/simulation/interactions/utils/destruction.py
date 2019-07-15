@@ -106,4 +106,4 @@ class ObjectDestructionElement(XevtTriggeredElement):
             if self.interaction.is_finishing:
                 self._destroy_objects()
             else:
-                self.interaction.add_exit_function(self._destroy_objects)
+                self.interaction.super_interaction.add_exit_function(self._destroy_objects)

@@ -256,7 +256,7 @@ def get_valid_situation_locations(sim_id:OptionalTargetParam, situation_type:Tun
                 send_lot_owner = True
                 if venue_instance is not None:
                     location_data.venue_type_name = venue_instance.display_name
-                    send_lot_owner = venue_instance.residential
+                    send_lot_owner = venue_instance.is_residential
                 if lot_data.lot_owner:
                     if send_lot_owner:
                         household_id = lot_data.lot_owner[0].household_id

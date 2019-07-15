@@ -12,6 +12,7 @@ from interactions.context import InteractionContext
 from interactions.interaction_cancel_compatibility import InteractionCancelCompatibility, InteractionCancelReason
 from interactions.liability import Liability
 from interactions.priority import Priority
+from interactions.utils.success_chance import SuccessChance
 from objects import system
 from objects.components.state import TunableStateValueReference, ObjectState, ObjectStateValue
 from objects.fire.fire import Fire
@@ -63,8 +64,10 @@ class FireService(Service):
     FLAMMABLE_COMMODITY = TunableReference(description='\n        The commodity used to determin if an object is flammable or not.\n        ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC))
     FLAMMABLE_COMMODITY_DECAY_PER_FIRE = TunableRange(description='\n        The amount of decay modifier to add to an objects FLAMMABLE_COMMODITY\n        per fire object that is overlapping with it. No negative numbers.\n        ', tunable_type=float, default=5, minimum=0)
     FIRE_SIM_ON_FIRE_AFFORDANCE = TunableReference(description='\n        The affordance that gets pushed onto a Sim when they catch on fire.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
+    FIRE_SIM_ON_FIRE_CHANCE = SuccessChance.TunableFactory(description='\n        The chance that a sim will catch on fire, modified by tested multipliers.\n        ')
     FIRE_CAN_SPREAD_TO_SIM_TESTS = TunableTestSet(description='\n        A tunable set of tests which Sims are required to pass in order for\n        fire to be placed at their location. If the tests fail fire will fail\n        to spread to their location and they will not catch fire as a result.\n        ')
     FIRE_SITUATION = TunableReference(description='\n        A reference to the fire situation to use on Sims that are on a lot\n        with a fire.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))
+    FIRE_BRIGADE_SITUATION = TunableReference(description='\n        A reference to a fire brigade situation that has a tunable chance of \n        getting spun up when a fire occurs. This summons a volunteer\n        fire brigade that will attempt to put out the fire.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))
     FIRE_JOB = TunableReference(description='\n        A reference to the fire job that Sims will have in the fire situation\n        while there is a fire on the lot.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION_JOB))
     FIRE_PANIC_BUFFS = TunableList(TunableReference(manager=services.get_instance_manager(sims4.resources.Types.BUFF)), description='\n                                       A List of Buffs that indicate a Sim is\n                                       in a panic state because of fire. This\n                                       will be used to limit their behaviors\n                                       while they are aware of a fire on the\n                                       lot.\n                                       ')
     SAVE_LOCK_TOOLTIP = TunableLocalizedStringFactory(description='The tooltip/message to show when the player tries to save the game while a fire situation is happening')
@@ -105,6 +108,8 @@ class FireService(Service):
         super().__init__(**kwargs)
         self._fire_objects = weakref.WeakSet()
         self._situation_ids = {}
+        self._fire_brigade_situation_sim_ids = []
+        self._fire_brigade_situation_id = None
         self._fire_spread_alarm = None
         self._fire_quadtree = None
         self._flammable_objects_quadtree = None
@@ -271,6 +276,7 @@ class FireService(Service):
         build_buy.remove_floor_feature(build_buy.FloorFeatureType.LEAF, fire_object.position, fire_object.routing_surface.secondary_id)
         self._derail_routing_sims_if_necessary(fire_object)
         if first_fire_on_lot:
+            self._start_fire_brigade_situation()
             self._start_fire_situations()
             self.activate_fire_alarms()
             self.activate_sprinkler_system()
@@ -311,9 +317,12 @@ class FireService(Service):
 
     def _placement_tests(self, new_position, surface_id=None, fire_object=None):
         zone_id = services.current_zone_id()
-        if surface_id is not None and (not build_buy.has_floor_at_location(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id + 1)):
-            logger.debug("failed to place fire at a location because there is no floor or it's pool.")
-            return False
+        if surface_id is not None:
+            if not build_buy.has_floor_at_location(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id + 1):
+                logger.debug("failed to place fire at a location because there is no floor or it's pool.")
+                return False
+            if terrain.get_water_depth(new_position.x, new_position.z) > 0:
+                return False
         if fire_object is not None and abs(fire_object.position.y - new_position.y) > self.FIRE_SPREAD_HEIGHT_THRESHOLD:
             return False
         if fire_object is not None:
@@ -409,6 +418,10 @@ class FireService(Service):
                     self._burn_sim(sim, fire_object)
 
     def _burn_sim(self, sim, fire_object):
+        resolver = SingleSimResolver(sim.sim_info)
+        chance = self.FIRE_SIM_ON_FIRE_CHANCE.get_chance(resolver)
+        if random.random() > chance:
+            return
         context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, Priority.Critical, client=None, pick=None)
         result = sim.push_super_affordance(self.FIRE_SIM_ON_FIRE_AFFORDANCE, None, context)
         if result:
@@ -463,6 +476,9 @@ class FireService(Service):
             self._fire_quadtree = None
             self._alerted_sims = False
             self._advance_situations_to_postfire()
+            self._advance_fire_brigade_to_postfire()
+            self._fire_brigade_situation_sim_ids = []
+            self._fire_brigade_situation_id = None
             self._award_insurance_money()
             services.get_persistence_service().unlock_save(self)
             self.unregister_for_panic_callback()
@@ -535,8 +551,22 @@ class FireService(Service):
         for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
             self._create_fire_situation_on_sim(sim, situation_manager=situation_manager)
 
+    def _start_fire_brigade_situation(self):
+        if self.FIRE_BRIGADE_SITUATION is None:
+            return
+        if not self.FIRE_BRIGADE_SITUATION.should_create_volunteer_brigade():
+            return
+        situation_manager = services.current_zone().situation_manager
+        guest_list = self.FIRE_BRIGADE_SITUATION.get_predefined_guest_list()
+        situation_id = situation_manager.create_situation(self.FIRE_BRIGADE_SITUATION, guest_list=guest_list, user_facing=False)
+        self._fire_brigade_situation_id = situation_id
+        for x in guest_list.invited_guest_infos_gen():
+            self._fire_brigade_situation_sim_ids.append(x.sim_id)
+
     def _create_fire_situation_on_sim(self, sim, situation_manager=None):
         if sim.id in self._situation_ids:
+            return
+        if sim.id in self._fire_brigade_situation_sim_ids:
             return
         if situation_manager is None:
             situation_manager = services.current_zone().situation_manager
@@ -610,6 +640,14 @@ class FireService(Service):
                     situation = situation_manager.get(situation_id)
                     if situation is not None:
                         situation.advance_to_post_fire()
+
+    def _advance_fire_brigade_to_postfire(self):
+        if self._fire_brigade_situation_id is None:
+            return
+        fire_brigade_situation = services.get_zone_situation_manager().get(self._fire_brigade_situation_id)
+        if fire_brigade_situation is None:
+            return
+        fire_brigade_situation.advance_to_post_fire()
 
     def _reset_situations_to_unaware(self):
         situation_manager = services.get_zone_situation_manager()
@@ -723,6 +761,8 @@ class FireService(Service):
                 self.alert_all_sims()
                 fire_object = next(iter(self._fire_objects))
                 for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
+                    if sim_on_lot.sim_id in self._fire_brigade_situation_sim_ids:
+                        continue
                     self._push_fire_reaction_affordance(sim_on_lot, fire_object)
 
     def activate_sprinkler_system(self):

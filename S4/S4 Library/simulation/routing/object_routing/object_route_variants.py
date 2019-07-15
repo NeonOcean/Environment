@@ -14,6 +14,7 @@ from routing import Goal, SurfaceType, SurfaceIdentifier
 from routing.waypoints.waypoint_generator import WaypointContext
 from routing.waypoints.waypoint_generator_variant import TunableWaypointGeneratorVariant
 from routing.waypoints.waypoint_stitching import WaypointStitchingVariant
+from sims4 import random
 from sims4.math import vector3_almost_equal
 from sims4.random import weighted_random_item
 from sims4.tuning.tunable import OptionalTunable, HasTunableFactory, AutoFactoryInit, Tunable, TunableReference, TunableEnumEntry
@@ -63,8 +64,11 @@ class _ObjectRoutingBehaviorBase(HasTunableFactory, AutoFactoryInit):
     def get_target(self):
         return self._target
 
+    def get_randomize_orientation(self):
+        return False
+
 class ObjectRoutingBehaviorFromWaypointGenerator(_ObjectRoutingBehaviorBase):
-    FACTORY_TUNABLES = {'waypoint_generator': TunableWaypointGeneratorVariant(tuning_group=GroupNames.ROUTING), 'waypoint_count': Tunable(description='\n            The number of waypoints per loop.\n            ', tunable_type=int, default=10), 'waypoint_stitching': WaypointStitchingVariant(tuning_group=GroupNames.ROUTING), 'return_to_starting_point': OptionalTunable(description='\n            If enabled then the route will return to the starting position\n            within a circle constraint that has a radius of the value tuned\n            here.\n            ', tunable=Tunable(description='\n                The radius of the circle constraint to build to satisfy the\n                return to starting point feature.\n                ', tunable_type=int, default=6), enabled_name='radius_to_return_within')}
+    FACTORY_TUNABLES = {'waypoint_generator': TunableWaypointGeneratorVariant(tuning_group=GroupNames.ROUTING), 'waypoint_count': Tunable(description='\n            The number of waypoints per loop.\n            ', tunable_type=int, default=10), 'waypoint_stitching': WaypointStitchingVariant(tuning_group=GroupNames.ROUTING), 'return_to_starting_point': OptionalTunable(description='\n            If enabled then the route will return to the starting position\n            within a circle constraint that has a radius of the value tuned\n            here.\n            ', tunable=Tunable(description='\n                The radius of the circle constraint to build to satisfy the\n                return to starting point feature.\n                ', tunable_type=int, default=6), enabled_name='radius_to_return_within'), 'randomize_orientation': Tunable(description='\n            Make Waypoint orientation random.  Default is velocity aligned.\n            ', tunable_type=bool, default=False)}
 
     def get_routes_gen(self):
         waypoint_generator = self.waypoint_generator(WaypointContext(self._obj), None)
@@ -76,6 +80,8 @@ class ObjectRoutingBehaviorFromWaypointGenerator(_ObjectRoutingBehaviorBase):
             goals = list(itertools.chain.from_iterable(h.get_goals() for h in constraint.get_connectivity_handles(self._obj)))
             if not goals:
                 continue
+            for goal in goals:
+                goal.orientation = sims4.math.angle_to_yaw_quaternion(random.uniform(0.0, sims4.math.TWO_PI))
             waypoints.append(goals)
         if not (self.return_to_starting_point is not None and waypoints):
             return False
@@ -86,6 +92,9 @@ class ObjectRoutingBehaviorFromWaypointGenerator(_ObjectRoutingBehaviorBase):
             yield route
         return True
         yield
+
+    def get_randomize_orientation(self):
+        return self.randomize_orientation
 
 class ObjectRoutingBehaviorFromRoutingSlotConstraint(_ObjectRoutingBehaviorBase):
     _unavailable_objects = WeakSet()
@@ -153,6 +162,9 @@ class ObjectRouteFromRoutingFormation(_ObjectRoutingBehaviorBase):
             yield
         starting_location = self._target.intended_location
         transform = slave_data.find_good_location_for_slave(starting_location)
+        if transform is None:
+            return False
+            yield
         goal = Goal(routing.Location(transform.translation, transform.orientation, starting_location.routing_surface))
         routing_context = self._obj.get_routing_context()
         route = routing.Route(self._obj.routing_location, (goal,), routing_context=routing_context)

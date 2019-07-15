@@ -1,3 +1,4 @@
+from event_testing import test_events
 from event_testing.event_data_tracker import EventDataTracker
 from event_testing.resolver import SingleSimResolver
 import services
@@ -32,3 +33,4 @@ class HouseholdMilestoneTracker(EventDataTracker):
         if milestone.notification is not None:
             dialog = milestone.notification(sim_info, SingleSimResolver(sim_info))
             dialog.show_dialog()
+        services.get_event_manager().process_event(test_events.TestEvent.UnlockEvent, sim_info=sim_info, unlocked=milestone)

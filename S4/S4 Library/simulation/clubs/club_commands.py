@@ -139,7 +139,7 @@ def start_gathering_by_club_id(club_id:int, _connection=None):
         start_gathering = functools.partial(club_service.start_gathering, club, invited_sims=(services.active_sim_info(),))
         if zone_id is None:
             venue_type = venue_manager.get(build_buy.get_current_venue(current_zone_id))
-            if venue_type.residential:
+            if venue_type.is_residential:
                 if not club.is_zone_valid_for_gathering(current_zone_id):
                     club.show_club_notification(services.active_sim_info(), ClubTunables.CLUB_GATHERING_START_RESIDENTIAL_INVALID_DIALOG)
                     return

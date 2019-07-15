@@ -8,8 +8,9 @@ from interactions.interaction_finisher import FinishingType
 from interactions.liability import Liability
 from interactions.priority import Priority
 from objects import ALL_HIDDEN_REASONS
+from sims4.resources import Types
 from sims4.service_manager import Service
-from sims4.tuning.tunable import HasTunableFactory, TunableReference, TunablePackSafeReference, AutoFactoryInit, TunableEnumFlags
+from sims4.tuning.tunable import HasTunableFactory, TunableReference, TunablePackSafeReference, AutoFactoryInit, TunableEnumFlags, TunableMapping
 from singletons import DEFAULT
 from ui.ui_dialog import UiDialogOkCancel
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
@@ -33,6 +34,7 @@ class DaycareTuning:
     BRING_CHILD_BACK_FROM_NANNY_NOTIFICATION_SINGLE = TunableUiDialogNotificationSnippet(description='\n        The message appearing when a single child is brought back from the\n        nanny. You can reference this single child by name.\n        ')
     BRING_CHILD_BACK_FROM_NANNY_NOTIFICATION_MULTIPLE = TunableUiDialogNotificationSnippet(description='\n        The message appearing when multiple children are brought back from\n        the nanny. You can not reference any of these by name.\n        ')
     GO_TO_DAYCARE_INTERACTION = TunableReference(description='\n        An interaction to push on instantiated Sims that need to go to Daycare.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
+    DAYCARE_AWAY_ACTIONS = TunableMapping(description='\n        Map of commodities to away action.  When the default away action is\n        asked for we look at the ad data of each commodity and select the away\n        action linked to the commodity that is advertising the highest.\n        \n        This set of away actions is used exclusively for Sims in daycare.\n        ', key_type=TunableReference(description='\n            The commodity that we will look at the advertising value for.\n            ', manager=services.get_instance_manager(Types.STATISTIC), class_restrictions=('Commodity',)), value_type=TunableReference(description='\n            The away action that will applied if the key is the highest\n            advertising commodity of the ones listed.\n            ', manager=services.get_instance_manager(Types.AWAY_ACTION)))
 
 class DaycareLiability(Liability, HasTunableFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'participants': TunableEnumFlags(description='\n            The participants this liability is applied to.\n            ', enum_type=ParticipantTypeSim, default=ParticipantTypeSim.Actor)}
@@ -231,6 +233,8 @@ class DaycareService(Service):
                         sim_info.add_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
                         if sim_info.zone_id != household.home_zone_id:
                             sim_info.inject_into_inactive_zone(household.home_zone_id)
+                    if sim_info.zone_id != current_zone_id:
+                        sim_info.away_action_tracker.reset_to_default_away_action()
                 if is_active_household:
                     services.client_manager().get_first_client().send_selectable_sims_update()
                     self._show_daycare_notification(household, sent_sim_infos, is_enable=True)
@@ -239,6 +243,24 @@ class DaycareService(Service):
                 self._start_nanny_service(household, daycare_sim_infos, _on_send_to_daycare)
             else:
                 _on_send_to_daycare()
+
+    def default_away_action(self, sim_info):
+        highest_advertising_value = None
+        highest_advertising_away_action = None
+        for (commodity, away_action) in DaycareTuning.DAYCARE_AWAY_ACTIONS.items():
+            commodity_instance = sim_info.get_statistic(commodity, add=False)
+            if commodity_instance is None:
+                continue
+            if not away_action.test(sim_info=sim_info, target=None):
+                continue
+            advertising_value = commodity_instance.autonomous_desire
+            if not highest_advertising_value is None:
+                if highest_advertising_value < advertising_value:
+                    highest_advertising_value = advertising_value
+                    highest_advertising_away_action = away_action
+            highest_advertising_value = advertising_value
+            highest_advertising_away_action = away_action
+        return highest_advertising_away_action
 
     def _disable_daycare_or_nanny_if_necessary(self, household, returning_sim_infos=()):
         returned_children = []
@@ -299,6 +321,8 @@ class DaycareService(Service):
         for sim_info in household:
             if not sim_info.is_toddler_or_younger:
                 continue
+            if sim_info.is_pet:
+                continue
             if sim_info.zone_id != sim_info.household.home_zone_id:
                 continue
             sim_infos_for_daycare.append(sim_info)
@@ -312,6 +336,8 @@ class DaycareService(Service):
         for sim_info in household:
             if not sim_info.is_child_or_younger:
                 continue
+            if sim_info.is_pet:
+                continue
             if sim_info.is_in_travel_group():
                 continue
             sim_infos_for_nanny.append(sim_info)
@@ -319,10 +345,10 @@ class DaycareService(Service):
         return sim_infos_for_nanny
 
     def get_number_of_eligible_daycare_sims(self, household):
-        return sum(1 for sim_info in household if sim_info.is_toddler_or_younger)
+        return sum(1 for sim_info in household if sim_info.is_toddler_or_younger if not sim_info.is_pet)
 
     def get_number_of_eligible_nanny_sims(self, household):
-        return sum(1 for sim_info in household if sim_info.is_child_or_younger)
+        return sum(1 for sim_info in household if sim_info.is_child_or_younger if not sim_info.is_pet)
 
     def on_sim_spawn(self, sim_info):
         current_zone = services.current_zone()

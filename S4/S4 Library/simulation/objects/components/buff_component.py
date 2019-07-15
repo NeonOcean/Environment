@@ -134,11 +134,11 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         return True
 
     @objects.components.componentmethod
-    def add_buff(self, buff_type, buff_reason=None, update_mood=True, commodity_guid=None, replacing_buff=None, timeout_string=None, transition_into_buff_id=0, change_rate=None, immediate=False, from_load=False, apply_buff_loot=True, additional_static_commodities_to_add=None, remove_on_zone_unload=True):
+    def add_buff(self, buff_type, buff_reason=None, update_mood=True, commodity_guid=None, replacing_buff=None, timeout_string=None, timeout_string_no_next_buff=None, transition_into_buff_id=0, change_rate=None, immediate=False, from_load=False, apply_buff_loot=True, additional_static_commodities_to_add=None, remove_on_zone_unload=True):
         from_load = from_load or self.load_in_progress
         (replacement_buff_type, replacement_buff_reason) = self._get_replacement_buff_type_and_reason(buff_type, buff_reason)
         if replacement_buff_type is not None:
-            return self.owner.add_buff(replacement_buff_type, buff_reason=replacement_buff_reason, update_mood=update_mood, commodity_guid=commodity_guid, replacing_buff=buff_type, timeout_string=timeout_string, transition_into_buff_id=transition_into_buff_id, change_rate=change_rate, immediate=immediate, from_load=from_load, apply_buff_loot=apply_buff_loot, additional_static_commodities_to_add=additional_static_commodities_to_add, remove_on_zone_unload=remove_on_zone_unload)
+            return self.owner.add_buff(replacement_buff_type, buff_reason=replacement_buff_reason, update_mood=update_mood, commodity_guid=commodity_guid, replacing_buff=buff_type, timeout_string=timeout_string, timeout_string_no_next_buff=timeout_string_no_next_buff, transition_into_buff_id=transition_into_buff_id, change_rate=change_rate, immediate=immediate, from_load=from_load, apply_buff_loot=apply_buff_loot, additional_static_commodities_to_add=additional_static_commodities_to_add, remove_on_zone_unload=remove_on_zone_unload)
         (can_add, conflicting_buff_type) = self._can_add_buff_type(buff_type)
         if not can_add:
             return
@@ -327,10 +327,11 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
                 stat.force_buff_reason = buff_reason
 
     @objects.components.componentmethod
-    def buff_commodity_changed(self, handle_id, change_rate=None):
+    def buff_commodity_changed(self, handle_id, change_rate=None, transition_into_buff_id=0):
         for (_, buff_entry) in self._active_buffs.items():
             if handle_id in buff_entry.handle_ids:
                 if buff_entry.show_timeout:
+                    buff_entry.transition_into_buff_id = transition_into_buff_id
                     self.send_buff_update_msg(buff_entry, True, change_rate=change_rate)
                 break
 

@@ -283,6 +283,10 @@ class ClubRuleCriteriaBase(HasTunableFactory, AutoFactoryInit):
         self.criteria_id = criteria_id
 
     @classmethod
+    def test(self):
+        return True
+
+    @classmethod
     def is_multi_select(self):
         return False
 
@@ -473,7 +477,16 @@ class ClubRuleCriteriaCareer(ClubRuleCriteriaMultiSelect):
         return super().save(club_criteria)
 
     def test_sim_info(self, sim_info):
-        return any(career.guid64 in sim_info.careers for career in self.careers)
+        if any(career.guid64 in sim_info.careers for career in self.careers):
+            return True
+        extra_careers = []
+        for sim_career_uid in sim_info.careers:
+            sim_career = sim_info.career_tracker.get_career_by_uid(sim_career_uid)
+            if sim_career is not None:
+                if sim_career.current_level_tuning.ageup_branch_career is not None:
+                    extra_career = sim_career.current_level_tuning.ageup_branch_career(sim_info)
+                    extra_careers.append(extra_career.guid64)
+        return any(career.guid64 in extra_careers for career in self.careers)
 
 class ClubRuleCriteriaHouseholdValue(ClubRuleCriteriaBase):
     CATEGORY = ClubCriteriaCategory.HOUSEHOLD_VALUE
@@ -625,6 +638,10 @@ class ClubRuleCriteriaFameRank(ClubRuleCriteriaMultiSelect):
         super().__init__(*args, fame_rank_requirements=fame_rank_requirements, **kwargs)
         if criteria_infos is not None:
             self.fame_rank_requirements = set(criteria_info.enum_value for criteria_info in criteria_infos)
+
+    @classmethod
+    def test(cls):
+        return FameTunables.FAME_RANKED_STATISTIC is not None
 
     @classmethod
     def _populate_criteria_info(cls, criteria_info, fame_rank):

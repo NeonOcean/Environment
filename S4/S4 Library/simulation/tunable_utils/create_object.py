@@ -22,6 +22,13 @@ class ObjectCreator(HasTunableSingletonFactory, AutoFactoryInit):
     def get_object_definition(self):
         return self.definition
 
+    def get_footprint(self):
+        return self.definition.get_footprint()
+
+    @property
+    def id(self):
+        return self.definition.id
+
 def _verify_tunable_quality_value_callback(instance_class, tunable_name, source, quality, weight):
     if quality not in CraftingTuning.QUALITY_STATE.values:
         logger.error('A TunableRecipeCreator {} specifies an invalid quality {}.', source, quality)

@@ -3,18 +3,17 @@ from distributor.shared_messages import EMPTY_ICON_INFO_DATA, IconInfoData
 from element_utils import build_element
 from interactions.interaction_finisher import FinishingType
 from objects.components import ComponentContainer, forward_to_components, call_component_func
-from objects.components.types import CARRYABLE_COMPONENT, INVENTORY_ITEM_COMPONENT
+from objects.components.types import CARRYABLE_COMPONENT
 from objects.gallery_tuning import ContentSource
 from objects.object_enums import ResetReason
 from services.reset_and_delete_service import ResetRecord
 from sims4.callback_utils import protected_callback
 from sims4.collections import frozendict
 from sims4.repr_utils import standard_repr, standard_brief_id_repr
-from sims4.utils import classproperty, constproperty
+from sims4.utils import constproperty
 import build_buy
 import caches
 import elements
-import event_testing
 import objects.components
 import objects.system
 import services
@@ -155,6 +154,7 @@ class BaseObject(ComponentContainer):
         if self._interaction_refs is None:
             return
         for interaction in tuple(self._interaction_refs):
+            sim = None
             if reset_reason != ResetReason.BEING_DESTROYED:
                 sim = interaction.sim
                 transition_controller = sim.queue.transition_controller if sim is not None else None
@@ -162,7 +162,10 @@ class BaseObject(ComponentContainer):
                     continue
             elif interaction.should_reset_based_on_pipeline_progress:
                 self.remove_interaction_reference(interaction)
-                reset_records.append(ResetRecord(interaction.sim, ResetReason.RESET_EXPECTED, self, 'Actor in interaction targeting source. {}, {}'.format(interaction, interaction.pipeline_progress)))
+                sim = sim or interaction.sim
+                if sim is None:
+                    continue
+                reset_records.append(ResetRecord(sim, ResetReason.RESET_EXPECTED, self, 'Actor in interaction targeting source. {}, {}'.format(interaction, interaction.pipeline_progress)))
 
     @forward_to_components
     def on_reset_component_get_interdependent_reset_records(self, reset_reason, reset_records):
@@ -310,8 +313,9 @@ class BaseObject(ComponentContainer):
 
     @forward_to_components
     def post_remove(self):
+        component_class_names = set(component.CNAME for component in self.components)
         for component_definition in objects.components.component_definition_set:
-            if self.has_component(component_definition):
+            if component_definition.class_attr in component_class_names:
                 self.remove_component(component_definition)
         if self.parts is not None:
             for part in self.parts:

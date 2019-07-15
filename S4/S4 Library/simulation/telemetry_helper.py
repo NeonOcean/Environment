@@ -9,13 +9,10 @@ import objects.components
 import services
 import sims4.telemetry
 TELEMETRY_GROUP_REPORT = 'REPO'
-TELEMETRY_HOOK_BUFF_REPORT = 'BUFF'
 TELEMETRY_HOOK_EMOTION_REPORT = 'EMOT'
 TELEMETRY_HOOK_FUNDS_REPORT = 'FUND'
 TELEMETRY_HOOK_RELATIONSHIP_REPORT = 'RELA'
 TELEMETRY_TARGET_SIM_ID = 'tsim'
-TELEMETRY_BUFF_ID = 'bfid'
-TELEMETRY_BUFF_REASON = 'reas'
 TELEMETRY_REL_BIT_ID = 'biid'
 TELEMETRY_REL_BIT_COUNT = 'cico'
 TELEMETRY_EMOTION_ID = 'emot'
@@ -133,15 +130,6 @@ class HouseholdTelemetryTracker:
             with begin_hook(report_telemetry_writer, TELEMETRY_HOOK_EMOTION_REPORT, sim=sim) as hook:
                 hook.write_guid(TELEMETRY_EMOTION_ID, sim.get_mood().guid64)
                 hook.write_int(TELEMETRY_EMOTION_INTENSITY, sim.get_mood_intensity())
-            for buff in sim.Buffs:
-                if buff.visible == False:
-                    continue
-                with begin_hook(report_telemetry_writer, TELEMETRY_HOOK_BUFF_REPORT, sim=sim) as hook:
-                    hook.write_guid(TELEMETRY_BUFF_ID, buff.guid64)
-                    if buff.buff_reason is not None:
-                        hook.write_localized_string(TELEMETRY_BUFF_REASON, buff.buff_reason)
-                    else:
-                        hook.write_guid(TELEMETRY_BUFF_REASON, 0)
 
     def emotion_relation_telemetry_report(self, handle):
         household_bit_dict = collections.defaultdict(lambda : 0)

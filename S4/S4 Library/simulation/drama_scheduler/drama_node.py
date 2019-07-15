@@ -293,6 +293,9 @@ class BaseDramaNode(HasTunableReference, metaclass=HashedTunedInstanceMetaclass,
             alarms.cancel_alarm(self._alarm_handle)
             self._alarm_handle = None
 
+    def complete(self):
+        pass
+
     def _select_time(self, specific_time=None, time_modifier=TimeSpan.ZERO):
         if specific_time is not None:
             self._selected_time = specific_time

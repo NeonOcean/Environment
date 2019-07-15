@@ -29,7 +29,7 @@ class SituationCategoryUid(DynamicEnumLocked, display_sorted=True):
     DEBUG = 1
 
 class SituationCategory:
-    CATEGORIES = TunableMapping(key_type=TunableEnumEntry(SituationCategoryUid, export_modes=ExportModes.All, default=SituationCategoryUid.DEFAULT, description='The Situation Category.'), value_type=TunableLocalizedString(description='The Category Name'), tuple_name='CategoriesMappingTuple', export_modes=ExportModes.All, description='Mapping from Uid to Name')
+    CATEGORIES = TunableMapping(description='\n\t\tMapping from Uid to Name\n        ', key_type=TunableEnumEntry(description='\n            The Situation Category.\n            ', tunable_type=SituationCategoryUid, default=SituationCategoryUid.DEFAULT), value_type=TunableLocalizedString(description='\n            The Category Name\n            '))
 
 class SituationCallbackOption:
     END_OF_SITUATION_SCORING = 0

@@ -12,9 +12,11 @@ from carry.carry_utils import PARAM_CARRY_STATE, set_carry_track_param_if_needed
 from element_utils import build_critical_section, build_critical_section_with_finally
 from event_testing.resolver import DoubleObjectResolver, DoubleSimResolver, SingleSimResolver
 from event_testing.results import TestResult
+from event_testing.tests import TunableGlobalTestSet
 from interactions.constraint_variants import TunableGeometricConstraintVariant
 from interactions.constraints import GLOBAL_STUB_ACTOR, GLOBAL_STUB_TARGET, ANYWHERE
 from interactions.interaction_finisher import FinishingType
+from interactions.utils.interaction_liabilities import OWNS_POSTURE_LIABILITY
 from interactions.utils.loot import LootActions
 from interactions.utils.routing import RouteTargetType
 from postures import PostureTrack, PostureEvent, get_best_supported_posture
@@ -59,14 +61,14 @@ class PosturePreconditions(enum.IntFlags):
 
 @unique_id('id')
 class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.POSTURE)):
-    INSTANCE_TUNABLES = {'cost': Tunable(description='\n           ( >= 0 ) The distance a Sim is willing to pay to avoid using this\n           posture (higher number discourage using the posture).\n           ', tunable_type=float, default=0, tuning_group=GroupNames.CORE), '_supported_postures': TunableList(TunableTuple(description='\n                A list of postures that this posture supports entrance from and\n                exit to.\n                ', posture_type=TunableReference(description='\n                    A supported posture.\n                    ', manager=services.posture_manager(), pack_safe=True), entry=TunableSupportedPostureTransitionData(description='\n                    If enabled, an edge is generated from the supported posture\n                    to this posture.\n                    '), exit=TunableSupportedPostureTransitionData(description='\n                    If enabled, an edge is generated from this posture to the\n                    supported posture.\n                    '), preconditions=TunableEnumFlags(PosturePreconditions, PosturePreconditions.NONE)), tuning_group=GroupNames.CORE), 'global_validator': OptionalTunable(description='\n            If enabled, specify a test that validates whether or not this\n            posture is available for a given Sim and a target. Posture\n            transition generation should be efficient, so this should only be\n            reserved for postures whose availability is not strictly tied to a\n            single interaction (e.g. carry).\n            \n            e.g.: the "Carry Sim" posture can be transitioned in and out\n            of as part of a transition sequence that requires, say, a toddler to\n            sit on a sofa. We don\'t want to have adult Sims think they can be\n            carried to transition to the same posture. So the "Carry Sim"\n            posture globally validates that the Sim is a toddler and the target\n            a TYAE Sim.\n            \n            e.g.: Sims are supposed to be able to sit while reading. However,\n            Sims are unable to sit on charred objects. If the object is charred,\n            the posture providing interaction testing out is enough information\n            for the transition sequence not to consider sitting a valid posture.\n            ', tunable=TunablePostureValidatorVariant(), tuning_group=GroupNames.CORE), 'appearance_modifier': OptionalTunable(description='\n            If enabled, we will apply an appearance modifier on the entry and\n            exit animations for this posture.\n            ', tunable=TunableTuple(description="\n                Appearance Modifier and xevents for entry and exit, which\n                default to the posture's xevents.\n                ", modifier=AppearanceModifier.TunableFactory(), entry_xevt=Tunable(description='\n                    The xevent id to apply the appearance modifier.\n                    ', tunable_type=int, default=750), exit_xevt=Tunable(description='\n                    The xevent id to remove the appearance modifier.\n                    ', tunable_type=int, default=751), tuning_group=GroupNames.OUTFITS)), 'loot_actions_on_exit': TunableList(description='\n            List of loot actions to apply when exiting the posture.\n            \n            Caution: This should only be used if we need the loot to apply\n            after the exit transition has been planned by the Sim.\n            eg. Removing a buff that is used in a validator to determine the\n            correct posture to exit to.\n            \n            Please talk to your GPE if you are adding loot actions here.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), 'outfit_change': TunableOutfitChange(description='\n            Define what outfits the Sim is supposed to wear when entering or\n            exiting this posture.\n            ', tuning_group=GroupNames.OUTFITS), 'outfit_exit_xevt': OptionalTunable(description='\n            If enabled, the exit outfit change for this posture executes on an\n            event. This is useful if the animation itself incorporates some sort\n            of outfit switch.\n            \n            If disabled, the outfit change normally occurs after the posture has\n            exited, before the transition to the next posture (if supported).\n            ', tunable=Tunable(description='\n                The event to trigger the outfit change on.\n                ', tunable_type=int, default=101), tuning_group=GroupNames.OUTFITS), '_animation_data': AnimationDataByActorSpecies.TunableFactory(tuning_group=GroupNames.ANIMATION), '_apply_target_to_interaction_asms': Tunable(description="\n            When checked, we apply the targets in the posture ASM to other ASMs\n            that support the posture. This is important for postures like Sit,\n            because if you're doing a seated chat, the social needs to have the\n            sitTemplate because it's referenced in the animations.\n            \n            For a posture like Swim, the sit template is only used in the\n            portal animation, so other ASMs don't need the virtual actors.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.ANIMATION), 'mutex_entry_exit_animations': Tunable(description='\n            Mutex the entrance / exit animations into / out of this posture.\n            This is useful for preventing sims from clipping through each other\n            while entering / exiting multi-reserve postures on the same part.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.ANIMATION), 'rerequests_idles': Tunable(description="\n            If checked, this posture needs to re-request its idle in-between\n            actions to ensure that there are no gaps in between interactions.\n            \n            This should be unchecked for postures like those in the movingStand\n            family like Swim for which interaction animations play on Normal\n            Plus. These postures shouldn't re-request their idles because the\n            idles on the Normal track will never be stopped.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.ANIMATION), 'default_animation_params': TunableParameterMapping(description='\n            A list of param name, param value tuples will be used as the default\n            for this posture.  Should generally only be used if posture has\n            different get ins, and the object name method (used in posture_sit) would\n            require a significant amount of retuning, or would simply be\n            impossible because the posture needs to also support @none.\n            \n            example: posture_kneel (needs to support @none)          \n            ', tuning_group=GroupNames.ANIMATION), 'additional_put_down_distance': Tunable(description="\n            An additional distance in front of the Sim to start searching for\n            valid put down locations when in this posture.\n            \n            This tunable is only respected for the Sim's body posture.\n            ", tunable_type=float, default=0.5, tuning_group=GroupNames.CARRY), '_supports_carry': Tunable(description='\n            Whether or not there should be a carry version of this posture in\n            the posture graph.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.CARRY), 'holster_for_entries_and_exits': Tunable(description='\n            If enabled, the Sim will holster all carried objects before\n            entering and exiting this posture.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CARRY), 'unconstrained': Tunable(description='\n            When checked, the Sim can stand anywhere in this posture.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CONSTRAINTS), 'universal': OptionalTunable(description='\n            If set, this posture is meant to be used with "Universal Get In/Get Out".\n            ', tunable=TunableTuple(constraint=TunableList(description='\n                    This defines the geometric constraints to be used for\n                    generating get in *and* get out goals.\n                    \n                    NOTE: you MUST tune a geometric requirement, e.g. a cone or circle.\n                    \n                    NOTE: You MUST tune a facing requirement. For get outs, the facing\n                    requirement is automatically inverted.\n                    ', tunable=TunableGeometricConstraintVariant(circle_locked_args={'require_los': True}, disabled_constraints={'spawn_points', 'current_position'})), y_delta_interval=OptionalTunable(description='\n                    The Sim can only transition to this posture if the y delta\n                    between it and the containment slot is within these bounds.\n                    ', tunable=TunableInterval(tunable_type=float, default_lower=-10, default_upper=10)), raycast_test=OptionalTunable(description='\n                    If enabled, the raycast between the Sim and the containment\n                    slot must be unobstructed.\n                    ', tunable=TunableTuple(vertical_offset=Tunable(description='\n                            Vertical offset from the containment slot for the\n                            raycast target.\n                            ', tunable_type=float, default=0.25), horizontal_offset=Tunable(description='\n                            Horizontal offset from the containment slot for\n                            the raycast target. Positive is away from the Sim,\n                            negative is towards the Sim.\n                            ', tunable_type=float, default=-0.5)))), tuning_group=GroupNames.CONSTRAINTS), 'additional_interaction_jig_fgl_distance': Tunable(description='\n            An additional distance (in meters) in front of the Sim to start \n            searching when using FGL to place a Jig to run an interaction.\n            ', tunable_type=float, default=0, tuning_group=GroupNames.CONSTRAINTS), 'surface_types': TunableList(description='\n            A list of surfaces a Sim can use this posture on.\n            ', tunable=TunableEnumEntry(description='\n                The surface type this posture is on. e.g. stand is on the world\n                surface and swim is on the pool surface\n                ', tunable_type=routing.SurfaceType, default=routing.SurfaceType.SURFACETYPE_WORLD), tuning_group=GroupNames.CONSTRAINTS), 'jig': OptionalTunable(description='\n            An optional jig to place while the Sim is in this posture.\n            ', tunable=TunableReference(description='\n                The jig to place while the Sim is in this posture.\n                ', manager=services.definition_manager()), tuning_group=GroupNames.CONSTRAINTS), 'use_containment_slot_for_exit': Tunable(description="\n            If checked, the sim will use the posture's containment slot as\n            their new position when exiting this posture. If unchecked, the\n            sim's current position will be used instead. Generally, this should\n            be checked for every posture that doesn't change a Sim's position.\n            Exceptions to this rule are things like the cell door posture and\n            Stand.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.CONSTRAINTS), 'is_canonical_family_posture': Tunable(description='\n            If checked, the sim will substitute their posture state\n            specification from the final constraint with this representative\n            posture from its family.\n            \n            Only representative postures like Stand, Sit, etc. would have this\n            checked.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CONSTRAINTS), 'ownable': Tunable(description="\n            When checked, this posture is ownable by interactions. \n            \n            e.g.: A posture like carry_nothing should not be ownable, because it\n            will cause strange cancelations that don't make sense.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.CONSTRAINTS), 'allow_affinity': Tunable(description="\n            If True, Sims will prefer to use this posture if someone they're\n            interacting with is using the posture.\n                            \n            e.g.: If you chat with a sitting Sim, you will prefer to sit with\n            them and chat.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.SOCIALS), 'allow_social_adjustment': Tunable(description="\n            If enabled, Sims in this posture will still be considered for social\n            adjustment. If disabled, Sims in this posture will not be considered\n            for social adjustment.\n            \n            e.g.: When a Sim is sitting in the hospital exam bed, we never want\n            them to stand up out of it due to social adjustment, because it\n            doesn't make sense in context. They should stay in the bed when Sims\n            chat with them.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.SOCIALS), 'social_geometry': TunableTuple(description='\n            The special geometry for socialization in this posture.\n            ', social_space=TunablePolygon(description="\n                The special geometry override for socialization in this posture.\n                This defines where the Sim's attention is focused and informs\n                the social positioning system where each Sim should stand to\n                look most natural when interacting with this Sim. \n                \n                e.g.: we override the social geometry for a Sim who is tending\n                the bar to be a wider cone and be in front of the bar instead of\n                embedded within the bar. This encourages Sims to stand on the\n                customer- side of the bar to socialize with this Sim instead of\n                coming around the back.\n                "), focal_point=TunableVector3(description='\n                Focal point when socializing in this posture, relative to Sim\n                ', default=sims4.math.Vector3.ZERO()), tuning_group=GroupNames.SOCIALS)}
+    INSTANCE_TUNABLES = {'cost': Tunable(description='\n           ( >= 0 ) The distance a Sim is willing to pay to avoid using this\n           posture (higher number discourage using the posture).\n           ', tunable_type=float, default=0, tuning_group=GroupNames.CORE), '_supported_postures': TunableList(TunableTuple(description='\n                A list of postures that this posture supports entrance from and\n                exit to.\n                ', posture_type=TunableReference(description='\n                    A supported posture.\n                    ', manager=services.posture_manager(), pack_safe=True), entry=TunableSupportedPostureTransitionData(description='\n                    If enabled, an edge is generated from the supported posture\n                    to this posture.\n                    '), exit=TunableSupportedPostureTransitionData(description='\n                    If enabled, an edge is generated from this posture to the\n                    supported posture.\n                    '), preconditions=TunableEnumFlags(PosturePreconditions, PosturePreconditions.NONE)), tuning_group=GroupNames.CORE), 'global_validator': OptionalTunable(description='\n            If enabled, specify a test that validates whether or not this\n            posture is available for a given Sim and a target. Posture\n            transition generation should be efficient, so this should only be\n            reserved for postures whose availability is not strictly tied to a\n            single interaction (e.g. carry).\n            \n            e.g.: the "Carry Sim" posture can be transitioned in and out\n            of as part of a transition sequence that requires, say, a toddler to\n            sit on a sofa. We don\'t want to have adult Sims think they can be\n            carried to transition to the same posture. So the "Carry Sim"\n            posture globally validates that the Sim is a toddler and the target\n            a TYAE Sim.\n            \n            e.g.: Sims are supposed to be able to sit while reading. However,\n            Sims are unable to sit on charred objects. If the object is charred,\n            the posture providing interaction testing out is enough information\n            for the transition sequence not to consider sitting a valid posture.\n            ', tunable=TunablePostureValidatorVariant(), tuning_group=GroupNames.CORE), 'appearance_modifier': OptionalTunable(description='\n            If enabled, we will apply an appearance modifier on the entry and\n            exit animations for this posture.\n            ', tunable=TunableTuple(description="\n                Appearance Modifier and xevents for entry and exit, which\n                default to the posture's xevents.\n                ", modifier=AppearanceModifier.TunableFactory(), entry_xevt=Tunable(description='\n                    The xevent id to apply the appearance modifier.\n                    ', tunable_type=int, default=750), exit_xevt=Tunable(description='\n                    The xevent id to remove the appearance modifier.\n                    ', tunable_type=int, default=751), tuning_group=GroupNames.OUTFITS)), 'loot_actions_on_exit': TunableList(description='\n            List of loot actions to apply when exiting the posture.\n            \n            Caution: This should only be used if we need the loot to apply\n            after the exit transition has been planned by the Sim.\n            eg. Removing a buff that is used in a validator to determine the\n            correct posture to exit to.\n            \n            Please talk to your GPE if you are adding loot actions here.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), 'switch_occult': OptionalTunable(description='\n            If enabled, switch the Sim into the specified occult type.\n            ', tunable=TunableTuple(description="\n                Occult types and xevt for entry and exit, which default to the\n                posture's xevts.\n                ", entry=TunableTuple(description='\n                    The occult type to switch to and the xevt on which to \n                    trigger the switch on entry.\n                    ', entry_xevt=Tunable(description='\n                        The xevt on which to trigger the occult switch on entry.\n                        ', tunable_type=int, default=750), entry_occult=TunableEnumEntry(description='\n                        The occult to switch to on entry.\n                        ', tunable_type=OccultType, default=OccultType.HUMAN)), exit=TunableTuple(description='\n                    The occult type to switch to and the xevt on which to \n                    trigger the switch on exit.\n                    ', exit_xevt=Tunable(description='\n                        The xevt on which to trigger the occult switch on exit.\n                        ', tunable_type=int, default=750), exit_occult=TunableEnumEntry(description='\n                        The occult to switch to on exit.\n                        ', tunable_type=OccultType, default=OccultType.HUMAN)))), 'outfit_change': TunableOutfitChange(description='\n            Define what outfits the Sim is supposed to wear when entering or\n            exiting this posture.\n            ', tuning_group=GroupNames.OUTFITS), 'override_outfit_changes': TunableList(description='\n            Define override outfits for entering this posture.\n            The first override that passes its tests will be applied.\n            ', tunable=TunableTuple(outfit_change=TunableOutfitChange(), tests=TunableGlobalTestSet(description='\n                    Tests to determine if this override should be applied.\n                    ')), tuning_group=GroupNames.OUTFITS), 'outfit_exit_xevt': OptionalTunable(description='\n            If enabled, the exit outfit change for this posture executes on an\n            event. This is useful if the animation itself incorporates some sort\n            of outfit switch.\n            \n            If disabled, the outfit change normally occurs after the posture has\n            exited, before the transition to the next posture (if supported).\n            ', tunable=Tunable(description='\n                The event to trigger the outfit change on.\n                ', tunable_type=int, default=101), tuning_group=GroupNames.OUTFITS), 'supports_outfit_change': Tunable(description='\n            Whether or not this posture supports outfit changes.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.OUTFITS), '_animation_data': AnimationDataByActorSpecies.TunableFactory(tuning_group=GroupNames.ANIMATION), '_apply_target_to_interaction_asms': Tunable(description="\n            When checked, we apply the targets in the posture ASM to other ASMs\n            that support the posture. This is important for postures like Sit,\n            because if you're doing a seated chat, the social needs to have the\n            sitTemplate because it's referenced in the animations.\n            \n            For a posture like Swim, the sit template is only used in the\n            portal animation, so other ASMs don't need the virtual actors.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.ANIMATION), 'mutex_entry_exit_animations': Tunable(description='\n            Mutex the entrance / exit animations into / out of this posture.\n            This is useful for preventing sims from clipping through each other\n            while entering / exiting multi-reserve postures on the same part.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.ANIMATION), 'rerequests_idles': Tunable(description="\n            If checked, this posture needs to re-request its idle in-between\n            actions to ensure that there are no gaps in between interactions.\n            \n            This should be unchecked for postures like those in the movingStand\n            family like Swim for which interaction animations play on Normal\n            Plus. These postures shouldn't re-request their idles because the\n            idles on the Normal track will never be stopped.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.ANIMATION), 'default_animation_params': TunableParameterMapping(description='\n            A list of param name, param value tuples will be used as the default\n            for this posture.  Should generally only be used if posture has\n            different get ins, and the object name method (used in posture_sit) would\n            require a significant amount of retuning, or would simply be\n            impossible because the posture needs to also support @none.\n            \n            example: posture_kneel (needs to support @none)          \n            ', tuning_group=GroupNames.ANIMATION), 'additional_put_down_distance': Tunable(description="\n            An additional distance in front of the Sim to start searching for\n            valid put down locations when in this posture.\n            \n            This tunable is only respected for the Sim's body posture.\n            ", tunable_type=float, default=0.5, tuning_group=GroupNames.CARRY), '_supports_carry': Tunable(description='\n            Whether or not there should be a carry version of this posture in\n            the posture graph.\n            ', tunable_type=bool, default=True, tuning_group=GroupNames.CARRY), 'holster_for_entries_and_exits': Tunable(description='\n            If enabled, the Sim will holster all carried objects before\n            entering and exiting this posture.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CARRY), 'unconstrained': Tunable(description='\n            When checked, the Sim can stand anywhere in this posture.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CONSTRAINTS), 'universal': OptionalTunable(description='\n            If set, this posture is meant to be used with "Universal Get In/Get Out".\n            ', tunable=TunableTuple(constraint=TunableList(description='\n                    This defines the geometric constraints to be used for\n                    generating get in *and* get out goals.\n                    \n                    NOTE: you MUST tune a geometric requirement, e.g. a cone or circle.\n                    \n                    NOTE: You MUST tune a facing requirement. For get outs, the facing\n                    requirement is automatically inverted.\n                    ', tunable=TunableGeometricConstraintVariant(circle_locked_args={'require_los': True}, disabled_constraints={'spawn_points', 'current_position'})), y_delta_interval=OptionalTunable(description='\n                    The Sim can only transition to this posture if the y delta\n                    between it and the containment slot is within these bounds.\n                    ', tunable=TunableInterval(tunable_type=float, default_lower=-10, default_upper=10)), raycast_test=OptionalTunable(description='\n                    If enabled, the raycast between the Sim and the containment\n                    slot must be unobstructed.\n                    ', tunable=TunableTuple(vertical_offset=Tunable(description='\n                            Vertical offset from the containment slot for the\n                            raycast target.\n                            ', tunable_type=float, default=0.25), horizontal_offset=Tunable(description='\n                            Horizontal offset from the containment slot for\n                            the raycast target. Positive is away from the Sim,\n                            negative is towards the Sim.\n                            ', tunable_type=float, default=-0.5)))), tuning_group=GroupNames.CONSTRAINTS), 'additional_interaction_jig_fgl_distance': Tunable(description='\n            An additional distance (in meters) in front of the Sim to start \n            searching when using FGL to place a Jig to run an interaction.\n            ', tunable_type=float, default=0, tuning_group=GroupNames.CONSTRAINTS), 'surface_types': TunableList(description='\n            A list of surfaces a Sim can use this posture on.\n            ', tunable=TunableEnumEntry(description='\n                The surface type this posture is on. e.g. stand is on the world\n                surface and swim is on the pool surface\n                ', tunable_type=routing.SurfaceType, default=routing.SurfaceType.SURFACETYPE_WORLD), tuning_group=GroupNames.CONSTRAINTS), 'jig': OptionalTunable(description='\n            An optional jig to place while the Sim is in this posture.\n            ', tunable=TunableReference(description='\n                The jig to place while the Sim is in this posture.\n                ', manager=services.definition_manager()), tuning_group=GroupNames.CONSTRAINTS), 'use_containment_slot_for_exit': Tunable(description="\n            If checked, the sim will use the posture's containment slot as\n            their new position when exiting this posture. If unchecked, the\n            sim's current position will be used instead. Generally, this should\n            be checked for every posture that doesn't change a Sim's position.\n            Exceptions to this rule are things like the cell door posture and\n            Stand.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.CONSTRAINTS), 'is_canonical_family_posture': Tunable(description='\n            If checked, the sim will substitute their posture state\n            specification from the final constraint with this representative\n            posture from its family.\n            \n            Only representative postures like Stand, Sit, etc. would have this\n            checked.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.CONSTRAINTS), 'ownable': Tunable(description="\n            When checked, this posture is ownable by interactions. \n            \n            e.g.: A posture like carry_nothing should not be ownable, because it\n            will cause strange cancelations that don't make sense.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.CONSTRAINTS), 'allow_affinity': Tunable(description="\n            If True, Sims will prefer to use this posture if someone they're\n            interacting with is using the posture.\n                            \n            e.g.: If you chat with a sitting Sim, you will prefer to sit with\n            them and chat.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.SOCIALS), 'allow_social_adjustment': Tunable(description="\n            If enabled, Sims in this posture will still be considered for social\n            adjustment. If disabled, Sims in this posture will not be considered\n            for social adjustment.\n            \n            e.g.: When a Sim is sitting in the hospital exam bed, we never want\n            them to stand up out of it due to social adjustment, because it\n            doesn't make sense in context. They should stay in the bed when Sims\n            chat with them.\n            ", tunable_type=bool, default=True, tuning_group=GroupNames.SOCIALS), 'social_geometry': TunableTuple(description='\n            The special geometry for socialization in this posture.\n            ', social_space=TunablePolygon(description="\n                The special geometry override for socialization in this posture.\n                This defines where the Sim's attention is focused and informs\n                the social positioning system where each Sim should stand to\n                look most natural when interacting with this Sim. \n                \n                e.g.: we override the social geometry for a Sim who is tending\n                the bar to be a wider cone and be in front of the bar instead of\n                embedded within the bar. This encourages Sims to stand on the\n                customer- side of the bar to socialize with this Sim instead of\n                coming around the back.\n                "), focal_point=TunableVector3(description='\n                Focal point when socializing in this posture, relative to Sim\n                ', default=sims4.math.Vector3.ZERO()), tuning_group=GroupNames.SOCIALS)}
     IS_BODY_POSTURE = True
     _provided_postures = frozendict({Species.HUMAN: PostureManifest().intern()})
     _posture_name = None
     family_name = None
+    supports_swim = False
     PostureTransitionData = namedtuple('PostureTransitionData', ('preconditions', 'transition_cost', 'validators'))
     _posture_transitions = {}
-    _swim_supported_postures = set()
 
     def __init__(self, sim, target, track, animation_context=None, is_throwaway=False):
         self._asm = None
@@ -91,9 +93,12 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         self._exit_anim_complete = False
         self.external_transition = False
         self._appearance_modifier_active = False
+        self._entry_occult_switch_processed = False
         self._active_cancel_aops = WeakSet()
         self._saved_exit_clothing_change = None
         self.previous_posture = None
+        self.fallback_occult_on_posture_reset = None
+        self._primitive_created = False
 
     def __str__(self):
         return '{0}:{1}'.format(self.name, self.id)
@@ -144,18 +149,15 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                     cls._posture_name = specific_name
             else:
                 cls._posture_name = specific_name
-        _is_swim_posture = cls.posture_type.name == SWIM_POSTURE_TYPE
         for posture_data in cls._supported_postures:
-            if _is_swim_posture:
-                Posture._swim_supported_postures.add(posture_data.posture_type)
-            if posture_data.posture_type.name == SWIM_POSTURE_TYPE:
-                Posture._swim_supported_postures.add(cls)
             if posture_data.entry is not None:
                 transition_data = cls.PostureTransitionData(posture_data.preconditions, posture_data.entry.cost, posture_data.entry.validators)
                 cls._add_posture_transition(posture_data.posture_type, cls, transition_data)
             if posture_data.exit is not None:
                 transition_data = cls.PostureTransitionData(posture_data.preconditions, posture_data.exit.cost, posture_data.exit.validators)
                 cls._add_posture_transition(cls, posture_data.posture_type, transition_data)
+            if posture_data.posture_type.name == SWIM_POSTURE_TYPE:
+                cls.supports_swim = True
         if not supports_carry and cls._supports_carry:
             logger.error('{} is tuned to support carry, but none of its ASMs has a posture manifest entry supporting carry', cls)
         cls.family_name = family_name
@@ -177,6 +179,14 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
 
     @constproperty
     def mobile():
+        return False
+
+    @constproperty
+    def skip_route():
+        return False
+
+    @constproperty
+    def is_vehicle():
         return False
 
     @classproperty
@@ -364,7 +374,11 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
 
     @property
     def idle_animation(self):
-        return self.get_animation_data()._idle_animation
+        animation_data = self.get_animation_data()
+        occult_idle = animation_data._idle_animation_occult_overrides.get(self.sim.sim_info.current_occult_types, None)
+        if occult_idle is not None:
+            return occult_idle
+        return animation_data._idle_animation
 
     @property
     def track(self):
@@ -442,7 +456,6 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         self._owning_interactions.remove(interaction)
 
     def clear_owning_interactions(self):
-        from interactions.base.interaction import OWNS_POSTURE_LIABILITY
         try:
             for interaction in list(self._owning_interactions):
                 interaction.remove_liability((OWNS_POSTURE_LIABILITY, self.track))
@@ -563,6 +576,10 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             return self.body_target
         return body_target
 
+    def invalidate_slot_constraints(self):
+        logger.info('Posture {} invalidated slot constraints.', self, owner='rmccord')
+        self._slot_constraint = {}
+
     def _bind(self, sim, target, track):
         if self.sim is sim and self.target is target and self.target_part is None or self.target_part is target and self._track == track:
             return
@@ -606,6 +623,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         self._bind(self.sim, target, self.track)
 
     def reset(self):
+        self._reset_occult()
         if self._saved_exit_clothing_change is not None:
             self.sim.sim_info.set_current_outfit(self._saved_exit_clothing_change)
             self._saved_exit_clothing_change = None
@@ -619,6 +637,18 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if self._appearance_modifier_active:
             self.sim.sim_info.appearance_tracker.remove_appearance_modifiers(self.posture_type.guid64, source=self.name)
             self._appearance_modifier_active = False
+
+    def _reset_occult(self):
+        occult_tracker = self.sim.sim_info.occult_tracker
+        occult_form_before_reset = occult_tracker.get_current_occult_types()
+        if self.sim.posture_state.body is self:
+            if self._entry_occult_switch_processed:
+                if occult_tracker.has_occult_type(self.switch_occult.exit.exit_occult):
+                    occult_tracker.switch_to_occult_type(self.switch_occult.exit.exit_occult)
+                self._entry_occult_switch_processed = False
+            elif self.fallback_occult_on_posture_reset is not None and occult_tracker.has_occult_type(self.fallback_occult_on_posture_reset):
+                occult_tracker.switch_to_occult_type(self.fallback_occult_on_posture_reset)
+            occult_tracker.validate_appropriate_occult(self.sim, occult_form_before_reset)
 
     def _release_animation_context(self):
         if self._animation_context is not None:
@@ -900,8 +930,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         provided_postures = self.get_provided_postures(surface_target=surface_target_provided)
         best_supported_posture = get_best_supported_posture(provided_postures, filtered_supported_postures, carry_state)
         if best_supported_posture is None:
-            logger.debug('Failed to find supported posture for actor {} on {} for posture ({}), source interaction ({}), and carry ({}).  Interaction info claims this should work.', sim, asm, self, self.source_interaction, carry_state)
-            return TestResult(False, 'Failed to find supported posture for actor {} on {} for posture ({}), source interaction ({}), and carry ({}).  Interaction info claims this should work.'.format(sim, asm, self, self.source_interaction, carry_state))
+            return TestResult(False, 'Failed to find supported posture for actor {} on {} for posture ({}),\nInteraction info claims this should work.\n  Source interaction ({}),\n  Carry ({}).\n  Surface Target Provided: {}\n  Provided Posture: {}\n  Supported Postures: {}\n  Filted Supported Postures: {}\n', sim, asm, self, self.source_interaction, carry_state, surface_target_provided, provided_postures, supported_postures, filtered_supported_postures)
         carry_param_str = build_carry_str(carry_state)
         carry_actor_name = best_supported_posture.carry_target
         surface_actor_name = best_supported_posture.surface_target
@@ -966,6 +995,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if self._primitive is not None:
             raise RuntimeError('Posture Entry({}) called multiple times without a paired exit.'.format(self))
         self._primitive = self._create_primitive(animate_in, dest_state, routing_surface)
+        self._primitive_created = True
         return self._primitive.next_stage()
 
     def begin(self, animate_in, dest_state, context, routing_surface):
@@ -982,7 +1012,12 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
 
     def get_end(self):
         if self._primitive is None:
-            raise RuntimeError('Posture Exit({}) called multiple times without a paired entry. Sim: {}'.format(self, self.sim))
+            sim = self.sim
+            if sim is not None:
+                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim ID: {sim.id}'
+            else:
+                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim has already been cleaned up or not set'
+            raise RuntimeError(runtime_error_string)
         exit_behavior = self._primitive.next_stage()
         self._primitive = None
         return exit_behavior
@@ -1067,6 +1102,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 logger.error('Failed to setup the asm for the posture {}. {}', self, result)
                 return
             self.add_appearance_modifier_entry_event(arb)
+            self.add_switch_occult_entry_event(arb)
             self._setup_asm_target_for_transition(source_posture)
             self.asm.request(self._enter_state_name, arb)
             linked_posture = self.linked_posture
@@ -1093,10 +1129,11 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             self._setup_asm_target_for_transition(dest_posture)
             self.add_outfit_exit_event(arb)
             self.add_appearance_modifier_exit_event(arb)
+            self.add_switch_occult_exit_event(arb)
             resolver = SingleSimResolver(self.sim.sim_info)
             for loot_action in self.loot_actions_on_exit:
                 loot_action.apply_to_resolver(resolver)
-            locked_params += self.locked_params
+            locked_params += self._locked_params
             if dest_posture is not None:
                 locked_params += {TRANSITION_POSTURE_PARAM_NAME: dest_posture.name}
             if locked_params:
@@ -1105,7 +1142,20 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             try:
                 self.asm.request(self._exit_state_name, arb)
             except RuntimeError as err:
-                additional_message = '\nsource_interaction = {}\nrunning interaction = {}'.format(self.source_interaction, self.sim.queue.running)
+                source_interaction = self.source_interaction
+                running_interaction = self.sim.queue.running
+                additional_message = '\nsource_interaction = {}\nrunning interaction = {}'.format(source_interaction, running_interaction)
+                sim_of_interest = self.sim
+                if running_interaction is not None:
+                    if running_interaction.is_social:
+                        if running_interaction.sim is not self.sim:
+                            additional_message += '\nPosture Sim different than Running interaction sim'
+                            sim_of_interest = running_interaction.sim
+                mixers = tuple(sim_of_interest.queue.mixer_interactions_gen())
+                if mixers:
+                    additional_message += '\nRunning Interaction Mixers:'
+                    for mixer in mixers:
+                        additional_message += '\n    {}'.format(mixer)
                 err.args = (err.args[0] + additional_message,)
                 raise
             self._exit_anim_complete = True
@@ -1130,20 +1180,36 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                     return False
         return True
 
-    def post_route_clothing_change(self, interaction, do_spin=True, **kwargs):
+    @flexmethod
+    def _get_override_outfit_change(cls, inst, sim_info):
+        inst_or_cls = inst if inst is not None else cls
+        for entry in inst_or_cls.override_outfit_changes:
+            if not entry.tests:
+                return entry.outfit_change
+            resolver = SingleSimResolver(sim_info)
+            if entry.tests.run_tests(resolver):
+                return entry.outfit_change
+
+    @flexmethod
+    def post_route_clothing_change(cls, inst, interaction, do_spin=True, **kwargs):
+        if inst is None:
+            inst_or_cls = cls
+            sim_info = interaction.sim.sim_info
+        else:
+            inst_or_cls = inst
+            sim_info = inst.sim.sim_info
         si_outfit_change = interaction.outfit_change
         if si_outfit_change is not None and si_outfit_change.posture_outfit_change_overrides is not None:
-            overrides = si_outfit_change.posture_outfit_change_overrides.get(self.posture_type)
+            overrides = si_outfit_change.posture_outfit_change_overrides.get(inst_or_cls.posture_type)
             if overrides is not None:
                 entry_outfit = overrides.get_on_entry_outfit(interaction)
                 if entry_outfit is not None:
                     return overrides.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
-                elif self.outfit_change is not None:
-                    return self.outfit_change.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
-            elif self.outfit_change is not None:
-                return self.outfit_change.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
-        elif self.outfit_change is not None:
-            return self.outfit_change.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
+        override_outfit_change = inst_or_cls._get_override_outfit_change(sim_info)
+        if override_outfit_change is not None:
+            return override_outfit_change.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
+        elif inst_or_cls.outfit_change is not None:
+            return inst_or_cls.outfit_change.get_on_entry_change(interaction, do_spin=do_spin, **kwargs)
 
     def add_appearance_modifier_exit_event(self, arb):
         if self.appearance_modifier is not None:
@@ -1162,6 +1228,28 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 self.sim.sim_info.appearance_tracker.add_appearance_modifiers(new_appearance_modifier.appearance_modifiers, self.posture_type.guid64, new_appearance_modifier.priority, new_appearance_modifier.apply_to_all_outfits, source=self.name)
 
             arb.register_event_handler(_apply_appearance_modifier, handler_id=self.appearance_modifier.entry_xevt)
+
+    def add_switch_occult_exit_event(self, arb):
+        if self.switch_occult is not None:
+
+            def _exit_switch_occult(*_, **__):
+                if self.sim.sim_info.occult_tracker.has_occult_type(self.switch_occult.exit.exit_occult):
+                    self.sim.sim_info.occult_tracker.switch_to_occult_type(self.switch_occult.exit.exit_occult)
+
+            arb.register_event_handler(_exit_switch_occult, handler_id=self.switch_occult.exit.exit_xevt)
+
+    def pretend_entry_occult_switch_processed(self):
+        self._entry_occult_switch_processed = True
+
+    def add_switch_occult_entry_event(self, arb):
+        if self.switch_occult is not None:
+
+            def _entry_switch_occult(*_, **__):
+                self._entry_occult_switch_processed = True
+                if self.sim.sim_info.occult_tracker.has_occult_type(self.switch_occult.entry.entry_occult):
+                    self.sim.sim_info.occult_tracker.switch_to_occult_type(self.switch_occult.entry.entry_occult)
+
+            arb.register_event_handler(_entry_switch_occult, handler_id=self.switch_occult.entry.entry_xevt)
 
     def add_outfit_exit_event(self, arb):
         if self.outfit_exit_xevt is not None:
@@ -1191,6 +1279,9 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 if exit_outfit is not None:
                     self._saved_exit_clothing_change = overrides.get_on_exit_outfit(interaction, **kwargs)
                     return
+        override_outfit_change = self._get_override_outfit_change(self.sim.sim_info)
+        if override_outfit_change is not None:
+            self._saved_exit_clothing_change = override_outfit_change.get_on_exit_outfit(interaction, **kwargs)
         if self.outfit_change:
             if self.outfit_change.get_on_exit_outfit(interaction):
                 if self._saved_exit_clothing_change is None:
@@ -1200,7 +1291,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         if self._saved_exit_clothing_change is None or interaction is None:
             return
         sim_info = interaction.sim.sim_info if sim_info is DEFAULT else sim_info
-        return build_critical_section(sim_info.get_change_outfit_element(self._saved_exit_clothing_change, do_spin=do_spin, interaction=interaction), flush_all_animations)
+        return build_critical_section(sim_info.get_change_outfit_element_and_archive_change_reason(self._saved_exit_clothing_change, do_spin=do_spin, interaction=interaction, change_reason=self.name), flush_all_animations)
 
     def ensure_exit_clothing_change_application(self):
         if self.sim.posture_state.body is not self:
@@ -1215,3 +1306,9 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
         elif self._jig_instance is not None and self.get_animation_data()._jig_name is not None:
             return (self._jig_instance, self.get_animation_data()._jig_name)
         return (None, None)
+
+    def get_occult_for_posture_reset(self):
+        if self._entry_occult_switch_processed:
+            return self.switch_occult.exit.exit_occult
+        else:
+            return self.fallback_occult_on_posture_reset

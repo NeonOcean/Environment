@@ -3,9 +3,9 @@ import functools
 import random
 from date_and_time import TimeSpan
 from distributor.rollback import ProtocolBufferRollback
-from sims4.tuning.tunable import TunableList, Tunable, TunableFactory, TunableReference, TunableSingletonFactory, AutoFactoryInit, HasTunableSingletonFactory, HasTunableFactory
-from sims4.tuning.tunable_hash import TunableStringHash32
+from sims4.tuning.tunable import TunableList, Tunable, TunableFactory, TunableReference, TunableSingletonFactory, AutoFactoryInit, HasTunableSingletonFactory, HasTunableFactory, TunableEnumEntry
 from tunable_time import Days, TunableTimeOfDay
+from careers.career_enums import CareerShiftType
 import alarms
 import date_and_time
 import services
@@ -33,7 +33,7 @@ def TunableDayAvailability():
     return day_availability
 
 class ScheduleEntry(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'days_available': TunableDayAvailability(), 'start_time': TunableTimeOfDay(default_hour=9), 'duration': Tunable(description='\n            Duration of this work session in hours.\n            ', tunable_type=float, default=1.0), 'random_start': Tunable(description='\n            If checked, this schedule will have a random start time in the tuned\n            window each time.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'days_available': TunableDayAvailability(), 'start_time': TunableTimeOfDay(default_hour=9), 'duration': Tunable(description='\n            Duration of this work session in hours.\n            ', tunable_type=float, default=1.0), 'random_start': Tunable(description='\n            If checked, this schedule will have a random start time in the tuned\n            window each time.\n            ', tunable_type=bool, default=False), 'schedule_shift_type': TunableEnumEntry(description='\n            Shift Type for the schedule, this will be used for validations.\n            ', tunable_type=CareerShiftType, default=CareerShiftType.ALL_DAY)}
 
     @TunableFactory.factory_option
     def schedule_entry_data(tuning_name='schedule_entry_tuning', tuning_type=None):
@@ -60,11 +60,14 @@ class WeeklySchedule(HasTunableFactory):
     def schedule_entry_data(**kwargs):
         return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of\n                the week to a start_time and duration.\n                ', tunable=ScheduleEntry.TunableFactory(schedule_entry_data=kwargs))}
 
-    def __init__(self, schedule_entries, start_callback=None, schedule_immediate=True, min_alarm_time_span=None, min_duration_remaining=None, early_warning_callback=None, early_warning_time_span=None, extra_data=None, init_only=False, required_start_time=None):
+    def __init__(self, schedule_entries, start_callback=None, schedule_immediate=True, min_alarm_time_span=None, min_duration_remaining=None, early_warning_callback=None, early_warning_time_span=None, extra_data=None, init_only=False, required_start_time=None, schedule_shift_type=CareerShiftType.ALL_DAY):
         self._schedule_entry_tuning = schedule_entries
         self._schedule_entries = set()
         now = services.time_service().sim_now
+        will_not_be_empty = any(entry.schedule_shift_type == schedule_shift_type for entry in self._schedule_entry_tuning)
         for entry in self._schedule_entry_tuning:
+            if will_not_be_empty and entry.schedule_shift_type != schedule_shift_type:
+                continue
             for (start_time, end_time) in entry.get_start_and_end_times():
                 is_random = entry.random_start
                 if required_start_time is not None and now.time_to_week_time(required_start_time) != now.time_to_week_time(start_time):
@@ -86,13 +89,16 @@ class WeeklySchedule(HasTunableFactory):
     def __iter__(self):
         yield from self._schedule_entries
 
-    def populate_scheduler_msg(self, schedule_msg):
+    def populate_scheduler_msg(self, schedule_msg, schedule_shift_type=None):
         for schedule_entry in self._schedule_entry_tuning:
+            if schedule_shift_type is not None and schedule_entry.schedule_shift_type != schedule_shift_type:
+                continue
             with ProtocolBufferRollback(schedule_msg.schedule_entries) as schedule_entry_msg:
                 schedule_entry_msg.days.extend(day for (day, is_day_available) in schedule_entry.days_available.items() if is_day_available)
                 schedule_entry_msg.start_hour = schedule_entry.start_time.hour()
                 schedule_entry_msg.start_minute = schedule_entry.start_time.minute()
                 schedule_entry_msg.duration = schedule_entry.duration
+                schedule_entry_msg.schedule_shift_type = schedule_entry.schedule_shift_type
 
     def schedule_next_alarm(self, schedule_immediate=False, min_duration_remaining=None):
         if self._alarm_handle is not None:

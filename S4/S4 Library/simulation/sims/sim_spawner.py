@@ -69,7 +69,7 @@ class SimCreator:
             sim_builder_dictionary['filter_flags'] = self.filter_flags
         return sim_builder_dictionary
 
-class Language(DynamicEnum, export_modes=ExportModes.All):
+class Language(DynamicEnum):
     ENGLISH = 0
 
 DEFAULT_LOCALE = 'en-us'

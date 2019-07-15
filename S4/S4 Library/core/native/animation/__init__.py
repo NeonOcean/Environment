@@ -3,6 +3,8 @@ from _resourceman import Key
 import collections
 from native.animation.arb import NativeArb, BoundaryConditionInfo
 import api_config
+import sims4
+logger = sims4.log.Logger('Animation(Native)')
 try:
     from _animation import AsmBase
     from _animation import _ASM_ACTORTYPE_INVALID as ASM_ACTORTYPE_INVALID
@@ -180,7 +182,12 @@ Asm = NativeAsm
 
 def get_joint_transform_from_rig(rig_key, joint_name):
     import _animation
-    return _animation.get_joint_transform_from_rig(rig_key, joint_name)
+    try:
+        transform = _animation.get_joint_transform_from_rig(rig_key, joint_name)
+    except Exception as exe:
+        logger.error('Failed to get transform from rig: {}, {}'.format(rig_key, joint_name))
+        raise exe
+    return transform
 
 def get_joint_name_for_hash_from_rig(rig_key, joint_name_hash):
     import _animation

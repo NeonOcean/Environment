@@ -10,7 +10,7 @@ logger = sims4.log.Logger('SecurityBouncerSituation', default_owner='mkartika')
 EXCEPTION_SIM_ID_LIST_TOKEN = 'sim_id_list'
 
 class SecurityBouncerSituation(TendObjectSituation):
-    INSTANCE_TUNABLES = {'_loots_on_create': TunableList(description='\n            Loot Actions that will be applied to staffed object in this \n            situation on situation create.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), '_loots_on_set_sim_job': TunableList(description='\n            Loot Actions that will be applied to a sim and staffed object in \n            this situation when the sim has been assigned a job.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), '_loots_on_destroy': TunableList(description='\n            Loot Actions that will be applied to staff member and staffed \n            object in this situation on situation destroy.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES)}
+    INSTANCE_TUNABLES = {'_loots_on_create': TunableList(description='\n            Loot Actions that will be applied to staffed object in this \n            situation on situation create.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), '_loots_on_set_sim_job': TunableList(description='\n            Loot Actions that will be applied to a sim and staffed object in \n            this situation when the sim has been assigned a job.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), '_loots_on_remove_sim_from_situation': TunableList(description='\n            Loot Actions that will be applied to a sim and staffed object in \n            this situation when the sim is removed from situation.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES), '_loots_on_destroy': TunableList(description='\n            Loot Actions that will be applied to staff member and staffed \n            object in this situation on situation destroy.\n            ', tunable=LootActions.TunableReference(), tuning_group=GroupNames.SPECIAL_CASES)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -26,6 +26,11 @@ class SecurityBouncerSituation(TendObjectSituation):
             if self._persisted_sim_id == sim.sim_id:
                 self._apply_sim_id_exception_lock_data()
             self._persisted_sim_id = None
+
+    def _on_remove_sim_from_situation(self, sim):
+        if sim is self._staff_member:
+            self._apply_loots(self._loots_on_remove_sim_from_situation)
+        super()._on_remove_sim_from_situation(sim)
 
     def _destroy(self):
         self._apply_loots(self._loots_on_destroy)

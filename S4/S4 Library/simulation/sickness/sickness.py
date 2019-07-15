@@ -178,7 +178,7 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
                 break
             for action in actions:
                 action.perform(sim_info, interaction=interaction)
-        sim_info.record_last_progress(diagnostic_progress)
+        sim_info.sickness_record_last_progress(diagnostic_progress)
 
     @classmethod
     def _get_sorted_threshold_actions(cls):
@@ -192,7 +192,7 @@ class Sickness(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, mana
     def on_sim_info_loaded(cls, sim_info):
         if not sim_info.has_sickness_tracking():
             return
-        sim_info.record_last_progress(sim_info.get_statistic(cls.diagnosis_stat).get_value())
+        sim_info.sickness_record_last_progress(sim_info.get_statistic(cls.diagnosis_stat).get_value())
         cls.apply_to_sim_info(sim_info, from_load=True)
 
     @classmethod

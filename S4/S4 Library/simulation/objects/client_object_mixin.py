@@ -497,7 +497,7 @@ class ClientObjectMixin:
     def on_reset_send_op(self, reset_reason):
         super().on_reset_send_op(reset_reason)
         if self.valid_for_distribution:
-            if reset_reason != ResetReason.BEING_DESTROYED:
+            if reset_reason != ResetReason.BEING_DESTROYED or self.vehicle_component is not None:
                 try:
                     reset_op = distributor.ops.ResetObject(self.id)
                     dist = Distributor.instance()

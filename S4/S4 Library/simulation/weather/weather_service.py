@@ -32,6 +32,7 @@ from weather.weather_forecast import WeatherForecast
 from weather.weather_ops import WeatherEventOp, WeatherUpdateOp, WeatherForecastOp
 from weather.weather_tests import WeatherTest
 from world import region
+from world.terrain_enums import TerrainTag
 import alarms
 import date_and_time
 import persistence_error_types
@@ -41,6 +42,7 @@ import services
 import sims4.log
 import sims4.random
 import tag
+import terrain
 logger = sims4.log.Logger('weather', default_owner='nabaker')
 
 class ExclusiveWeatherTypeLeaf(HasTunableSingletonFactory, AutoFactoryInit):
@@ -365,6 +367,7 @@ class WeatherService(Service):
                     del self._forecasts[0]
                     self._forecast_time = self._forecast_time + day_time_span
         if self._current_event is None:
+            self._update_trans_info()
             self._send_new_weather_event()
         else:
             self._send_existing_weather_event()
@@ -395,13 +398,16 @@ class WeatherService(Service):
     def _send_existing_weather_event(self):
         op = WeatherEventOp(self._last_op)
         Distributor.instance().add_op_with_no_owner(op)
+        self._update_trans_info()
+        self._update_keytimes()
+
+    def _update_trans_info(self):
         self._trans_info.clear()
         for weather_interop in self._last_op.season_weather_interlops:
             if not weather_interop.start_value != 0:
                 if weather_interop.end_value != 0:
                     self._trans_info[int(weather_interop.message_type)] = WeatherElementTuple(weather_interop.start_value, DateAndTime(weather_interop.start_time*date_and_time.REAL_MILLISECONDS_PER_SIM_SECOND), weather_interop.end_value, DateAndTime(weather_interop.end_time*date_and_time.REAL_MILLISECONDS_PER_SIM_SECOND))
             self._trans_info[int(weather_interop.message_type)] = WeatherElementTuple(weather_interop.start_value, DateAndTime(weather_interop.start_time*date_and_time.REAL_MILLISECONDS_PER_SIM_SECOND), weather_interop.end_value, DateAndTime(weather_interop.end_time*date_and_time.REAL_MILLISECONDS_PER_SIM_SECOND))
-        self._update_keytimes()
 
     def set_weather_option(self, precipitation_type, weather_option):
         old_value = self._weather_option[precipitation_type]
@@ -638,12 +644,36 @@ class WeatherService(Service):
                                     start_value = 0
                             else:
                                 old_value = self._trans_info.get(int(GroundCoverType.SNOW_ACCUMULATION), None)
-                                if (old_value is None or old_value.end_value <= 0) and not self._forecasts[0].is_snowy():
+                                if not old_value is None:
+                                    if -1 < old_value.end_value <= 0:
+                                        if not self._forecasts[0].is_snowy():
+                                            start_value = 0
+                                        else:
+                                            start_value = 1
+                                    else:
+                                        start_value = 1
+                                elif not self._forecasts[0].is_snowy():
                                     start_value = 0
                                 else:
                                     start_value = 1
+                                start_value = 1
                             start_value = max(start_value, self.FROST_GROUND_ACCUMULATION_MAX)
                             new_trans_info[int(GroundCoverType.SNOW_ACCUMULATION)] = WeatherElementTuple(start_value, time, start_value, time)
+                elif temp_interpolate.start_value == Temperature.COLD:
+                    season_service = services.season_service()
+                    if season_service is None:
+                        logger.error('Somehow creating secondary weather elements without season service in cold temps')
+                        season = None
+                    else:
+                        season = season_service.season
+                    if season == SeasonType.WINTER:
+                        old_time = self._next_weather_event_time
+                        if old_time == DATE_AND_TIME_ZERO or old_time not in season_service.season_content:
+                            return next_time
+                        old_value = self._trans_info.get(int(GroundCoverType.SNOW_ACCUMULATION), None)
+                        if old_value is not None:
+                            if old_value.end_value == -1 or old_value.end_value > 0:
+                                new_trans_info[int(GroundCoverType.SNOW_ACCUMULATION)] = WeatherElementTuple(1.0, time, 1.0, time)
         return next_time
 
     def _update_secondary_weather_elements(self, new_trans_info, next_time):
@@ -957,6 +987,9 @@ class WeatherService(Service):
             (position, orientation, routing_surface) = self._find_good_weather_object_location(obj)
             if position is not None:
                 level = routing_surface.secondary_id
+                if terrain.is_terrain_tag_at_position(position.x, position.z, (TerrainTag.SAND,), level=level):
+                    obj.destroy()
+                    return
                 if not is_location_natural_ground(services.current_zone_id(), position, level):
                     obj.destroy()
                     definition = random.choice(self.PUDDLES.unnatural_terrain_definitions)

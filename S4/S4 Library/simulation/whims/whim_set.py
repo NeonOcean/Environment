@@ -119,7 +119,7 @@ class AspirationWhimSet(WhimSetBaseMixin, AspirationBasic):
             return 0
         return whimset_priority_stat.get_user_value()
 
-lock_instance_tunables(AspirationWhimSet, complete_only_in_sequence=False, screen_slam=None)
+lock_instance_tunables(AspirationWhimSet, do_not_register_events_on_load=False, screen_slam=None)
 
 class ObjectivelessWhimSet(WhimSetBaseMixin, AspirationBasic):
     INSTANCE_TUNABLES = {'priority': TunableRange(description='\n            The priority of this whim set.\n            ', tunable_type=float, minimum=0, default=5)}
@@ -137,4 +137,4 @@ class ObjectivelessWhimSet(WhimSetBaseMixin, AspirationBasic):
     def deactivate_on_completion(cls):
         return False
 
-lock_instance_tunables(ObjectivelessWhimSet, complete_only_in_sequence=True, objectives=(), screen_slam=None)
+lock_instance_tunables(ObjectivelessWhimSet, do_not_register_events_on_load=True, objectives=(), screen_slam=None)

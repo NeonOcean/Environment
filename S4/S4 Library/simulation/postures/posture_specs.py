@@ -130,10 +130,13 @@ def valid_objects():
 
 def _valid_objects_helper():
     result = set()
+    posture_graph_service = services.posture_graph_service()
     for obj in object_manager().values():
         if not obj.is_valid_posture_graph_object:
             continue
         if not obj.is_sim and obj.is_hidden():
+            continue
+        if not posture_graph_service.has_built_for_zone_spin_up and not obj.provided_mobile_posture_affordances:
             continue
         if obj.parts:
             result.update(obj.parts)
@@ -625,6 +628,12 @@ class PostureSpec(tuple):
             return True
         return False
 
+    def is_on_vehicle(self):
+        target = self.body[BODY_TARGET_INDEX]
+        if target is not None:
+            return target.vehicle_component is not None
+        return False
+
     def validate_destination(self, destination_specs, var_map, interaction, sim):
         if not any(self._validate_carry(destination_spec) for destination_spec in destination_specs):
             return False
@@ -883,13 +892,10 @@ class PostureOperation:
                     return
                 if source_posture_type.mobile and dest_target_is_not_none and source_target is not None:
                     return
-            elif source_posture_type.mobile and self._posture_type.mobile:
-                if destination_target is not None or source_target is not None:
-                    return
             elif source_posture_type.mobile and surface_target is None:
                 if not self._posture_type.mobile and (dest_target_is_not_none and source_target is not None) and source_target != destination_target:
                     return
-            elif not source_posture_type.mobile and self._posture_type.mobile and destination_target is not None:
+            elif not source_posture_type.mobile and not not (self._posture_type.mobile and destination_target is not None and self._posture_type.is_vehicle):
                 return
             if dest_target_is_not_none and destination_target.is_part and not destination_target.supports_posture_type(self._posture_type):
                 return

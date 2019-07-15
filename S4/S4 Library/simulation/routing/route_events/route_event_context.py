@@ -1,8 +1,8 @@
 from _collections import defaultdict
-from random import shuffle, randint, random, uniform
+from random import shuffle, random, uniform
 import operator
 import weakref
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, SingleObjectResolver
 from routing.portals.portal_tuning import PortalType
 from routing.route_enums import RouteEventType
 from routing.route_events.route_event_mixins import RouteEventBase
@@ -211,19 +211,19 @@ class RouteEventContext:
             return True
         return False
 
-    def handle_route_event_executed(self, event_id, sim, path=None):
+    def handle_route_event_executed(self, event_id, actor, path=None):
         for (route_event, time) in self._scheduled_events:
             if route_event.id == event_id:
-                route_event.on_executed(sim)
+                route_event.on_executed(actor, path=path)
                 break
         else:
             return
         if path is not None and gsi_handlers.route_event_handlers.archiver.enabled:
-            gsi_handlers.route_event_handlers.gsi_route_event_executed(path, sim, route_event)
+            gsi_handlers.route_event_handlers.gsi_route_event_executed(path, actor, route_event)
         if route_event.event_data.should_remove_on_execute():
             self.remove_route_event(route_event, time)
 
-    def handle_route_event_skipped(self, event_id, sim, path=None):
+    def handle_route_event_skipped(self, event_id, actor, path=None):
         for (route_event, time) in self._scheduled_events:
             if route_event.id == event_id:
                 self.remove_route_event(route_event, time)
@@ -252,19 +252,22 @@ class RouteEventContext:
     def route_event_already_fully_considered(self, route_event_cls, provider):
         provider_ref = weakref.ref(provider)
         if provider_ref not in self._events_already_considered:
-            return
+            return False
         return route_event_cls in self._events_already_considered[provider_ref]
 
-    def prune_stale_events_and_get_failed_types(self, sim, path, current_time):
+    def prune_stale_events_and_get_failed_types(self, actor, path, current_time):
         self._route_events_to_schedule.clear()
         failed_events = []
         failed_event_types = set()
-        resolver = SingleSimResolver(sim.sim_info)
+        if actor.is_sim:
+            resolver = SingleSimResolver(actor.sim_info)
+        else:
+            resolver = SingleObjectResolver(actor)
         for (route_event, time) in self._scheduled_events:
             if type(route_event) in failed_event_types or not route_event.test(resolver, from_update=True):
                 failed_events.append((route_event, time))
                 failed_event_types.add(type(route_event))
-            elif not route_event.is_route_event_valid(route_event, time, sim, path):
+            elif not route_event.is_route_event_valid(route_event, time, actor, path):
                 failed_events.append((route_event, time))
         gsi_path_log = None
         if gsi_handlers.route_event_handlers.archiver.enabled:
@@ -276,15 +279,18 @@ class RouteEventContext:
             self.remove_route_event(route_event, time)
         return (failed_events, failed_event_types)
 
-    def _test_gathered_events_for_chance(self, sim):
-        resolver = SingleSimResolver(sim.sim_info)
+    def _test_gathered_events_for_chance(self, actor):
+        if actor.is_sim:
+            resolver = SingleSimResolver(actor.sim_info)
+        else:
+            resolver = SingleObjectResolver(actor)
         for (route_event_type, route_events) in self._route_events_to_schedule.items():
             for route_event in tuple(route_events):
                 self._events_already_considered[route_event.provider_ref].add(type(route_event))
-                if route_event_type != RouteEventType.BUFF_REPEAT and random() > route_event.chance.get_chance(resolver):
+                if route_event_type != RouteEventType.LOW_REPEAT and random() > route_event.chance.get_chance(resolver):
                     route_events.remove(route_event)
 
-    def schedule_route_events(self, sim, path, failed_event_types=None, start_time=0):
+    def schedule_route_events(self, actor, path, failed_event_types=None, start_time=0):
         total_duration = path.duration()
         if total_duration <= RouteEventContext.ROUTE_TRIM_DURATION:
             return
@@ -294,20 +300,24 @@ class RouteEventContext:
         end_time = total_duration - RouteEventContext.ROUTE_TRIM_END
         time_buckets = _RouteDuration(start_time, end_time)
         num_route_events += time_buckets.fill_with_route_events(self._scheduled_events)
-        self._test_gathered_events_for_chance(sim)
+        self._test_gathered_events_for_chance(actor)
 
         def _schedule_route_events(route_event_priority, schedule_preference=RouteEventSchedulePreference.BEGINNING):
             nonlocal num_route_events
             for route_event in self._route_events_to_schedule[route_event_priority]:
                 if failed_event_types is not None and type(route_event) in failed_event_types:
                     continue
-                route_event.prepare_route_event(sim)
+                route_event.prepare_route_event(actor)
                 time = time_buckets.fill_and_get_start_time_for_route_event(route_event, path=path, schedule_preference=schedule_preference)
                 if time is not None:
                     route_event.time = time
                     added_events.append((route_event, time))
                     num_route_events += 1
 
+        if actor.is_sim:
+            resolver = SingleSimResolver(actor.sim_info)
+        else:
+            resolver = SingleObjectResolver(actor)
         for route_event_type in reversed(RouteEventType):
             if route_event_type == RouteEventType.FIRST_OUTDOOR:
                 _schedule_route_events(route_event_type)
@@ -319,20 +329,20 @@ class RouteEventContext:
                 _schedule_route_events(route_event_type)
             elif route_event_type == RouteEventType.BROADCASTER:
                 _schedule_route_events(route_event_type)
-            elif route_event_type == RouteEventType.BUFF_SINGLE:
+            elif route_event_type == RouteEventType.LOW_SINGLE:
                 shuffle(self._route_events_to_schedule[route_event_type])
                 _schedule_route_events(route_event_type, schedule_preference=RouteEventSchedulePreference.RANDOM)
-            elif route_event_type == RouteEventType.BUFF_REPEAT:
+            elif route_event_type == RouteEventType.LOW_REPEAT:
                 if self._has_hit_cap:
                     if num_route_events > self.ROUTE_EVENT_CAPPED_COOLDOWN_THRESHOLD:
-                        for route_event in self._route_events_to_schedule[RouteEventType.BUFF_REPEAT]:
+                        for route_event in self._route_events_to_schedule[RouteEventType.LOW_REPEAT]:
                             self._events_already_considered[route_event.provider_ref].remove(type(route_event))
                         break
                 repeat_route_events = self._route_events_to_schedule[route_event_type]
                 repeat_scheduling_data = []
                 for route_event in repeat_route_events:
-                    route_event.prepare_route_event(sim)
-                    if not route_event.event_data.is_valid_for_scheduling(sim, path):
+                    route_event.prepare_route_event(actor)
+                    if not route_event.event_data.is_valid_for_scheduling(actor, path):
                         continue
                     if route_event.duration <= 0:
                         logger.error('route event {} with 0 duration is being used as repeating. This would cause an infinite loop.', type(route_event))
@@ -340,7 +350,6 @@ class RouteEventContext:
                         event_data = self._RouteEventSchedulingData()
                         event_data.copy_from(route_event)
                         repeat_scheduling_data.append((event_data, route_event.provider_ref, type(route_event), route_event.route_event_parameters))
-                resolver = SingleSimResolver(sim.sim_info)
                 shuffle(repeat_scheduling_data)
                 while len(repeat_scheduling_data) > 0:
                     if num_route_events > self.ROUTE_EVENT_SCHEDULED_CAP:
@@ -357,7 +366,7 @@ class RouteEventContext:
                                 if schedule_preference == RouteEventSchedulePreference.BEGINNING:
                                     scheduling_data.earliest_repeat_time = time + scheduling_data.duration
                                 route_event = route_event_cls(time=time, **kwargs)
-                                route_event.prepare_route_event(sim)
+                                route_event.prepare_route_event(actor)
                                 added_events.append((route_event, time))
                                 num_route_events += 1
                                 if scheduling_data.earliest_repeat_time + scheduling_data.duration < time_buckets.end_time:
@@ -391,7 +400,7 @@ class RouteEventContext:
             added_events.remove(portal_event)
         self.gsi_update_route_events(path, added_events, start_time)
         self._scheduled_events.extend(added_events)
-        logger.debug('{} scheduled {} of {} route events.', sim, len(self._scheduled_events), len(self._route_events_to_schedule.values()))
+        logger.debug('{} scheduled {} of {} route events.', actor, len(self._scheduled_events), len(self._route_events_to_schedule.values()))
 
     def gsi_update_route_events(self, path, added_events, start_time):
         gsi_path_log = None
@@ -409,9 +418,9 @@ class RouteEventContext:
                 gsi_event_data = {'status': 'Added', 'executed': False}
                 gsi_handlers.route_event_handlers.gsi_fill_route_event_data(route_event, gsi_path_log, gsi_event_data)
 
-    def process_route_events(self, sim):
+    def process_route_events(self, actor):
         for (route_event, time) in self._scheduled_events:
-            route_event.process(sim, time)
+            route_event.process(actor, time)
 
     def append_route_events_to_route_msg(self, route_msg):
         for (route_event, time) in self._scheduled_events:

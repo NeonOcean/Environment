@@ -1,4 +1,5 @@
 import _weakrefutils
+import time
 from sims4.callback_utils import CallableList
 from sims4.service_manager import Service
 import enum
@@ -9,6 +10,17 @@ import sims4.log
 __unittest__ = 'test.objects.manager_tests'
 logger = sims4.log.Logger('IndexedManager')
 production_logger = sims4.log.ProductionLogger('IndexedManager')
+with sims4.reload.protected(globals()):
+    object_load_times = {}
+    capture_load_times = False
+
+class ObjectLoadData:
+
+    def __init__(self):
+        self.time_spent_adding = 0.0
+        self.time_spent_loading = 0.0
+        self.adds = 0
+        self.loads = 0
 
 class CallbackTypes(enum.Int, export=False):
     ON_OBJECT_ADD = 0
@@ -89,6 +101,8 @@ class IndexedManager(Service):
             logger.warn('Attempt to remove callback that was not registered on {}: {}:{}', self, callback_type, callback, owner='maxr')
 
     def add(self, obj):
+        if capture_load_times:
+            time_stamp = time.time()
         new_id = obj.id or id_generator.generate_object_id()
         if new_id in self._objects:
             existing_obj = self.get(new_id)
@@ -98,6 +112,13 @@ class IndexedManager(Service):
         obj.manager = self
         obj.id = new_id
         self.call_on_add(obj)
+        if capture_load_times:
+            if hasattr(obj, 'definition'):
+                time_elapsed = time.time() - time_stamp
+                if obj.definition not in object_load_times:
+                    object_load_times[obj.definition] = ObjectLoadData()
+                object_load_times[obj.definition].time_spent_adding += time_elapsed
+                object_load_times[obj.definition].adds += 1
         return new_id
 
     def remove_id(self, obj_id):

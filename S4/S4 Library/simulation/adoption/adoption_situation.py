@@ -1,3 +1,4 @@
+from event_testing.test_events import TestEvent
 from objects.system import create_object
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableEnumWithFilter, TunableReference, Tunable
@@ -69,7 +70,10 @@ class _InteractWithPetsState(CommonInteractionCompletedSituationState):
 
     def on_remove_sim_from_situation(self, sim):
         if not any(self.owner.all_sims_in_job_gen(self.owner.pet_adoption_candidate_job_and_role.job)):
-            self._change_state(self.owner.pick_up_adoption_crate_state())
+            if self.owner.pet_crate is None:
+                self._change_state(self.owner.leave_state())
+            else:
+                self._change_state(self.owner.pick_up_adoption_crate_state())
 
 class _WaitForPetsToDespawnState(CommonSituationState):
 
@@ -88,7 +92,10 @@ class _WaitForPetsToDespawnState(CommonSituationState):
         if sim.sim_id in self._pets_to_despawn:
             self._pets_to_despawn.remove(sim.sim_id)
         if not self._pets_to_despawn:
-            self._change_state(self.owner.pick_up_adoption_crate_state())
+            if self.owner.pet_crate is None:
+                self._change_state(self.owner.leave_state())
+            else:
+                self._change_state(self.owner.pick_up_adoption_crate_state())
 
     def _get_role_state_overrides(self, sim, job_type, role_state_type, role_affordance_target):
         if job_type is not self.owner.pet_adoption_candidate_job_and_role.job:
@@ -105,6 +112,16 @@ class _PickUpAdoptionCrateState(CommonInteractionCompletedSituationState):
 
     def on_remove_sim_from_situation(self, sim):
         pass
+
+    def on_activate(self, reader=None):
+        super().on_activate(reader)
+        self._test_event_register(TestEvent.OnExitBuildBuy)
+        self.owner.remove_destruction_listener()
+
+    def handle_event(self, sim_info, event, resolver):
+        super().handle_event(sim_info, event, resolver)
+        if event == TestEvent.OnExitBuildBuy and self.owner.pet_crate is None:
+            self._change_state(self.owner.leave_state())
 
 class _LeaveState(CommonSituationState):
 
@@ -143,6 +160,28 @@ class SituationComplexAdoptionPet(SituationComplexAdoption):
             self._pet_crate_x = reader.read_float(PET_CRATE_X, None)
             self._pet_crate_y = reader.read_float(PET_CRATE_Y, None)
             self._pet_crate_z = reader.read_float(PET_CRATE_Z, None)
+        self._register_test_event(TestEvent.OnExitBuildBuy)
+        self._register_test_event(TestEvent.ObjectDestroyed)
+
+    def handle_event(self, sim_info, event, resolver):
+        if event == TestEvent.OnExitBuildBuy:
+            if self.pet_crate is None:
+                self._restore_crate()
+            self._pet_crate_x = None
+            self._pet_crate_y = None
+            self._pet_crate_z = None
+        if event == TestEvent.ObjectDestroyed:
+            if services.current_zone().is_in_build_buy:
+                destroyed_obj = resolver.get_resolved_arg('obj')
+                if destroyed_obj is not None:
+                    if destroyed_obj is self.pet_crate:
+                        position = destroyed_obj.position
+                        self._pet_crate_x = position.x
+                        self._pet_crate_y = position.y
+                        self._pet_crate_z = position.z
+
+    def remove_destruction_listener(self):
+        self._unregister_test_event(TestEvent.ObjectDestroyed)
 
     @classmethod
     def _states(cls):
@@ -203,20 +242,26 @@ class SituationComplexAdoptionPet(SituationComplexAdoption):
 
     def load_situation(self):
         result = super().load_situation()
-        if result and self._pet_crate_x is not None:
-            obj = create_object(self.pet_crate_object_definition)
-            if obj is None:
-                return False
-            else:
-                position = sims4.math.Vector3(float(self._pet_crate_x), float(self._pet_crate_y), float(self._pet_crate_z))
-                starting_location = placement.create_starting_location(position=position)
-                fgl_context = placement.create_fgl_context_for_object(starting_location, obj, ignored_object_ids=(obj.id,))
-                (position, orientation) = placement.find_good_location(fgl_context)
-                if position is not None and orientation is not None:
-                    obj.move_to(translation=position, orientation=orientation)
-                else:
-                    obj.destroy()
-                    return False
+        if result:
+            self._restore_crate()
+            self._pet_crate_x = None
+            self._pet_crate_y = None
+            self._pet_crate_z = None
         return result
+
+    def _restore_crate(self):
+        if self._pet_crate_x is None:
+            return
+        obj = create_object(self.pet_crate_object_definition)
+        if obj is None:
+            return
+        position = sims4.math.Vector3(float(self._pet_crate_x), float(self._pet_crate_y), float(self._pet_crate_z))
+        starting_location = placement.create_starting_location(position=position)
+        fgl_context = placement.create_fgl_context_for_object(starting_location, obj, ignored_object_ids=(obj.id,))
+        (position, orientation) = placement.find_good_location(fgl_context)
+        if position is not None and orientation is not None:
+            obj.move_to(translation=position, orientation=orientation)
+        else:
+            obj.destroy()
 
 lock_instance_tunables(SituationComplexAdoptionPet, exclusivity=BouncerExclusivityCategory.NORMAL, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE)

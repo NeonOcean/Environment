@@ -40,9 +40,10 @@ class _WaypointGeneratorEllipse(_WaypointGeneratorBase):
     def get_start_constraint(self):
         if self._start_constraint is None:
             self._start_constraint = self.get_ellipse_point_constraint(self.start_angle)
+            self._start_constraint = self._start_constraint.intersect(self.get_water_constraint())
         return self._start_constraint
 
-    def get_waypoint_constraints_gen(self, sim, waypoint_count):
+    def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
         if not self._waypoint_constraints:
             delta_theta = sims4.math.TWO_PI/waypoint_count
             theta = self.start_angle
@@ -50,4 +51,5 @@ class _WaypointGeneratorEllipse(_WaypointGeneratorBase):
                 waypoint_constraint = self.get_ellipse_point_constraint(theta)
                 self._waypoint_constraints.append(waypoint_constraint)
                 theta += delta_theta
+            self._waypoint_constraints = self.apply_water_constraint(self._waypoint_constraints)
         yield from self._waypoint_constraints

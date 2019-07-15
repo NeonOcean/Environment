@@ -5,7 +5,7 @@ import collections
 import itertools
 import math
 import random
-from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT_OUTER_PENALTY, STAND_CONSTRAINT_OUTER_PENALTY, STAND_OR_SIT_CONSTRAINT
+from animation.posture_manifest_constants import STAND_SIT_OR_SWIM_CONSTRAINT_OUTER_PENALTY, STAND_CONSTRAINT_OUTER_PENALTY, STAND_OR_SIT_CONSTRAINT
 from date_and_time import create_time_span
 from distributor.ops import SocialGroupTargetUpdate
 from distributor.system import Distributor
@@ -926,7 +926,7 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
     def execute_adjustment_interaction(self, sim_to_adjust, force_allow_posture_changes=False):
         allow_posture_changes = force_allow_posture_changes or self.can_change_posture_during_adjustment(sim_to_adjust)
         if allow_posture_changes or not sim_to_adjust.posture.mobile:
-            constraint_to_satisfy = STAND_OR_SIT_CONSTRAINT_OUTER_PENALTY
+            constraint_to_satisfy = STAND_SIT_OR_SWIM_CONSTRAINT_OUTER_PENALTY
         else:
             constraint_to_satisfy = STAND_CONSTRAINT_OUTER_PENALTY
         adjustment_prioriry = priority.Priority.High

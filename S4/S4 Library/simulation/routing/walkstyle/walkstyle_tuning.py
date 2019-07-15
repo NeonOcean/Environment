@@ -1,7 +1,13 @@
 from sims4.tuning.tunable import TunableResourceKey
 from sims4.tuning.tunable_hash import _Hash
-import sims4.resources
 import routing
+import sims4.resources
+
+class Walkstyle(_Hash):
+
+    @property
+    def animation_parameter(self):
+        return self.unhash
 
 class TunableWalkstyle(TunableResourceKey):
 
@@ -16,5 +22,6 @@ class TunableWalkstyle(TunableResourceKey):
         value = super().load_etree_node(*args, node=node, **kwargs)
         if value is not None:
             walkstyle_hash = routing.get_walkstyle_hash_from_resource(value)
-            value = walkstyle_hash
+            walkstyle_name = routing.get_walkstyle_name_from_resource(value)
+            value = Walkstyle(walkstyle_name, walkstyle_hash)
         return value

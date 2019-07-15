@@ -1044,8 +1044,8 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
             if threshold_value.state is None or not hasattr(threshold_value, 'value'):
                 logger.error('invalid state value in desired state threshold for {}: {}', source, tunable_name)
 
-    FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'subject_specific_tests': TunableVariant(all_objects=TunableTuple(locked_args={'subject_type': ALL_OBJECTS}, quantity=TunableThreshold(description='\n                        The number of objects that meet the tuned critera needed to pass this\n                        test. quantity is run after a list of matching objects is created\n                        using the tuned criteria.\n                        ', default=sims4.math.Threshold(1, sims4.math.Operator.GREATER_OR_EQUAL.function), value=Tunable(float, 1, description='The value of a threshold.')), total_value=OptionalTunable(TunableThreshold(description='\n                        If set, the total monetary value of all the objects that meet the tuned \n                        criteria needed in order to pass this test. total_value is run after \n                        a list of matching objects is created using the tuned criteria.\n                        '))), single_object=TunableTuple(locked_args={'subject_type': TARGET_OBJECTS}, target=TunableEnumEntry(description='\n                        If set this test will loop through the specified participants and\n                        run the object identity and criteria tests on them instead of all\n                        of the objects on the lot.\n                        ', tunable_type=ParticipantType, default=ParticipantType.Object)), default='all_objects'), 'identity_test': TunableVariant(description='\n            Which test to run on the object in order to determine \n            if it matches or not.\n            ', definition_id=ObjectTypeFactory.TunableFactory(), tags=ObjectTagFactory.TunableFactory(), trending=ObjectTrendingFactory.TunableFactory(), locked_args={'no_identity_test': None}, default='no_identity_test'), 'positional_relationship_test': TunableVariant(description='\n            The type of positional relationship test to run on the object with respect to \n            another object.\n            ', radius_test=_RadiusFactory.TunableFactory(), tagged_object_on_same_level_test=_TaggedObjectOnSameLevelFactory.TunableFactory(), locked_args={'no_positional_relationship_test': None}, default='no_positional_relationship_test'), 'owned': Tunable(description="\n            If checked will test if the object is owned by the active \n            household. If unchecked it doesn't matter who owns the object or\n            if it is owned at all.\n            ", tunable_type=bool, default=True), 'on_active_lot': Tunable(description="\n            If checked, test whether or not the object is on the active\n            lot. If unchecked the object can be either on the active lot or\n            in the open streets area, we don't really care.\n            ", tunable_type=bool, default=False), 'desired_state_threshold': OptionalTunable(TunableThreshold(description='\n            A state threshold that the object must satisfy for this test to pass', value=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'))), 'test_events': TunableList(description='\n            The list of events that trigger this instance of the tuned test on.\n            \n            If you pick ObjectStateChange, the test will be registered with\n            EventManager for every ObjectStateValue managed by ObjectState\n            controlling the desired_state_threshold. E.g. if the test cares\n            about BrokenState_Broken, we will register tolisten for events for\n            state changes of BrokenState_Broken, BrokenState_Unbroken,\n            BrokenState_Repairing, etc.\n            ', tunable=TunableEnumEntry(tunable_type=ObjectCriteriaTestEvents, default=ObjectCriteriaTestEvents.AllObjectEvents), set_default_as_first_entry=True), 'use_depreciated_values': Tunable(description='\n            If checked, the value consideration for each checked object will at its depreciated amount.\n            This affects the "All Objects" test type, changing the total value considered to be at the\n            non-depreciated amount.\n            ', tunable_type=bool, default=False), 'value': OptionalTunable(TunableThreshold(description='\n            A threshold test for the monetary value of a single object in order for it\n            to be considered.\n            ')), 'completed': Tunable(description='\n            If checked, any craftable object (such as a painting) must be finished\n            for it to be considered.\n            ', tunable_type=bool, default=False), 'use_current_values': Tunable(description='\n            If checked, use the current/appraised value of the object, instead\n            of the catalog value\n            ', tunable_type=bool, default=False)}
-    __slots__ = ('test_events', 'subject_specific_tests', 'identity_test', 'positional_relationship_test', 'owned', 'on_active_lot', 'desired_state_threshold', 'value', 'use_depreciated_values', 'completed', 'use_current_values')
+    FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'subject_specific_tests': TunableVariant(all_objects=TunableTuple(locked_args={'subject_type': ALL_OBJECTS}, quantity=TunableThreshold(description='\n                        The number of objects that meet the tuned critera needed to pass this\n                        test. quantity is run after a list of matching objects is created\n                        using the tuned criteria.\n                        ', default=sims4.math.Threshold(1, sims4.math.Operator.GREATER_OR_EQUAL.function), value=Tunable(float, 1, description='The value of a threshold.')), total_value=OptionalTunable(TunableThreshold(description='\n                        If set, the total monetary value of all the objects that meet the tuned \n                        criteria needed in order to pass this test. total_value is run after \n                        a list of matching objects is created using the tuned criteria.\n                        '))), single_object=TunableTuple(locked_args={'subject_type': TARGET_OBJECTS}, target=TunableEnumEntry(description='\n                        If set this test will loop through the specified participants and\n                        run the object identity and criteria tests on them instead of all\n                        of the objects on the lot.\n                        ', tunable_type=ParticipantType, default=ParticipantType.Object)), default='all_objects'), 'identity_test': TunableVariant(description='\n            Which test to run on the object in order to determine \n            if it matches or not.\n            ', definition_id=ObjectTypeFactory.TunableFactory(), tags=ObjectTagFactory.TunableFactory(), trending=ObjectTrendingFactory.TunableFactory(), locked_args={'no_identity_test': None}, default='no_identity_test'), 'positional_relationship_test': TunableVariant(description='\n            The type of positional relationship test to run on the object with respect to \n            another object.\n            ', radius_test=_RadiusFactory.TunableFactory(), tagged_object_on_same_level_test=_TaggedObjectOnSameLevelFactory.TunableFactory(), locked_args={'no_positional_relationship_test': None}, default='no_positional_relationship_test'), 'owned': Tunable(description="\n            If checked will test if the object is owned by the active \n            household. If unchecked it doesn't matter who owns the object or\n            if it is owned at all.\n            ", tunable_type=bool, default=True), 'sim_ownership': OptionalTunable(description='\n            If enabled, test whether or not the object is owned by the active \n            Sim.  If checked, test will pass if the Sim owns the object.\n            ', tunable=Tunable(tunable_type=bool, default=True)), 'on_active_lot': Tunable(description="\n            If checked, test whether or not the object is on the active\n            lot. If unchecked the object can be either on the active lot or\n            in the open streets area, we don't really care.\n            ", tunable_type=bool, default=False), 'desired_state_threshold': OptionalTunable(TunableThreshold(description='\n            A state threshold that the object must satisfy for this test to pass', value=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'))), 'test_events': TunableList(description='\n            The list of events that trigger this instance of the tuned test on.\n            \n            If you pick ObjectStateChange, the test will be registered with\n            EventManager for every ObjectStateValue managed by ObjectState\n            controlling the desired_state_threshold. E.g. if the test cares\n            about BrokenState_Broken, we will register tolisten for events for\n            state changes of BrokenState_Broken, BrokenState_Unbroken,\n            BrokenState_Repairing, etc.\n            ', tunable=TunableEnumEntry(tunable_type=ObjectCriteriaTestEvents, default=ObjectCriteriaTestEvents.AllObjectEvents), set_default_as_first_entry=True), 'use_depreciated_values': Tunable(description='\n            If checked, the value consideration for each checked object will at its depreciated amount.\n            This affects the "All Objects" test type, changing the total value considered to be at the\n            non-depreciated amount.\n            ', tunable_type=bool, default=False), 'value': OptionalTunable(description='\n            A threshold test for the monetary value of a single object in order for it\n            to be considered.\n            ', tunable=TunableTuple(threshold=TunableThreshold(), value_to_check=TunableVariant(locked_args={'catalog_value': lambda x: x.catalog_value, 'current_value': lambda x: x.current_value, 'depreciated_value': lambda x: x.depreciated_value}, default='catalog_value'))), 'completed': Tunable(description='\n            If checked, any craftable object (such as a painting) must be finished\n            for it to be considered.\n            ', tunable_type=bool, default=False)}
+    __slots__ = ('test_events', 'subject_specific_tests', 'identity_test', 'positional_relationship_test', 'owned', 'sim_ownership', 'on_active_lot', 'desired_state_threshold', 'use_depreciated_values', 'value', 'completed')
 
     def __init__(self, *args, **kwargs):
         super().__init__(**kwargs)
@@ -1077,8 +1077,10 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
             expected_args['target_objects'] = self.subject_specific_tests.target
         return expected_args
 
-    def object_meets_criteria(self, obj, active_household_id, current_zone, positional_relationship_participants=None):
+    def object_meets_criteria(self, obj, active_household_id, active_sim_id, current_zone, positional_relationship_participants=None):
         if self.owned and obj.get_household_owner_id() != active_household_id:
+            return False
+        if self.sim_ownership and obj.get_sim_owner_id() != active_sim_id:
             return False
         if self.on_active_lot and not obj.is_on_active_lot():
             return False
@@ -1094,44 +1096,29 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
                 return False
             if not self.desired_state_threshold.compare_value(obj.get_state(desired_state)):
                 return False
-            else:
-                if self.use_depreciated_values:
-                    obj_value = obj.depreciated_value
-                elif self.use_current_values:
-                    obj_value = obj.current_value
-                else:
-                    obj_value = obj.catalog_value
-                if self.value is not None and not self.value.compare(obj_value):
+            elif self.value is not None:
+                obj_value = self.value.value_to_check(obj)
+                if not self.value.threshold.compare(obj_value):
                     return False
-        else:
-            if self.use_depreciated_values:
-                obj_value = obj.depreciated_value
-            elif self.use_current_values:
-                obj_value = obj.current_value
-            else:
-                obj_value = obj.catalog_value
-            if self.value is not None and not self.value.compare(obj_value):
+        elif self.value is not None:
+            obj_value = self.value.value_to_check(obj)
+            if not self.value.threshold.compare(obj_value):
                 return False
         return True
 
-    def get_total_value_and_number_of_matches(self, active_household_id, current_zone, objects_to_test, positional_relationship_participants):
+    def get_total_value_and_number_of_matches(self, active_household_id, active_sim_id, current_zone, objects_to_test, positional_relationship_participants):
         number_of_matches = 0
         total_value = 0
         for obj in objects_to_test:
-            if self.object_meets_criteria(obj, active_household_id, current_zone, positional_relationship_participants):
+            if self.object_meets_criteria(obj, active_household_id, active_sim_id, current_zone, positional_relationship_participants):
                 number_of_matches += 1
-                if self.use_depreciated_values:
-                    obj_value = obj.depreciated_value
-                elif self.use_current_values:
-                    obj_value = obj.current_value
-                else:
-                    obj_value = obj.catalog_value
-                total_value += obj_value
+                total_value += obj.depreciated_value if self.use_depreciated_values else obj.catalog_value
         return (total_value, number_of_matches)
 
     @cached_test
     def __call__(self, target_objects=None, positional_relationship_participants=None):
         active_household_id = services.active_household_id()
+        active_sim_id = services.active_sim_info().id if services.active_sim_info() is not None else 0
         current_zone = services.current_zone()
         if target_objects is not None:
             if self.identity_test is None:
@@ -1159,7 +1146,7 @@ class ObjectCriteriaTest(AutoFactoryInit, HasTunableSingletonFactory, event_test
                 logger.error('{} is an invalid participant for the Positional Relationship Test.', self.positional_relationship_participant, owner='shipark')
         else:
             positional_relationship_objects = positional_relationship_participants
-        (total_value, number_of_matches) = self.get_total_value_and_number_of_matches(active_household_id, current_zone, objects_to_test, positional_relationship_objects)
+        (total_value, number_of_matches) = self.get_total_value_and_number_of_matches(active_household_id, active_sim_id, current_zone, objects_to_test, positional_relationship_objects)
         if self.subject_specific_tests.subject_type == self.ALL_OBJECTS:
             if not self.subject_specific_tests.quantity.compare(number_of_matches):
                 return TestResultNumeric(False, 'There are {} matches when {} matches are needed for the object criteria tuning', number_of_matches, self.subject_specific_tests.quantity.value, current_value=number_of_matches, goal_value=self.subject_specific_tests.quantity.value, is_money=False, tooltip=self.tooltip)

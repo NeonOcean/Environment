@@ -14,6 +14,7 @@ from date_and_time import DateAndTime, TimeSpan, MILLISECONDS_PER_SECOND
 from event_testing import test_events
 from interactions.constraints import create_constraint_set, Constraint
 from objects.object_enums import ResetReason
+from sims.rebate_manager import RebateCategoryEnum
 from sims.royalty_tracker import RoyaltyAlarmManager
 from sims4 import protocol_buffer_utils, reload
 from sims4.callback_utils import CallableList, CallableListPreventingRecursion
@@ -25,17 +26,17 @@ from world.region import Region
 from world.spawn_point import SpawnPointOption, SpawnPoint
 from world.spawn_point_enums import SpawnPointRequestReason
 from world.travel_group_manager import TravelGroupManager
-from world.world_spawn_point import WorldSpawnPoint, WorldSpawnPointParam
+from world.world_spawn_point import WorldSpawnPoint
 import adaptive_clock_speed
 import alarms
 import areaserver
-import build_buy
 import caches
 import camera
 import clock
 import distributor.system
 import game_services
 import gsi_handlers.routing_handlers
+import indexed_manager
 import interactions.constraints
 import interactions.utils
 import persistence_module
@@ -74,7 +75,7 @@ class Zone:
         self.street = None
         self.entitlement_unlock_handlers = {}
         self.sim_quadtree = None
-        self._world_spawn_point_params = None
+        self._world_spawn_point_locators = []
         self._world_spawn_points = {}
         self._dynamic_spawn_points = {}
         self._spawn_points_changed_callbacks = CallableList()
@@ -181,7 +182,6 @@ class Zone:
         services.time_service().on_zone_startup()
         from adoption.adoption_service import AdoptionService
         from animation.arb_accumulator import ArbAccumulatorService
-        from apartments.landlord_service import LandlordService
         from autonomy.autonomy_service import AutonomyService
         from broadcasters.broadcaster_service import BroadcasterService, BroadcasterRealTimeService
         from conditional_layers.conditional_layer_service import ConditionalLayerService
@@ -195,13 +195,13 @@ class Zone:
         from laundry.laundry_service import LaundryService
         from objects.doors.door_service import DoorService
         from objects.gardening.gardening_service import GardeningService
+        from objects.locators.locator_manager import LocatorManager
         from objects.object_manager import ObjectManager, PartyManager, InventoryManager, SocialGroupManager
         from objects.props.prop_manager import PropManager
         from plex.plex_service import PlexService
         from postures.posture_graph import PostureGraphService
         from services.cleanup_service import CleanupService
         from services.fire_service import FireService
-        from services.lot_spawner_service import LotSpawnerService
         from services.reset_and_delete_service import ResetAndDeleteService
         from sims.culling.culling_service import CullingService
         from sims.daycare import DaycareService
@@ -217,7 +217,7 @@ class Zone:
         from venues.venue_service import VenueService
         from zone_modifier.zone_modifier_service import ZoneModifierService
         from zone_spin_up_service import ZoneSpinUpService
-        service_list = [SimIrqService(), PlexService(), ResetAndDeleteService(), ObjectManager(manager_id=MGR_OBJECT), InventoryManager(manager_id=MGR_OBJECT), ConditionalLayerService(), DoorService(), PropManager(manager_id=MGR_OBJECT), TravelGroupManager(manager_id=MGR_TRAVEL_GROUP), PostureGraphService(), ArbAccumulatorService(None, None), AutonomyService(), SimSpawnerService(), EnsembleService(), SituationManager(manager_id=MGR_SITUATION), DemographicsService(), SimFilterService(), NPCHostedSituationService(), LandlordService(), PartyManager(manager_id=MGR_PARTY), SocialGroupManager(manager_id=MGR_SOCIAL_GROUP), UiDialogService(), CalendarService(), DramaScheduleService(), ObjectClusterService(), SocialGroupClusterService(), NeighborhoodPopulationService(), ServiceNpcService(), LotSpawnerService(), VenueService(), AmbientService(), StoryProgressionService(), ZoneSpinUpService(), PrivacyService(), FireService(), ZoneModifierService(), BroadcasterService(), BroadcasterRealTimeService(), CleanupService(), CareerService(), DaycareService(), LaundryService(), PhotographyService(), AdoptionService(), CullingService(), GardeningService(), MasterController()]
+        service_list = [SimIrqService(), PlexService(), LocatorManager(), ResetAndDeleteService(), ObjectManager(manager_id=MGR_OBJECT), InventoryManager(manager_id=MGR_OBJECT), ConditionalLayerService(), DoorService(), PropManager(manager_id=MGR_OBJECT), TravelGroupManager(manager_id=MGR_TRAVEL_GROUP), PostureGraphService(), ArbAccumulatorService(None, None), AutonomyService(), SimSpawnerService(), EnsembleService(), SituationManager(manager_id=MGR_SITUATION), DemographicsService(), SimFilterService(), NPCHostedSituationService(), PartyManager(manager_id=MGR_PARTY), SocialGroupManager(manager_id=MGR_SOCIAL_GROUP), UiDialogService(), CalendarService(), DramaScheduleService(), ObjectClusterService(), SocialGroupClusterService(), NeighborhoodPopulationService(), ServiceNpcService(), VenueService(), AmbientService(), StoryProgressionService(), ZoneSpinUpService(), PrivacyService(), FireService(), ZoneModifierService(), BroadcasterService(), BroadcasterRealTimeService(), CleanupService(), CareerService(), DaycareService(), LaundryService(), PhotographyService(), AdoptionService(), CullingService(), GardeningService(), MasterController()]
         from sims4.service_manager import ServiceManager
         self.service_manager = ServiceManager()
         for service in service_list:
@@ -389,6 +389,7 @@ class Zone:
         self.object_manager.clear_caches_on_teardown()
         posture_graph_service = services.current_zone().posture_graph_service
         posture_graph_service.on_teardown()
+        self.object_cluster_service.on_teardown()
         logger.debug('Zone teardown: destroy objects and sims')
         all_objects = []
         all_objects.extend(self.prop_manager.values())
@@ -400,6 +401,7 @@ class Zone:
             services.sim_info_manager().destroy_all_objects()
             logger.debug('Zone teardown: destroy households')
             services.household_manager().destroy_all_objects()
+        indexed_manager.object_load_times.clear()
         logger.debug('Zone teardown: lot teardown')
         self.lot.on_teardown()
         logger.debug('Zone teardown:  services.on_client_disconnect')
@@ -561,11 +563,8 @@ class Zone:
         elif spawn_point_id in self._dynamic_spawn_points:
             return self._dynamic_spawn_points[spawn_point_id]
 
-    def set_up_world_spawn_points(self, spawner_data_array, zone_id):
-        self._world_spawn_point_params = []
-        for spawner_data in spawner_data_array:
-            descriptor = WorldSpawnPointParam(spawner_data[0], spawner_data[1], spawner_data[2], spawner_data[3], spawner_data[4], spawner_data[5] if len(spawner_data) > 5 else 0)
-            self._world_spawn_point_params.append(descriptor)
+    def set_up_world_spawn_points(self, locator_array):
+        self._world_spawn_point_locators = locator_array
 
     def add_dynamic_spawn_point(self, spawn_point):
         self._dynamic_spawn_points[spawn_point.spawn_point_id] = spawn_point
@@ -771,7 +770,7 @@ class Zone:
             active_household_id = services.active_household_id()
             for obj in self.objects_to_fixup_post_bb:
                 if rebate_manager is not None:
-                    rebate_manager.add_rebate_for_object(obj)
+                    rebate_manager.add_rebate_for_object(obj.id, RebateCategoryEnum.BUILD_BUY)
                 obj.try_post_bb_fixup(active_household_id=active_household_id)
             self.objects_to_fixup_post_bb = None
 
@@ -848,15 +847,15 @@ class Zone:
         open_street_data = services.get_persistence_service().get_open_street_proto_buff(self.open_street_id)
         if open_street_data is not None:
             self._time_of_last_open_street_save = DateAndTime(open_street_data.sim_time_on_save)
-        if zone_data_proto.spawn_point_ids and len(zone_data_proto.spawn_point_ids) != len(self._world_spawn_point_params):
-            logger.error('Number of world spawn points {} does not match persisted count of {}. This is possible if world builder has added or removed spawn points since the last time this zone was visited. Resetting spawn point ids to recover from this error case. This might temporarily cause Sims to leave to random spawn points.', len(self._world_spawn_point_params), len(zone_data_proto.spawn_point_ids), owner='tingyul')
+        if zone_data_proto.spawn_point_ids and len(zone_data_proto.spawn_point_ids) != len(self._world_spawn_point_locators):
+            logger.error('Number of world spawn points {} does not match persisted count of {}. This is possible if world builder has added or removed spawn points since the last time this zone was visited. Resetting spawn point ids to recover from this error case. This might temporarily cause Sims to leave to random spawn points.', len(self._world_spawn_point_locators), len(zone_data_proto.spawn_point_ids), owner='tingyul')
             zone_data_proto.ClearField('spawn_point_ids')
-        for (index, descriptor) in enumerate(self._world_spawn_point_params):
+        for (index, locator) in enumerate(self._world_spawn_point_locators):
             spawn_point_id = zone_data_proto.spawn_point_ids[index] if zone_data_proto.spawn_point_ids else None
-            spawn_point = WorldSpawnPoint(index, descriptor, self.id, spawn_point_id=spawn_point_id)
+            spawn_point = WorldSpawnPoint(index, locator, self.id, spawn_point_id=spawn_point_id)
             self._world_spawn_points[spawn_point.spawn_point_id] = spawn_point
             spawn_point.on_add()
-        self._world_spawn_point_params = None
+        self._world_spawn_point_locators = None
         self.lot.load(gameplay_zone_data)
         for spawn_point in self._world_spawn_points.values():
             if spawn_point.has_tag(SpawnPoint.ARRIVAL_SPAWN_POINT_TAG):

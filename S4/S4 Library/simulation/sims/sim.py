@@ -1,6 +1,19 @@
 import functools
 import itertools
 import random
+from sims4.callback_utils import CallableList, consume_exceptions, RemovableCallableList
+from sims4.geometry import test_point_in_polygon
+from sims4.localization import TunableLocalizedString
+from sims4.math import Transform
+from sims4.tuning.instances import lock_instance_tunables
+from sims4.tuning.tunable import Tunable, TunableList, TunableReference, TunableMapping, TunableThreshold, OptionalTunable
+from sims4.tuning.tunable_base import GroupNames
+from sims4.utils import classproperty, flexmethod, constproperty
+from singletons import DEFAULT
+from uid import UniqueIdGenerator
+import caches
+import enum
+import sims4.log
 from animation.animation_interaction import AnimationInteraction
 from animation.animation_overlay import AnimationOverlayComponent
 from animation.animation_utils import AnimationOverrides
@@ -24,7 +37,7 @@ from event_testing import test_events
 from event_testing.resolver import SingleSimResolver
 from interactions import priority, constraints
 from interactions.aop import AffordanceObjectPair
-from interactions.base.interaction import FITNESS_LIABILITY, FitnessLiability, Interaction
+from interactions.base.interaction import Interaction
 from interactions.base.super_interaction import RallySource
 from interactions.context import InteractionContext, QueueInsertStrategy, InteractionSource
 from interactions.interaction_finisher import FinishingType
@@ -32,6 +45,7 @@ from interactions.interaction_queue import InteractionQueue
 from interactions.priority import Priority
 from interactions.si_state import SIState
 from interactions.utils.death import DeathTracker
+from interactions.utils.interaction_liabilities import FITNESS_LIABILITY, FitnessLiability
 from interactions.utils.routing import FollowPath
 from objects import HiddenReasonFlag, VisibilityState, ALL_HIDDEN_REASONS
 from objects.base_interactions import JoinInteraction, AskToJoinInteraction
@@ -39,13 +53,13 @@ from objects.components.carryable_component import CarryTargetInteraction
 from objects.components.consumable_component import ConsumableComponent
 from objects.game_object import GameObject
 from objects.mixins import LockoutMixin
-from objects.object_enums import ItemLocation
-from objects.object_enums import ResetReason
+from objects.object_enums import ItemLocation, PersistenceType, ResetReason
 from objects.part import Part
 from postures import ALL_POSTURES, posture_graph
 from postures.posture_specs import PostureSpecVariable, get_origin_spec
 from postures.posture_state import PostureState
 from postures.transition_sequence import DerailReason
+from routing import SurfaceType, SurfaceIdentifier
 from routing.portals.portal_tuning import PortalFlags
 from services.reset_and_delete_service import ResetRecord
 from sims.master_controller import WorkRequest
@@ -53,23 +67,14 @@ from sims.outfits.outfit_enums import OutfitCategory, OutfitChangeReason
 from sims.outfits.outfit_tuning import OutfitTuning
 from sims.sim_info_mixin import HasSimInfoMixin
 from sims.sim_info_types import SpeciesExtended
-from sims4.callback_utils import CallableList, consume_exceptions, RemovableCallableList
-from sims4.geometry import test_point_in_polygon
-from sims4.localization import TunableLocalizedString
-from sims4.math import Transform
-from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import Tunable, TunableList, TunableReference, TunableMapping, TunableThreshold, OptionalTunable
-from sims4.tuning.tunable_base import GroupNames
-from sims4.utils import classproperty, flexmethod, constproperty
-from singletons import DEFAULT
 from socials.social_tests import SocialContextTest
+from terrain import get_water_depth, get_water_depth_at_location
 from traits.trait_quirks import TraitQuirkSet
-from uid import UniqueIdGenerator
 from world import region
+from world.ocean_tuning import OceanTuning
 import autonomy.autonomy_request
 import buffs.buff
 import build_buy
-import caches
 import cas.cas
 import clock
 import date_and_time
@@ -77,7 +82,6 @@ import distributor.fields
 import distributor.ops
 import element_utils
 import elements
-import enum
 import gsi_handlers.sim_timeline_handlers
 import interactions.constraints
 import objects.components.topic_component
@@ -86,7 +90,6 @@ import routing
 import services
 import sims.multi_motive_buff_tracker
 import sims.ui_manager
-import sims4.log
 import statistics.commodity
 try:
     import _zone
@@ -123,7 +126,7 @@ class LOSAndSocialConstraintTuning:
     minimum_adjustment_cone_radius = Tunable(description='\n        The minimum radius in meters, that the Sim needs to be in front of the\n        target Sim when running social adjustment before a social super\n        interaction.\n        ', tunable_type=float, default=0.7)
     adjustment_cone_angle = Tunable(description='\n        The angle in radians of the social adjustment cone in front of the\n        target sim during a social super interaction.\n        ', tunable_type=float, default=1.5707)
 
-class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
+class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
     INSTANCE_TUNABLES = {'_interaction_queue': InteractionQueue.TunableFactory(tuning_group=GroupNames.COMPONENTS), 'trait_quirks': TraitQuirkSet.TunableFactory(tuning_group=GroupNames.COMPONENTS), 'initial_buff': TunableBuffReference(description='\n            A buff that will be permanently added to the Sim on creation. Used\n            to affect the neutral state of a Sim.\n            '), '_phone_affordances': TunableList(description="\n            A list of affordances generated when the player wants to use the\n            Sim's cell phone.\n            ", tunable=TunableReference(description='\n                An affordance that can be run as a solo interaction.\n                ', manager=services.affordance_manager(), pack_safe=True)), '_relation_panel_affordances': TunableList(description='\n            A list of affordances that are shown when the player clicks on a Sim\n            in the relationship panel. These affordances must be able to run as\n            solo interactions, meaning they cannot have a target object or Sim.\n            \n            When the selected interaction runs, the Subject type \n            "PickedItemId" will be set to the clicked Sim\'s id. For example,\n            a relationship change loot op with Subject as Actor and Target\n            Subject as PickedItemId will change the relationship between the\n            Active Sim and the Sim selected in the Relationship Panel.\n            ', tunable=TunableReference(description='\n                An affordance shown when the player clicks on a relation in the\n                relationship panel.\n                ', manager=services.affordance_manager(), pack_safe=True)), 'animation_overlay_component': AnimationOverlayComponent.TunableFactory(description='\n            Tune animation overlays that are constantly played on this Sim.\n            ', tuning_group=GroupNames.COMPONENTS), '_carrying_component': CarryingComponent.TunableFactory(description='\n            Define how this Sim picks up, holds, and puts down carryable\n            objects.\n            ', tuning_group=GroupNames.COMPONENTS), '_awareness_component': OptionalTunable(description='\n            If enabled, this Sim will react to stimuli using the client-driven\n            awareness system.\n            ', tunable=AwarenessComponent.TunableFactory(), tuning_group=GroupNames.COMPONENTS), '_ensemble_component': OptionalTunable(description='\n            If enabled, the Sim will have specific ensemble-related\n            functionality. This is not a requirement for Sims to be in\n            ensembles.\n            ', tunable=EnsembleComponent.TunableFactory(), tuning_group=GroupNames.COMPONENTS), '_school': OptionalTunable(description='\n            If enabled, this Sim is required to be enrolled in school at\n            specific ages.\n            ', tunable=SchoolTuning.TunableFactory(), tuning_group=GroupNames.COMPONENTS)}
     _reaction_triggers = {}
     FOREIGN_ZONE_BUFF = buffs.buff.Buff.TunableReference(description='\n        This buff is applied to any sim that is not in their home zone.  It is\n        used by autonomy for NPCs to score the GoHome interaction.\n        ')
@@ -133,8 +136,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
     def __init__(self, *args, **kwargs):
         self._sim_info = None
         self._simulation_state = SimulationState.INITIALIZING
-        GameObject.__init__(self, *args, **kwargs)
-        LockoutMixin.__init__(self)
+        super().__init__(*args, **kwargs)
         self.add_component(objects.components.topic_component.TopicComponent(self))
         self.add_component(objects.components.sim_inventory_component.SimInventoryComponent(self))
         self.add_component(self.animation_overlay_component(self))
@@ -221,8 +223,13 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
     @property
     def _anim_overrides_internal(self):
-        walkstyle = self.get_default_walkstyle()
-        params = {'sex': self.gender.animation_gender_param, 'age': self.age.animation_age_param, 'mood': self.get_mood_animation_param_name(), 'species': SpeciesExtended.get_animation_species_param(self.extended_species), 'walkstyle': walkstyle, 'walkstyle_override': walkstyle}
+        routing_component = self.routing_component
+        path = routing_component.current_path
+        if path:
+            walkstyle = routing_component.get_walkstyle_for_path(path)
+        else:
+            walkstyle = self.get_default_walkstyle()
+        params = {'sex': self.gender.animation_gender_param, 'age': self.age.animation_age_param, 'mood': self.get_mood_animation_param_name(), 'species': SpeciesExtended.get_animation_species_param(self.extended_species), 'walkstyle': walkstyle.animation_parameter, 'walkstyle_override': walkstyle}
         subroot = self._get_current_subroot()
         if subroot is not None:
             params['subroot'] = subroot
@@ -270,11 +277,16 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         return 0
 
     @property
-    def in_pool(self):
-        if self.parent is not None:
-            return False
-        current_zone_id = services.current_zone_id()
-        return build_buy.is_location_pool(current_zone_id, self.location.transform.translation, self.location.routing_surface.secondary_id)
+    def parented_vehicle(self):
+        parent = self.parent
+        if parent is None or parent.vehicle_component is None:
+            return
+        return parent
+
+    @property
+    def parent_may_move(self):
+        parent = self.parent
+        return parent is not None and parent.may_move
 
     @property
     def level(self):
@@ -301,13 +313,15 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         if self.queue is not None:
             return self.queue.transition_controller
 
+    def get_transition_global_asm_params(self):
+        if self.transition_controller is not None and self.transition_controller.interaction is not None and self.transition_controller.interaction.transition_global_asm_params is not None:
+            return self.transition_controller.interaction.transition_global_asm_params
+        return dict()
+
     def get_transition_asm_params(self):
-        if self.transition_controller is not None and self.transition_controller.interaction is not None:
-            if self.transition_controller.interaction.transition_asm_params is None:
-                return dict()
+        if self.transition_controller is not None and self.transition_controller.interaction is not None and self.transition_controller.interaction.transition_asm_params is not None:
             return self.transition_controller.interaction.transition_asm_params
-        else:
-            return dict()
+        return dict()
 
     @property
     def si_state(self):
@@ -396,8 +410,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         else:
             new_intended_position_on_active_lot = False
         on_active_lot = new_intended_position_on_active_lot
-        if self.parent is not None:
-            on_active_lot = True
+        parent = self.parent
+        if parent is not None:
+            if parent.is_sim:
+                on_active_lot = True
         msg = SetRelativeLotLocation(self.id, on_active_lot, self.sim_info.lives_here, self.sim_info.is_in_travel_group())
         distributor = Distributor.instance()
         distributor.add_op(self, msg)
@@ -669,6 +685,13 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         if self.is_hidden(allow_hidden_flags=ALL_HIDDEN_REASONS & ~HiddenReasonFlag.RABBIT_HOLE):
             return True
         routing_location = routing.Location(location.transform.translation, location.transform.orientation, location.routing_surface)
+        water_depth = get_water_depth_at_location(routing_location)
+        wading_interval = OceanTuning.get_actor_wading_interval(self)
+        if routing_location.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
+            if not build_buy.is_location_pool(services.current_zone_id(), location.transform.translation, location.level) and (wading_interval is None or water_depth <= wading_interval.upper_bound):
+                return False
+        elif wading_interval is None and water_depth > 0 or wading_interval is not None and water_depth >= wading_interval.upper_bound:
+            return False
         allowed_targets = set()
         for interaction in itertools.chain((self.queue.running,), self.si_state):
             if not interaction is None:
@@ -695,7 +718,10 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             self.clear_parent(parent.transform, parent.routing_surface)
         zone = services.current_zone()
         if not zone.is_in_build_buy and not from_reset:
-            return
+            ocean_data = OceanTuning.get_actor_ocean_data(self)
+            can_swim = ocean_data is not None and ocean_data.beach_portal_data is not None
+            if can_swim or not self.should_be_swimming_at_position(self.position, self.location.level, check_can_swim=False):
+                return
         if from_reset and zone.is_in_build_buy:
             services.get_event_manager().process_event(test_events.TestEvent.OnBuildBuyReset, sim_info=self.sim_info)
         if self.routing_component.current_path is not None:
@@ -719,9 +745,19 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             parent_object = self.parent_object()
         search_flags = placement.FGLSearchFlagsDefault | placement.FGLSearchFlag.USE_SIM_FOOTPRINT | placement.FGLSearchFlag.STAY_IN_CURRENT_BLOCK
         starting_location = placement.create_starting_location(location=location)
+        wading_interval = OceanTuning.get_actor_wading_interval(self)
+        if wading_interval is None:
+            min_wading_depth = None
+            max_wading_depth = 0
+        elif starting_location.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
+            min_wading_depth = wading_interval.upper_bound
+            max_wading_depth = None
+        else:
+            min_wading_depth = None
+            max_wading_depth = wading_interval.upper_bound
 
         def get_reset_location():
-            fgl_context = placement.FindGoodLocationContext(starting_location, ignored_object_ids=ignored_object_ids, additional_avoid_sim_radius=routing.get_sim_extra_clearance_distance(), search_flags=search_flags, routing_context=self.routing_context)
+            fgl_context = placement.FindGoodLocationContext(starting_location, ignored_object_ids=ignored_object_ids, additional_avoid_sim_radius=routing.get_sim_extra_clearance_distance(), search_flags=search_flags, routing_context=self.routing_context, min_water_depth=min_wading_depth, max_water_depth=max_wading_depth)
             return placement.find_good_location(fgl_context)
 
         (trans, orient) = get_reset_location()
@@ -800,7 +836,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             return (self.location, True)
         location = self.location
         level = self._get_best_valid_level()
-        if self.location.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL and not self.in_pool:
+        if self.location.routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL and not self._should_be_swimming():
             surface_type = routing.SurfaceType.SURFACETYPE_WORLD
         else:
             surface_type = None
@@ -1312,11 +1348,12 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
     def create_default_si(self, target_override=None):
         context = InteractionContext(self, InteractionContext.SOURCE_SCRIPT, priority.Priority.Low)
         zone_id = services.current_zone_id()
-        if build_buy.is_location_pool(zone_id, self.position, self.location.level):
+        if build_buy.is_location_pool(zone_id, self.position, self.location.level) or self.routing_surface.type == SurfaceType.SURFACETYPE_POOL:
             aop = posture_graph.PostureGraphService.get_swim_aop(self.species)
         elif self.posture.mobile and self.posture.posture_type is not posture_graph.SIM_DEFAULT_POSTURE_TYPE:
             posture_type = self.posture.posture_type
-            for affordance in posture_graph.PostureGraphService.POSTURE_PROVIDING_AFFORDANCES:
+            posture_graph_service = services.posture_graph_service()
+            for affordance in posture_graph_service.mobile_posture_providing_affordances:
                 if affordance.provided_posture_type is posture_type:
                     aop = AffordanceObjectPair(affordance, target_override, affordance, None, force_inertial=True)
                     break
@@ -1365,13 +1402,33 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
     def _portal_added_callback(self, portal):
         portal.lock_sim(self)
 
+    def _should_be_swimming(self):
+        return self.should_be_swimming_at_position(self.position, self.location.level)
+
+    def should_be_swimming_at_position(self, position, level=0, check_can_swim=True):
+        if build_buy.is_location_pool(self.routing_surface.primary_id, position, level):
+            return True
+        ocean_data = OceanTuning.get_actor_ocean_data(self)
+        if check_can_swim and (ocean_data is None or ocean_data.beach_portal_data is None):
+            return False
+        depth = get_water_depth(position.x, position.z, level)
+        if ocean_data is None or ocean_data.wading_interval is None:
+            return 0 < depth
+        return ocean_data.wading_interval.upper_bound <= depth
+
     def _update_face_and_posture_gen(self, timeline):
-        zone_id = services.current_zone_id()
         target_override = None
         posture_type = None
         try:
-            if build_buy.is_location_pool(zone_id, self.position, self.location.level):
+            if self._should_be_swimming():
                 posture_type = posture_graph.SIM_SWIM_POSTURE_TYPE
+                location = self.location
+                routing_surface = self.routing_surface
+                routing_surface = SurfaceIdentifier(routing_surface.primary_id, routing_surface.secondary_id, SurfaceType.SURFACETYPE_POOL)
+                snapped_y = services.terrain_service.terrain_object().get_routing_surface_height_at(location.transform.translation.x, location.transform.translation.z, routing_surface)
+                if not (routing_surface.type != location.routing_surface.type or not sims4.math.almost_equal(location.transform.translation.y, snapped_y)):
+                    translation = sims4.math.Vector3(location.transform.translation.x, snapped_y, location.transform.translation.z)
+                    self.location = self.location.clone(translation=translation, routing_surface=routing_surface)
             else:
                 posture_graph_service = services.current_zone().posture_graph_service
                 compatible_postures_and_targets = posture_graph_service.get_compatible_mobile_postures_and_targets(self)
@@ -1474,7 +1531,7 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
                     self._multi_motive_buff_trackers.append(sims.multi_motive_buff_tracker.MultiMotiveBuffTracker(self, multi_motive_buff_motives, buff))
                 self.sim_info.Buffs.on_sim_ready_to_simulate()
                 self.sim_info.career_tracker.on_sim_startup()
-                self.sim_info.occult_tracker.on_sim_ready_to_simulate()
+                self.sim_info.occult_tracker.on_sim_ready_to_simulate(self)
                 self.sim_info.trait_tracker.on_sim_ready_to_simulate()
                 if self.sim_info.whim_tracker is not None:
                     self.sim_info.whim_tracker.load_whims_info_from_proto()
@@ -1505,6 +1562,9 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
             self.on_start_up(self)
             self._start_environment_score()
             self.update_intended_position_on_active_lot(update_ui=True)
+            suntan_tracker = self.sim_info.suntan_tracker
+            if suntan_tracker is not None:
+                suntan_tracker.on_start_up(self)
             if gsi_handlers.sim_info_lifetime_handlers.archiver.enabled:
                 gsi_handlers.sim_info_lifetime_handlers.archive_sim_info_event(self.sim_info, 'instantiated')
         finally:
@@ -1570,15 +1630,16 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
     @property
     def intended_location(self):
-        if self.parent is not None and self.parent.is_sim:
-            return self.parent.intended_location
+        sim_parent = self.parent
+        if sim_parent is not None and sim_parent.is_sim:
+            return sim_parent.intended_location
         if self.transition_controller is not None:
             return self.transition_controller.intended_location(self)
         return self.location
 
     @property
     def intended_transform(self):
-        return self.intended_location.transform
+        return self.intended_location.world_transform
 
     @property
     def intended_routing_surface(self):
@@ -1673,17 +1734,19 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
     @posture_state.setter
     def posture_state(self, value):
-        if self._posture_state is not None and value is not None:
-            if self._posture_state.carry_targets != value.carry_targets:
-                for interaction in self.queue:
-                    if interaction.transition is not None:
-                        if not interaction.transition.running:
-                            if not interaction.carry_track is not None:
-                                if interaction.should_carry_create_target():
-                                    interaction.transition.reset_sim_progress(self)
-                            interaction.transition.reset_sim_progress(self)
-            if self._posture_state.body != value.body and self.animation_interaction is not None:
-                self.animation_interaction.clear_animation_liability_cache()
+        if self._posture_state is not None:
+            if value is not None:
+                if self._posture_state.carry_targets != value.carry_targets:
+                    for interaction in self.queue:
+                        if interaction.transition is not None:
+                            if not interaction.transition.running:
+                                if not interaction.carry_track is not None:
+                                    if interaction.should_carry_create_target():
+                                        interaction.transition.reset_sim_progress(self)
+                                interaction.transition.reset_sim_progress(self)
+                if self._posture_state.body != value.body and self.animation_interaction is not None:
+                    self.animation_interaction.clear_animation_liability_cache()
+                value.body.fallback_occult_on_posture_reset = self._posture_state.body.get_occult_for_posture_reset()
         self._posture_state = value
         key_mask = PortalFlags.REQUIRE_NO_CARRY
         carry_target_found = False
@@ -1800,6 +1863,8 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
 
     def set_trait_asm_parameters(self, asm, actor_name):
         asm_param_dict = self.sim_info.trait_tracker.get_default_trait_asm_params(actor_name)
+        for (param_name, param_value) in self._default_anim_params.items():
+            asm_param_dict[(param_name, actor_name)] = param_value
         for trait in self.sim_info.get_traits():
             if trait.trait_asm_overrides.trait_asm_param is None:
                 continue
@@ -1825,9 +1890,13 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         return self._locked_param_cache
 
     def evaluate_si_state_and_cancel_incompatible(self, finishing_type, cancel_reason_msg):
-        sim_transform_constraint = interactions.constraints.Transform(self.transform, routing_surface=self.routing_surface)
         sim_posture_constraint = self.posture_state.posture_constraint_strict
-        sim_constraint = sim_transform_constraint.intersect(sim_posture_constraint)
+        parent = self.parent
+        if parent is None or parent.routing_component is None:
+            sim_transform_constraint = interactions.constraints.Transform(self.transform, routing_surface=self.routing_surface)
+            sim_constraint = sim_transform_constraint.intersect(sim_posture_constraint)
+        else:
+            sim_constraint = sim_posture_constraint
         (_, included_sis) = self.si_state.get_combined_constraint(sim_constraint, None, None, None, True, True)
         for si in self.si_state:
             if si not in included_sis:
@@ -2141,17 +2210,27 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
         dist = Distributor.instance()
         dist.add_op(triggering_sim, op)
 
+    def _is_on_spawn_point(self, use_intended_position=False):
+        current_zone = services.current_zone()
+        if not current_zone:
+            return False
+        arrival_spawn_point = current_zone.active_lot_arrival_spawn_point
+        if arrival_spawn_point is None:
+            return False
+        position = self.intended_position if use_intended_position else self.position
+        return test_point_in_polygon(position, arrival_spawn_point.get_footprint_polygon())
+
     @caches.cached(maxsize=10)
-    def is_on_active_lot(self, tolerance=0):
+    def is_on_active_lot(self, tolerance=0, include_spawn_point=False):
         if self.parent is not None:
             return self.parent.is_on_active_lot(tolerance=tolerance)
         lot = services.current_zone().lot
         position = self.position
-        if not lot.is_position_on_lot(position, tolerance):
+        if not (not lot.is_position_on_lot(position, tolerance) and not (include_spawn_point and self._is_on_spawn_point())):
             return False
         else:
             intended_position = self.intended_position
-            if intended_position != position and not lot.is_position_on_lot(intended_position, tolerance):
+            if not (intended_position != position and not lot.is_position_on_lot(intended_position, tolerance) and not (include_spawn_point and self._is_on_spawn_point(use_intended_position=True))):
                 return False
         return True
 
@@ -2208,4 +2287,4 @@ class Sim(HasSimInfoMixin, GameObject, LockoutMixin, EnvironmentScoreMixin):
     def is_moving(self):
         return self.routing_component.is_moving
 
-lock_instance_tunables(Sim, _persists=False, _world_file_object_persists=False)
+lock_instance_tunables(Sim, _persistence=PersistenceType.NONE, _world_file_object_persists=False)

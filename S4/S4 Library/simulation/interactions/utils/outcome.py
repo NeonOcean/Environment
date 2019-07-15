@@ -42,6 +42,14 @@ class DebugOutcomeStyle(enum.Int, export=False):
 with sims4.reload.protected(globals()):
     debug_outcome_style = DebugOutcomeStyle.NONE
     previous_debug_outcome = None
+    debug_outcome_index_mapping = None
+
+def update_debug_outcome_index_mapping(interaction, debug_outcome_index):
+    global debug_outcome_index_mapping
+    if debug_outcome_index_mapping is None:
+        debug_outcome_index_mapping = {interaction: debug_outcome_index}
+    else:
+        debug_outcome_index_mapping[interaction] = debug_outcome_index
 
 def _debug_outcome_result():
     global previous_debug_outcome
@@ -55,6 +63,11 @@ def _debug_outcome_result():
         else:
             previous_debug_outcome = OutcomeResult.FAILURE
     return previous_debug_outcome
+
+def _is_debug_outcome_index_cheat_active():
+    if debug_outcome_index_mapping is not None:
+        return True
+    return False
 
 def _is_debug_outcome_style_cheat_active():
     if debug_outcome_style != DebugOutcomeStyle.NONE and debug_outcome_style is not False:
@@ -186,6 +199,9 @@ class InteractionOutcome:
     def consumes_object(self):
         return False
 
+    def print_outcome_index(self):
+        raise NotImplementedError
+
     def build_elements(self, interaction, update_global_outcome_result=False):
 
         def _do(timeline):
@@ -206,6 +222,14 @@ class InteractionOutcome:
             interaction.global_outcome_result = OutcomeResult.NONE
         if sims.sim_log.outcome_archiver.enabled or sims.sim_log.sim_outcome_archiver.enabled:
             sims.sim_log.log_interaction_outcome(interaction, self, 'Base Interaction Outcome')
+
+    def _find_debug_outcome_index(self, interaction):
+        if debug_outcome_index_mapping is None:
+            return
+        else:
+            debug_outcome_index = debug_outcome_index_mapping.get(interaction.get_interaction_type())
+            if debug_outcome_index is not None:
+                return int(debug_outcome_index)
 
     def _get_loot_gen(self):
         pass
@@ -289,6 +313,9 @@ class InteractionOutcomeNone(InteractionOutcome):
     def validate_basic_extra_tuning(self, interaction_name):
         pass
 
+    def print_outcome_index(self):
+        return 'No Outcome.'
+
 class TunableOutcomeNone(TunableSingletonFactory):
     FACTORY_TYPE = InteractionOutcomeNone
 
@@ -312,6 +339,9 @@ class InteractionOutcomeSingle(InteractionOutcome):
             interaction.outcome_display_message = self._actions.display_message
         if sims.sim_log.outcome_archiver.enabled or sims.sim_log.sim_outcome_archiver.enabled:
             sims.sim_log.log_interaction_outcome(interaction, self, 'Single Outcome')
+
+    def print_outcome_index(self):
+        return 'Single Outcome, (1)'
 
     def _get_loot_gen(self):
         aggregate_loot_list = list(self._actions.loot_list)
@@ -354,6 +384,9 @@ class InteractionOutcomeDual(InteractionOutcome):
     def consumes_object(self):
         return self._success_actions.consume_object or self._failure_actions.consume_object
 
+    def print_outcome_index(self):
+        return 'Dual Outcome (2). Failure Actions are indexed at 1, Success Actions are indexed at 2.'
+
     def _build_elements(self, interaction):
         if interaction.get_result_for_outcome(self) == OutcomeResult.SUCCESS:
             return build_outcome_actions(interaction, self._success_actions)
@@ -370,6 +403,20 @@ class InteractionOutcomeDual(InteractionOutcome):
         return sims4.math.clamp(0, chance, 1)
 
     def decide(self, interaction, update_global_outcome_result=False):
+        debug_outcome_index = self._find_debug_outcome_index(interaction)
+        if debug_outcome_index:
+            if debug_outcome_index == 1:
+                interaction.store_result_for_outcome(self, OutcomeResult.FAILURE)
+                if update_global_outcome_result:
+                    interaction.global_outcome_result = OutcomeResult.FAILURE
+                    interaction.outcome_display_message = self._failure_actions.display_message
+            if debug_outcome_index == 2:
+                interaction.store_result_for_outcome(self, OutcomeResult.SUCCESS)
+                if update_global_outcome_result:
+                    interaction.global_outcome_result = OutcomeResult.SUCCESS
+                    interaction.outcome_display_message = self._failure_actions.display_message
+            logger.error('Debug Outcome Index failed for interaction, {}, the debug index{} is outside the range of outcomes for Dual Outcome types.'.format(interaction, debug_outcome_index), owner='shipark')
+            return
         if debug_outcome_style != DebugOutcomeStyle.NONE and debug_outcome_style is not False:
             interaction.store_result_for_outcome(self, _debug_outcome_result())
             if update_global_outcome_result:
@@ -455,6 +502,24 @@ class InteractionOutcomeTestBased(InteractionOutcome):
                 return True
         return False
 
+    def print_outcome_index(self):
+        fallback_outcome_str = '\n'
+        fallback_outcomes = len(self._fallback_outcomes)
+        if fallback_outcomes > 0:
+            fallback_outcome_str += 'Fallback Outcomes: ({})\n'.format(fallback_outcomes)
+        tested_outcome_str = '('
+        test_counter = 0
+        total_potential_outcomes = 0
+        for outcomes_and_test in self._tested_outcomes:
+            test_counter = test_counter + 1
+            potential_outcome_counter = 0
+            for _ in outcomes_and_test.potential_outcomes:
+                total_potential_outcomes += 1
+                potential_outcome_counter += 1
+            tested_outcome_str += '{}: {} Potential Outcomes'.format(test_counter, potential_outcome_counter)
+            tested_outcome_str += ')' if test_counter == len(self._tested_outcomes) else ',\n'
+        return 'Total Outcome Count:({})\n'.format(total_potential_outcomes + fallback_outcomes) + fallback_outcome_str + 'Tested Outcomes: ({})\n'.format(total_potential_outcomes) + tested_outcome_str
+
     def _build_elements(self, interaction):
         if self._selected_outcome is None:
             return super()._build_elements(interaction)
@@ -466,10 +531,34 @@ class InteractionOutcomeTestBased(InteractionOutcome):
             return True
         return False
 
+    def _set_debug_outcome(self, debug_outcome_index, resolver):
+        if debug_outcome_index > len(self._fallback_outcomes) + sum(len(x.potential_outcomes) for x in self._tested_outcomes):
+            logger.error('Attempting to set a debug outcome index for {} that is greater than the amount of outcomes available.', self.interaction, owner='shipark')
+            return (None, None)
+        if self._fallback_outcomes and debug_outcome_index <= len(self._fallback_outcomes):
+            return (None, self._fallback_outcomes[debug_outcome_index - 1].outcome)
+        if self._tested_outcomes:
+            counter = len(self._fallback_outcomes)
+            for outcome_tuple in self._tested_outcomes:
+                result = outcome_tuple.tests.run_tests(resolver)
+                for potential_outcome in outcome_tuple.potential_outcomes:
+                    counter = counter + 1
+                    if debug_outcome_index == counter:
+                        return (result, potential_outcome.outcome)
+        return (None, None)
+
     def decide(self, interaction, update_global_outcome_result=False):
         weights = []
         resolver = interaction.get_resolver()
         curr_debug_style = _debug_outcome_result()
+        debug_outcome_index = self._find_debug_outcome_index(interaction)
+        if debug_outcome_index:
+            (test_result, self._selected_outcome) = self._set_debug_outcome(debug_outcome_index, resolver)
+            if self._selected_outcome is not None:
+                if test_result is not None and test_result != event_testing.results.TestResult.TRUE:
+                    logger.error('Debug Outcome Index failed: outcome ({}) has test result: {}'.format(debug_outcome_index, test_result))
+                return
+            logger.error('Debug Outcome Index failed for interaction {}', interaction, owner='shipark')
         cheat_active = _is_debug_outcome_style_cheat_active()
         for outcome_tuple in self._tested_outcomes:
             if not cheat_active:
@@ -607,6 +696,9 @@ class InteractionOutcomePartial(InteractionOutcome):
     def _send_notification(self, text, sim):
         notification = self._notification(sim, text=lambda *_, **__: text)
         notification.show_dialog()
+
+    def print_outcome_index(self):
+        return 'Partial Outcome Index, (0).'
 
     def decide(self, interaction, update_global_outcome_result=False):
         self._actions = self._default_actions
@@ -825,7 +917,7 @@ class TunableOutcomeActions(TunableTuple):
             locked_args = {TunableOutcomeActions.ADD_TARGET_AFFORDANCE_LOOT_KEY: True}
         elif TunableOutcomeActions.ADD_TARGET_AFFORDANCE_LOOT_KEY not in locked_args:
             locked_args.update({TunableOutcomeActions.ADD_TARGET_AFFORDANCE_LOOT_KEY: True})
-        super().__init__(animation_ref=animation_ref, xevt=OptionalTunable(description='\n                             When specified, the outcome will be associated to this xevent.\n                             ', tunable=Tunable(tunable_type=int, default=None)), response=OptionalTunable(TunableResponseSelector()), force_outcome_on_exit=Tunable(description='\n                             If checked outcome will always be given even if\n                             interaction was canceled. If unchecked, outcome\n                             will only be given if mixer, one_shot, or\n                             naturally finishing interaction.\n                             ', tunable_type=bool, default=False), loot_list=TunableList(description='\n                             A list of pre-defined loot operations.\n                             ', tunable=LootActions.TunableReference(pack_safe=True)), consume_object=Tunable(description="\n                             If checked, the loot list generated in the target\n                             object's consumable component will be added to\n                             this outcome's loot list.\n                             ", tunable_type=bool, default=False), continuation=TunableContinuation(description='An affordance to be pushed as part of an outcome.'), cancel_si=cancel_si, events_to_send=TunableList(TunableEnumEntry(TestEvent, TestEvent.Invalid, description='events types to send')), display_message=OptionalTunable(description='\n                             If set, flyaway text will be shown.\n                             ', tunable=TunableLocalizedString(default=None, description='Localized string that is shown as flyaway text')), parameterized_autonomy=TunableMapping(description='\n                             Specify parameterized autonomy for the participants of the interaction.\n                             ', key_type=TunableEnumEntry(description='\n                                 The participant to run parameterized autonomy for.\n                                 ', tunable_type=ParticipantType, default=ParticipantType.Actor), value_type=TunableTuple(requests=TunableList(description='\n                                     A list of parameterized autonomy requests to run.\n                                     ', tunable=TunableParameterizedAutonomy()), fallback_notification=OptionalTunable(description='\n                                    If set, this notification will be displayed\n                                    if the request fails to find an interaction.\n                                    ', tunable=TunableUiDialogNotificationSnippet()), push_on_success_or_fail=TunableList(description='\n                                    A List of tuples containing a participant\n                                    and an affordance to push on that\n                                    participant when there is a sucessful or\n                                    failed parameterized autonomy request. \n                                    \n                                    If it succeeded, The affordance will be \n                                    pushed targeting the same target as the \n                                    autonomy request and take the context of \n                                    the selected interaction.\n                                    \n                                    If failed, it will be pushed on the\n                                    Actor and retain the context of the\n                                    current interaction.\n                                    \n                                    This allows you to let one sim\n                                    run an autonomy request to find an object\n                                    and then have multiple participants run\n                                    an interaction on that object.\n                                    \n                                    example: When putting a child to bed the\n                                    adult runs parameterized autonomy to find\n                                    a bed, and once we find the bed we want to\n                                    push the bed_sleep interaction on the child.\n                                    In that case who would be whaterver\n                                    participant the child is and the affordance\n                                    would be bed_sleep.\n                                    ', tunable=TunableTuple(description='\n                                        A Participant and an affordance to\n                                        push on that participant.\n                                        ', who=TunableEnumEntry(description='\n                                            The participant from the current\n                                            interaction that you want to push\n                                            the affordance on.\n                                            ', tunable_type=ParticipantType, default=ParticipantType.TargetSim), affordance=TunableReference(description='\n                                            The affordance that you want to \n                                            push that will be targeting the \n                                            object targeted by the successful\n                                            parameterized autonomy request.\n                                            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True), push_on_fail=Tunable(description='\n                                            If checked, it will push an interaction \n                                            on the actor when autonomy fails.\n                                            ', tunable_type=bool, default=False))))), outcome_result=TunableEnumEntry(description='\n                             The interaction outcome result to consider this interaction result. This is\n                             important for testing interactions, such as an aspiration that wants to know\n                             if a Sim has successfully kissed another Sim. All interactions that a designer\n                             would consider a success case for such a scenario would be assured here.\n                             ', tunable_type=OutcomeResult, default=OutcomeResult.SUCCESS), basic_extras=interactions.base.basic.TunableBasicExtrasCore(), locked_args=locked_args, **kwargs)
+        super().__init__(animation_ref=animation_ref, xevt=OptionalTunable(description='\n                             When specified, the outcome will be associated to this xevent.\n                             ', tunable=Tunable(tunable_type=int, default=None)), response=OptionalTunable(TunableResponseSelector()), force_outcome_on_exit=Tunable(description='\n                             If checked outcome will always be given even if\n                             interaction was canceled. If unchecked, outcome\n                             will only be given if mixer, one_shot, or\n                             naturally finishing interaction.\n                             ', tunable_type=bool, default=False), loot_list=TunableList(description='\n                             A list of pre-defined loot operations.\n                             ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions', 'RandomWeightedLoot'), pack_safe=True)), consume_object=Tunable(description="\n                             If checked, the loot list generated in the target\n                             object's consumable component will be added to\n                             this outcome's loot list.\n                             ", tunable_type=bool, default=False), continuation=TunableContinuation(description='An affordance to be pushed as part of an outcome.'), cancel_si=cancel_si, events_to_send=TunableList(TunableEnumEntry(TestEvent, TestEvent.Invalid, description='events types to send')), display_message=OptionalTunable(description='\n                             If set, flyaway text will be shown.\n                             ', tunable=TunableLocalizedString(default=None, description='Localized string that is shown as flyaway text')), parameterized_autonomy=TunableMapping(description='\n                             Specify parameterized autonomy for the participants of the interaction.\n                             ', key_type=TunableEnumEntry(description='\n                                 The participant to run parameterized autonomy for.\n                                 ', tunable_type=ParticipantType, default=ParticipantType.Actor), value_type=TunableTuple(requests=TunableList(description='\n                                     A list of parameterized autonomy requests to run.\n                                     ', tunable=TunableParameterizedAutonomy()), fallback_notification=OptionalTunable(description='\n                                    If set, this notification will be displayed\n                                    if the request fails to find an interaction.\n                                    ', tunable=TunableUiDialogNotificationSnippet()), push_on_success_or_fail=TunableList(description='\n                                    A List of tuples containing a participant\n                                    and an affordance to push on that\n                                    participant when there is a sucessful or\n                                    failed parameterized autonomy request. \n                                    \n                                    If it succeeded, The affordance will be \n                                    pushed targeting the same target as the \n                                    autonomy request and take the context of \n                                    the selected interaction.\n                                    \n                                    If failed, it will be pushed on the\n                                    Actor and retain the context of the\n                                    current interaction.\n                                    \n                                    This allows you to let one sim\n                                    run an autonomy request to find an object\n                                    and then have multiple participants run\n                                    an interaction on that object.\n                                    \n                                    example: When putting a child to bed the\n                                    adult runs parameterized autonomy to find\n                                    a bed, and once we find the bed we want to\n                                    push the bed_sleep interaction on the child.\n                                    In that case who would be whaterver\n                                    participant the child is and the affordance\n                                    would be bed_sleep.\n                                    ', tunable=TunableTuple(description='\n                                        A Participant and an affordance to\n                                        push on that participant.\n                                        ', who=TunableEnumEntry(description='\n                                            The participant from the current\n                                            interaction that you want to push\n                                            the affordance on.\n                                            ', tunable_type=ParticipantType, default=ParticipantType.TargetSim), affordance=TunableReference(description='\n                                            The affordance that you want to \n                                            push that will be targeting the \n                                            object targeted by the successful\n                                            parameterized autonomy request.\n                                            ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe=True), push_on_fail=Tunable(description='\n                                            If checked, it will push an interaction \n                                            on the actor when autonomy fails.\n                                            ', tunable_type=bool, default=False))))), outcome_result=TunableEnumEntry(description='\n                             The interaction outcome result to consider this interaction result. This is\n                             important for testing interactions, such as an aspiration that wants to know\n                             if a Sim has successfully kissed another Sim. All interactions that a designer\n                             would consider a success case for such a scenario would be assured here.\n                             ', tunable_type=OutcomeResult, default=OutcomeResult.SUCCESS), basic_extras=interactions.base.basic.TunableBasicExtrasCore(), locked_args=locked_args, **kwargs)
 
 TUNABLE_OUTCOME_DESCRIPTION = '\n    An outcome defines a series of actions or effects that run and are applied\n    when an interaction completes.\n    '
 

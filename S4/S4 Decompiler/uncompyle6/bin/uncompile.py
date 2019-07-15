@@ -38,9 +38,11 @@ Options:
   --fragments   use fragments deparser
   --verify      compare generated source with input byte-code
   --verify-run  compile generated source, run it and check exit code
-  --weak-verify compile generated source
+  --syntax-verify compile generated source
   --linemaps    generated line number correspondencies between byte-code
                 and generated source output
+  --encoding  <encoding>
+                use <encoding> in generated source according to pep-0263
   --help        show this message
 
 Debugging Options:
@@ -85,12 +87,12 @@ def main_bin():
     timestampfmt = "# %Y.%m.%d %H:%M:%S %Z"
 
     try:
-        opts, pyc_paths = getopt.getopt(sys.argv[1:], 'hac:gtdrVo:p:',
+        opts, pyc_paths = getopt.getopt(sys.argv[1:], 'hac:gtTdrVo:p:',
                                     'help asm compile= grammar linemaps recurse '
                                     'timestamp tree tree+ '
                                     'fragments verify verify-run version '
-                                    'weak-verify '
-                                    'showgrammar'.split(' '))
+                                    'syntax-verify '
+                                    'showgrammar encoding='.split(' '))
     except getopt.GetoptError as e:
         print('%s: %s' % (os.path.basename(sys.argv[0]), e),  file=sys.stderr)
         sys.exit(-1)
@@ -105,7 +107,7 @@ def main_bin():
             sys.exit(0)
         elif opt == '--verify':
             options['do_verify'] = 'strong'
-        elif opt == '--weak-verify':
+        elif opt == '--syntax-verify':
             options['do_verify'] = 'weak'
         elif opt == '--fragments':
             options['do_fragments'] = True
@@ -119,7 +121,7 @@ def main_bin():
         elif opt in ('--tree', '-t'):
             options['showast'] = True
             options['do_verify'] = None
-        elif opt in ('--tree+',):
+        elif opt in ('--tree+', '-T'):
             options['showast'] = 'Full'
             options['do_verify'] = None
         elif opt in ('--grammar', '-g'):
@@ -134,6 +136,8 @@ def main_bin():
             numproc = int(val)
         elif opt in ('--recurse', '-r'):
             recurse_dirs = True
+        elif opt == '--encoding':
+            options['source_encoding'] = val
         else:
             print(opt, file=sys.stderr)
             usage()

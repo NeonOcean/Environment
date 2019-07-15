@@ -151,6 +151,7 @@ class ParticipantTypeSingle(enum.LongFlags):
     ObjectInventoryOwner = ParticipantType.ObjectInventoryOwner
     ActorFiance = ParticipantType.ActorFiance
     TargetFiance = ParticipantType.TargetFiance
+    CreatedObject = ParticipantType.CreatedObject
 
 class ParticipantTypeReactionlet(enum.IntFlags):
     Invalid = ParticipantType.Invalid
@@ -190,6 +191,7 @@ class ParticipantTypeObject(enum.LongFlags):
     ActorSurface = ParticipantType.ActorSurface
     CarriedObject = ParticipantType.CarriedObject
     CraftingObject = ParticipantType.CraftingObject
+    CreatedObject = ParticipantType.CreatedObject
     Object = ParticipantType.Object
     PickedObject = ParticipantType.PickedObject
     SocialGroupAnchor = ParticipantType.SocialGroupAnchor

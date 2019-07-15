@@ -12,7 +12,7 @@ with sims4.reload.protected(globals()):
     _handle_id_gen = uid.UniqueIdGenerator(1)
 
 class BaseStatisticTracker(SimInfoTracker):
-    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load')
+    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load', 'suppress_callback_alarm_calculation')
 
     def __init__(self, owner=None):
         self._statistics = None
@@ -21,6 +21,7 @@ class BaseStatisticTracker(SimInfoTracker):
         self._delta_watchers = {}
         self._on_remove_callbacks = None
         self.suppress_callback_setup_during_load = False
+        self.suppress_callback_alarm_calculation = False
         self.statistics_to_skip_load = None
 
     def __iter__(self):
@@ -36,6 +37,13 @@ class BaseStatisticTracker(SimInfoTracker):
     @property
     def owner(self):
         return self._owner
+
+    def set_callback_alarm_calculation_supression(self, value):
+        self.suppress_callback_alarm_calculation = value
+        if not value:
+            if self._statistics:
+                for stat in self._statistics.values():
+                    stat._update_callback_listeners()
 
     def _statistics_values_gen(self):
         if self._statistics:
@@ -61,7 +69,11 @@ class BaseStatisticTracker(SimInfoTracker):
                 self.remove_statistic(stat_type)
 
     def create_and_add_listener(self, stat_type, threshold, callback, on_callback_alarm_reset=None) -> BaseStatisticCallbackListener:
-        stat = self.get_statistic(stat_type, add=stat_type.add_if_not_in_tracker)
+        if stat_type.added_by_default():
+            add = stat_type.add_if_not_in_tracker
+        else:
+            add = False
+        stat = self.get_statistic(stat_type, add=add)
         if stat is not None:
             callback_listener = stat.create_and_add_callback_listener(threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
             return callback_listener
@@ -183,9 +195,13 @@ class BaseStatisticTracker(SimInfoTracker):
         stat_or_stat_type = self.get_statistic(stat_type) or stat_type
         return stat_or_stat_type.get_user_value()
 
-    def set_value(self, stat_type, value, add=DEFAULT, from_load=False, **kwargs):
+    def set_value(self, stat_type, value, add=DEFAULT, from_load=False, from_init=False, **kwargs):
         if add is DEFAULT:
             add = from_load or stat_type.add_if_not_in_tracker
+        if from_init:
+            if add:
+                if not stat_type.added_by_default():
+                    add = False
         stat = self.get_statistic(stat_type, add=add)
         if stat is not None:
             stat.set_value(value, from_load=from_load)

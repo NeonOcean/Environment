@@ -18,7 +18,7 @@ class TravelTuning:
     TRAVEL_AVAILABILITY_SIM_FILTER = TunableSimFilter.TunableReference(description='Sim Filter to show what Sims the player can travel with to send to Game Entry.')
     TRAVEL_SUCCESS_AUDIO_STING = TunablePlayAudio(description='\n        The sound to play when we finish loading in after the player has traveled.\n        ')
     NEW_GAME_AUDIO_STING = TunablePlayAudio(description='\n        The sound to play when we finish loading in from a new game, resume, or\n        household move in.\n        ')
-    GO_HOME_INTERACTION = TunableReference(description='\n        The interaction to push a Sim to go home.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION), export_modes=(ExportModes.ClientBinary,))
+    GO_HOME_INTERACTION = TunableReference(description='\n        The interaction to push a Sim to go home.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
 
 TRAVEL_SIM_LIABILITY = 'TravelSimLiability'
 

@@ -7,7 +7,6 @@ from sims4.callback_utils import CallableTestList
 from sims4.service_manager import Service
 import alarms
 import date_and_time
-import objects.components.types
 import services
 import sims4
 import zone_types
@@ -41,14 +40,13 @@ class SicknessService(Service):
 
     def trigger_sickness_distribution(self):
         for sim_info in services.sim_info_manager().values():
-            if not sim_info.Buffs is None:
-                if not sim_info.has_component(objects.components.types.STATISTIC_COMPONENT):
-                    continue
-                resolver = SingleSimResolver(sim_info)
-                if not self._should_sim_become_sick(resolver):
-                    continue
-                sickness = self._choose_sickness_for_sim(resolver, criteria_func=lambda s: not s.distribute_manually)
-                sickness.apply_to_sim_info(sim_info)
+            if sim_info.sickness_tracker is None:
+                continue
+            resolver = SingleSimResolver(sim_info)
+            if not self._should_sim_become_sick(resolver):
+                continue
+            sickness = self._choose_sickness_for_sim(resolver, criteria_func=lambda s: not s.distribute_manually)
+            sickness.apply_to_sim_info(sim_info)
 
     def can_become_sick(self, resolver):
         return SicknessTuning.SICKNESS_TESTS.run_tests(resolver)
@@ -90,7 +88,8 @@ class SicknessService(Service):
         return sims4.random.pop_weighted(sickness_weights)
 
     def clear_diagnosis_data(self, sim_info):
-        sim_info.sickness_tracker.clear_diagnosis_data()
+        if sim_info.sickness_tracker is not None:
+            sim_info.sickness_tracker.clear_diagnosis_data()
 
     def sickness_event_data_gen(self):
         yield from self._sim_data.items()

@@ -287,6 +287,15 @@ class CraftingProcess(ComponentContainer):
                 enabled = False
                 if skill_result.tooltip is not None:
                     error_list.append(skill_result.tooltip(crafting_sim, target))
+        utility_info = recipe.utility_info
+        if utility_info is not None:
+            household = services.owning_household_of_active_lot()
+            if household is not None:
+                utility_result = services.utilities_manager(household.id).test_utility_info(utility_info)
+                if not utility_result:
+                    if utility_result.tooltip is not None:
+                        error_list.append(utility_result.tooltip())
+                    enabled = False
         if not (from_resume and recipe.additional_tests_ignored_on_resume):
             additional_tests = recipe.additional_tests
             if additional_tests:
@@ -299,15 +308,6 @@ class CraftingProcess(ComponentContainer):
                         error_list.append(additional_result.tooltip(crafting_sim, target))
                 else:
                     return RecipeTestResult(enabled=enabled, visible=True, errors=error_list, influence_by_active_mood=additional_result.influence_by_active_mood)
-        utility_info = recipe.utility_info
-        if utility_info is not None:
-            household = services.owning_household_of_active_lot()
-            if household is not None:
-                utility_result = services.utilities_manager(household.id).test_utility_info(utility_info)
-                if not utility_result:
-                    if utility_result.tooltip is not None:
-                        error_list.append(utility_result.tooltip())
-                    enabled = False
         return RecipeTestResult(enabled=enabled, visible=True, errors=error_list)
 
     @classmethod
@@ -1026,6 +1026,7 @@ class CraftingProcess(ComponentContainer):
         new_process._current_turn = self._current_turn
         new_process.ready_to_serve = self.ready_to_serve
         new_process.multiple_order_process = self.multiple_order_process
+        new_process._reserved_ingredients = self._reserved_ingredients
         return new_process
 
     def save(self, crafting_process_msg):

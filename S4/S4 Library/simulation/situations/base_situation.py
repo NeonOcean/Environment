@@ -225,7 +225,7 @@ class BaseSituation(IBouncerClient):
         if self.scoring_enabled:
             for job in self.get_tuned_jobs():
                 for score_list in job.interaction_scoring:
-                    services.get_event_manager().unregister_tests(self, score_list.affordance_list)
+                    services.get_event_manager().unregister_tests(self, (score_list.affordance_list,))
             services.get_event_manager().unregister_single_event(self, TestEvent.ItemCrafted)
         if self.main_goal_visibility_test is not None:
             services.get_event_manager().unregister(self, self.main_goal_visibility_test.test_events)
@@ -928,9 +928,7 @@ class BaseSituation(IBouncerClient):
     def _on_set_sim_job(self, sim, job):
         if job.goodbye_notification is DEFAULT:
             return
-        if sim.sim_info.goodbye_notification == SetGoodbyeNotificationElement.NEVER_USE_NOTIFICATION_NO_MATTER_WHAT:
-            return
-        sim.sim_info.goodbye_notification = job.goodbye_notification
+        sim.sim_info.try_to_set_goodbye_notification(job.goodbye_notification)
 
     def get_current_job_for_sim(self, sim):
         if sim is None:
@@ -1475,6 +1473,8 @@ class BaseSituation(IBouncerClient):
         if sim_info.is_child_or_younger:
             return False
         active_household = services.active_household()
+        if active_household is None:
+            return False
         for target_sim in active_household.instanced_sims_gen():
             target_sim_info = target_sim.sim_info
             if target_sim_info == sim_info:

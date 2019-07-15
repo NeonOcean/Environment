@@ -272,6 +272,14 @@ class InventoryStorage:
             op = GenericProtocolBufferOp(Operation.INVENTORY_ITEM_UPDATE, msg)
             Distributor.instance().add_op_with_no_owner(op)
 
+    def distribute_owned_inventory_update_message(self, obj, owner):
+        if obj.id not in self._objects:
+            return False
+        msg = self._get_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_UPDATE, obj)
+        if msg is not None:
+            op = GenericProtocolBufferOp(Operation.INVENTORY_ITEM_UPDATE, msg)
+            Distributor.instance().add_op(owner, op)
+
     def get_item_update_ops_gen(self):
         for obj in self._objects.values():
             message = self._get_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_ADD, obj, allow_while_zone_not_running=True)
