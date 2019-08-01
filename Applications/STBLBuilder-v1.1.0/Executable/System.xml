@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<File xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<Instance>004890B0270AB684</Instance>
+	<Name>NeonOcean.Main_{0}_Strings_System</Name>
+	<Data>
+		<Text>
+			<Hash>2688371308</Hash>
+			<Identifier>NeonOcean.Main.System.Debug.Write_Notification.Text</Identifier>
+			<English>Failed to write a debug file, this problem may make error reporting impossible.\n\nError Information:\n{1.String}</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>3872543869</Hash>
+			<Identifier>NeonOcean.Main.System.Debug.Write_Notification.Title</Identifier>
+			<English>NeonOcean:\nMajor Failure Detected</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>773790552</Hash>
+			<Identifier>NeonOcean.Main.System.Distribution.Update_Notification.Button</Identifier>
+			<English>View update</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>2579229694</Hash>
+			<Identifier>NeonOcean.Main.System.Distribution.Update_Notification.Preview_Text</Identifier>
+			<English xsi:nil="true" />
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>3249107168</Hash>
+			<Identifier>NeonOcean.Main.System.Distribution.Update_Notification.Release_Text</Identifier>
+			<English xsi:nil="true" />
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>2521995782</Hash>
+			<Identifier>NeonOcean.Main.System.Distribution.Update_Notification.Title</Identifier>
+			<English>{0.String} Is Outdated.</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>2090537172</Hash>
+			<Identifier>NeonOcean.Main.System.Loading.Compatibility_Notification.Text</Identifier>
+			<English>Detected missing mods or incompatible mod versions. \n\nThe following mods had to be disabled because of this:\n{0.String}</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>3471017138</Hash>
+			<Identifier>NeonOcean.Main.System.Loading.Compatibility_Notification.Title</Identifier>
+			<English>NeonOcean:\nBad Mod Setup Detected</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>1936521160</Hash>
+			<Identifier>NeonOcean.Main.System.Loading.Failure_Notification.Text</Identifier>
+			<English>Some mods failed to load correctly.\n\nThe following mods had to be disabled because of this:\n{0.String}</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+		<Text>
+			<Hash>2393611005</Hash>
+			<Identifier>NeonOcean.Main.System.Loading.Failure_Notification.Title</Identifier>
+			<English>NeonOcean:\nMajor Failure Detected</English>
+			<ChineseSimplified xsi:nil="true" />
+			<ChineseTraditional xsi:nil="true" />
+			<Czech xsi:nil="true" />
+			<Danish xsi:nil="true" />
+			<Dutch xsi:nil="true" />
+			<Finnish xsi:nil="true" />
+			<French xsi:nil="true" />
+			<German xsi:nil="true" />
+			<Greek xsi:nil="true" />
+			<Hungarian xsi:nil="true" />
+			<Italian xsi:nil="true" />
+			<Japanese xsi:nil="true" />
+			<Korean xsi:nil="true" />
+			<Norwegian xsi:nil="true" />
+			<Polish xsi:nil="true" />
+			<PortugueseBrazil xsi:nil="true" />
+			<PortuguesePortugal xsi:nil="true" />
+			<Russian xsi:nil="true" />
+			<SpanishMexico xsi:nil="true" />
+			<SpanishSpain xsi:nil="true" />
+			<Swedish xsi:nil="true" />
+			<Thai xsi:nil="true" />
+		</Text>
+	</Data>
+</File>

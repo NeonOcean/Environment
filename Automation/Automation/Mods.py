@@ -98,6 +98,9 @@ def GetModPath (namespace: str) -> str:
 def BuildMod (namespace: str) -> None:
 	GetMod(namespace).Build("Normal")
 
+def BuildModRebuild (namespace: str) -> None:
+	GetMod(namespace).Build("Rebuild")
+
 def BuildPublishing (namespace: str) -> None:
 	GetMod(namespace).BuildPublishing()
 

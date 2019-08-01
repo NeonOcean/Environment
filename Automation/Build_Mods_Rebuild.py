@@ -3,7 +3,7 @@ import datetime
 
 def Run () -> bool:
 	for modNamespace in Mods.GetAllModNames():  # type: str
-		Mods.BuildMod(modNamespace)
+		Mods.BuildModRebuild(modNamespace)
 
 	print("All mods built. " + datetime.datetime.now().strftime("%I:%M %p"))
 
