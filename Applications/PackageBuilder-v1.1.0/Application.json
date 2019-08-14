@@ -1,8 +1,7 @@
 {
-	"Special": "Source/PackageBuilder.csproj",
 	"Paths": [
 		{
-			"File Path": "Executable/PackageBuilder.exe"
+			"File Path": "PackageBuilder.exe"
 		}
 	]
 }

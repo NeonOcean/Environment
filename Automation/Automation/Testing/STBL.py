@@ -8,14 +8,14 @@ from Automation import Mods, Paths
 def VerifyCollisions () -> None:
 	print("Verifying STBL collisions.")
 
-	staticHashes = list()  # type: typing.List[int]
+	staticKeys = list()  # type: typing.List[int]
 
-	for hashesFileName in os.listdir(Paths.STBLCollisionsPath):  # type: str
-		hashesFilePath = os.path.join(Paths.STBLCollisionsPath, hashesFileName)  # type: str
+	for keysFileName in os.listdir(Paths.STBLCollisionsPath):  # type: str
+		keysFilePath = os.path.join(Paths.STBLCollisionsPath, keysFileName)  # type: str
 
-		with open(hashesFilePath) as hashesFile:
-			for staticHash in hashesFile.readlines():
-				staticHashes.append(int(staticHash))
+		with open(keysFilePath) as keysFile:
+			for staticKey in keysFile.readlines():
+				staticKeys.append(int(staticKey))
 
 	modEntries = list()  # type: typing.List[typing.Tuple[str, int]]
 
@@ -27,9 +27,9 @@ def VerifyCollisions () -> None:
 
 		modEntries.extend(stblModule.GetEntries())
 
-	for entryIdentifier, entryHash in modEntries:  # type: str, int
-		if entryHash in staticHashes:
-			print("Colliding STBL hash for entry '" + entryIdentifier + "'. Entry hash code: " + ConvertIntegerToHexadecimal(entryHash, minimumLength = 8), file = sys.stderr)
+	for entryIdentifier, entryKey in modEntries:  # type: str, int
+		if entryKey in staticKeys:
+			print("Colliding STBL key for entry '" + entryIdentifier + "'. Entry key: " + str(entryKey) + " (" + ConvertIntegerToHexadecimal(entryKey, minimumLength = 8) + ")", file = sys.stderr)
 
 	for entryIndex, entry in enumerate(modEntries):  # type: int, typing.Tuple[str, int]
 		for checkingEntryIndex, checkingEntry in enumerate(modEntries):  # type: int, typing.Tuple[str, int]
@@ -37,7 +37,7 @@ def VerifyCollisions () -> None:
 				continue
 
 			if entry[1] == checkingEntry[1]:
-				print("Colliding STBL hash between entry '" + entry[0] + "'. and '" + checkingEntry[0] + "' Entry hash code: " + ConvertIntegerToHexadecimal(entry[1], minimumLength = 8), file = sys.stderr)
+				print("Colliding STBL key between entry '" + entry[0] + "'. and '" + checkingEntry[0] + "' Entry key: " + str(entry[1]) + " (" + ConvertIntegerToHexadecimal(entry[1], minimumLength = 8) + ")", file = sys.stderr)
 
 def ConvertIntegerToHexadecimal (integer: int, minimumLength: int = -1) -> str:
 	hexString = hex(integer)[2:]
