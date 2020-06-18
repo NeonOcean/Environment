@@ -1,3 +1,12 @@
+[submodule "Mods/NeonOcean.S4.Order"]
+	path = Mods/NeonOcean.S4.Order
+	url = https://github.com/NeonOcean/S4.Order.git
+[submodule "Mods/NeonOcean.S4.Main"]
+	path = Mods/NeonOcean.S4.Main
+	url = https://github.com/NeonOcean/S4.Main.git
+[submodule "Mods/NeonOcean.S4.Debug"]
+	path = Mods/NeonOcean.S4.Debug
+	url = https://github.com/NeonOcean/S4.Debug.git
 [submodule "Websites/NeonOcean.NOC.Main"]
 	path = Websites/NeonOcean.NOC.Main
 	url = https://github.com/NeonOcean/NOC.Main.git
