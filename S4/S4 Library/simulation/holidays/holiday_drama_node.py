@@ -7,6 +7,7 @@ from drama_scheduler.drama_node import BaseDramaNode, DramaNodeUiDisplayType
 from drama_scheduler.drama_node_types import DramaNodeType
 from holidays.holiday_globals import HolidayState, HolidayTuning
 from sims4.localization import TunableLocalizedStringFactory
+from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableReference, OptionalTunable
 from sims4.utils import classproperty
 from situations.bouncer.bouncer_types import RequestSpawningOption, BouncerRequestPriority
@@ -69,7 +70,7 @@ class HolidayDramaNode(BaseDramaNode):
         if self._state == HolidayState.SHUTDOWN or holiday_service is None:
             return CareerTimeOffReason.NO_TIME_OFF
         take_time_off = False
-        if career_category == CareerCategory.School:
+        if career_category == CareerCategory.School or career_category == CareerCategory.UniversityCourse:
             take_time_off = holiday_service.get_holiday_time_off_school(self.holiday_id)
         elif career_category in WORK_CAREER_CATEGORIES:
             take_time_off = holiday_service.get_holiday_time_off_work(self.holiday_id)
@@ -296,6 +297,7 @@ class HolidayDramaNode(BaseDramaNode):
         services.calendar_service().mark_on_calendar(self, advance_notice_time=HolidayTuning.HOLIDAY_DURATION())
         return True
 
+lock_instance_tunables(HolidayDramaNode, ui_display_data=None)
 HOLIDAY_ID_TOKEN = 'holiday_id'
 
 class CustomHolidayDramaNode(HolidayDramaNode):

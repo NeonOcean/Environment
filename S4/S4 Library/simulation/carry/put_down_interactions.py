@@ -1,10 +1,5 @@
 from weakref import WeakSet
 import random
-from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableEnumEntry
-from sims4.utils import flexmethod, classproperty, constproperty
-from singletons import DEFAULT
-import enum
-import sims4.log
 from animation.posture_manifest import SlotManifestEntry, SlotManifest, Hand
 from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT, STAND_POSTURE_MANIFEST, SIT_POSTURE_MANIFEST
 from carry.carry_elements import exit_carry_while_holding, swap_carry_while_holding, enter_carry_while_holding
@@ -17,14 +12,19 @@ from interactions.base.super_interaction import SuperInteraction
 from interactions.constraints import JigConstraint, create_constraint_set, Circle, Constraint, Nowhere, OceanStartLocationConstraint, WaterDepthIntervals, WaterDepthIntervalConstraint
 from objects.components.types import CARRYABLE_COMPONENT
 from objects.helpers.create_object_helper import CreateObjectHelper
-from objects.object_enums import ResetReason
+from objects.object_enums import ResetReason, ItemLocation
 from objects.slots import get_surface_height_parameter_for_object
 from objects.terrain import TerrainSuperInteraction
 from postures.posture_specs import PostureSpecVariable
 from postures.posture_state_spec import PostureStateSpec
+from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableEnumEntry
+from sims4.utils import flexmethod, classproperty, constproperty
+from singletons import DEFAULT
 import element_utils
+import enum
 import objects.game_object
 import services
+import sims4.log
 logger = sims4.log.Logger('PutDownInteractions')
 EXCLUSION_MULTIPLIER = None
 OPTIMAL_MULTIPLIER = 0
@@ -34,8 +34,10 @@ PUT_DOWN_GEOMETRY_RADIUS = 1.0
 def put_down_geometry_constraint_gen(sim, target):
     if target.is_in_inventory():
         yield Circle(sim.position, PUT_DOWN_GEOMETRY_RADIUS, routing_surface=sim.routing_surface)
-    else:
+    elif hasattr(target, 'get_carry_transition_constraint'):
         yield target.get_carry_transition_constraint(sim, target.position, target.routing_surface)
+    else:
+        logger.error('Trying to call get_carry_transition_constraint on Object {} that has no such attribute.\n                            Definition: {}\n                            Sim: {}\n                            ', target, target.definition, sim, owner='trevor')
 
 class AggregateObjectOwnership(enum.IntFlags):
     NO_OWNER = 1
@@ -95,8 +97,8 @@ class PutDownChooserInteraction(SuperInteraction):
         return False
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         obj = cls.object_to_put_down(inst, sim=sim, target=target)
         yield create_carry_constraint(obj, debug_name='CarryForPutDown')
@@ -147,8 +149,8 @@ class PutInInventoryInteraction(PutAwayBase):
         return exit_carry_while_holding(self, sequence=sequence, use_posture_animations=True, carry_system_target=self._carry_system_target)
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         yield create_carry_constraint(target, debug_name='CarryForPutDown')
         if inst is not None:
@@ -293,8 +295,8 @@ class PutAwayInteraction(SuperInteraction):
         pass
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         yield create_carry_constraint(target, debug_name='CarryForPutDown')
         yield from put_down_geometry_constraint_gen(sim, target)
@@ -323,8 +325,8 @@ class PutDownQuicklySuperInteraction(PutAwayBase):
         return False
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         yield create_carry_constraint(target, debug_name='CarryForPutDown')
         yield from put_down_geometry_constraint_gen(sim, target)
@@ -347,8 +349,8 @@ class AddToWorldSuperInteraction(SuperInteraction):
         yield
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         carry_constraint = create_carry_constraint(target, debug_name='CarryForAddInWorld')
         total_constraint = carry_constraint.intersect(STAND_OR_SIT_CONSTRAINT)
@@ -405,8 +407,8 @@ class PutDownHereInteraction(TerrainSuperInteraction):
         return exit_carry_while_holding(self, sequence=sequence, use_posture_animations=True, carry_system_target=self._carry_system_target)
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(TerrainSuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
+        for constraint in super(TerrainSuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         carry_target = inst.carry_target if inst is not None else None
         if carry_target is not None:
@@ -461,9 +463,9 @@ class PutDownInSlotInteraction(PutAwayBase):
         return False
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
         inst_or_cls = inst if inst is not None else cls
-        for constraint in super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type):
+        for constraint in super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
         if inst is not None:
             slot_constraint = create_put_down_in_slot_type_constraint(sim, inst.carry_target, inst._slot_types_and_costs, target=target)
@@ -515,6 +517,8 @@ def create_put_down_in_inventory_constraint(inst, sim, target, targets_with_inve
     carry_constraint = carry_constraint.generate_constraint_with_cost(cost)
     object_constraints = []
     for target_with_inventory in targets_with_inventory:
+        if target_with_inventory.item_location == ItemLocation.SIM_INVENTORY:
+            continue
         constraint = target_with_inventory.get_inventory_access_constraint(sim, True, target)
         if constraint is None:
             logger.error('{} failed to get inventory access constraint for {}, \n            If you cannot put down objects in this inventory, you should uncheck: Components -> Inventory -> Allow Putdown In Inventory.\n            If you can, you need to properly tune GetPut', sim, target, owner='tastle')
@@ -572,9 +576,18 @@ class PutDownAnywhereInteraction(PutAwayBase):
     def build_basic_content(self, sequence, **kwargs):
         sequence = super().build_basic_content(sequence, **kwargs)
         constraint_intersection = self.sim.posture_state.constraint_intersection
-        if self.target is not None and (self.target.parent is not None and not self.target.parent.is_sim) and constraint_intersection.intersect(self._slot_constraint).valid:
+        if self.target is None:
+            return
+        target_parent = self.target.parent
+        if target_parent is not None and not target_parent.is_sim and constraint_intersection.intersect(self._slot_constraint).valid:
             return sequence
-        if self.target is not None and self.target.parent is not None and self.target.parent is self.sim:
+        can_exit_carry = False
+        if target_parent is not None:
+            if target_parent is self.sim:
+                can_exit_carry = True
+        elif self.sim.posture_state.is_carrying(self.target):
+            can_exit_carry = True
+        if can_exit_carry:
             if constraint_intersection.intersect(self._object_inventory_constraint).valid:
                 carry_system_target = CarrySystemInventoryTarget(self.sim, self.target, True, self.sim.posture_state.surface_target)
                 return exit_carry_while_holding(self, use_posture_animations=True, carry_system_target=carry_system_target, sequence=sequence)
@@ -595,9 +608,9 @@ class PutDownAnywhereInteraction(PutAwayBase):
                 return exit_carry_while_holding(self, use_posture_animations=True, carry_system_target=carry_system_target, sequence=sequence)
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
         inst_or_cls = inst if inst is not None else cls
-        yield from super(__class__, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type)
+        yield from super(__class__, inst_or_cls)._constraint_gen(sim, target, **kwargs)
         if inst is not None:
             inst._slot_constraint = create_put_down_in_slot_type_constraint(sim, target, inst._slot_types_and_costs)
             inst._world_constraint = create_put_down_on_ground_constraint(sim, target, inst._terrain_transform, cost=inst._world_cost)

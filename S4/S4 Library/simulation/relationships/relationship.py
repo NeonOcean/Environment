@@ -211,6 +211,9 @@ class Relationship:
                             if knowledge._known_stats is not None:
                                 for stat in knowledge._known_stats:
                                     msg.known_stat_ids.append(stat.guid64)
+                            if knowledge.knows_major:
+                                if knowledge.get_known_major() is not None:
+                                    msg.known_major_id = knowledge.get_known_major().guid64
         if target_sim_info is not None:
             if target_sim_info.spouse_sim_id is not None:
                 msg.target_sim_significant_other_id = target_sim_info.spouse_sim_id

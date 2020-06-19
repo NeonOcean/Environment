@@ -155,6 +155,9 @@ def rm_op(l, name, op):
     assert l['opmap'][name] == op
     del l['opmap'][name]
 
+# This is not in Python. The operand indicates how
+# items on the pop from the stack. BUILD_TUPLE_UNPACK
+# is line this.
 def varargs_op(l, op_name, op_code, pop=-1, push=1):
     def_op(l, op_name, op_code, pop, push)
     l['hasvargs'].append(op_code)
@@ -234,6 +237,16 @@ def format_extended_arg(arg):
 
 def format_extended_arg36(arg):
     return str(arg * (1 << 8))
+
+
+def format_CALL_FUNCTION_pos_name_encoded(argc):
+    """Encoded positional and named args. Used to
+    up to about 3.6 where wordcodes are used and
+    a different encoding occurs. Pypy36 though
+    sticks to this encoded version though."""
+    pos_args = argc & 0xFF
+    name = (argc >> 8) & 0xFF
+    return ("%d positional, %d named" % (pos_args, name))
 
 def opcode_check(l):
     """When the version of Python we are running happens

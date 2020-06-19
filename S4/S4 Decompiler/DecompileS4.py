@@ -22,7 +22,7 @@ def Run () -> bool:
 	argumentParser.add_argument("-i", metavar = "install", type = str, help = "The Sims 4 install directory.")
 	argumentParser.add_argument("-d", metavar = "destination", type = str, help = "The directory the decompiled files will be saved to.")
 	argumentParser.add_argument("-s", action = "store_true", help = "Prevents gui from appearing.")
-	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: argparse.Namespace
+	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: typing.Dict[str, typing.Any]
 
 	if argumentDictionary["i"] is not None:
 		if not os.path.exists(argumentDictionary["i"]):
@@ -187,7 +187,7 @@ def _TransferBase (baseS4Path: str, baseTempPath: str, destinationDirectoryPath:
 				if modulePostSpecialCase is not None:
 					requiredSpecialCases.append(postSpecialCases[moduleName])
 
-				moduleSpecification = None  # type: machinery.ModuleSpec
+				moduleSpecification = None  # type: typing.Optional[machinery.ModuleSpec]
 
 				try:
 					moduleSpecification = util.find_spec(moduleName)
@@ -228,7 +228,7 @@ def _TransferBase (baseS4Path: str, baseTempPath: str, destinationDirectoryPath:
 def _TransferBaseEnum (destinationBaseLibPath: str) -> bool:
 	moduleName = "enum"  # type: str
 
-	moduleSpecification = None  # type: machinery.ModuleSpec
+	moduleSpecification = None  # type: typing.Optional[machinery.ModuleSpec]
 
 	try:
 		moduleSpecification = util.find_spec(moduleName)
@@ -271,12 +271,18 @@ def _PostTransferBaseEnum (destinationBaseLibPath: str) -> None:
 	baseProject.close()
 
 	# noinspection SpellCheckingInspection
-	shutil.rmtree(destinationBaseLibPath + ".ropeproject", ignore_errors = True)
+	ropeProjectPath = destinationBaseLibPath + os.path.sep + ".ropeproject"  # type: str
+
+	try:
+		if os.path.exists(ropeProjectPath):
+			shutil.rmtree(ropeProjectPath)
+	except Exception as e:
+		print("Failed to remove the rope project directory at '" + ropeProjectPath + "'.\n" + str(e))
 
 def _TransferBaseStatistics (destinationBaseLibPath: str) -> bool:
 	moduleName = "statistics"  # type: str
 
-	moduleSpecification = None  # type: machinery.ModuleSpec
+	moduleSpecification = None  # type: typing.Optional[machinery.ModuleSpec]
 
 	try:
 		moduleSpecification = util.find_spec(moduleName)
@@ -319,7 +325,13 @@ def _PostTransferBaseStatistics (destinationBaseLibPath: str) -> None:
 	baseProject.close()
 
 	# noinspection SpellCheckingInspection
-	shutil.rmtree(destinationBaseLibPath + ".ropeproject", ignore_errors = True)
+	ropeProjectPath = destinationBaseLibPath + os.path.sep + ".ropeproject"  # type: str
+
+	try:
+		if os.path.exists(ropeProjectPath):
+			shutil.rmtree(ropeProjectPath)
+	except Exception as e:
+		print("Failed to remove the rope project directory at '" + ropeProjectPath + "'.\n" + str(e))
 
 def _DecompileCore (coreS4Path: str, coreTempPath: str, destinationDirectoryPath: str) -> typing.List[str]:
 	failedFiles = list()  # type: typing.List[str]
@@ -410,7 +422,7 @@ def _GetS4InstallPath () -> typing.Optional[str]:
 		tkRoot = tkinter.Tk()
 		tkRoot.withdraw()
 
-		installDirectoryPath = None  # type: str
+		installDirectoryPath = None  # type: typing.Optional[str]
 
 		if not _silent:
 			installDirectoryPath = filedialog.askdirectory(initialdir = os.path.dirname(os.path.realpath(__file__)), title = "Select The Sims 4 install directory")
@@ -433,8 +445,8 @@ def _FormatListToLines (targetList: typing.List[str]) -> str:
 
 	return text
 
-_s4InstallPath = None  # type: str
-_destinationPath = None  # type: str
+_s4InstallPath = None  # type: typing.Optional[str]
+_destinationPath = None  # type: typing.Optional[str]
 _silent = False  # type: bool
 
 if __name__ == "__main__":

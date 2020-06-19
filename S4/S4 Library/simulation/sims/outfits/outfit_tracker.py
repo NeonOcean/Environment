@@ -229,7 +229,7 @@ class OutfitTrackerMixin:
             valid_outfits.append((outfit_category, outfit_index))
         if valid_outfits:
             return random.choice(valid_outfits)
-        return (OutfitCategory.EVERYDAY, 0)
+        return (self.occult_tracker.get_fallback_outfit_category(self.current_occult_types), 0)
 
     def get_sim_info(self):
         return self

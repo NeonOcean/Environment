@@ -15,10 +15,11 @@ class _TestedList(tuple):
                     break
 
 class TunableTestedList(TunableList):
+    DEFAULT_LIST = _TestedList()
 
     def __init__(self, *args, tunable_type, **kwargs):
         super().__init__(*args, tunable=TunableTuple(description='\n                An entry in this tested list.\n                ', test=TunableTestSet(), item=tunable_type, stop_processing=Tunable(description='\n                    If checked, no other element from this list is considered if\n                    this element passes its associated test.\n                    ', tunable_type=bool, default=False)), **kwargs)
 
-    def load_etree_node(self, *args, **kwargs):
-        value = super().load_etree_node(*args, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         return _TestedList(value)

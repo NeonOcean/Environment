@@ -30,9 +30,9 @@ class ProgressiveStatisticCallbackMixin:
             self.remove_callback_listener(self._decay_callback_handle)
             self._decay_callback_handle = None
         if self.decay_enabled:
-            self._decay_callback_handle = self.create_and_add_callback_listener(Threshold(self._get_previous_level_bound(), operator.lt), self._callback_handler)
+            self._decay_callback_handle = self.create_and_add_callback_listener(Threshold(self._get_previous_level_bound(), operator.lt), self._callback_handler, should_seed=False)
         self._destory_callback_handle()
-        self._callback_handle = self.create_and_add_callback_listener(Threshold(self._get_next_level_bound(), operator.ge), self._callback_handler)
+        self._callback_handle = self.create_and_add_callback_listener(Threshold(self._get_next_level_bound(), operator.ge), self._callback_handler, should_seed=False)
 
     @classmethod
     def get_level_list(cls):

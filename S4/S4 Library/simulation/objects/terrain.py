@@ -1,7 +1,7 @@
 from _sims4_collections import frozendict
 from _weakrefset import WeakSet
 from weakref import WeakKeyDictionary
-from protocolbuffers import Consts_pb2, InteractionOps_pb2, DistributorOps_pb2
+from protocolbuffers import InteractionOps_pb2, DistributorOps_pb2
 from animation.posture_manifest_constants import STAND_OR_MOVING_STAND_POSTURE_MANIFEST
 from clock import ClockSpeedMode
 from distributor.ops import GenericProtocolBufferOp
@@ -15,7 +15,6 @@ from interactions.context import InteractionContext
 from objects.base_object import BaseObject
 from objects.components.state import TunableStateValueReference
 from objects.object_enums import PersistenceType
-from objects.pools import pool_utils
 from objects.proxy import ProxyObject
 from objects.script_object import ScriptObject
 from postures.posture_graph import supress_posture_graph_build
@@ -82,6 +81,17 @@ class TerrainInteractionMixin:
         return (None, None)
 
     @classmethod
+    def _get_level_of_target(cls, target, context):
+        if target is not None:
+            return target.level
+        if context.pick is not None:
+            return context.pick.level
+        if context.sim is not None:
+            return context.sim.level
+        logger.error('terrain._get_level_of_target() could not find a target with a level, returning 0')
+        return 0
+
+    @classmethod
     def _define_supported_postures(cls):
         supported_postures = super()._define_supported_postures()
         if supported_postures:
@@ -97,15 +107,15 @@ class TerrainInteractionMixin:
     @flexmethod
     def constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
         inst_or_cls = cls if inst is None else inst
-        for constraint in inst_or_cls._constraint_gen(sim, target, participant_type):
+        for constraint in inst_or_cls._constraint_gen(sim, target, participant_type=participant_type, interaction=inst):
             constraint = constraint.get_multi_surface_version()
             yield constraint
 
 class TerrainSuperInteraction(TerrainInteractionMixin, SuperInteraction):
     INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(one_shot=True, no_content=True, default='no_content')}
 
-    @classmethod
-    def _constraint_gen(cls, *args, **kwargs):
+    @flexmethod
+    def _constraint_gen(cls, inst, *args, **kwargs):
         for constraint in super()._constraint_gen(*args, **kwargs):
             yield constraint
         zone = services.current_zone()
@@ -499,6 +509,9 @@ class _LocationPoint(ProxyObject):
     def __repr__(self):
         return standard_repr(self, standard_float_tuple_repr(*self.position))
 
+    def __str__(self):
+        return '{}:{}'.format(self.__class__.__name__, standard_float_tuple_repr(*self.position))
+
     @property
     def location(self):
         return self._pick_location
@@ -522,6 +535,9 @@ class _LocationPoint(ProxyObject):
     @property
     def routing_surface(self):
         return self._pick_location.routing_surface
+
+    def is_routing_surface_overlapped_at_position(self, position):
+        return False
 
     @property
     def provided_routing_surface(self):

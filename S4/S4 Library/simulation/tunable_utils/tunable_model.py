@@ -21,7 +21,7 @@ class TunableModel(TunableSingletonFactory):
                 if original_definition is not None:
                     (result, error) = original_definition.is_similar(value.definition, ignore_rig_footprint=True)
                     if not result:
-                        logger.error("<{}>'s client state model swap requires a definition change {} which is incompatible with its own definition {}.\n {}".instance_class.__name__, value.definition, original_definition, error, owner='cjiang')
+                        logger.error("<{}>'s client state model swap requires a definition change {} which is incompatible with its own definition {}.\n {}", instance_class.__name__, value.definition, original_definition, error, owner='cjiang')
 
         FACTORY_TUNABLES = {'definition': TunableReference(description="\n                The model's definition. \n                ", manager=services.definition_manager()), 'apply_definition': Tunable(description='\n                If set, the definition is also swapped. Otherwise, only the\n                model is swapped.\n                ', tunable_type=bool, default=False), 'verify_tunable_callback': _verify_tunable_callback}
 

@@ -1,20 +1,20 @@
-# uncompyle6 version 3.3.5
+# uncompyle6 version 3.4.0
 # Python bytecode 3.7 (3394)
-# Decompiled from: Python 3.7.1 (v3.7.1:260ec2c36a, Oct 20 2018, 14:57:15) [MSC v.1915 64 bit (AMD64)]
+# Decompiled from: Python 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
 # Embedded file name: T:\InGame\Gameplay\Scripts\Server\event_testing\test_variants.py
-# Size of source mod 2**32: 237151 bytes
+# Size of source mod 2**32: 239646 bytes
 from aspirations.aspiration_types import AspriationType
 from bucks.bucks_enums import BucksType
 from build_buy import FloorFeatureType
 from crafting.photography_enums import PhotoStyleType
 from event_testing import TargetIdTypes
+from event_testing.resolver import RESOLVER_PARTICIPANT
 from event_testing.results import TestResult, TestResultNumeric
 from event_testing.test_events import TestEvent, cached_test
-from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingle, TargetType, ParticipantTypeSingleSim
+from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingle, TargetType, ParticipantTypeSingleSim, ParticipantTypeObject
 from objects import ALL_HIDDEN_REASONS
 from objects.components.portal_locking_enums import LockPriority, LockType
 from sims.household_utilities.utility_types import Utilities
-from sims.unlock_tracker import TunableUnlockVariant
 from sims4.math import Operator
 from sims4.tuning.tunable import TunableFactory, TunableEnumEntry, TunableSingletonFactory, Tunable, OptionalTunable, TunableList, TunableTuple, TunableThreshold, TunableSet, TunableReference, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, TunableInterval, TunableEnumFlags, TunableEnumSet, TunableRange, TunablePackSafeReference, TunableEnumWithFilter, TunableCasPart
 from sims4.utils import flexproperty
@@ -330,24 +330,35 @@ class DuringWorkHoursTest(event_testing.test_base.BaseTest):
        default=False), 
      'fail_if_taking_day_off_during_work':Tunable(description="\n            If checked, this test will fail if the Sim is taking\n            PTO/vacation/sick day during work hours and is_during_work is\n            checked. If not checked, this test won't care about whether or not\n            the Sim is taking the day off.\n            ",
        tunable_type=bool,
-       default=False)}
+       default=False), 
+     'career':OptionalTunable(description='\n            If tuned, this test will run against a specific career instead of \n            against any career.\n            ',
+       tunable=TunablePackSafeReference(description='\n                The specific career to test against.\n                ',
+       manager=(services.get_instance_manager(sims4.resources.Types.CAREER))))}
 
-    def __init__(self, subject, is_during_work, fail_if_taking_day_off_during_work, **kwargs):
+    def __init__(self, subject, is_during_work, fail_if_taking_day_off_during_work, career, **kwargs):
         (super().__init__)(**kwargs)
         self.subject = subject
         self.is_during_work = is_during_work
         self.fail_if_taking_day_off_during_work = fail_if_taking_day_off_during_work
+        self.career = career
 
     def get_expected_args(self):
-        return {'test_targets': self.subject}
+        return {'subjects': self.subject}
 
     @cached_test
-    def __call__(self, test_targets=None):
+    def __call__(self, subjects=()):
         is_work_time = False
         taking_day_off = False
-        for target in test_targets:
-            career = target.career_tracker.career_currently_within_hours
-            if career is not None:
+        for subject in subjects:
+            career_tracker = subject.career_tracker
+            if self.career is not None:
+                career = career_tracker.get_career_by_uid(self.career.guid64)
+                if not career_tracker.career_during_work_hours(career):
+                    continue
+                else:
+                    career = career_tracker.career_currently_within_hours
+                    if career is None:
+                        continue
                 is_work_time = True
                 taking_day_off = career.taking_day_off
                 break
@@ -357,9 +368,9 @@ class DuringWorkHoursTest(event_testing.test_base.BaseTest):
         if self.is_during_work:
             if not (self.fail_if_taking_day_off_during_work and taking_day_off):
                 return TestResult.TRUE
-            return TestResult(False, 'Current time is not within any active career work hours.', tooltip=(self.tooltip))
+            return TestResult(False, 'Current time is within career work hours.', tooltip=(self.tooltip))
         elif self.is_during_work:
-            return TestResult(False, 'Current time is within any active career work hours.', tooltip=(self.tooltip))
+            return TestResult(False, 'Current time is not within career work hours.', tooltip=(self.tooltip))
         else:
             return TestResult.TRUE
 
@@ -520,7 +531,9 @@ class CareerGigTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.t
     @cached_test
     def __call__(self, test_targets, **kwargs):
         if self.career is None:
-            return False
+            if self.negate:
+                return TestResult.TRUE
+            return TestResult(False, "No career is tuned or career isn't available ", tooltip=(self.tooltip))
         else:
             tested_career_uid = self.career.guid64
             for sim in test_targets:
@@ -543,34 +556,87 @@ class CareerGigTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.t
             return TestResult(False, 'No test targets', tooltip=(self.tooltip))
 
 
-class ValueContext(enum.Int):
-    NET_WORTH = 1
-    PROPERTY_ONLY = 2
-    TOTAL_CASH = 3
-    CURRENT_VALUE = 4
-    RETAIL_FUNDS = 5
-
-
 class SimoleonsTestEvents(enum.Int):
     AllSimoloenEvents = 0
     OnExitBuildBuy = TestEvent.OnExitBuildBuy
     SimoleonsEarned = TestEvent.SimoleonsEarned
 
 
+class _SimoleonTestValueContextBase(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            Who to examine for Simoleon values.\n            ',
+                  tunable_type=ParticipantTypeSingleSim,
+                  default=(ParticipantType.Actor),
+                  invalid_enums=(
+                 ParticipantTypeSingleSim.Invalid,))}
+
+    def test(self, resolver):
+        return TestResult.TRUE
+
+    def get_value(self, resolver):
+        subject = resolver.get_participant(self.subject)
+        return self._get_value(subject)
+
+    def _get_value(self, subject):
+        raise NotImplementedError
+
+
+class _SimoleonTestValueContextNetWorth(_SimoleonTestValueContextBase):
+
+    def _get_value(self, subject):
+        household = services.household_manager().get_by_sim_id(subject.sim_id)
+        return household.household_net_worth()
+
+
+class _SimoleonTestValueContextPropertyOnly(_SimoleonTestValueContextBase):
+
+    def _get_value(self, subject):
+        household = services.household_manager().get_by_sim_id(subject.sim_id)
+        return household.get_property_value()
+
+
+class _SimoleonTestValueContextTotalCash(_SimoleonTestValueContextBase):
+
+    def _get_value(self, subject):
+        household = services.household_manager().get_by_sim_id(subject.sim_id)
+        return household.funds.money
+
+
+class _SimoleonTestValueContextCurrentValue(_SimoleonTestValueContextBase):
+    FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            Who to examine for Simoleon values.\n            ',
+                  tunable_type=ParticipantTypeObject,
+                  default=(ParticipantType.Object))}
+
+    def _get_value(self, subject):
+        return getattr(subject, 'current_value', 0)
+
+
+class _SimoleonTestValueContextRetailFunds(_SimoleonTestValueContextBase):
+
+    def test(self, resolver):
+        sim = resolver.get_participant(self.subject)
+        if sim is None:
+            return TestResultNumeric(False, 'Subject {} could not be resolved in the SimoleonValueTest.', (self.subject), current_value=0, goal_value=0)
+        elif services.business_service().get_business_manager_for_zone():
+            return TestResult.TRUE
+        else:
+            return TestResultNumeric(False, "Current lot is either not a business lot or the Sim {} doesn't own it.", sim, current_value=0, goal_value=0)
+
+    def _get_value(self, _):
+        business_manager = services.business_service().get_business_manager_for_zone()
+        if business_manager:
+            return business_manager.funds.money
+        else:
+            return 0
+
+
 class SimoleonsTest(event_testing.test_base.BaseTest):
-
-    @staticmethod
-    def _verify_tunable_callback(instance_class, tunable_name, source, value):
-        if value.context == ValueContext.CURRENT_VALUE:
-            if value.subject != ParticipantType.Object:
-                pass
-        if value.subject != ParticipantType.CarriedObject:
-            logger.error('{} uses a CURRENT_VALUE for an invalid subject. Only Object and CarriedObject are supported.', instance_class,
-              owner='manus')
-
-    FACTORY_TUNABLES = {'description':'Tests a Simolean value against a threshold.', 
-     'subject':TunableEnumEntry(ParticipantType, ParticipantType.Actor, description='Who to examine for Simoleon values.'), 
-     'context':TunableEnumEntry(ValueContext, ValueContext.NET_WORTH, description='Value context to test.'), 
+    FACTORY_TUNABLES = {'value_context':TunableVariant(description='\n            The context against which to test the value.\n            ',
+       net_worth=_SimoleonTestValueContextNetWorth.TunableFactory(),
+       property_only=_SimoleonTestValueContextPropertyOnly.TunableFactory(),
+       total_cash=_SimoleonTestValueContextTotalCash.TunableFactory(),
+       current_value=_SimoleonTestValueContextCurrentValue.TunableFactory(),
+       retail_funds=_SimoleonTestValueContextRetailFunds.TunableFactory(),
+       default='net_worth'), 
      'is_apartment':OptionalTunable(description='\n                If checked, test will pass if the zone is an apartment. If\n                unchecked, test passes if the zone is NOT an apartment. Useful\n                 in aspiration tuning, to discriminate between property\n                types in tests of lot value. Allows "Own a House worth X" and\n                "Own an Apartment worth X"\n                ',
        disabled_name="Don't_Test",
        enabled_name='Is_or_is_not_apartment_zone',
@@ -581,16 +647,14 @@ class SimoleonsTest(event_testing.test_base.BaseTest):
        consider_penthouse_an_apartment=Tunable(description='\n                        If enabled, we will consider penthouses to be\n                        apartments when testing them against the apartment\n                        check.\n                        ',
        tunable_type=bool,
        default=True))), 
-     'value_threshold':TunableThreshold(description='Amounts in Simoleans required to pass'), 
+     'value_threshold':TunableThreshold(description='\n            Amounts in Simoleons required to pass\n            '), 
      'test_event':TunableEnumEntry(description='\n            The event that we want to trigger this instance of the tuned test on. NOTE: OnClientConnect is\n            still used as a trigger regardless of this choice in order to update the UI.\n            ',
        tunable_type=SimoleonsTestEvents,
-       default=SimoleonsTestEvents.AllSimoloenEvents), 
-     'verify_tunable_callback':_verify_tunable_callback}
+       default=SimoleonsTestEvents.AllSimoloenEvents)}
 
-    def __init__(self, subject, context, is_apartment, value_threshold, test_event, **kwargs):
+    def __init__(self, value_context, is_apartment, value_threshold, test_event, **kwargs):
         (super().__init__)(**kwargs)
-        self.subject = subject
-        self.context = context
+        self.value_context = value_context
         self.is_apartment = is_apartment
         self.value_threshold = value_threshold
         if test_event == SimoleonsTestEvents.AllSimoloenEvents:
@@ -600,72 +664,34 @@ class SimoleonsTest(event_testing.test_base.BaseTest):
             self.test_events = (test_event,)
 
     def get_expected_args(self):
-        return {'subjects': self.subject}
-
-    def _current_value(self, obj):
-        return getattr(obj, 'current_value', 0)
-
-    def _property_value(self, household):
-        value = 0
-        lot = services.active_lot()
-        if lot is not None:
-            if household.id != lot.owner_household_id:
-                return value
-            value = household.household_net_worth() - household.funds.money
-        return value
+        return {'resolver': RESOLVER_PARTICIPANT}
 
     @cached_test
-    def __call__(self, subjects):
-        value = 0
-        households = set()
+    def __call__(self, resolver):
         if self.is_apartment is not None:
             zone_id = services.current_zone_id()
-            return self.is_apartment.is_apartment != services.get_plex_service().is_zone_an_apartment(zone_id, consider_penthouse_an_apartment=(self.is_apartment.consider_penthouse_an_apartment)) and TestResult(False, 'Zone failed apartment test', tooltip=(self.tooltip))
-        else:
-            for subject in subjects:
-                if self.context == ValueContext.NET_WORTH:
-                    household = services.household_manager().get_by_sim_id(subject.sim_id)
-                    if household not in households:
-                        households.add(household)
-                        value += household.funds.money
-                        value += self._property_value(household)
-                elif self.context == ValueContext.PROPERTY_ONLY:
-                    household = services.household_manager().get_by_sim_id(subject.sim_id)
-                    if household not in households:
-                        households.add(household)
-                        value += self._property_value(household)
-                else:
-                    household = self.context == ValueContext.TOTAL_CASH and services.household_manager().get_by_sim_id(subject.sim_id)
-                    if household not in households:
-                        households.add(household)
-                        value += household.funds.money
-                    elif self.context == ValueContext.CURRENT_VALUE:
-                        value += self._current_value(subject)
-                    elif self.context == ValueContext.RETAIL_FUNDS:
-                        household = services.household_manager().get_by_sim_id(subject.sim_id)
-                        if household not in households:
-                            households.add(household)
-                            zone_retail_manager = services.business_service().get_business_manager_for_zone(services.current_zone_id())
-                            if zone_retail_manager is None:
-                                return TestResultNumeric(False, 'Household {} does not own the active retail lot.', household, current_value=value, goal_value=(self.value_threshold.value), tooltip=(self.tooltip))
-                            value += zone_retail_manager.funds.money
-
-            if not self.value_threshold.compare(value):
-                operator_symbol = Operator.from_function(self.value_threshold.comparison).symbol
-                return TestResultNumeric(False,
-                  '{} failed value check: {} {} {} (current value: {})',
-                  subjects,
-                  (self.context),
-                  operator_symbol,
-                  (self.value_threshold.value),
-                  value,
-                  current_value=value,
-                  goal_value=(self.value_threshold.value),
-                  is_money=True,
-                  tooltip=(self.tooltip))
-            return TestResultNumeric(True, current_value=value,
+            is_zone_apartment = services.get_plex_service().is_zone_an_apartment(zone_id, consider_penthouse_an_apartment=(self.is_apartment.consider_penthouse_an_apartment))
+            return self.is_apartment.is_apartment != is_zone_apartment and TestResult(False, 'Zone failed apartment test', tooltip=(self.tooltip))
+        test_result = self.value_context.test(resolver)
+        if not test_result:
+            test_result.goal_value = self.value_threshold.value
+            test_result.tooltip = self.tooltip
+            return test_result
+        value = self.value_context.get_value(resolver)
+        if not self.value_threshold.compare(value):
+            operator_symbol = Operator.from_function(self.value_threshold.comparison).symbol
+            return TestResultNumeric(False,
+              'Failed value check: {} {} {} (current value: {})',
+              (self.value_context),
+              operator_symbol,
+              (self.value_threshold.value),
+              value,
+              current_value=value,
               goal_value=(self.value_threshold.value),
-              is_money=True)
+              is_money=True,
+              tooltip=(self.tooltip))
+        else:
+            return TestResultNumeric(True, current_value=value, goal_value=(self.value_threshold.value), is_money=True)
 
     def goal_value(self):
         return self.value_threshold.value
@@ -1369,25 +1395,30 @@ TunableSituationInJoinableStateTest = TunableSingletonFactory.create_auto_factor
 class SituationCountTest(event_testing.test_base.BaseTest):
     FACTORY_TUNABLES = {'situation':TunablePackSafeReference(description='\n            A reference to the type of situation to test.\n            ',
        manager=services.situation_manager()), 
+     'additional_situations':TunableList(description='\n            References to additional situations to test.\n            ',
+       tunable=TunableReference(manager=(services.situation_manager()),
+       pack_safe=True)), 
      'test':TunableThreshold(description='\n            A Threshold test that specifies the allowed values for the count\n            of the tuned situation.\n            ')}
 
-    def __init__(self, situation, test, **kwargs):
+    def __init__(self, situation, additional_situations, test, **kwargs):
         (super().__init__)(**kwargs)
-        self._situation = situation
+        self._situations = additional_situations
+        if situation is not None:
+            self._situations = self._situations + (situation,)
         self._test = test
 
     def get_expected_args(self):
         return {}
 
     def __call__(self):
-        if self._situation is None:
-            return TestResult(False, 'Tuned Situation not loaded and therefore the test fails.')
+        if not self._situations:
+            return TestResult(False, 'There are no tuned situations loaded, so fail.')
         situation_manager = services.get_zone_situation_manager()
-        situations = [situation for situation in situation_manager.get_all() if type(situation) is self._situation]
+        situations = [situation for situation in situation_manager.get_all() if type(situation) in self._situations]
         if self._test.compare(len(situations)):
             return TestResult.TRUE
         else:
-            return TestResult(False, 'Not enough situations of the type in the zone.', tooltip=(self.tooltip))
+            return TestResult(False, 'Not enough situations of the tuned types in the zone.', tooltip=(self.tooltip))
 
 
 TunableSituationCountTest = TunableSingletonFactory.create_auto_factory(SituationCountTest)
@@ -1952,8 +1983,8 @@ class TestAspirationUnlock(HasTunableSingletonFactory, AutoFactoryInit):
                       tooltip=tooltip)
                 if self.check_complete_only_in_sequence is not None:
                     pass
-            if unlocked.complete_only_in_sequence != self.check_complete_only_in_sequence:
-                return TestResult(False, 'UnlockedTest: aspiration object {} does not have complete only in sequence equal to {}.',
+            if unlocked.do_not_register_events_on_load != self.check_complete_only_in_sequence:
+                return TestResult(False, 'UnlockedTest: aspiration object {} does not have do_not_register_events_on_load equal to {}.',
                   unlocked,
                   (self.check_complete_only_in_sequence),
                   tooltip=tooltip)
@@ -2432,142 +2463,8 @@ class CareerTimeUntilWorkTestFactory(SpecifiedCareerMixin, HasTunableSingletonFa
     def tuned_career(self):
         return self.career
 
-    def do_test--- This code section failed: ---
-
-3614       0  SETUP_LOOP          198  'to 198'
-           2  LOAD_FAST                'subjects'
-           4  GET_ITER         
-           6  FOR_ITER            196  'to 196'
-           8  STORE_FAST               'subject'
-
-3615      10  LOAD_FAST                'subject'
-          12  LOAD_ATTR                careers
-          14  LOAD_METHOD              get
-          16  LOAD_FAST                'career_id'
-          18  CALL_METHOD_1         1  ''
-          20  STORE_FAST               'this_career'
-
-3616      22  LOAD_FAST                'this_career'
-          24  LOAD_CONST               None
-          26  COMPARE_OP               is
-          28  POP_JUMP_IF_FALSE    50  'to 50'
-
-3617      30  LOAD_GLOBAL              TestResult
-          32  LOAD_CONST               False
-          34  LOAD_STR                 '{0} does not have the career needed for this interaction: {1}:{2}'
-          36  LOAD_FAST                'subject'
-          38  LOAD_FAST                'self'
-          40  LOAD_ATTR                career
-          42  LOAD_FAST                'self'
-          44  LOAD_ATTR                hours_till_work
-          46  CALL_FUNCTION_5       5  ''
-          48  RETURN_END_IF    
-        50_0  COME_FROM            28  '28'
-
-3618      50  LOAD_CONST               None
-          52  STORE_FAST               'hours'
-
-3619      54  LOAD_FAST                'this_career'
-          56  LOAD_ATTR                is_work_time
-          58  POP_JUMP_IF_FALSE   100  'to 100'
-
-3620      60  LOAD_FAST                'this_career'
-          62  LOAD_ATTR                start_time
-          64  LOAD_GLOBAL              services
-          66  LOAD_METHOD              time_service
-          68  CALL_METHOD_0         0  ''
-          70  LOAD_ATTR                sim_now
-          72  BINARY_SUBTRACT  
-          74  STORE_FAST               'elapsed'
-
-3621      76  LOAD_FAST                'elapsed'
-          78  LOAD_METHOD              in_hours
-          80  CALL_METHOD_0         0  ''
-          82  STORE_FAST               'hours'
-
-3622      84  LOAD_FAST                'hours'
-          86  LOAD_FAST                'self'
-          88  LOAD_ATTR                hours_till_work
-          90  LOAD_ATTR                lower_bound
-          92  COMPARE_OP               <
-          94  POP_JUMP_IF_FALSE   100  'to 100'
-
-3623      96  LOAD_CONST               None
-          98  STORE_FAST               'hours'
-       100_0  COME_FROM            94  '94'
-       100_1  COME_FROM            58  '58'
-
-3624     100  LOAD_FAST                'hours'
-         102  LOAD_CONST               None
-         104  COMPARE_OP               is
-         106  POP_JUMP_IF_FALSE   130  'to 130'
-
-3625     108  LOAD_FAST                'this_career'
-         110  LOAD_METHOD              get_next_work_time
-         112  CALL_METHOD_0         0  ''
-         114  UNPACK_SEQUENCE_3     3 
-         116  STORE_FAST               'time_span'
-         118  STORE_FAST               '_'
-         120  STORE_FAST               '_'
-
-3626     122  LOAD_FAST                'time_span'
-         124  LOAD_METHOD              in_hours
-         126  CALL_METHOD_0         0  ''
-         128  STORE_FAST               'hours'
-       130_0  COME_FROM           106  '106'
-
-3627     130  LOAD_FAST                'self'
-         132  LOAD_ATTR                hours_till_work
-         134  LOAD_ATTR                lower_bound
-         136  LOAD_FAST                'hours'
-         138  DUP_TOP          
-         140  ROT_THREE        
-         142  COMPARE_OP               <=
-         144  POP_JUMP_IF_FALSE   158  'to 158'
-         146  LOAD_FAST                'self'
-         148  LOAD_ATTR                hours_till_work
-         150  LOAD_ATTR                upper_bound
-         152  COMPARE_OP               <=
-         154  POP_JUMP_IF_FALSE   164  'to 164'
-         156  JUMP_BACK             6  'to 6'
-         158  POP_TOP          
-         160  JUMP_FORWARD        164  'to 164'
-
-3628     162  CONTINUE              6  'to 6'
-       164_0  COME_FROM           160  '160'
-       164_1  COME_FROM           154  '154'
-
-3629     164  LOAD_GLOBAL              TestResultNumeric
-         166  LOAD_CONST               False
-         168  LOAD_STR                 '{0} does not currently have the correct hours till work in career ({1},{2}) required to pass this test'
-
-3630     170  LOAD_FAST                'subject'
-         172  LOAD_FAST                'this_career'
-         174  LOAD_FAST                'self'
-         176  LOAD_ATTR                hours_till_work
-
-3631     178  LOAD_FAST                'hours'
-
-3632     180  LOAD_FAST                'self'
-         182  LOAD_ATTR                hours_till_work
-         184  LOAD_ATTR                lower_bound
-
-3633     186  LOAD_CONST               False
-
-3634     188  LOAD_FAST                'tooltip'
-         190  LOAD_CONST               ('current_value', 'goal_value', 'is_money', 'tooltip')
-         192  CALL_FUNCTION_KW_9     9  ''
-         194  RETURN_VALUE     
-         196  POP_BLOCK        
-       198_0  COME_FROM_LOOP        0  '0'
-
-3636     198  LOAD_GLOBAL              TestResult
-         200  LOAD_ATTR                TRUE
-         202  RETURN_VALUE     
-          -1  RETURN_LAST      
-
-Parse error at or near `JUMP_BACK' instruction at offset 156
-
+    def do_test(self, subjects, career_id, tooltip):
+        pass
 
 class CareerPTOAmountTestFactory(SpecifiedCareerMixin, HasTunableSingletonFactory, AutoFactoryInit):
     UNIQUE_TARGET_TRACKING_AVAILABLE = True
@@ -2586,7 +2483,7 @@ class CareerPTOAmountTestFactory(SpecifiedCareerMixin, HasTunableSingletonFactor
             if this_career is None:
                 return TestResult(False, '{0} does not have the career needed for this interaction: {1}:{2}', subject, self.career, self.required_pto_available)
             else:
-                pto_available = this_career.pto_commodity_instance.get_value()
+                pto_available = this_career.pto
                 if self.required_pto_available.compare(pto_available):
                     continue
                 return TestResultNumeric(False, '{0} does not currently have the correct amount of PTO in career ({1},{2}) required to pass this test', subject,
@@ -2666,6 +2563,9 @@ class CareerReferenceTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
        disabled_value=DEFAULT,
        disabled_name='all_careers',
        enabled_name='specific_career'), 
+     'blacklist':TunableSet(description="\n           Set of blacklist careers that won't be valid to test.\n           ",
+       tunable=TunableReference(manager=(services.get_instance_manager(sims4.resources.Types.CAREER)),
+       pack_safe=True)), 
      'user_level':OptionalTunable(TunableInterval(description='\n           Threshold test for the current user value of a career. If user_level\n           is set without career then it will pass if any of their careers \n           pass the threshold test. If set along with career then it will only\n           pass if the specified career passes the threshold test for user \n           level. \n           \n           The min and max for the user level are inclusive. So the Sim\n           can have any career level that meets the following equation and it\n           will pass.\n           \n           min <= current career level <= max.\n           ',
        tunable_type=int,
        default_lower=1,
@@ -2691,7 +2591,9 @@ class CareerReferenceTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
                 if self.career is DEFAULT or isinstance(this_career, self.career):
                     pass
                 if this_career.is_visible_career or self.allow_invisible_careers:
-                    if self.user_level:
+                    if type(this_career) in self.blacklist:
+                        pass
+                    elif self.user_level:
                         if not (this_career.user_level >= self.user_level.lower_bound and this_career.user_level <= self.user_level.upper_bound):
                             current_value = this_career.user_level
                             continue
@@ -2888,6 +2790,34 @@ class CareerCommonTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
         return 1
 
 
+class CareerIsElectiveCourseTest(SpecifiedCareerMixin, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'career': TunablePackSafeReference(description='\n            The career slot to test for associated elective course data on the \n            subjects. \n            ',
+                 manager=(services.get_instance_manager(sims4.resources.Types.CAREER)),
+                 class_restrictions='UniversityCourseCareerSlot')}
+
+    @property
+    def tuned_career(self):
+        return self.career
+
+    def do_test(self, subjects, career_id, tooltip):
+        for subject in subjects:
+            this_career = subject.careers.get(career_id)
+            if this_career is None:
+                return TestResult(False, '{0} does not have the career needed for this interaction: {1}', subject, self.career)
+            if self.career is None:
+                return TestResult(False, "{0}'s career {1} is None, probably due to packsafeness.", subject, (self.career), tooltip=tooltip)
+            degree_tracker = subject.degree_tracker
+            if degree_tracker is None:
+                return TestResult(False, '{} has no degree tracker.', subject, tooltip=tooltip)
+            course_data = degree_tracker.get_course_data(self.career.guid64)
+            if course_data is None:
+                return TestResult(False, '{0} has course data associated with the specified career {1}.', subject, (self.career), tooltip=tooltip)
+            if not course_data.is_elective:
+                return TestResult(False, "{0}'s career {1} is not an elective.", subject, (self.career), tooltip=tooltip)
+
+        return TestResult.TRUE
+
+
 class TunableCareerTestVariant(TunableVariant):
 
     def __init__(self, test_excluded={}, **kwargs):
@@ -2907,6 +2837,7 @@ class TunableCareerTestVariant(TunableVariant):
          'pto_amount':CareerPTOAmountTestFactory.TunableFactory(), 
          'time_off':CareerTimeOffTest.TunableFactory(), 
          'highest_level_achieved':CareerHighestLevelAchievedTest.TunableFactory(), 
+         'is_elective_course':CareerIsElectiveCourseTest.TunableFactory(), 
          'default':'career_reference'}
         for key in test_excluded:
             del tunables[key]
@@ -3023,50 +2954,6 @@ class RequiresVisitationRightsTest(HasTunableSingletonFactory, AutoFactoryInit, 
                 return TestResult(False, "The current lot's venue type doesn't require visitation rights.",
                   tooltip=(self.tooltip))
             return TestResult(False, "The current lot's venue type requires visitation rights.",
-              tooltip=(self.tooltip))
-        else:
-            return TestResult.TRUE
-
-
-class UnlockTrackerTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
-
-    @TunableFactory.factory_option
-    def participant_type_override(participant_type_enum, participant_type_default):
-        return {'subject': TunableEnumEntry(description='\n                    Who or what to apply this test to\n                    ',
-                      tunable_type=participant_type_enum,
-                      default=participant_type_default)}
-
-    FACTORY_TUNABLES = {'subject':TunableEnumEntry(description='\n            Who or what to apply this test to\n            ',
-       tunable_type=ParticipantType,
-       default=ParticipantType.Actor), 
-     'unlock_item':TunableUnlockVariant(description='\n            The unlock item that Sim has or not.\n            '), 
-     'invert':Tunable(description='\n            If checked, test will pass if any subject does NOT have the unlock.\n            ',
-       tunable_type=bool,
-       default=False)}
-
-    def get_expected_args(self):
-        return {'test_targets': self.subject}
-
-    @cached_test
-    def __call__(self, test_targets=()):
-        for target in test_targets:
-            if not target.is_sim:
-                return TestResult(False, 'Cannot test unlock on none_sim object {} as subject {}.',
-                  target,
-                  (self.subject),
-                  tooltip=(self.tooltip))
-            if not (target.unlock_tracker is None or target.unlock_tracker.is_unlocked(self.unlock_item)):
-                if self.invert:
-                    return TestResult.TRUE
-                else:
-                    return TestResult(False, "Sim {} hasn't unlock {}.",
-                      target,
-                      (self.unlock_item),
-                      tooltip=(self.tooltip))
-
-        if self.invert:
-            return TestResult(False, 'No subjects have {} locked',
-              (self.unlock_item),
               tooltip=(self.tooltip))
         else:
             return TestResult.TRUE
@@ -3265,7 +3152,10 @@ class PortalLockedTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
        default=ParticipantType.Object,
        invalid_enums=(
       ParticipantType.Invalid,)), 
-     'negate':Tunable(description='\n            If checked, the test will pass if there is no lock on the door\n            (test_lock_exist selected) or the door is not locking sim\n            (test_lock_sim selected).\n            ',
+     'require_locking_component':Tunable(description='\n            If checked, every object targeted by the test must have a locking\n            component. If unchecked, the test can continue without requiring\n            every object to have a locking component.\n            ',
+       tunable_type=bool,
+       default=True), 
+     'negate':Tunable(description='\n            If checked, the test will pass if there is no lock on the object\n            (test_lock_exist selected) or the object is not locked to sim\n            (test_lock_sim selected).\n            ',
        tunable_type=bool,
        default=False)}
 
@@ -3282,8 +3172,10 @@ class PortalLockedTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
         else:
             lock_exist = False
             for obj in target_list:
-                if not obj.has_component(objects.components.types.PORTAL_LOCKING_COMPONENT):
-                    return TestResult(False, ('{} is not portal.'.format(obj)), tooltip=(self.tooltip))
+                if not obj.has_locking_component():
+                    if not self.require_locking_component:
+                        continue
+                    return TestResult(False, ('{} does not have a locking component.'.format(obj)), tooltip=(self.tooltip))
                 if sims_to_test is None:
                     if obj.has_lock_data(lock_priority=(self.test_data.lock_priority)):
                         lock_exist = True
@@ -3293,17 +3185,17 @@ class PortalLockedTest(HasTunableSingletonFactory, AutoFactoryInit, event_testin
                                 return TestResult(False, ('{} is not a sim for subject {}'.format(sim_info, self.subject)), tooltip=(self.tooltip))
                             sim = sim_info.get_sim_instance()
                             if sim is None:
-                                return TestResult(False, ('{} is not instanced..'.format(sim_info)), tooltip=(self.tooltip))
+                                return TestResult(False, ('{} is not instanced.'.format(sim_info)), tooltip=(self.tooltip))
                             if obj.test_lock(sim):
                                 lock_exist = True
 
             if lock_exist:
                 if self.negate:
-                    return TestResult(False, ('Door {} has lock, will not pass test with negate {}'.format(target_list[0], self.negate)), tooltip=(self.tooltip))
+                    return TestResult(False, ('Object {} has lock, will not pass test with negate {}'.format(target_list[0], self.negate)), tooltip=(self.tooltip))
                 if not lock_exist:
                     pass
             if not self.negate:
-                return TestResult(False, ("Door {} doesn't have lock, will not pass test with negate {}".format(target_list[0], self.negate)), tooltip=(self.tooltip))
+                return TestResult(False, ("Object {} doesn't have lock, will not pass test with negate {}".format(target_list[0], self.negate)), tooltip=(self.tooltip))
             return TestResult.TRUE
 
 

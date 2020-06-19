@@ -159,16 +159,19 @@ class ObjectLostAndFoundService(Service):
                     elapsed_time = services.time_service().sim_now - locator.time_stamp
                     if elapsed_time.in_minutes() < locator.time_before_lost:
                         continue
-                    (obj_returned, owner) = self._return_lost_object(locator)
-                    if obj_returned is not None:
-                        if owner is not None:
-                            if isinstance(owner, int):
-                                if owner == active_household.id:
-                                    returned_objects[owner].append(obj_returned)
-                                    if owner.household is active_household:
+                    if locator.object_data is None:
+                        self.remove_object(locator.object_id)
+                    else:
+                        (obj_returned, owner) = self._return_lost_object(locator)
+                        if obj_returned is not None:
+                            if owner is not None:
+                                if isinstance(owner, int):
+                                    if owner == active_household.id:
                                         returned_objects[owner].append(obj_returned)
-                            elif owner.household is active_household:
-                                returned_objects[owner].append(obj_returned)
+                                        if owner.household is active_household:
+                                            returned_objects[owner].append(obj_returned)
+                                elif owner.household is active_household:
+                                    returned_objects[owner].append(obj_returned)
         if not returned_objects:
             return
         returned_objects_string = None

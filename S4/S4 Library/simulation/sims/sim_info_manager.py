@@ -200,12 +200,6 @@ class SimInfoManager(DistributableObjectManager):
                 instanced_sim.enable_baby_state()
             if relgraph_initializable:
                 sim_info.push_to_relgraph()
-        services.get_event_manager().register_events_for_update()
-        client.refresh_achievement_data()
-        for sim_info in client.selectable_sims:
-            if sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
-                sim_info.start_aspiration_tracker_on_instantiation()
-        services.get_event_manager().unregister_unused_handlers()
         if not game_services.service_manager.is_traveling:
             with genealogy_caching():
                 self.set_default_genealogy()
@@ -420,9 +414,31 @@ class SimInfoManager(DistributableObjectManager):
                 if sim_info.get_current_outfit()[0] == OutfitCategory.BATHING:
                     sim_info.set_current_outfit((OutfitCategory.EVERYDAY, 0))
 
+    def drive_vehicles_on_travel(self):
+        object_manager = services.object_manager()
+        for traveled_sim_id in self._sims_traveled_to_zone:
+            sim_info = self.get(traveled_sim_id)
+            vehicle_id = sim_info._vehicle_id
+            sim_info._vehicle_id = None
+            if vehicle_id is None:
+                continue
+            sim = sim_info.get_sim_instance()
+            if sim is None:
+                continue
+            vehicle = object_manager.get(vehicle_id)
+            if vehicle is None:
+                logger.error('{} traveled on a vehicle, but it does not exist.', sim, owner='rmccord')
+            else:
+                parented_vehicle = sim.parented_vehicle
+                if parented_vehicle is not None:
+                    continue
+                sim.set_allow_route_instantly_when_hitting_marks(True)
+                vehicle.vehicle_component.push_drive_affordance(sim)
+
     def run_preroll_autonomy(self):
         self._run_startup_interactions(self._run_preroll_autonomy)
         self.verify_travel_sims_outfits()
+        self.drive_vehicles_on_travel()
 
     def push_sims_to_go_home(self):
         go_home_affordance = ui_tuning.UiTuning.GO_HOME_INTERACTION
@@ -439,9 +455,9 @@ class SimInfoManager(DistributableObjectManager):
                     else:
                         logger.warn('Failed to push sim to go home from open street: {}', sim_info, owner='msantander')
 
-    def set_aging_enabled_on_all_sims(self, is_aging_enabled_for_sim_info_fn):
+    def set_aging_enabled_on_all_sims(self, is_aging_enabled_for_sim_info_fn, update_callbacks=True):
         for sim_info in self.objects:
-            sim_info.set_aging_enabled(is_aging_enabled_for_sim_info_fn(sim_info))
+            sim_info.set_aging_enabled(is_aging_enabled_for_sim_info_fn(sim_info), update_callbacks=update_callbacks)
 
     def set_aging_speed_on_all_sims(self, speed):
         for sim_info in self.objects:

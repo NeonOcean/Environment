@@ -1,19 +1,23 @@
 from weakref import WeakSet
 from element_utils import soft_sleep_forever
+from event_testing.resolver import SingleObjectResolver
+from interactions import ParticipantType
 from interactions.priority import PriorityExtended
+from interactions.privacy import PrivacyViolators
 from interactions.utils.loot import LootActions, LootOperationList
 from objects.components import Component, types, componentmethod
 from objects.components.utils.footprint_toggle_mixin import FootprintToggleMixin
+from objects.object_enums import ObjectRoutingBehaviorTrackingCategory
 from routing.object_routing.object_routing_behavior import ObjectRoutingBehavior
 from sims.master_controller import WorkRequest
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableMapping, TunableReference, OptionalTunable, TunableTuple, TunableList
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableMapping, TunableReference, OptionalTunable, TunableTuple, TunableList, TunableEnumEntry
+from sims4.utils import flexmethod
 from singletons import UNSET
 import services
 import sims4.resources
-from event_testing.resolver import SingleObjectResolver
 
 class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory, AutoFactoryInit, component_name=types.OBJECT_ROUTING_COMPONENT):
-    FACTORY_TUNABLES = {'routing_behavior_map': TunableMapping(description='\n            A mapping of states to behavior. When the object enters a state, its\n            corresponding routing behavior is started.\n            ', key_type=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'), value_type=OptionalTunable(tunable=ObjectRoutingBehavior.TunableReference(), enabled_by_default=True, enabled_name='Start_Behavior', disabled_name='Stop_All_Behavior', disabled_value=UNSET)), 'privacy_rules': OptionalTunable(description='\n            If enabled, this object will care about privacy regions.\n            ', tunable=TunableTuple(description='\n                Privacy rules for this object.\n                ', on_enter=TunableTuple(description='\n                    Tuning for when this object is considered a violator of\n                    privacy.\n                    ', loot_list=TunableList(description='\n                        A list of loot operations to apply when the object\n                        enters a privacy region.\n                        ', tunable=LootActions.TunableReference(pack_safe=True)))))}
+    FACTORY_TUNABLES = {'routing_behavior_map': TunableMapping(description='\n            A mapping of states to behavior. When the object enters a state, its\n            corresponding routing behavior is started.\n            ', key_type=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'), value_type=OptionalTunable(tunable=ObjectRoutingBehavior.TunableReference(), enabled_by_default=True, enabled_name='Start_Behavior', disabled_name='Stop_All_Behavior', disabled_value=UNSET)), 'privacy_rules': OptionalTunable(description='\n            If enabled, this object will care about privacy regions.\n            ', tunable=TunableTuple(description='\n                Privacy rules for this object.\n                ', on_enter=TunableTuple(description='\n                    Tuning for when this object is considered a violator of\n                    privacy.\n                    ', loot_list=TunableList(description='\n                        A list of loot operations to apply when the object\n                        enters a privacy region.\n                        ', tunable=LootActions.TunableReference(pack_safe=True))))), 'tracking_category': TunableEnumEntry(description='\n            Used to classify routing objects for the purpose of putting them\n            into buckets for the object routing service to restrict the number\n            of simultaneously-active objects.\n            ', tunable_type=ObjectRoutingBehaviorTrackingCategory, default=ObjectRoutingBehaviorTrackingCategory.NONE)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -84,6 +88,8 @@ class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory,
         if not self.privacy_rules:
             return
         for privacy in services.privacy_service().privacy_instances:
+            if not privacy.privacy_violators & PrivacyViolators.VEHICLES:
+                continue
             new_violation = privacy not in self._privacy_violations
             violates_privacy = self.violates_privacy(privacy)
             if new_violation:
@@ -104,7 +110,7 @@ class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory,
         if routing_behavior_type is UNSET:
             return
         routing_behavior = routing_behavior_type(self.owner)
-        self._running_behavior = routing_behavior
+        self._set_running_behavior(routing_behavior)
         self._cancel_idle_behavior()
 
     def on_location_changed(self, old_location):
@@ -116,12 +122,13 @@ class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory,
         if self._running_behavior is not None:
             self._pending_running_behavior = type(self._running_behavior)
             self._running_behavior.trigger_hard_stop()
-            self._running_behavior = None
+            self._set_running_behavior(None)
         services.get_master_controller().on_reset_sim(self.owner, reset_reason)
 
     def post_component_reset(self):
         if self._pending_running_behavior is not None:
-            self._running_behavior = self._pending_running_behavior(self.owner)
+            routing_behavior = self._pending_running_behavior(self.owner)
+            self._set_running_behavior(routing_behavior)
             self._pending_running_behavior = None
             self._cancel_idle_behavior()
 
@@ -129,6 +136,18 @@ class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory,
         if self._idle_element is not None:
             self._idle_element.trigger_soft_stop()
             self._idle_element = None
+
+    def _set_running_behavior(self, new_behavior):
+        if new_behavior == self._running_behavior:
+            return
+        self._running_behavior = new_behavior
+        if self.tracking_category and self.tracking_category is not ObjectRoutingBehaviorTrackingCategory.NONE:
+            routing_service = services.get_object_routing_service()
+            if routing_service:
+                if new_behavior:
+                    routing_service.on_routing_start(self.owner, self.tracking_category, new_behavior)
+                else:
+                    routing_service.on_routing_stop(self.owner, self.tracking_category)
 
     @componentmethod
     def get_idle_element(self):
@@ -157,9 +176,27 @@ class ObjectRoutingComponent(FootprintToggleMixin, Component, HasTunableFactory,
         self._stop_runnning_behavior()
         if routing_behavior_type is not None:
             routing_behavior = routing_behavior_type(self.owner)
-            self._running_behavior = routing_behavior
+            self._set_running_behavior(routing_behavior)
 
     def _stop_runnning_behavior(self):
         if self._running_behavior is not None:
             self._running_behavior.trigger_soft_stop()
-            self._running_behavior = None
+            self._set_running_behavior(None)
+
+    @componentmethod
+    def get_participant(self, participant_type=ParticipantType.Actor, **kwargs):
+        participants = self.get_participants(participant_type=participant_type, **kwargs)
+        if not participants:
+            return
+        if len(participants) > 1:
+            raise ValueError('Too many participants returned for {}!'.format(participant_type))
+        return next(iter(participants))
+
+    @componentmethod
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type is ParticipantType.Actor:
+            obj = self._running_behavior._obj if self._running_behavior else None
+            return (obj,)
+        elif participant_type is ParticipantType.Object:
+            target = self._running_behavior.get_target() if self._running_behavior else None
+            return (target,)

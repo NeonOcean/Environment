@@ -2,8 +2,8 @@ from event_testing.results import TestResult, TestResultNumeric
 from event_testing.test_events import TestEvent, cached_test
 from interactions import ParticipantType
 from objects import ALL_HIDDEN_REASONS
-from sims4.tuning.tunable import TunableFactory, TunableEnumEntry, TunableThreshold, Tunable, HasTunableSingletonFactory, AutoFactoryInit, TunableInterval, TunableVariant, OptionalTunable, TunableReference
-from statistics.skill import Skill
+from sims4.tuning.tunable import TunableFactory, TunableEnumEntry, TunableThreshold, Tunable, HasTunableSingletonFactory, AutoFactoryInit, TunableInterval, TunableVariant, OptionalTunable, TunableReference, TunablePackSafeReference
+from statistics.skill import Skill, _CareerSkillLootData
 import event_testing.test_base
 import services
 import sims4
@@ -145,6 +145,31 @@ class SkillRangeTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.
                 return TestResult(False, 'skill level not in desired range.', tooltip=self.tooltip)
             return TestResult.TRUE
         return TestResult(False, 'Sim does not have required skill.', tooltip=self.tooltip)
+
+class SkillDynamicallyReferencedTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
+    FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            The subject of this test.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'referenced_skill': TunableVariant(description='\n            Where to obtain the skill to test against. \n            \n            Should the Sim not have the specified skill, or should the skill not\n            be available because of pack restrictions, this Sim will be\n            considered at level 0.\n            ', from_career=_CareerSkillLootData.TunableFactory(), default='from_career'), 'skill_range': TunableVariant(description='\n            A skill range defined by either an interval or a threshold.\n            ', interval=SkillInterval.TunableFactory(), threshold=SkillThreshold.TunableFactory(), default='interval'), 'use_effective_skill_level': Tunable(description="\n            If checked, then instead of using the skill's actual level, the test\n            will use the skill's effective level for the purpose of satisfying\n            the specified criteria.\n            ", tunable_type=bool, needs_tuning=True, default=False)}
+    __slots__ = ('subject', 'referenced_skill', 'skill_range', 'use_effective_skill_level')
+
+    def get_expected_args(self):
+        return {'test_targets': self.subject}
+
+    @cached_test
+    def __call__(self, test_targets=()):
+        target = next(iter(test_targets), None)
+        if target is None:
+            return TestResult(False, 'Target is None.', tooltip=self.tooltip)
+        referenced_skill = self.referenced_skill(target)
+        if referenced_skill is None:
+            skill_value = 0
+        else:
+            skill_or_skill_type = target.get_statistic(referenced_skill, add=False) or referenced_skill
+            if self.use_effective_skill_level and target.is_instanced():
+                skill_value = target.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS).get_effective_skill_level(skill_or_skill_type)
+            else:
+                skill_value = skill_or_skill_type.get_user_value()
+        if not self.skill_range(skill_value):
+            return TestResult(False, 'Skill {} level not in desired range.', referenced_skill, tooltip=self.tooltip)
+        return TestResult.TRUE
 
 class SkillAllUnlockedMaxedOut(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
     FACTORY_TUNABLES = {'subject': TunableEnumEntry(description='\n            The subject of this test.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'negate': Tunable(description='\n        If this is true then it will negate the result of the test type. That \n        means the test will return true if there is at least one unlocked skill \n        that is not maxed out and false if all unlocked skills are maxed out.\n        ', tunable_type=bool, default=False)}

@@ -30,3 +30,6 @@ def unhash_with_fallback(value, fallback_pattern=DEFAULT, table_type:int=None):
         else:
             fallback_pattern = '{:#018x}'
     return fallback_pattern.format(value)
+
+def obj_str_hash(obj):
+    return hash(str(obj))

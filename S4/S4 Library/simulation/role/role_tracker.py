@@ -79,6 +79,6 @@ class RoleStateTracker:
 
     def get_autonomy_state(self):
         for role_state in self.active_role_states:
-            if role_state.only_allow_sub_action_autonomy:
-                return autonomy.settings.AutonomyState.LIMITED_ONLY
+            if role_state.autonomy_state_override:
+                return role_state.autonomy_state_override
         return autonomy.settings.AutonomyState.UNDEFINED

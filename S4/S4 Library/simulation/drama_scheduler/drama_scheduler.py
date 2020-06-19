@@ -80,13 +80,19 @@ class DramaScheduleService(Service):
         yield from self._scheduled_nodes.values()
 
     def start_cooldown(self, drama_node):
-        if drama_node.cooldown == 0:
-            return
         if drama_node.put_on_permanent_cooldown:
             self._drama_nodes_on_permanent_cooldown.add(drama_node.guid64)
             return
+        if drama_node.cooldown == 0:
+            return
         now = services.time_service().sim_now
         self._cooldown_nodes[drama_node] = now
+
+    def get_active_node_by_uid(self, drama_node_uid):
+        return self._active_nodes.get(drama_node_uid)
+
+    def get_scheduled_node_by_uid(self, drama_node_uid):
+        return self._scheduled_nodes.get(drama_node_uid)
 
     def get_running_nodes_by_class(self, drama_node_class):
         return [node for node in self._active_nodes.values() if type(node) is drama_node_class]
@@ -109,20 +115,20 @@ class DramaScheduleService(Service):
         for node in self.active_nodes_gen():
             node.on_situation_creation_during_zone_spin_up()
 
-    def schedule_node(self, drama_node, resolver, specific_time=None, drama_inst=None, **kwargs):
+    def schedule_node(self, drama_node, resolver, specific_time=None, drama_inst=None, setup_kwargs={}, **constructor_kwargs):
         if drama_inst is not None:
             drama_node_inst = drama_inst
         else:
             uid = id_generator.generate_object_id()
-            drama_node_inst = drama_node(uid, **kwargs)
-        if not drama_node_inst.schedule(resolver, specific_time=specific_time):
-            return False
+            drama_node_inst = drama_node(uid, **constructor_kwargs)
+        if not drama_node_inst.schedule(resolver, specific_time=specific_time, **setup_kwargs):
+            return
         if is_drama_node_log_enabled():
             log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.SCHEDULED)
         self._scheduled_nodes[drama_node_inst.uid] = drama_node_inst
         if drama_node.cooldown_option == CooldownOption.ON_SCHEDULE:
             self.start_cooldown(drama_node)
-        return True
+        return drama_node_inst.uid
 
     def cancel_scheduled_nodes_with_types(self, drama_nodes):
         node_guids_to_cancel = set(drama_node_type.guid64 for drama_node_type in drama_nodes)
@@ -157,13 +163,13 @@ class DramaScheduleService(Service):
             log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.COMPLETED)
         return True
 
-    def complete_node(self, uid):
+    def complete_node(self, uid, from_shutdown=False):
         if uid not in self._active_nodes:
             return
         node_inst = self._active_nodes[uid]
         if is_drama_node_log_enabled():
             log_drama_node_scoring(node_inst, DramaNodeLogActions.COMPLETED)
-        node_inst.complete()
+        node_inst.complete(from_shutdown=from_shutdown)
         node_inst.cleanup()
         del self._active_nodes[uid]
 
@@ -178,7 +184,7 @@ class DramaScheduleService(Service):
             if is_drama_node_log_enabled():
                 log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.CANCELED, 'Drama Scheduler is disabled')
             return
-        if self._is_node_on_cooldown(drama_node_inst):
+        if drama_node_inst.cooldown_option != CooldownOption.ON_SCHEDULE and self._is_node_on_cooldown(type(drama_node_inst)):
             drama_node_inst.cleanup()
             if is_drama_node_log_enabled():
                 log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.CANCELED, '{} is currently on cooldown', drama_node_inst)
@@ -469,3 +475,19 @@ class DramaScheduleService(Service):
     def schedule_nodes_on_startup(self):
         for _ in self._score_and_schedule_drama_nodes_gen(None, from_zone_spin_up=True):
             pass
+
+    def add_cleanup_callback(self, uid, func_callback):
+        node_inst = self.get_scheduled_node_by_uid(uid)
+        if node_inst is None:
+            node_inst = self.get_active_node_by_uid(uid)
+        if node_inst is None:
+            return
+        node_inst.add_callback_on_cleanup_func(func_callback)
+
+    def add_complete_callback(self, uid, func_callback):
+        node_inst = self.get_scheduled_node_by_uid(uid)
+        if node_inst is None:
+            node_inst = self.get_active_node_by_uid(uid)
+        if node_inst is None:
+            return
+        node_inst.add_callback_on_complete_func(func_callback)

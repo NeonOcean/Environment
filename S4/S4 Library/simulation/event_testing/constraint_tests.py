@@ -4,9 +4,10 @@ from event_testing.test_events import cached_test
 from interactions import ParticipantTypeSingle
 from interactions.constraint_variants import TunableGeometricConstraintVariant
 from interactions.constraints import Anywhere
-from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableList, TunableEnumEntry
+from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableList, TunableEnumEntry, Tunable
 import assertions
 import event_testing.test_base
+import interactions.constraints
 import services
 import sims4.log
 import sims4.tuning
@@ -19,7 +20,7 @@ class SimsInConstraintTests(HasTunableSingletonFactory, AutoFactoryInit, event_t
     def _verify_tunable_callback(instance_class, tunable_name, source, value):
         value._validate_recursion(value.test_set, source, tunable_name)
 
-    FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'constraints': TunableList(description='\n            A list of constraints that, when intersected, will be used to find\n            all Sims we care about.\n            ', tunable=TunableGeometricConstraintVariant(description='\n                A constraint that will determine what Sims to test.\n                '), minlength=1), 'constraints_target': TunableEnumEntry(description='\n            The target used to generate constraints relative to.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'test_actor': TunableEnumEntry(description='\n            The actor used to test Sims in the constraint relative to.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'test_set': sims4.tuning.tunable.TunableReference(description='\n            A test set instance that will be run on all Sims in the tuned\n            constraint. If any Sims fail the test set instance, this test will\n            fail.\n            \n            Note: A DoubleSimResolver will be used to run these tests. So the\n            Test Actor will be the Actor participant, and Target will be a Sim\n            in the constraint.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('TestSetInstance',))}
+    FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'constraints': TunableList(description='\n            A list of constraints that, when intersected, will be used to find\n            all Sims we care about.\n            ', tunable=TunableGeometricConstraintVariant(description='\n                A constraint that will determine what Sims to test.\n                '), minlength=1), 'must_be_line_of_sight': Tunable(description="\n            If enabled, sims that succeed in the LOS test won't fail other tests when determining\n            the test results.\n            ", tunable_type=bool, default=False), 'constraints_target': TunableEnumEntry(description='\n            The target used to generate constraints relative to.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'test_actor': TunableEnumEntry(description='\n            The actor used to test Sims in the constraint relative to.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'test_set': sims4.tuning.tunable.TunableReference(description='\n            A test set instance that will be run on all Sims in the tuned\n            constraint. If any Sims fail the test set instance, this test will\n            fail.\n            \n            Note: A DoubleSimResolver will be used to run these tests. So the\n            Test Actor will be the Actor participant, and Target will be a Sim\n            in the constraint.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('TestSetInstance',))}
 
     @classmethod
     @assertions.not_recursive
@@ -51,6 +52,10 @@ class SimsInConstraintTests(HasTunableSingletonFactory, AutoFactoryInit, event_t
                     total_constraint = total_constraint.intersect(tuned_constraint.create_constraint(None, target))
                     if not total_constraint.valid:
                         return TestResult(False, 'Constraint {} relative to {} is invalid.', tuned_constraint, target, tooltip=self.tooltip)
-                if any(total_constraint.geometry.test_transform(sim.transform) and (total_constraint.is_routing_surface_valid(sim.routing_surface) and (total_constraint.is_location_water_depth_valid(sim.location) and (total_constraint.is_location_terrain_tags_valid(sim.location) and not self.test_set(DoubleSimResolver(test_actor, sim.sim_info))))) for sim in instanced_sims):
-                    return TestResult(False, 'Sims In Constraint Test Failed.', tooltip=self.tooltip)
+                object_constraint = interactions.constraints.Position(target._get_locations_for_posture_internal_forward_wall_padding(), routing_surface=target.routing_surface)
+                for sim in instanced_sims:
+                    if not (total_constraint.geometry.test_transform(sim.transform) and (total_constraint.is_routing_surface_valid(sim.routing_surface) and (total_constraint.is_location_water_depth_valid(sim.location) and (total_constraint.is_location_terrain_tags_valid(sim.location) and not self.test_set(DoubleSimResolver(test_actor, sim.sim_info))))) and not (self.must_be_line_of_sight and sim.sim_info is test_actor)):
+                        if not object_constraint.intersect(sim.lineofsight_component.constraint).valid:
+                            continue
+                        return TestResult(False, 'Sims In Constraint Test Failed.', tooltip=self.tooltip)
         return TestResult.TRUE

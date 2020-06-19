@@ -208,9 +208,11 @@ class Broadcaster(HasTunableReference, RouteEventProviderMixin, metaclass=Hashed
         if self._should_apply_broadcaster_effect(affected_object):
             self._affected_objects[affected_object] = (services.time_service().sim_now, True)
             for broadcaster_effect in self.effects:
-                broadcaster_effect.apply_broadcaster_effect(self, affected_object)
+                if affected_object in self._affected_objects:
+                    broadcaster_effect.apply_broadcaster_effect(self, affected_object)
         for linked_broadcaster in self._linked_broadcasters:
-            linked_broadcaster._apply_linked_broadcaster_effect(affected_object, self._affected_objects[affected_object])
+            if affected_object in self._affected_objects:
+                linked_broadcaster._apply_linked_broadcaster_effect(affected_object, self._affected_objects[affected_object])
 
     def _apply_linked_broadcaster_effect(self, affected_object, data):
         self._apply_linked_broadcaster_data(affected_object, data)

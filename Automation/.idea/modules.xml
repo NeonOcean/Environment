@@ -3,15 +3,15 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/Automation.iml" filepath="$PROJECT_DIR$/.idea/Automation.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Choreography/Automation/NeonOcean.Choreography/.idea/NeonOcean.Choreography.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Choreography/Automation/NeonOcean.Choreography/.idea/NeonOcean.Choreography.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Cycle/Automation/NeonOcean.Cycle/.idea/NeonOcean.Cycle.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Cycle/Automation/NeonOcean.Cycle/.idea/NeonOcean.Cycle.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Debug/Automation/NeonOcean.Debug/.idea/NeonOcean.Debug.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Debug/Automation/NeonOcean.Debug/.idea/NeonOcean.Debug.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Main/Automation/NeonOcean.Main/.idea/NeonOcean.Main.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Main/Automation/NeonOcean.Main/.idea/NeonOcean.Main.iml" />
       <module fileurl="file://$PROJECT_DIR$/../Websites/NeonOcean.NOC.Main/Automation/NeonOcean.NOC.Main/.idea/NeonOcean.NOC.Main.iml" filepath="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Main/Automation/NeonOcean.NOC.Main/.idea/NeonOcean.NOC.Main.iml" />
       <module fileurl="file://$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Distribution/Automation/NeonOcean.NOC.Mods.Distribution/.idea/NeonOcean.NOC.Mods.Distribution.iml" filepath="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Distribution/Automation/NeonOcean.NOC.Mods.Distribution/.idea/NeonOcean.NOC.Mods.Distribution.iml" />
       <module fileurl="file://$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Documentation/Automation/NeonOcean.NOC.Mods.Documentation/.idea/NeonOcean.NOC.Mods.Documentation.iml" filepath="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Documentation/Automation/NeonOcean.NOC.Mods.Documentation/.idea/NeonOcean.NOC.Mods.Documentation.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Order/Automation/NeonOcean.Order/.idea/NeonOcean.Order.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Order/Automation/NeonOcean.Order/.idea/NeonOcean.Order.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.Time/Automation/NeonOcean.Time/.idea/NeonOcean.Time.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.Time/Automation/NeonOcean.Time/.idea/NeonOcean.Time.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Choreography/Automation/NeonOcean.S4.Choreography/.idea/NeonOcean.S4.Choreography.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Choreography/Automation/NeonOcean.S4.Choreography/.idea/NeonOcean.S4.Choreography.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Cycle/Automation/NeonOcean.S4.Cycle/.idea/NeonOcean.S4.Cycle.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Cycle/Automation/NeonOcean.S4.Cycle/.idea/NeonOcean.S4.Cycle.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Debug/Automation/NeonOcean.S4.Debug/.idea/NeonOcean.S4.Debug.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Debug/Automation/NeonOcean.S4.Debug/.idea/NeonOcean.S4.Debug.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Main/Automation/NeonOcean.S4.Main/.idea/NeonOcean.S4.Main.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Main/Automation/NeonOcean.S4.Main/.idea/NeonOcean.S4.Main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Order/Automation/NeonOcean.S4.Order/.idea/NeonOcean.S4.Order.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Order/Automation/NeonOcean.S4.Order/.idea/NeonOcean.S4.Order.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Mods/NeonOcean.S4.Time/Automation/NeonOcean.S4.Time/.idea/NeonOcean.S4.Time.iml" filepath="$PROJECT_DIR$/../Mods/NeonOcean.S4.Time/Automation/NeonOcean.S4.Time/.idea/NeonOcean.S4.Time.iml" />
     </modules>
   </component>
 </project>

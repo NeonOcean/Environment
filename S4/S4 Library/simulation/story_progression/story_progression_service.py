@@ -44,10 +44,16 @@ class StoryProgressionService(Service):
     def setup(self, save_slot_data=None, **kwargs):
         if save_slot_data is not None:
             sims.global_gender_preference_tuning.GlobalGenderPreferenceTuning.enable_autogeneration_same_sex_preference = save_slot_data.gameplay_data.enable_autogeneration_same_sex_preference
+            story_progression_data = save_slot_data.gameplay_data.story_progression_service
+            for action in StoryProgressionService.ACTIONS:
+                action.load(story_progression_data)
 
     def save(self, save_slot_data=None, **kwargs):
         if save_slot_data is not None:
             save_slot_data.gameplay_data.enable_autogeneration_same_sex_preference = sims.global_gender_preference_tuning.GlobalGenderPreferenceTuning.enable_autogeneration_same_sex_preference
+            story_progression_data = save_slot_data.gameplay_data.story_progression_service
+            for action in StoryProgressionService.ACTIONS:
+                action.save(story_progression_data)
 
     def on_all_households_and_sim_infos_loaded(self, client):
         self.update()

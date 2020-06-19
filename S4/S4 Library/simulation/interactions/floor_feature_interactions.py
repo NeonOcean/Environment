@@ -15,9 +15,9 @@ class GoToNearestFloorFeatureInteraction(SuperInteraction):
     INSTANCE_TUNABLES = {'terrain_feature': TunableEnumEntry(description='\n            The type of floor feature the sim should route to\n            ', tunable_type=FloorFeatureType, default=FloorFeatureType.BURNT), 'routing_circle_constraint': TunableCircle(1.5, description='\n            Circle constraint around the floor feature\n            '), 'routing_facing_constraint': TunableFacing(description='\n                Controls how a Sim must face the terrain feature\n                '), 'indoors_only': Tunable(description='\n            Indoors Only\n            ', tunable_type=bool, default=False), 'radius_filter': OptionalTunable(description='\n            If enabled, floor features will be filtered out unless they are \n            within a radius of the radius_actor.\n            \n            The purpose of the radius filter is to constrain the set of\n            found floor features only to those within a radius of a tuned\n            participant. For example, this interaction could allow Sims only\n            to route to leaves within the radius of a targeted leaf pile.\n            ', tunable=TunableTuple(radius=TunableDistanceSquared(description="\n                    The radius, with the Saved Actor 1's position, that defines the area\n                    within which the floor feature is valid.\n                    ", default=5.0), radius_actor=TunableEnumEntry(description='\n                    The Actor within whose radius the tuned floor feature must be in\n                    for consideration.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor)))}
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, **kwargs):
         inst_or_cls = inst if inst is not None else cls
-        yield from super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type)
+        yield from super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, **kwargs)
         floor_feature_constraint = inst_or_cls._create_floor_feature_constraint_set(sim)
         yield floor_feature_constraint
 

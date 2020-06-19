@@ -204,8 +204,11 @@ class SituationGoal(SituationGoalDisplayMixin, metaclass=HashedTunedInstanceMeta
         self._count = self._iterations
         self._on_goal_completed(start_cooldown=start_cooldown)
 
+    def _valid_event_sim_of_interest(self, sim_info):
+        return self._sim_info is None or self._sim_info is sim_info
+
     def handle_event(self, sim_info, event, resolver):
-        if self._sim_info is not None and self._sim_info is not sim_info:
+        if not self._valid_event_sim_of_interest(sim_info):
             return
         if self._run_goal_completion_tests(sim_info, event, resolver):
             self._count += 1

@@ -66,6 +66,11 @@ class ZoneDirectorResidentialBase(SchedulingZoneDirector):
             if zone_op == _ZoneSavedSimOp.MAINTAIN:
                 self._on_maintain_zone_saved_resident_sim(sim_info)
             elif zone_op == _ZoneSavedSimOp.REINITIATE:
+                if sim_info.career_tracker is not None:
+                    career = sim_info.career_tracker.get_at_work_career()
+                    if career is not None and not career.is_at_active_event and sim_info.sim_info.zone_id == current_zone.id:
+                        self._request_spawning_of_sim_at_spawn_point(sim_info, sims.sim_spawner_service.SimSpawnReason.LOT_OWNER)
+                        return
                 self._on_reinitiate_zone_saved_resident_sim(sim_info)
             elif zone_op == _ZoneSavedSimOp.CLEAR:
                 self._on_clear_zone_saved_residential_sim(sim_info)

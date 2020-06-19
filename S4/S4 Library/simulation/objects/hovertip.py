@@ -43,6 +43,7 @@ class TooltipFieldsComplete(TooltipFields, export=False):
     custom_name = 19
     custom_description = 20
     stolen_from_text = 21
+    icon_infos = 26
 
 class TooltipFieldConcatenationType(enum.Int):
     CONCATENATE_BEFORE = 0

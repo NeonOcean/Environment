@@ -1,14 +1,20 @@
 import random
 from protocolbuffers import GameplaySaveData_pb2 as gameplay_serialization
 from build_buy import get_current_venue
+from distributor.ops import OwnedUniversityHousingLoad
+from distributor.system import Distributor
 from open_street_director.open_street_director_request import OpenStreetDirectorRequestFactory
+from server_commands.bill_commands import autopay_bills
+from sims.university.university_housing_tuning import UniversityHousingTuning
+from sims.university.university_utils import UniversityUtils
 from sims4.callback_utils import CallableList
 from sims4.service_manager import Service
 from sims4.tuning.tunable import TunableSimMinute
 from sims4.utils import classproperty
 from situations.service_npcs.modify_lot_items_tuning import ModifyAllLotItems
 from venues.venue_constants import ZoneDirectorRequestType
-from world.region import get_region_instance_from_zone_id
+from venues.venue_tuning import VenueTypes
+from world.region import get_region_instance_from_zone_id, get_region_description_id_from_zone_id
 import alarms
 import build_buy
 import clock
@@ -50,6 +56,8 @@ class VenueService(Service):
         self.build_buy_edit_mode = False
         self.on_venue_type_changed = CallableList()
         self._venue_start_time = None
+        self._university_housing_household_validation_alarm = None
+        self._university_housing_kick_out_completed = False
 
     @classproperty
     def save_error_code(cls):
@@ -243,16 +251,24 @@ class VenueService(Service):
         if self._venue is not None:
             self._venue.schedule_special_events(schedule_immediate=True)
 
-    def is_zone_valid_for_venue_type(self, zone_id, venue_types, compatible_region=None):
+    def is_zone_valid_for_venue_type(self, zone_id, venue_types, compatible_region=None, ignore_region_compatability_tags=False, region_blacklist=[]):
         if not zone_id:
             return False
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
         venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
         if venue_type not in venue_types:
             return False
-        elif compatible_region is not None:
+        if compatible_region is not None:
             venue_region = get_region_instance_from_zone_id(zone_id)
-            if venue_region is None or not compatible_region.is_region_compatible(venue_region):
+            if venue_region is None or not compatible_region.is_region_compatible(venue_region, ignore_tags=ignore_region_compatability_tags):
+                return False
+            elif region_blacklist:
+                venue_region_description_id = get_region_description_id_from_zone_id(zone_id)
+                if venue_region_description_id in region_blacklist:
+                    return False
+        elif region_blacklist:
+            venue_region_description_id = get_region_description_id_from_zone_id(zone_id)
+            if venue_region_description_id in region_blacklist:
                 return False
         return True
 
@@ -261,12 +277,11 @@ class VenueService(Service):
             return True
         return False
 
-    def get_zones_for_venue_type_gen(self, *venue_types, compatible_region=None):
-        venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
+    def get_zones_for_venue_type_gen(self, *venue_types, compatible_region=None, ignore_region_compatability_tags=False, region_blacklist=[]):
         for neighborhood_proto in services.get_persistence_service().get_neighborhoods_proto_buf_gen():
             for lot_owner_info in neighborhood_proto.lots:
                 zone_id = lot_owner_info.zone_instance_id
-                if self.is_zone_valid_for_venue_type(zone_id, venue_types, compatible_region=compatible_region):
+                if self.is_zone_valid_for_venue_type(zone_id, venue_types, compatible_region=compatible_region, ignore_region_compatability_tags=ignore_region_compatability_tags, region_blacklist=region_blacklist):
                     yield zone_id
 
     def get_zone_and_venue_type_for_venue_types(self, venue_types, compatible_region=None):
@@ -315,3 +330,23 @@ class VenueService(Service):
     def on_loading_screen_animation_finished(self):
         if self._zone_director is not None:
             self._zone_director.on_loading_screen_animation_finished()
+
+    def set_university_housing_kick_out_completed(self):
+        self._university_housing_kick_out_completed = True
+
+    def get_university_housing_kick_out_completed(self):
+        return self._university_housing_kick_out_completed
+
+    def run_venue_preparation_operations(self):
+        zone = services.current_zone()
+        owner_household = zone.lot.get_household()
+        if self._venue.is_university_housing:
+            if owner_household is not None:
+                op = OwnedUniversityHousingLoad(zone.id)
+                Distributor.instance().add_op_with_no_owner(op)
+                self._university_housing_household_validation_alarm = alarms.add_alarm(self, UniversityHousingTuning.UNIVERSITY_HOUSING_VALIDATION_CADENCE(), lambda _: UniversityUtils.validate_household_sims(), repeating=True)
+        active_sim = services.get_active_sim()
+        if active_sim:
+            active_sim_household = active_sim.household
+            if active_sim_household and services.venue_service().get_venue_tuning(active_sim_household.home_zone_id).is_university_housing:
+                autopay_bills(True)

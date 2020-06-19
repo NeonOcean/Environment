@@ -5,6 +5,7 @@ from interactions.payment.payment_info import BusinessPaymentInfo, PaymentInfo, 
 from interactions.payment_liability import PaymentLiability
 from interactions.priority import Priority
 from restaurants.restaurant_tuning import get_restaurant_zone_director
+from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.tunable import TunableVariant, Tunable, HasTunableSingletonFactory, AutoFactoryInit, TunableEnumEntry, OptionalTunable, TunableList, TunableFactory, TunableReference, TunableTuple
 from ui.ui_dialog_generic import UiDialogTextInputOkCancel
 import objects.components.types
@@ -225,13 +226,31 @@ class PaymentFromLiability(_Payment):
 TEXT_INPUT_PAYMENT_VALUE = 'payment_value'
 
 class PaymentDialog(_Payment):
-    FACTORY_TUNABLES = {'input_dialog': UiDialogTextInputOkCancel.TunableFactory(description='\n            The dialog that is displayed. The amount the user enters into the\n            input is used as the payment amount.\n            ', text_inputs=(TEXT_INPUT_PAYMENT_VALUE,)), 'success_continuation': OptionalTunable(description=' \n            If tuned to an interaction, we will push that interaction as a\n            continuation if we receive a valid dialog response. Additionally, we\n            will attach a payment liability to that interaction so that the\n            payment can be resolved on the sequence of that interaction or on a\n            later continuation. The payment liability will store the entered\n            value and tuned destination, but will not respect all other tuned\n            options.To trigger that payment, add a payment basic extra to that\n            interaction and select the "Liability" payment cost.\n            ', tunable=TunableTuple(interaction=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION)), target_participant=TunableEnumEntry(description='\n                    The participant that is to be used as the target of the\n                    continuation interaction.\n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantType.Object)))}
+    FACTORY_TUNABLES = {'input_dialog': UiDialogTextInputOkCancel.TunableFactory(description='\n            The dialog that is displayed. The amount the user enters into the\n            input is used as the payment amount.\n            ', text_inputs=(TEXT_INPUT_PAYMENT_VALUE,)), 'dest_exceed_tooltip': OptionalTunable(description='\n             If enabled, allows specification of a tooltip to display if\n             the user has entered a value that exceeds what the destination\n             can hold.\n             \n             Additional tokens are source max, dest value, minimum\n             ', tunable=TunableLocalizedStringFactory()), 'source_exceed_tooltip': OptionalTunable(description='\n             If enabled, allows specification of a tooltip to display if\n             the user has entered a value that exceeds the amount in the source.\n             \n             Additional tokens are source max, dest value, minimum\n             ', tunable=TunableLocalizedStringFactory()), 'below_min_tooltip': OptionalTunable(description='\n             If enabled, allows specification of a tooltip to display if\n             the user has entered a value that is below minimum amount allowed.\n             \n             Additional tokens are source max, dest value, minimum\n             ', tunable=TunableLocalizedStringFactory()), 'success_continuation': OptionalTunable(description=' \n            If tuned to an interaction, we will push that interaction as a\n            continuation if we receive a valid dialog response. Additionally, we\n            will attach a payment liability to that interaction so that the\n            payment can be resolved on the sequence of that interaction or on a\n            later continuation. The payment liability will store the entered\n            value and tuned destination, but will not respect all other tuned\n            options.To trigger that payment, add a payment basic extra to that\n            interaction and select the "Liability" payment cost.\n            ', tunable=TunableTuple(interaction=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION)), target_participant=TunableEnumEntry(description='\n                    The participant that is to be used as the target of the\n                    continuation interaction.\n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantType.Object)))}
 
     def get_amount(self, resolver):
         return 0
 
     def try_deduct_payment(self, resolver, sim, fail_callback, source, cost_modifiers):
-        dialog = self.input_dialog(sim, resolver)
+        max_value = None
+        min_value = None
+        dest_funds = 0
+        invalid_max_tooltip = None
+        invalid_min_tooltip = None
+        for dest in self.payment_destinations:
+            (max_value, dest_funds, min_value) = dest.get_funds_info(resolver)
+            if max_value is not None:
+                break
+        source_max = source.max_funds(sim, resolver)
+        if max_value is None or source_max < max_value:
+            max_value = source_max
+            if self.source_exceed_tooltip is not None:
+                invalid_max_tooltip = self.source_exceed_tooltip
+        elif self.dest_exceed_tooltip is not None:
+            invalid_max_tooltip = self.dest_exceed_tooltip
+        if min_value is not None:
+            invalid_min_tooltip = self.below_min_tooltip
+        dialog = self.input_dialog(sim, resolver, max_value=max_value, invalid_max_tooltip=invalid_max_tooltip, min_value=min_value, invalid_min_tooltip=invalid_min_tooltip)
 
         def on_response(value_dialog):
             if not value_dialog.accepted:
@@ -246,11 +265,17 @@ class PaymentDialog(_Payment):
             if self.success_continuation is not None:
                 context = InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, Priority.High)
                 target = resolver.get_participant(self.success_continuation.target_participant)
+                if target.is_sim:
+                    target = target.get_sim_instance()
+                    if target is None:
+                        return
                 liability = PaymentLiability(new_value, self.payment_destinations)
                 liabilities = ((PaymentLiability.LIABILITY_TOKEN, liability),)
                 sim.push_super_affordance(self.success_continuation.interaction, target, context, liabilities=liabilities)
             else:
                 self.make_payment(resolver, sim, source, cost_modifiers, new_value)
 
-        dialog.show_dialog(on_response=on_response)
+        if min_value is None:
+            min_value = 0
+        dialog.show_dialog(on_response=on_response, additional_tokens=(source_max, dest_funds, min_value))
         return True

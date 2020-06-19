@@ -2,6 +2,7 @@ from sims.sim_info_tracker import SimInfoTracker
 from singletons import DEFAULT
 from statistics.base_statistic import GalleryLoadBehavior
 from statistics.base_statistic_listener import BaseStatisticCallbackListener
+from traits.trait_type import TraitType
 import services
 import sims
 import sims4.callback_utils
@@ -12,13 +13,14 @@ with sims4.reload.protected(globals()):
     _handle_id_gen = uid.UniqueIdGenerator(1)
 
 class BaseStatisticTracker(SimInfoTracker):
-    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load', 'suppress_callback_alarm_calculation')
+    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_listener_seeds', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load', 'suppress_callback_alarm_calculation')
 
     def __init__(self, owner=None):
         self._statistics = None
         self._owner = owner
         self._watchers = {}
         self._delta_watchers = {}
+        self._listener_seeds = {}
         self._on_remove_callbacks = None
         self.suppress_callback_setup_during_load = False
         self.suppress_callback_alarm_calculation = False
@@ -68,19 +70,42 @@ class BaseStatisticTracker(SimInfoTracker):
                         self.remove_statistic(stat_type)
                 self.remove_statistic(stat_type)
 
+    def _add_callback_listener_seed(self, stat_type, seed):
+        if stat_type not in self._listener_seeds:
+            self._listener_seeds[stat_type] = []
+        if seed is not None and seed not in self._listener_seeds[stat_type]:
+            self._listener_seeds[stat_type].append(seed)
+
+    def _remove_callback_listener_seed(self, seed):
+        if seed is None:
+            return
+        stat_type = seed.statistic_type
+        if stat_type in self._listener_seeds:
+            seeds = self._listener_seeds[stat_type]
+            if seed in seeds:
+                seeds.remove(seed)
+                seed.destroy()
+                if not seeds:
+                    self._listener_seeds[stat_type]
+
     def create_and_add_listener(self, stat_type, threshold, callback, on_callback_alarm_reset=None) -> BaseStatisticCallbackListener:
         if stat_type.added_by_default():
             add = stat_type.add_if_not_in_tracker
         else:
             add = False
         stat = self.get_statistic(stat_type, add=add)
-        if stat is not None:
+        if stat is None:
+            seed = stat_type.create_callback_listener_seed(stat_type, threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
+            self._add_callback_listener_seed(stat_type, seed)
+        else:
             callback_listener = stat.create_and_add_callback_listener(threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
             return callback_listener
 
     def remove_listener(self, listener:BaseStatisticCallbackListener):
         stat = self.get_statistic(listener.statistic_type)
-        if stat is not None:
+        if stat is None:
+            self._remove_callback_listener_seed(listener)
+        else:
             stat.remove_callback_listener(listener)
 
     def add_watcher(self, callback):
@@ -134,10 +159,12 @@ class BaseStatisticTracker(SimInfoTracker):
             owner = self._owner
         is_sim = owner.is_sim if owner is not None else False
         if is_sim and stat_type in owner.get_blacklisted_statistics():
-            logger.error('Attempting to add stat {} when it is blacklisted on sim {}.', stat_type, self.owner)
+            robot_traits = owner.trait_tracker.get_traits_of_type(TraitType.ROBOT)
+            if not robot_traits:
+                logger.error('Attempting to add stat {} when it is blacklisted on sim {}.', stat_type, self.owner)
             return
         owner_lod = owner.lod if is_sim else None
-        if owner_lod is not None and owner_lod < stat_type.min_lod_value:
+        if owner_lod is not None and stat_type.remove_at_owner_lod(lod=owner_lod, owner=owner):
             return
         if stat is None and stat_type.can_add(owner, **kwargs):
             stat = stat_type(self)
@@ -148,6 +175,12 @@ class BaseStatisticTracker(SimInfoTracker):
             value = stat.get_value()
             if self._watchers:
                 self.notify_watchers(stat_type, value, value)
+            if stat_type in self._listener_seeds:
+                for seed in self._listener_seeds[stat_type]:
+                    seed.stat = stat
+                    stat.add_callback_listener(seed)
+                del self._listener_seeds[stat_type]
+                stat._update_callback_listeners(stat_type.default_value, value)
         return stat
 
     def remove_statistic(self, stat_type, on_destroy=False):
@@ -180,10 +213,9 @@ class BaseStatisticTracker(SimInfoTracker):
 
     def get_value(self, stat_type, add=False):
         stat = self.get_statistic(stat_type, add=add)
-        if stat is not None:
-            return stat.get_value()
-        else:
+        if stat is None:
             return stat_type.default_value
+        return stat.get_value()
 
     def get_int_value(self, stat_type, scale:int=None):
         value = self.get_value(stat_type)
@@ -208,11 +240,11 @@ class BaseStatisticTracker(SimInfoTracker):
 
     def set_user_value(self, stat_type, user_value):
         stat = self.get_statistic(stat_type, add=True)
-        stat.set_user_value(user_value)
+        if stat is not None:
+            stat.set_user_value(user_value)
 
     def add_value(self, stat_type, amount, **kwargs):
         if amount == 0:
-            logger.warn('Attempting to add 0 to stat {}', stat_type)
             return
         stat = self.get_statistic(stat_type, add=stat_type.add_if_not_in_tracker)
         if stat is not None:
@@ -237,18 +269,21 @@ class BaseStatisticTracker(SimInfoTracker):
     def reset_convergence(self, stat_type):
         raise TypeError("This stat type doesn't have a convergence value.")
 
-    def set_all_commodities_to_max(self, visible_only=False, core_only=False):
+    def set_all_commodities_to_best_value(self, visible_only=False, core_only=False, ignore_ranked=True):
         for stat_type in list(self._statistics):
             stat = self.get_statistic(stat_type)
             if stat is not None:
+                if ignore_ranked and stat.is_ranked:
+                    continue
                 if core_only:
                     if not stat.is_visible:
                         if core_only:
                             if stat.core:
-                                self.set_value(stat_type, stat_type.max_value)
-                self.set_value(stat_type, stat_type.max_value)
+                                self.set_value(stat_type, stat_type.best_value)
+                self.set_value(stat_type, stat_type.best_value)
 
     def save(self):
+        self.check_for_unneeded_initial_statistics()
         save_list = []
         if self._statistics:
             for stat in self._statistics.values():
@@ -280,20 +315,21 @@ class BaseStatisticTracker(SimInfoTracker):
                             logger.info('Trying to load unavailable STATISTIC resource: {}', stat_type_name)
         except ValueError:
             logger.error('Attempting to load old data in BaseStatisticTracker.load()')
+        self.check_for_unneeded_initial_statistics()
 
     def debug_output_all(self, _connection):
         if self._statistics:
             for stat in self._statistics.values():
                 sims4.commands.output('{:<24} Value: {:-6.2f}'.format(stat.__class__.__name__, stat.get_value()), _connection)
 
-    def debug_set_all_to_max_except(self, stat_to_exclude, core=True):
+    def debug_set_all_to_best_except(self, stat_to_exclude, core=True):
         for stat_type in list(self._statistics):
             if core:
                 if self.get_statistic(stat_type).core:
                     if stat_type != stat_to_exclude:
-                        self.set_value(stat_type, stat_type.max_value)
+                        self.set_value(stat_type, stat_type.best_value)
             if stat_type != stat_to_exclude:
-                self.set_value(stat_type, stat_type.max_value)
+                self.set_value(stat_type, stat_type.best_value)
 
     def debug_set_all_to_min(self, core=True):
         for stat_type in list(self._statistics):
@@ -317,5 +353,8 @@ class BaseStatisticTracker(SimInfoTracker):
         for stat_type in tuple(self._statistics):
             stat_to_test = self.get_statistic(stat_type)
             if stat_to_test is not None:
-                if stat_to_test.min_lod_value > new_lod:
+                if stat_to_test.remove_at_owner_lod(lod=new_lod, owner=self._owner):
                     self.remove_statistic(stat_type)
+
+    def check_for_unneeded_initial_statistics(self):
+        pass

@@ -280,6 +280,14 @@ class BaseObject(ComponentContainer):
         pass
 
     @forward_to_components
+    def on_placed_in_slot(self, slot_owner):
+        pass
+
+    @forward_to_components
+    def on_removed_from_slot(self, slot_owner):
+        pass
+
+    @forward_to_components
     def on_before_added_to_inventory(self):
         pass
 

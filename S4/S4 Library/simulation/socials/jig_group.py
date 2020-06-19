@@ -1,23 +1,22 @@
 from _collections import defaultdict
-from _math import Location, Transform
-from sims4.geometry import PolygonFootprint
-from sims4.math import transform_almost_equal_2d
-from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, Tunable, TunableSimMinute
+import interactions.constraints
+import routing
+import services
 import sims4.log
+import sims4.resources
+import socials.group
 from interactions import ParticipantType
 from interactions.constraints import Anywhere, create_constraint_set, Nowhere, WaterDepthIntervals
 from interactions.interaction_finisher import FinishingType
 from interactions.utils.routing import get_two_person_transforms_for_jig
-from objects.pools import pool_utils
 from routing import SurfaceType, SurfaceIdentifier
+from sims4.geometry import PolygonFootprint
+from sims4.math import transform_almost_equal_2d
+from sims4.tuning.instances import lock_instance_tunables
+from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, Tunable, TunableSimMinute
 from socials.jigs.jig_variant import TunableJigVariant
 from socials.side_group import SideGroup
 from world.ocean_tuning import OceanTuning
-import interactions.constraints
-import routing
-import services
-import socials.group
 logger = sims4.log.Logger('Social Group')
 
 class JigGroup(SideGroup):
@@ -40,19 +39,29 @@ class JigGroup(SideGroup):
         self._create_social_geometry()
 
     @classmethod
+    def _can_picked_object_be_jig(cls, picked_object):
+        if picked_object is None:
+            return False
+        if picked_object.slot is None or picked_object.slot == sims4.resources.INVALID_KEY:
+            return False
+        if picked_object.is_sim:
+            return False
+        elif picked_object.carryable_component is not None:
+            return False
+        return True
+
+    @classmethod
     def _get_jig_transforms_gen(cls, initiating_sim, target_sim, picked_object=None, participant_slot_overrides=None):
         slot_map = cls.participant_slot_map if participant_slot_overrides is None else participant_slot_overrides
         actor_slot_index = slot_map.get(ParticipantType.Actor, cls.DEFAULT_SLOT_INDEX_ACTOR)
         target_slot_index = slot_map.get(ParticipantType.TargetSim, cls.DEFAULT_SLOT_INDEX_TARGET)
-        if picked_object is not None:
-            if picked_object.carryable_component is None:
-                if not picked_object.is_sim:
-                    try:
-                        (actor_transform, target_transform, routing_surface) = get_two_person_transforms_for_jig(picked_object.definition, picked_object.transform, picked_object.routing_surface, actor_slot_index, target_slot_index)
-                        yield (actor_transform, target_transform, routing_surface, ())
-                        return
-                    except RuntimeError:
-                        pass
+        if cls._can_picked_object_be_jig(picked_object):
+            try:
+                (actor_transform, target_transform, routing_surface) = get_two_person_transforms_for_jig(picked_object.definition, picked_object.transform, picked_object.routing_surface, actor_slot_index, target_slot_index)
+                yield (actor_transform, target_transform, routing_surface, ())
+                return
+            except RuntimeError:
+                pass
         fallback_routing_surface = None
         if initiating_sim.routing_surface != target_sim.routing_surface:
             if initiating_sim.routing_surface.type == routing.SurfaceType.SURFACETYPE_WORLD:

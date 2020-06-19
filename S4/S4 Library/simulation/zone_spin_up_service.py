@@ -4,10 +4,12 @@ import collections
 import itertools
 import time
 from careers import coworker
+from clock import ClockSpeedMode
 from crafting.recipe import destroy_unentitled_craftables
-from objects import ALL_HIDDEN_REASONS, components
+from objects import ALL_HIDDEN_REASONS
 from objects.components.types import PORTAL_COMPONENT, FOOTPRINT_COMPONENT
 from persistence_error_types import ErrorCodes, generate_exception_code, generate_exception_callstack
+from sims.fixup.sim_info_fixup_action import SimInfoFixupActionTiming
 from sims4.localization import TunableLocalizedString
 from world.lot_tuning import GlobalLotTuningAndCleanup
 from world.mailbox_owner_helper import MailboxOwnerHelper
@@ -152,6 +154,12 @@ class _LoadHouseholdsAndSimInfosState(_ZoneSpinUpState):
         zone.service_manager.on_all_households_and_sim_infos_loaded(client)
         game_services.service_manager.on_all_households_and_sim_infos_loaded(client)
         sims4.core_services.service_manager.on_all_households_and_sim_infos_loaded(client)
+        organization_service = services.organization_service()
+        if organization_service is not None:
+            organization_service.post_game_services_zone_load()
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            roommate_service.initialize_roommates()
         services.ui_dialog_service().send_dialog_options_to_client()
         client.clean_and_send_remaining_relationship_info()
         services.current_zone().lot.send_lot_display_info()
@@ -169,6 +177,20 @@ class _PremadeSimFixupState(_ZoneSpinUpState):
         super().on_enter()
         helper = PremadeSimFixupHelper()
         helper.fix_up_premade_sims()
+        return _ZoneSpinUpStateResult.DONE
+
+class _SimInfoFixupState(_ZoneSpinUpState):
+
+    def exception_error_code(self):
+        return ErrorCodes.SIM_INFO_FIXUP_STATE_FAILED
+
+    def on_enter(self):
+        super().on_enter()
+        for sim_info in services.sim_info_manager().values():
+            if sim_info.do_first_sim_info_load_fixups:
+                sim_info.apply_fixup_actions(SimInfoFixupActionTiming.ON_FIRST_SIMINFO_LOAD)
+        for sim_info in services.active_household():
+            sim_info.apply_fixup_actions(SimInfoFixupActionTiming.ON_ADDED_TO_ACTIVE_HOUSEHOLD)
         return _ZoneSpinUpStateResult.DONE
 
 class _SelectZoneDirectorState(_ZoneSpinUpState):
@@ -233,6 +255,9 @@ class _SetObjectOwnershipState(_ZoneSpinUpState):
         super().on_enter()
         current_zone = services.current_zone()
         current_zone.update_household_objects_ownership()
+        object_preference_tracker = services.object_preference_tracker()
+        if object_preference_tracker is not None:
+            object_preference_tracker.validate_objects(current_zone.id)
         return _ZoneSpinUpStateResult.DONE
 
 class _PrepareLotState(_ZoneSpinUpState):
@@ -252,6 +277,7 @@ class _PrepareLotState(_ZoneSpinUpState):
                 zone_director.prepare_lot()
         services.current_zone().posture_graph_service.build_during_zone_spin_up()
         pythonutils.try_highwater_gc()
+        venue_service.run_venue_preparation_operations()
         return _ZoneSpinUpStateResult.DONE
 
     def exception_error_code(self):
@@ -532,6 +558,9 @@ class _FinalizeObjectsState(_ZoneSpinUpState):
         object_manager = services.object_manager()
         for script_object in tuple(object_manager.get_all()):
             script_object.finalize(active_household_id=active_household_id)
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            roommate_service.do_decorations()
         water_terrain_object_cache = object_manager.water_terrain_object_cache
         water_terrain_object_cache.refresh()
         build_buy.register_build_buy_exit_callback(water_terrain_object_cache.refresh)
@@ -632,6 +661,9 @@ class _EditModeSequenceCompleteState(_ZoneSpinUpState):
         relationship_service = services.relationship_service()
         if relationship_service is not None:
             relationship_service.on_all_households_and_sim_infos_loaded(client)
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            roommate_service.initialize_editmode_roommates()
         situation_manager = services.get_zone_situation_manager()
         situation_manager.spin_up_for_edit_mode()
         object_manager = services.object_manager()
@@ -697,7 +729,9 @@ class _HittingTheirMarksState(_ZoneSpinUpState):
 
     def on_enter(self):
         super().on_enter()
-        services.game_clock_service().advance_for_hitting_their_marks()
+        clock_service = services.game_clock_service()
+        clock_service.push_speed(ClockSpeedMode.INTERACTION_STARTUP_SPEED)
+        clock_service.advance_for_hitting_their_marks()
         return _ZoneSpinUpStateResult.WAITING
 
     def on_update(self):
@@ -711,6 +745,24 @@ class _HittingTheirMarksState(_ZoneSpinUpState):
             return _ZoneSpinUpStateResult.DONE
         services.game_clock_service().advance_for_hitting_their_marks()
         return _ZoneSpinUpStateResult.WAITING
+
+class _UpdateObjectivesState(_ZoneSpinUpState):
+
+    def exception_error_code(self):
+        return ErrorCodes.UPDATE_OBJECTIVES_STATE_FAILED
+
+    def on_enter(self):
+        super().on_enter()
+        event_manager = services.get_event_manager()
+        event_manager.register_events_for_update()
+        client = services.get_first_client()
+        client.refresh_achievement_data()
+        for sim_info in client.selectable_sims:
+            if sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                sim_info.start_aspiration_tracker_on_instantiation()
+        event_manager.unregister_unused_handlers()
+        event_manager.register_events_for_objectives()
+        return _ZoneSpinUpStateResult.DONE
 
 ClientConnectData = collections.namedtuple('ClientConnectData', ['household_id', 'client', 'active_sim_id'])
 
@@ -734,11 +786,11 @@ class ZoneSpinUpService(sims4.service_manager.Service):
 
     @property
     def _playable_sequence(self):
-        return (_StopCaching, _LoadHouseholdsAndSimInfosState, _PremadeSimFixupState, _SetupPortalsState, _SelectZoneDirectorState, _DestinationWorldCleanUp, _DetectAndCleanupInvalidObjectsState, _SetObjectOwnershipState, _FinalizeObjectsState, _SetupSurfacePortalsState, _WaitForNavmeshState, _SpawnSimsState, _SituationCommonState, _FixupInventoryState, _DestroyUnclaimedObjectsState, _WaitForSimSpawnerService, _ZoneModifierSpinUpState, _PrepareLotState, _AwayActionsState, _InitializeDoorServiceState, _SetMailboxOwnerState, _StartNoWaitingState, _RestoreRabbitHoleState, _RestoreSIState, _GlobalLotTuningAndCleanupState, _RestoreCareerState, _RestoreMissingPetsState, _PrerollAutonomyState, _PushSimsToGoHomeState, _SetActiveSimState, _ScheduleStartupDramaNodesState, _StartupCommandsState, _StartCaching, _FinalPlayableState, _EndNoWaitingState)
+        return (_StopCaching, _LoadHouseholdsAndSimInfosState, _PremadeSimFixupState, _SimInfoFixupState, _SetupPortalsState, _SelectZoneDirectorState, _DestinationWorldCleanUp, _DetectAndCleanupInvalidObjectsState, _SetObjectOwnershipState, _FinalizeObjectsState, _SetupSurfacePortalsState, _WaitForNavmeshState, _SpawnSimsState, _SituationCommonState, _FixupInventoryState, _DestroyUnclaimedObjectsState, _WaitForSimSpawnerService, _ZoneModifierSpinUpState, _PrepareLotState, _AwayActionsState, _InitializeDoorServiceState, _SetMailboxOwnerState, _StartNoWaitingState, _RestoreRabbitHoleState, _RestoreSIState, _GlobalLotTuningAndCleanupState, _RestoreCareerState, _RestoreMissingPetsState, _PrerollAutonomyState, _PushSimsToGoHomeState, _SetActiveSimState, _ScheduleStartupDramaNodesState, _StartupCommandsState, _StartCaching, _FinalPlayableState, _EndNoWaitingState)
 
     @property
     def _hitting_their_marks_state_sequence(self):
-        return (_HittingTheirMarksState,)
+        return (_HittingTheirMarksState, _UpdateObjectivesState)
 
     def set_household_id_and_client_and_active_sim_id(self, household_id, client, active_sim_id):
         logger.assert_raise(self._status == ZoneSpinUpStatus.CREATED, 'Attempting to initialize the zone_spin_up_process more than once.', owner='sscholl')

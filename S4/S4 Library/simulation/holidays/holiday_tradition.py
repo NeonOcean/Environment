@@ -24,6 +24,7 @@ import event_testing
 import services
 import sims4.log
 import sims4.resources
+import world.world_tests
 logger = sims4.log.Logger('Holiday', default_owner='jjacobson')
 
 class TraditionActivationEvent(enum.Int):
@@ -35,7 +36,7 @@ class TraditionActivationEvent(enum.Int):
 class TunablePreferenceTestVariant(TunableVariant):
 
     def __init__(self, description='A single tunable test.', **kwargs):
-        super().__init__(relationship=TunableRelationshipTest(locked_args={'subject': ParticipantType.Actor, 'target_sim': ParticipantType.AllRelationships, 'test_event': 0, 'tooltip': None}), sim_info=SimInfoTest.TunableFactory(locked_args={'tooltip': None}), trait=TraitTest.TunableFactory(locked_args={'tooltip': None}), default='sim_info', description=description, **kwargs)
+        super().__init__(relationship=TunableRelationshipTest(locked_args={'subject': ParticipantType.Actor, 'target_sim': ParticipantType.AllRelationships, 'test_event': 0, 'tooltip': None}), sim_info=SimInfoTest.TunableFactory(locked_args={'tooltip': None}), trait=TraitTest.TunableFactory(locked_args={'tooltip': None}), location=world.world_tests.LocationTest.TunableFactory(locked_args={'subject': ParticipantType.Actor, 'tooltip': None}), default='sim_info', description=description, **kwargs)
 
 class TunablePreferenceTestList(event_testing.tests.TestListLoadingMixin):
     DEFAULT_LIST = event_testing.tests.TestList()
@@ -84,7 +85,7 @@ class TraditionActions(HasTunableSingletonFactory, AutoFactoryInit):
             for action in self.actions_to_apply:
                 action.perform(resolver)
 
-HolidayTraditionDisplayMixin = get_display_mixin(has_description=True, has_icon=True, export_modes=ExportModes.All)
+HolidayTraditionDisplayMixin = get_display_mixin(has_description=True, has_icon=True, has_tooltip=True, export_modes=ExportModes.All)
 START_SITUATION = 0
 MODIFY_ITEMS = 1
 

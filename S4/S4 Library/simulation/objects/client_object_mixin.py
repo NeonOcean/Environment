@@ -101,6 +101,7 @@ class ClientObjectMixin:
         self._swapping_to_parent = None
         self._swapping_from_parent = None
         self._on_children_changed = None
+        self.allow_opacity_change = True
 
     def get_create_op(self, *args, **kwargs):
         additional_ops = list(self.get_additional_create_ops_gen())
@@ -201,12 +202,18 @@ class ClientObjectMixin:
             if name in self._generic_ui_metadata_setters:
                 setter = self._generic_ui_metadata_setters[name]
             else:
-                setter = type(self).ui_metadata.generic_setter(name)
+                setter = type(self).ui_metadata.generic_setter(name, auto_reset=True)
                 self._generic_ui_metadata_setters[name] = setter
             try:
                 setter(self, value)
             except (ValueError, TypeError):
                 logger.error('Error trying to set field {} to value {} in object {}.', name, value, self, owner='camilogarcia')
+        for name in self._ui_metadata_cache.keys() - ui_metadata.keys():
+            try:
+                if name in self._generic_ui_metadata_setters:
+                    self._generic_ui_metadata_setters[name](self, None)
+            except (ValueError, TypeError):
+                logger.error('Error trying to set field {} to default in object {}.', name, self, owner='nabaker')
         self._ui_metadata_cache = ui_metadata
 
     @property
@@ -636,7 +643,9 @@ class ClientObjectMixin:
 
     @scale.setter
     def scale(self, value):
-        self._scale = value
+        if self._scale != value:
+            self._scale = value
+            self.on_location_changed(self._location)
         self._resend_client_scale()
 
     @property
@@ -713,7 +722,8 @@ class ClientObjectMixin:
 
     @opacity.setter
     def opacity(self, value):
-        self._opacity = self._clamp_opacity(value)
+        if self.allow_opacity_change:
+            self._opacity = self._clamp_opacity(value)
 
     def _clamp_opacity(self, value):
         if value is None:
@@ -1007,26 +1017,32 @@ class ClientObjectMixin:
 
     _resend_video_playlist = video_playlist.get_resend()
 
-    def fade_opacity(self, opacity:float, duration:float):
-        opacity = self._clamp_opacity(opacity)
-        if opacity != self._opacity:
-            self._opacity = opacity
-            fade_op = distributor.ops.FadeOpacity(opacity, duration)
-            distributor.ops.record(self, fade_op)
+    def fade_opacity(self, opacity:float, duration:float, immediate=False, additional_channels=None):
+        if self.allow_opacity_change:
+            opacity = self._clamp_opacity(opacity)
+            if opacity != self._opacity:
+                self._opacity = opacity
+                fade_op = distributor.ops.FadeOpacity(opacity, duration, immediate=immediate)
+                if additional_channels:
+                    for channel in additional_channels:
+                        fade_op.add_additional_channel(*channel)
+                distributor.ops.record(self, fade_op)
 
-    def fade_in(self, fade_duration=None):
-        if fade_duration is None:
-            fade_duration = ClientObjectMixin.FADE_DURATION
-        if self.visibility is not None:
-            if not self.visibility.visibility:
-                self.visibility = VisibilityState()
-                self.opacity = 0
-        self.fade_opacity(1, fade_duration)
+    def fade_in(self, fade_duration=None, immediate=False, additional_channels=None):
+        if self.allow_opacity_change:
+            if fade_duration is None:
+                fade_duration = ClientObjectMixin.FADE_DURATION
+            if self.visibility is not None:
+                if not self.visibility.visibility:
+                    self.visibility = VisibilityState()
+                    self.opacity = 0
+            self.fade_opacity(1, fade_duration, immediate=immediate, additional_channels=additional_channels)
 
-    def fade_out(self, fade_duration=None):
-        if fade_duration is None:
-            fade_duration = ClientObjectMixin.FADE_DURATION
-        self.fade_opacity(0, fade_duration)
+    def fade_out(self, fade_duration=None, immediate=False, additional_channels=None):
+        if self.allow_opacity_change:
+            if fade_duration is None:
+                fade_duration = ClientObjectMixin.FADE_DURATION
+            self.fade_opacity(0, fade_duration, immediate=immediate, additional_channels=additional_channels)
 
     @distributor.fields.Field(op=distributor.ops.SetValue, default=None)
     def current_value(self):

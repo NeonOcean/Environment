@@ -401,6 +401,8 @@ class Client:
             gsi_handlers.live_drag_handlers.archive_live_drag('Start', 'Operation', LiveDragLocation.GAMEPLAY_SCRIPT, start_system, live_drag_object_id=live_drag_object.id)
         if live_drag_object.live_drag_component.active_household_has_sell_permission:
             sell_value = self.get_live_drag_object_value(live_drag_object, self._live_drag_is_stack) if live_drag_object.definition.get_is_deletable() else -1
+            for child_object in live_drag_object.get_all_children_gen():
+                sell_value += self.get_live_drag_object_value(child_object) if child_object.definition.get_is_deletable() else 0
         else:
             sell_value = -1
         (valid_drop_object_ids, valid_stack_id) = live_drag_component.get_valid_drop_object_ids()
@@ -493,6 +495,8 @@ class Client:
             if not dialog.accepted:
                 return
             value = int(self.get_live_drag_object_value(live_drag_object, self._live_drag_is_stack))
+            for child_object in live_drag_object.get_all_children_gen():
+                value += self.get_live_drag_object_value(child_object) if child_object.definition.get_is_deletable() else 0
             object_tags = set()
             if self._live_drag_is_stack:
                 (_, stack_items) = self._get_stack_items_from_drag_object(live_drag_object, remove=True, is_stack=True)

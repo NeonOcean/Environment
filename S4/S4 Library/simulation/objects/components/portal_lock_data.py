@@ -12,7 +12,7 @@ from sims4.math import Operator, Threshold
 from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableEnumEntry, Tunable, TunableList, TunableReference, OptionalTunable, TunableEnumSet, TunableThreshold, TunableRange
 import services
 import sims4
-logger = sims4.log.Logger('PortalLockData', default_owner='nsavalani')
+logger = sims4.log.Logger('LockData', default_owner='nsavalani')
 
 class LockResult:
     NONE = None
@@ -85,7 +85,7 @@ class LockSimInfoData(LockData):
 
 class LockRankedStatisticData(LockData):
     REFRESH_EVENTS = (TestEvent.RankedStatisticChange,)
-    FACTORY_TUNABLES = {'ranked_stat': TunableReference(description="\n            The ranked statistic we are operating on. Sims won't be allowed to\n            traverse if they don't have this statistic.\n            ", manager=services.statistic_manager(), class_restrictions=('RankedStatistic',)), 'rank_threshold': TunableThreshold(description="\n            Sims that have ranked statistic's value inside the threshold are \n            allowed to traverse the portal.\n            ", value=TunableRange(description='\n                The number that describes the threshold.\n                ', tunable_type=int, default=1, minimum=0), default=sims4.math.Threshold(1, operator.ge))}
+    FACTORY_TUNABLES = {'ranked_stat': TunableReference(description="\n            The ranked statistic we are operating on. Sims won't be allowed to\n            traverse if they don't have this statistic.\n            ", manager=services.statistic_manager(), class_restrictions=('RankedStatistic',)), 'rank_threshold': TunableThreshold(description="\n            Sims that have ranked statistic's value inside the threshold are \n            not locked by the portal.\n            ", value=TunableRange(description='\n                The number that describes the threshold.\n                ', tunable_type=int, default=1, minimum=0), default=sims4.math.Threshold(1, operator.ge))}
 
     def __init__(self, **kwargs):
         super().__init__(lock_type=LockType.LOCK_RANK_STATISTIC, **kwargs)
@@ -162,7 +162,7 @@ class LockAllWithSimIdExceptionData(LockData):
 
 class LockAllWithClubException(LockData):
     REFRESH_EVENTS = (TestEvent.ClubMemberAdded, TestEvent.ClubMemberRemoved)
-    FACTORY_TUNABLES = {'except_club_seeds': TunableList(description='\n            Sims that are members of these Clubs are allowed to traverse the\n            portal.\n            ', tunable=TunableReference(manager=services.get_instance_manager(resources.Types.CLUB_SEED), pack_safe=True))}
+    FACTORY_TUNABLES = {'except_club_seeds': TunableList(description='\n            Sims that are members of these Clubs are exempted from being locked\n            by the object.\n            ', tunable=TunableReference(manager=services.get_instance_manager(resources.Types.CLUB_SEED), pack_safe=True))}
 
     def __init__(self, **kwargs):
         super().__init__(lock_type=LockType.LOCK_ALL_WITH_CLUBID_EXCEPTION, **kwargs)
@@ -305,10 +305,10 @@ class LockAllWithBuffExceptionData(LockData):
     @staticmethod
     def _on_tunable_loaded_callback(source, *_, except_buffs, **__):
         for buff in except_buffs:
-            buff.refresh_portal_lock = True
+            buff.refresh_lock = True
 
     REFRESH_EVENTS = (TestEvent.BuffBeganEvent, TestEvent.BuffEndedEvent)
-    FACTORY_TUNABLES = {'except_buffs': TunableList(description='\n            Sims that have one of these buffs are allowed to traverse the\n            portal.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True), unique_entries=True), 'callback': _on_tunable_loaded_callback}
+    FACTORY_TUNABLES = {'except_buffs': TunableList(description='\n            The object is not locked for sims that have one of these buffs.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True), unique_entries=True), 'callback': _on_tunable_loaded_callback}
 
     def __init__(self, **kwargs):
         super().__init__(lock_type=LockType.LOCK_ALL_WITH_BUFF_EXCEPTION, **kwargs)

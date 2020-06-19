@@ -8,6 +8,7 @@ import operator
 import time
 import weakref
 import xml.etree
+from autonomy.autonomy_preference import AutonomyPreferenceType
 from caches import BarebonesCache
 from sims4 import reload
 from sims4.callback_utils import CallableTestList
@@ -2786,18 +2787,45 @@ class PostureGraphService(Service):
                         continue
                     if included_sis and node.body.target is not None and any(not node.body.target.supports_affordance(si.affordance) for si in included_sis):
                         continue
-                    if same_mobile_body_target:
-                        if node.body.target is not None:
-                            if node.body.target is not source_node.body_target:
-                                if node.body.target not in adjacent_source_parts:
-                                    same_mobile_body_target = False
-                    if interaction.is_putdown:
-                        obj = node.body_target
-                        if obj is not None:
-                            if obj.is_part:
-                                obj = obj.part_owner
-                            if not interaction.is_object_valid(obj, distance_estimator):
-                                continue
+                    if interaction.context.source == InteractionContext.SOURCE_AUTONOMY and interaction.autonomy_preference is not None and node.body_target is not None:
+                        preference_target = node.body_target
+                        if preference_target.is_part:
+                            if not preference_target.restrict_autonomy_preference:
+                                preference_target = preference_target.part_owner
+                        preference_type = sim.get_autonomy_preference_type(interaction.autonomy_preference.preference.tag, preference_target, False)
+                        if preference_type == AutonomyPreferenceType.DISALLOWED:
+                            continue
+                    else:
+                        if same_mobile_body_target:
+                            if node.body.target is not None:
+                                if node.body.target is not source_node.body_target:
+                                    if node.body.target not in adjacent_source_parts:
+                                        same_mobile_body_target = False
+                        if interaction.is_putdown:
+                            obj = node.body_target
+                            if obj is not None:
+                                if obj.is_part:
+                                    obj = obj.part_owner
+                                if not interaction.is_object_valid(obj, distance_estimator):
+                                    continue
+                            elif additional_template_list and not interaction.is_putdown:
+                                compatible = True
+                                for (carry_si, additional_templates) in additional_template_list.items():
+                                    if carry_si not in guaranteed_sis:
+                                        continue
+                                    compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
+                                    if compatible:
+                                        break
+                                if not compatible:
+                                    pass
+                                else:
+                                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                        gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
+                                    destination_nodes[node] = destination_specs
+                            else:
+                                if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                    gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
+                                destination_nodes[node] = destination_specs
                         elif additional_template_list and not interaction.is_putdown:
                             compatible = True
                             for (carry_si, additional_templates) in additional_template_list.items():
@@ -2816,24 +2844,6 @@ class PostureGraphService(Service):
                             if gsi_handlers.posture_graph_handlers.archiver.enabled:
                                 gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
                             destination_nodes[node] = destination_specs
-                    elif additional_template_list and not interaction.is_putdown:
-                        compatible = True
-                        for (carry_si, additional_templates) in additional_template_list.items():
-                            if carry_si not in guaranteed_sis:
-                                continue
-                            compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
-                            if compatible:
-                                break
-                        if not compatible:
-                            pass
-                        else:
-                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                            destination_nodes[node] = destination_specs
-                    else:
-                        if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                            gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                        destination_nodes[node] = destination_specs
                 if destination_nodes:
                     found_destination_node = True
                 else:
@@ -3207,7 +3217,7 @@ class PostureGraphService(Service):
         return (sim_position_constraint, None, None)
 
     @staticmethod
-    def append_handles(sim, handle_dict, invalid_handle_dict, invalid_los_dict, routing_data, target_path, var_map, dest_spec, cur_path_id, final_constraint, entry=True, path_type=PathType.LEFT, goal_height_limit=None):
+    def append_handles(sim, handle_dict, invalid_handle_dict, invalid_los_dict, routing_data, target_path, var_map, dest_spec, cur_path_id, final_constraint, entry=True, path_type=PathType.LEFT, goal_height_limit=None, perform_los_check=True):
         (routing_constraint, locked_params, target) = routing_data
         if routing_constraint is None:
             return
@@ -3219,6 +3229,8 @@ class PostureGraphService(Service):
                 goal_height_limit = None
                 if top_level_parent is not sim:
                     (reference_pt, top_level_parent) = (None, None)
+        if not perform_los_check:
+            reference_pt = None
         blocking_obj_id = None
         if sim.routing_master is not None and sim.routing_master.get_routing_slave_data_count(FormationRoutingType.FOLLOW):
             target_reference_override = sim.routing_master
@@ -3246,7 +3258,7 @@ class PostureGraphService(Service):
                 else:
                     single_goal_only = False
                 for_source = path_type == PathType.LEFT and len(target_path) == 1
-                routing_goals = connectivity_handle.get_goals(relative_object=target, for_source=for_source, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override)
+                routing_goals = connectivity_handle.get_goals(relative_object=target, for_source=for_source, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override, perform_los_check=perform_los_check)
                 if not routing_goals:
                     if gsi_handlers.posture_graph_handlers.archiver.enabled:
                         gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'no goals generated', path_type)
@@ -3401,7 +3413,8 @@ class PostureGraphService(Service):
             if use_previous_pos:
                 self.copy_handles(sim, right_handles, right_path, right_var_map)
             elif routing_data[0].valid:
-                blocking_obj_id = self.append_handles(sim, right_handles, invalid, invalid_los, routing_data, right_path, right_var_map, destination_spec, unique_id, final_constraint, path_type=PathType.RIGHT, goal_height_limit=interaction.goal_height_limit)
+                perform_los_check = interaction.should_perform_routing_los_check
+                blocking_obj_id = self.append_handles(sim, right_handles, invalid, invalid_los, routing_data, right_path, right_var_map, destination_spec, unique_id, final_constraint, path_type=PathType.RIGHT, goal_height_limit=interaction.goal_height_limit, perform_los_check=perform_los_check)
                 if blocking_obj_id is not None:
                     blocking_obj_ids.append(blocking_obj_id)
         elif first_spec.body_target is not None and first_spec.body_target.is_sim:
@@ -3931,7 +3944,7 @@ class PostureGraphService(Service):
         all_source_goals = non_suppressed_source_goals
         all_dest_goals = non_suppressed_goals or suppressed_goals
         if not (all_source_goals and all_dest_goals):
-            failure_path = yield from self._get_failure_path_spec_gen(timeline, sim, source_destination_sets, failed_path_type=path_type)
+            failure_path = yield from self._get_failure_path_spec_gen(timeline, sim, source_destination_sets, interaction=interaction, failed_path_type=path_type)
             return (False, failure_path, None)
             yield
         for goal in itertools.chain(all_source_goals, all_dest_goals):
@@ -3945,7 +3958,7 @@ class PostureGraphService(Service):
         self.normalize_goal_costs(all_dest_goals)
         route = routing.Route(all_source_goals[0].location, all_dest_goals, additional_origins=all_source_goals, routing_context=routing_context)
         is_failure_path = all_dest_goals is suppressed_goals
-        plan_primitive = interactions.utils.routing.PlanRoute(route, routing_agent, is_failure_route=is_failure_path)
+        plan_primitive = interactions.utils.routing.PlanRoute(route, routing_agent, is_failure_route=is_failure_path, interaction=interaction)
         result = yield from element_utils.run_child(timeline, elements.MustRunElement(plan_primitive))
         if not result:
             raise RuntimeError('Unknown error when trying to run PlanRoute.run()')
@@ -4025,7 +4038,7 @@ class PostureGraphService(Service):
         for goal in all_goals:
             goal.cost -= min_cost
 
-    def _get_failure_path_spec_gen(self, timeline, sim, source_destination_sets, failed_path_type=None):
+    def _get_failure_path_spec_gen(self, timeline, sim, source_destination_sets, interaction=None, failed_path_type=None):
         all_sources = {}
         all_destinations = {}
         all_invalid_sources = {}
@@ -4042,6 +4055,8 @@ class PostureGraphService(Service):
         set_transition_failure_reason(sim, TransitionFailureReasons.PATH_PLAN_FAILED)
         failure_sources = all_sources or (all_invalid_sources or all_invalid_los_sources)
         if not failure_sources:
+            if sim.posture.is_vehicle:
+                sim.posture.source_interaction.cancel(FinishingType.TRANSITION_FAILURE, 'Canceled Vehicle Posture from Failure Path.')
             return EMPTY_PATH_SPEC
             yield
         best_left_data = None
@@ -4063,7 +4078,7 @@ class PostureGraphService(Service):
             all_destination_goals.extend(dest_goals)
         if all_destination_goals:
             route = routing.Route(best_left_goal.location, all_destination_goals, routing_context=sim.routing_context)
-            plan_element = interactions.utils.routing.PlanRoute(route, sim)
+            plan_element = interactions.utils.routing.PlanRoute(route, sim, interaction=interaction)
             result = yield from element_utils.run_child(timeline, plan_element)
             if not result:
                 raise RuntimeError('Failed to generate a failure path.')

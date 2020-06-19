@@ -4,7 +4,8 @@ import collections
 import itertools
 import math
 import weakref
-from animation import get_throwaway_animation_context, posture_manifest
+from animation import get_throwaway_animation_context
+from animation.animation_overrides_tuning import RequiredSlotOverride
 from animation.animation_utils import StubActor
 from animation.asm import Asm, do_params_match
 from animation.posture_manifest import PostureManifest, AnimationParticipant, SlotManifest, SlotManifestEntry, MATCH_ANY, PostureManifestEntry, UPPER_BODY, FULL_BODY, MATCH_NONE, PostureManifestOverrideValue, _get_posture_type_for_posture_name, FrozenSlotManifest
@@ -23,6 +24,7 @@ from postures.posture_specs import PostureSpec, PostureSpecVariable, PostureAspe
 from postures.posture_state_spec import create_body_posture_state_spec
 from routing import SurfaceType, SurfaceIdentifier
 from routing.portals import PY_OBJ_DATA, SURFACE_POLYGON, SURFACE_OBJ_ID
+from sims.university.university_constraint_helper import UniversityCourseReferenceSpawnPointTags, UniversitySpecificSpawnPointTags, UniversityCourseCareerSISpawnPointTags, UniversityCourseParticipantSpawnPointTags
 from sims.sim_info_types import SimInfoSpawnerTags, SpeciesExtended
 from sims4.collections import frozendict
 from sims4.log import StackVar
@@ -53,6 +55,7 @@ import sims4.geometry
 import sims4.log
 import sims4.math
 import sims4.resources
+from sims4 import geometry
 logger = sims4.log.Logger('Constraints')
 with sims4.reload.protected(globals()):
     _global_stub_actors = {}
@@ -189,7 +192,7 @@ class Constraint(ImmutableType, InternMixin):
     def _debug_name(self):
         return ''
 
-    def __init__(self, geometry=None, routing_surface=None, scoring_functions=(), goal_functions=(), posture_state_spec=None, age=None, debug_name='', allow_small_intersections=DEFAULT, flush_planner=False, allow_geometry_intersections=True, los_reference_point=DEFAULT, ignore_outer_penalty_threshold=IGNORE_OUTER_PENALTY_THRESHOLD, cost=0, objects_to_ignore=None, create_jig_fn=None, multi_surface=False, enables_height_scoring=False, terrain_tags=None, min_water_depth=None, max_water_depth=None):
+    def __init__(self, geometry=None, routing_surface=None, scoring_functions=(), goal_functions=(), posture_state_spec=None, age=None, debug_name='', allow_small_intersections=DEFAULT, flush_planner=False, allow_geometry_intersections=True, los_reference_point=DEFAULT, ignore_outer_penalty_threshold=IGNORE_OUTER_PENALTY_THRESHOLD, cost=0, objects_to_ignore=None, create_jig_fn=None, multi_surface=False, enables_height_scoring=False, terrain_tags=None, min_water_depth=None, max_water_depth=None, interaction=None):
         self._geometry = geometry
         self._routing_surface = routing_surface
         self._posture_state_spec = posture_state_spec
@@ -492,6 +495,28 @@ class Constraint(ImmutableType, InternMixin):
         elif max_water_depth is not None and max_water_depth < depth:
             return False
         return True
+
+    def is_any_geometry_water_depth_valid(self):
+        if self.geometry is None or self.geometry.polygon is None:
+            return True
+        min_water_depth = self.get_min_water_depth()
+        max_water_depth = self.get_max_water_depth()
+        if min_water_depth is None and max_water_depth is None:
+            return True
+
+        def check_depth(depth):
+            if min_water_depth is not None and depth < min_water_depth:
+                return False
+            elif max_water_depth is not None and max_water_depth < depth:
+                return False
+            return True
+
+        for poly in self.geometry.polygon:
+            for vertex in poly:
+                depth = get_water_depth(vertex.x, vertex.z)
+                if check_depth(depth):
+                    return True
+        return False
 
     @caches.cached
     def is_location_terrain_tags_valid(self, location):
@@ -1064,7 +1089,7 @@ class ResolvePostureContext(ImmutableType, InternMixin):
                 if slot_type_name == tuning_file.__name__:
                     slot_type = tuning_file
                     break
-            slot_list.append(animation.animation_element.RequiredSlotOverride(slot_actor_name, parent_name, slot_type))
+            slot_list.append(RequiredSlotOverride(slot_actor_name, parent_name, slot_type))
         self.__dict__.update(state)
         self._required_slots = tuple(slot_list)
         self._asm_key = _resourceman.Key(*asm_key)
@@ -1736,6 +1761,31 @@ class TunableSpawnPoint(TunableSingletonFactory):
 
     def __init__(self, description='\n        A tunable type for creating Spawn Point constraints. If no Tags are\n        tuned, then the system will use whatever information is saved on the\n        sim_info. The saved info will rely on information about where the Sim\n        spawned from.\n        ', **kwargs):
         super().__init__(tags=OptionalTunable(tunable=TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, filter_prefixes=('Spawn',)), minlength=1), enabled_by_default=True, disabled_name='Use_Saved_Spawn_Point_Options', enabled_name='Spawn_Point_Tags', description=description), spawn_point_request_reason=TunableEnumEntry(description='\n                The reason why we want the spawn point. Certain spawn points are\n                only available for specific reasons, such as specific spawn\n                points for leaving or for spawning at.\n                ', tunable_type=SpawnPointRequestReason, default=SpawnPointRequestReason.DEFAULT), use_lot_id=Tunable(description='\n                If checked then we will use the current lot id to limit spawn\n                points that are linked to lots to the current lot.  Otherwise\n                we will get spawn points of the given type that are\n                potenially not linked to the current lot.\n                ', tunable_type=bool, default=True), **kwargs)
+
+class TunedSpawnPointWithBackup(ZoneConstraintMixin):
+
+    def __init__(self, spawn_point_tags=None, backup_tags=None, spawn_point_request_reason=False, use_lot_id_for_backup=True):
+        super().__init__()
+        self.spawn_point_tags = spawn_point_tags
+        self.backup_tags = backup_tags
+        self.spawn_point_request_reason = spawn_point_request_reason
+        self.use_lot_id_for_backup = use_lot_id_for_backup
+
+    def create_zone_constraint(self, sim, target=None, lot_id=None, interaction=None, **kwargs):
+        sim_info = sim.sim_info
+        return services.current_zone().get_spawn_points_constraint(sim_info=sim_info, sim_spawner_tags=self.spawn_point_tags.get_tags(sim_info, interaction), spawn_point_request_reason=self.spawn_point_request_reason, backup_sim_spawner_tags=self.backup_tags, backup_lot_id=lot_id if self.use_lot_id_for_backup else None)
+
+class TunableSpawnPointWithBackup(TunableSingletonFactory):
+    FACTORY_TYPE = TunedSpawnPointWithBackup
+
+    class _Tags(HasTunableSingletonFactory, AutoFactoryInit):
+        FACTORY_TUNABLES = {'tags': TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, filter_prefixes=('Spawn',)))}
+
+        def get_tags(self, sim_info, interaction):
+            return self.tags
+
+    def __init__(self, description="\n        A tunable type for creating Spawn Point constraints with a backup.\n        If no valid spawn points are found via the spawn point tags \n        then the backup tags will be used.  If those can't be found then the\n        system will use whatever information is saved on the sim_info. The \n        saved info will rely on information about where the Sim spawned from.\n        ", **kwargs):
+        super().__init__(spawn_point_tags=TunableVariant(description='\n                Tags that specify the primary spawnpoints or where to get them.\n                ', university_course_slot_reference=UniversityCourseReferenceSpawnPointTags.TunableFactory(), university_based=UniversitySpecificSpawnPointTags.TunableFactory(), university_course_slot_career_si=UniversityCourseCareerSISpawnPointTags.TunableFactory(), university_course_slot_participant=UniversityCourseParticipantSpawnPointTags.TunableFactory(), tags=TunableSpawnPointWithBackup._Tags.TunableFactory()), backup_tags=OptionalTunable(tunable=TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, default=Tag.INVALID, filter_prefixes=('Spawn',)), minlength=1), enabled_by_default=True, enabled_name='Spawn_Point_Tags', description=description), spawn_point_request_reason=TunableEnumEntry(description='\n                The reason why we want the spawn point. Certain spawn points are\n                only available for specific reasons, such as specific spawn\n                points for leaving or for spawning at.\n                ', tunable_type=SpawnPointRequestReason, default=SpawnPointRequestReason.DEFAULT), use_lot_id_for_backup=Tunable(description='\n                If checked then we will use the current lot id to limit spawn\n                points that are linked to lots to the current lot if we fall back\n                to the backup tags.\n                ', tunable_type=bool, default=True), **kwargs)
 
 def create_animation_constraint_set(constraints, asm_name, state_name, **kwargs):
     debug_name = 'AnimationConstraint({}.{})'.format(asm_name, state_name)
@@ -2605,9 +2655,11 @@ class TunableCircle(TunableSingletonFactory):
         super().__init__(radius=Tunable(float, radius, description='Circle radius'), ideal_radius=Tunable(description='\n                                            Ideal distance for this circle constraint, points \n                                            closer to the ideal distance will score higher.\n                                            ', tunable_type=float, default=None), ideal_radius_width=Tunable(description='\n                                            This creates a band around the ideal_radius that also\n                                            costs 0 instead of rising in cost. ex: If you\n                                            have a circle of radius 5, with an ideal_radius of 2.5, and a\n                                            ideal_radius_width of 0.5, all goals in the radius 2 to radius 3 range\n                                            will score optimially.\n                                            ', tunable_type=float, default=0), require_los=Tunable(description="\n                                            If checked, the Sim will require line of sight to the actor.  Positions where a Sim\n                                            can't see the actor (e.g. there's a wall in the way) won't be valid.\n                                            \n                                            NOTE: This will NOT work on a\n                                            constraint that is not used to\n                                            generate routing goals such as\n                                            broadcasters and reactions, use a\n                                            Line Of Sight Constraint instead.\n                                            This will work on constraints used\n                                            to keep Sims in an interaction.\n                                            ", tunable_type=bool, default=True), radial_cost_weight=TunableRange(description='\n                                            The importance of the radial cost function.\n                                             = 0: Not used\n                                             > 1: Important on surfaces\n                                             > 2: Important on grass\n                                            ', tunable_type=float, default=_DEFAULT_COST_WEIGHT, minimum=0), multi_surface=Tunable(description='\n                                            If enabled, this constraint will be considered for multiple surfaces.\n                                            \n                                            Example: You want a circle\n                                            constraint that can be both inside\n                                            and outside of a pool.\n                                            ', tunable_type=bool, default=False), enables_height_scoring=Tunable(description='\n                                            If enabled, this constraint will \n                                            score goals using the height of\n                                            the surface.  The higher the goal\n                                            the cheaper it is.\n                                            ', tunable_type=bool, default=False), description=description, **kwargs)
 
 class CurrentPosition(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'radius': TunableRange(description='\n            The maximum radius around the center point.\n            ', tunable_type=float, minimum=0, default=1)}
+    FACTORY_TUNABLES = {'radius': TunableRange(description='\n            The maximum radius around the center point.\n            ', tunable_type=float, minimum=0, default=1), 'ignore_on_object_routing_surface': Tunable(description="\n            If checked, we will ignore this constraint on the object routing\n            surface. This should be used when we are only tuning this constraint\n            for performance reasons in order to be compatible with stair \n            landings or other object routing surface areas that are not in the\n            sim quadtree- which don't support geometric constraints.\n            ", tunable_type=bool, default=True)}
 
     def create_constraint(self, sim, target, **kwargs):
+        if self.ignore_on_object_routing_surface and sim.intended_routing_surface is not None and sim.intended_routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
+            return ANYWHERE
         return Circle(sim.intended_position, self.radius, sim.intended_routing_surface, **kwargs)
 
 class TunedWelcomeConstraint:
@@ -2853,13 +2905,13 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         return True
 
 class JigConstraint(ObjectJigConstraint):
-    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            Counters are an example of objects that use a suite of models.\n            ', tunable_type=int, default=0, minimum=0)}
+    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False), 'use_intended_location': Tunable(description='\n            The jig constraint will be placed at the intended location if \n            checked.  Useful to disable for TeleportStyleInteractions which\n            want to place the jig somewhere near the Sim rather than where\n            they are going.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            Counters are an example of objects that use a suite of models.\n            ', tunable_type=int, default=0, minimum=0)}
 
-    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, model_suite_state_index, sim=None, target=None, **kwargs):
-        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, jig_model_suite_state_index=model_suite_state_index, **kwargs)
+    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, model_suite_state_index, use_intended_location, sim=None, target=None, **kwargs):
+        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, jig_model_suite_state_index=model_suite_state_index, use_intended_location=use_intended_location, **kwargs)
 
     def create_constraint(self, *args, **kwargs):
-        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, self._model_suite_state_index, *args, **kwargs)
+        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, self._model_suite_state_index, self._use_intended_location, *args, **kwargs)
 
 class ObjectPlacementConstraint(ObjectJigConstraint):
     FACTORY_TUNABLES = {'description': '\n            A constraint defined by a location on a specific jig object,\n            which will be placed when the constraint is bound and will\n            live for the duration of the interaction owning the constraint.\n            ', 'use_intended_location': Tunable(description='\n            If enabled, we will use the intended location of the relative\n            object when placing this object. That means we use their intended\n            location to start the FGL search from, and the routing surface to\n            start with.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            For object definitions that use a suite of models\n            ', tunable_type=int, default=0, minimum=0), 'force_pool_surface_water_depth': OptionalTunable(description='\n            (float) If provided, and the starting point for the FGL is not already on\n            the pool (or ocean) surface, water depths greater than this value\n            will force the use of the pool routing surface.\n            ', tunable=TunableTuple(description='\n                Settings for forced use of pool routing surface.\n                ', water_depth=Tunable(description='\n                    Value of the min water depth allowed.\n                    ', tunable_type=float, default=-1.0), model_suite_state_index=OptionalTunable(description='\n                    For object definitions that use a suite of models (each w/ its own\n                    model, rig, slots, slot resources, and footprint), switch the index\n                    used in the suite.  For jigs, this changes the footprint used.\n                    For object definitions that use a suite of models\n                    ', tunable=TunableRange(description='\n                        Index to use.\n                        ', tunable_type=int, default=0, minimum=0)))), 'min_water_depth': OptionalTunable(description='\n            (float) If provided, minimum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the min water depth allowed.\n                ', tunable_type=float, default=0.0)), 'max_water_depth': OptionalTunable(description='\n            (float) If provided, maximum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the max water depth allowed.\n                ', tunable_type=float, default=0.0))}

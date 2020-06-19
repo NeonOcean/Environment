@@ -32,30 +32,22 @@ class InRoutingFormation(HasTunableSingletonFactory, AutoFactoryInit):
 
     def test(self, master, slave, tooltip):
         if slave is not None:
-            if self.formations_to_validate is not None and not self._is_valid_routing_formation(slave.get_routing_slave_data(), self.required_or_prohibited):
-                return TestResult(False, '{} is in an invalid routing formation.', slave, tooltip=tooltip)
             if self.required_or_prohibited and slave.routing_component.routing_master is None:
-                return TestResult(False, '{} is not expected to be the slave in a routing formation.', slave, tooltip=tooltip)
-            if not self.required_or_prohibited and slave.routing_component.routing_master is not None:
                 return TestResult(False, '{} is expected to be the slave in a routing formation.', slave, tooltip=tooltip)
+            if not self.required_or_prohibited and slave.routing_component.routing_master is not None:
+                return TestResult(False, '{} is not expected to be the slave in a routing formation.', slave, tooltip=tooltip)
         if master is not None:
-            slave_data = master.get_routing_slave_data()
-            if self.formations_to_validate is not None and not self._is_valid_routing_formation(slave_data, self.required_or_prohibited):
-                return TestResult(False, '{} is in an invalid routing formation.', master, tooltip=tooltip)
+            slave_data = [formation for formation in master.get_routing_slave_data() if self.formations_to_validate is None or self.formations_to_validate.test_item(formation.formation_type)]
             if self.required_or_prohibited:
                 if not slave_data:
                     return TestResult(False, '{} is expected to be the master of a routing formation.', master, tooltip=tooltip)
-                if slave is not None and master.get_formation_data_for_slave(slave) is None:
-                    return TestResult(False, '{} is expected to be the master of a routing formation with {}', master, slave, tooltip=tooltip)
+                if slave is not None:
+                    slave_formation = master.get_formation_data_for_slave(slave)
+                    if slave_formation is None or not not (self.formations_to_validate is not None and self.formations_to_validate.test_item(slave_formation.formation_type)):
+                        return TestResult(False, '{} is expected to be the master of a routing formation with {}', master, slave, tooltip=tooltip)
             elif slave_data:
                 return TestResult(False, '{} is not expected to be the master of a routing formation', master, tooltip=tooltip)
         return TestResult.TRUE
-
-    def _is_valid_routing_formation(self, formation_data, required_or_prohibited):
-        if formation_data is None:
-            return not required_or_prohibited
-        formations_to_test = {formation.formation_type for formation in formation_data}
-        return required_or_prohibited == self.formations_to_validate.test_collection(formations_to_test)
 
 class FormationCompatibility(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'compatibility': TunableWhiteBlackList(description='\n            A white/blacklist that determines compatibility via\n            required or prohibited formations.\n            ', tunable=TunableReference(description='\n                A routing formation\n                ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('RoutingFormation',), pack_safe=True))}

@@ -3,6 +3,7 @@ from audio.primitive import TunablePlayAudio, play_tunable_audio
 from element_utils import CleanupType, build_element, build_critical_section_with_finally
 from interactions import ParticipantType, ParticipantTypeSingle
 from interactions.utils.interaction_elements import XevtTriggeredElement
+from interactions.utils.loot_basic_op import BaseLootOperation
 from objects.components.state_change import StateChange
 from objects.components.types import STORED_AUDIO_COMPONENT
 from sims4.tuning.tunable import TunableFactory, TunableEnumFlags, Tunable, HasTunableFactory, AutoFactoryInit, TunableEnumEntry, TunableTuple, OptionalTunable
@@ -32,15 +33,7 @@ class TunableAudioModificationElement(TunableFactory):
         super().__init__(subject=TunableEnumFlags(ParticipantType, ParticipantType.Actor, description='Object the audio effect will be placed on.'), tag_name=TunableStringHash64(description='\n                             Name of the animation tag this effect will trigger on.\n                             ', default='x'), effect_name=TunableStringHash64(description='\n                             Name of the audio modification that will be applied\n                             ', default=''), **kwargs)
 
 class ApplyAudioEffect(HasTunableFactory, AutoFactoryInit):
-
-    @staticmethod
-    def _verify_tunable_callback(instance_class, tunable_name, source, effect_name=None, tag_name=None):
-        if not effect_name:
-            logger.error('Audio Effect for {} does not have a valid effect specified'.format(instance_class))
-        if not tag_name:
-            logger.error('Audio Effect for {} does not have a valid tag specified'.format(instance_class))
-
-    FACTORY_TUNABLES = {'effect_name': TunableStringHash64(description='\n            Name of the audio modification that will be applied.\n            ', default=''), 'tag_name': TunableStringHash64(description='\n            The tag name is the key that will be used for the effects. Any\n            effect of the same key will remove a previous effect.\n            ', default='x'), 'verify_tunable_callback': _verify_tunable_callback}
+    FACTORY_TUNABLES = {'effect_name': TunableStringHash64(description='\n            Name of the audio modification that will be applied.\n            ', default='', allow_empty=False), 'tag_name': TunableStringHash64(description='\n            The tag name is the key that will be used for the effects. Any\n            effect of the same key will remove a previous effect.\n            ', default='x', allow_empty=False)}
 
     def __init__(self, target, **kwargs):
         super().__init__(**kwargs)
@@ -78,13 +71,7 @@ class ApplyAudioEffect(HasTunableFactory, AutoFactoryInit):
                 self._running = False
 
 class TunableAudioSting(XevtTriggeredElement, HasTunableFactory, AutoFactoryInit):
-
-    @staticmethod
-    def _verify_tunable_callback(instance_class, tunable_name, source, audio_sting=None, **kwargs):
-        if audio_sting is None:
-            logger.error("Attempting to play audio sting that hasn't been tuned on {}", source)
-
-    FACTORY_TUNABLES = {'verify_tunable_callback': _verify_tunable_callback, 'description': 'Play an Audio Sting at the beginning/end of an interaction or on XEvent.', 'audio_sting': TunablePlayAudio(description='\n            The audio sting that gets played on the subject.\n            '), 'stop_audio_on_end': Tunable(description="\n            If checked AND the timing is not set to END, the audio sting will\n            turn off when the interaction finishes. Otherwise, the audio will\n            play normally and finish when it's done.\n            ", tunable_type=bool, default=False), 'subject': TunableEnumEntry(ParticipantType, ParticipantType.Actor, description='The participant who the audio sting will be played on.')}
+    FACTORY_TUNABLES = {'description': 'Play an Audio Sting at the beginning/end of an interaction or on XEvent.', 'audio_sting': TunablePlayAudio(description='\n            The audio sting that gets played on the subject.\n            '), 'stop_audio_on_end': Tunable(description="\n            If checked AND the timing is not set to END, the audio sting will\n            turn off when the interaction finishes. Otherwise, the audio will\n            play normally and finish when it's done.\n            ", tunable_type=bool, default=False), 'subject': TunableEnumEntry(ParticipantType, ParticipantType.Actor, description='The participant who the audio sting will be played on.')}
 
     def _build_outer_elements(self, sequence):
 
@@ -109,12 +96,18 @@ class TunablePlayStoredAudioFromSource(XevtTriggeredElement, HasTunableFactory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._sound = None
+        self._stored_audio_component = None
+        self._target_objects = []
 
     def _build_outer_elements(self, sequence):
 
         def stop_audio(e):
             if self._sound is not None:
                 self._sound.stop()
+                if self._stored_audio_component is None:
+                    return
+                for target_object in self._target_objects:
+                    self._stored_audio_component.remove_audio_effect(target_object)
 
         if self.stop_audio_on_end and self.timing is not self.AT_END:
             return build_element([sequence, stop_audio], critical=CleanupType.OnCancelOrException)
@@ -129,7 +122,9 @@ class TunablePlayStoredAudioFromSource(XevtTriggeredElement, HasTunableFactory):
         if stored_audio_source_component is None:
             logger.error("Interaction:'{}' has a Play Stored Audio from Source Basic Extra with a disabled Stored Audio Component on the stored audio source.".format(self.interaction.name), owner='shipark')
             return
-        for target_object in self.interaction.get_participants(self.target_object):
+        self._stored_audio_component = stored_audio_source_component
+        self._target_objects = self.interaction.get_participants(self.target_object)
+        for target_object in self._target_objects:
             if target_object is None:
                 logger.error("Interaction:'{}' has a Play Stored Audio from Source Basic extra where the target object in None.".format(self.interaction))
                 return
@@ -140,3 +135,13 @@ class TunablePlayStoredAudioFromSource(XevtTriggeredElement, HasTunableFactory):
                 self._sound = stored_audio_source_component.play_looping_music_track(target_object)
                 return
             self._sound = stored_audio_source_component.play_sound(target_object)
+
+class PlayAudioOp(BaseLootOperation):
+    FACTORY_TUNABLES = {'audio': TunablePlayAudio(description='\n            The audio to play when this loot runs.\n            ')}
+
+    def __init__(self, *args, audio, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._audio = audio
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        play_tunable_audio(self._audio)

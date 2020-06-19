@@ -827,6 +827,8 @@ def generate_sim_vital_view_data(sim_id:int=None):
     sim_info = _get_sim_info_by_id(sim_id)
     if sim_info is None:
         return vital_view_data
+    entry = {'sim_id': str(sim_id), 'name': 'LOD', 'type': sim_info.lod.__class__.__name__, 'visible': 'False', 'data': 'value={}'.format(sim_info.lod)}
+    vital_view_data.append(entry)
     buff_component = sim_info.Buffs
     if buff_component is not None:
         for buff in buff_component:
@@ -859,24 +861,25 @@ commodity_and_stat_view_schema.add_field('name', axis=GsiBarChartSchema.Axis.X)
 commodity_and_stat_view_schema.add_field('value', type=GsiFieldVisualizers.FLOAT)
 commodity_and_stat_view_schema.add_field('percentFull', axis=GsiBarChartSchema.Axis.Y, type=GsiFieldVisualizers.FLOAT, is_percent=True)
 commodity_and_stat_view_schema.add_filter(FILTER_WORKING_SET)
-commodity_and_stat_view_schema.add_filter('motive')
-commodity_and_stat_view_schema.add_filter('whimset')
+commodity_and_stat_view_schema.add_filter('commodity_babycare')
+commodity_and_stat_view_schema.add_filter('commodity_object')
+commodity_and_stat_view_schema.add_filter('commodity_toddlers')
 commodity_and_stat_view_schema.add_filter('commodity_trait')
 commodity_and_stat_view_schema.add_filter('commodity_siminfo')
-commodity_and_stat_view_schema.add_filter('commodity_babycare')
-commodity_and_stat_view_schema.add_filter('commodity_toddlers')
-commodity_and_stat_view_schema.add_filter('commodity_object')
 commodity_and_stat_view_schema.add_filter('commodity')
+commodity_and_stat_view_schema.add_filter('motive')
+commodity_and_stat_view_schema.add_filter('skill')
+commodity_and_stat_view_schema.add_filter('statistic')
+commodity_and_stat_view_schema.add_filter('whimset')
 with commodity_and_stat_view_schema.add_cheat('stats.set_commodity', label='Set {name}') as cheat:
     cheat.add_token_param('name')
     cheat.add_input_param(label='Value', default='100')
     cheat.add_token_param('simId')
-with commodity_and_stat_view_schema.add_cheat('stats.fill_all_sim_commodities_except', label='Fill all except {name}') as cheat:
+with commodity_and_stat_view_schema.add_cheat('stats.set_all_sim_commodities_best_value_except', label='Set all to best value except {name}') as cheat:
     cheat.add_token_param('name')
     cheat.add_token_param('simId')
-with commodity_and_stat_view_schema.add_cheat('stats.set_commodity_percent', label='Set {name} to max', dbl_click=True) as cheat:
+with commodity_and_stat_view_schema.add_cheat('stats.set_commodity_best_value', label='Set {name} to best value', dbl_click=True) as cheat:
     cheat.add_token_param('name')
-    cheat.add_static_param(1)
     cheat.add_token_param('simId')
 
 @GsiHandler('commodity_and_stat_view', commodity_and_stat_view_schema)
@@ -884,6 +887,12 @@ def generate_sim_commodity_and_stat_view_data(sim_id:int=None, filter=None):
     filter_list = parse_filter_to_list(filter)
     if filter_list is not None and FILTER_WORKING_SET in filter_list:
         filter_list.extend(f for f in FILTER_WORKING_SET_FILTERS if f not in filter_list)
+
+    def stat_passes_filters(stat):
+        if filter_list is not None and not any(a_filter.lower() in type(stat).__name__.lower() for a_filter in filter_list):
+            return False
+        return True
+
     data = []
     cur_sim_info = _get_sim_info_by_id(sim_id)
     if cur_sim_info is not None:
@@ -891,12 +900,16 @@ def generate_sim_commodity_and_stat_view_data(sim_id:int=None, filter=None):
             for statistic in list(cur_sim_info.commodity_tracker):
                 if not isinstance(statistic, statistics.commodity.Commodity):
                     continue
-                if filter_list is not None and not any(a_filter.lower() in type(statistic).__name__.lower() for a_filter in filter_list):
+                if not stat_passes_filters(statistic):
                     continue
                 data.append({'simId': str(sim_id), 'name': type(statistic).__name__, 'value': statistic.get_value(), 'percentFull': statistic.get_value()/statistic.max_value*100 if statistic.max_value != 0 else 0})
         if cur_sim_info.statistic_tracker is not None:
             for stat in list(cur_sim_info.statistic_tracker):
+                if not stat_passes_filters(stat):
+                    continue
                 data.append({'simId': str(sim_id), 'name': type(stat).__name__, 'value': stat.get_value(), 'percentFull': (stat.get_value() - stat.min_value)/(stat.max_value - stat.min_value)*100})
             for stat in cur_sim_info.all_skills():
+                if not stat_passes_filters(stat):
+                    continue
                 data.append({'simId': str(sim_id), 'name': type(stat).__name__, 'value': stat.get_value(), 'percentFull': stat.get_value()/stat.max_value*100})
     return sorted(data, key=lambda entry: entry['name'])

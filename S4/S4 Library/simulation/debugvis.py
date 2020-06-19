@@ -168,26 +168,26 @@ class Context:
         color_a = self.default_color if color_a is None else color_a
         color_b = self.default_color if color_b is None else color_b
         if isinstance(a, sims4.math.Location) or isinstance(a, LocationBase):
-            point_a = a.transform.translation
-            point_b = b.transform.translation
-            self.add_point(point_a, color=color_a, routing_surface=a.routing_surface)
+            point_a = self._apply_altitude(a.transform.translation, 0.0, a.routing_surface)
+            point_b = self._apply_altitude(b.transform.translation, 0.0, b.routing_surface)
+            self.add_point(point_a, color=color_a, altitude=KEEP_ALTITUDE, routing_surface=a.routing_surface)
             if a.routing_surface.type != SurfaceType.SURFACETYPE_OBJECT:
                 self.add_arrow_for_transform(a.transform, length=0.25, color=color_a, routing_surface=a.routing_surface)
-            self.add_point(point_b, color=color_b, routing_surface=b.routing_surface)
+            self.add_point(point_b, color=color_b, altitude=KEEP_ALTITUDE, routing_surface=b.routing_surface)
             if b.routing_surface.type != SurfaceType.SURFACETYPE_OBJECT:
                 self.add_arrow_for_transform(b.transform, length=0.25, color=color_b, routing_surface=b.routing_surface)
         elif isinstance(a, sims4.math.Transform):
-            point_a = a.translation
-            point_b = b.translation
-            self.add_point(point_a, color=color_a)
+            point_a = self._apply_altitude(a.transform.translation, 0.0)
+            point_b = self._apply_altitude(b.transform.translation, 0.0)
+            self.add_point(point_a, color=color_a, altitude=KEEP_ALTITUDE)
             self.add_arrow_for_transform(a, color=color_a)
-            self.add_point(point_b, color=color_b)
+            self.add_point(point_b, color=color_b, altitude=KEEP_ALTITUDE)
             self.add_arrow_for_transform(b, color=color_b)
         elif isinstance(a, sims4.math.Vector3):
-            point_a = a
-            point_b = b
-            self.add_point(point_a, color=color_a)
-            self.add_point(point_b, color=color_b)
+            point_a = self._apply_altitude(a.transform.translation, 0.0)
+            point_b = self._apply_altitude(b.transform.translation, 0.0)
+            self.add_point(point_a, color=color_a, altitude=KEEP_ALTITUDE)
+            self.add_point(point_b, color=color_b, altitude=KEEP_ALTITUDE)
         else:
             return
         highest_point = point_a if point_a.y > point_b.y else point_b

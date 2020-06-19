@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Publish_Mod_Cycle_Preview" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
-    <module name="NeonOcean.Main" />
+    <module name="NeonOcean.S4.Main" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>

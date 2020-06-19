@@ -161,6 +161,10 @@ class HouseholdTemplate(HasTunableReference, metaclass=sims4.tuning.instances.Tu
     def set_household_relationships(cls, inst, created_sim_infos, household):
         inst_or_cls = inst if inst is not None else cls
         tag_to_sim_info = {household_member.household_member_tag: sim_info for (household_member, sim_info) in zip(inst_or_cls.get_household_members(), created_sim_infos) if household_member.household_member_tag != tag.Tag.INVALID}
+        cls.set_household_relationships_by_tags(tag_to_sim_info, household)
+
+    @classmethod
+    def set_household_relationships_by_tags(cls, tag_to_sim_info, household):
         for member_relationship_data in cls._household_relationship:
             source_sim_info = tag_to_sim_info.get(member_relationship_data.x)
             target_sim_info = tag_to_sim_info.get(member_relationship_data.y)

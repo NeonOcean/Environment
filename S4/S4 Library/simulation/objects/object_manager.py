@@ -72,7 +72,8 @@ class DistributableObjectManager(IndexedManager):
             obj.remove_reference_from_parent()
             for child_object in tuple(obj.get_all_children_gen()):
                 child_object.destroy(source=obj, cause='Removing parent from object manager.')
-        if obj.visible_to_client:
+        zone = services.current_zone()
+        if obj.visible_to_client and zone is not None and not zone.is_zone_shutting_down:
             self.remove_from_client(obj, **kwargs)
         super().remove(obj)
 
@@ -134,6 +135,9 @@ class GameObjectManagerMixin:
     def set_claimed_item(self, obj_id):
         self._claimed_items.add(obj_id)
 
+    def set_unclaimed_item(self, obj_id):
+        self._claimed_items.discard(obj_id)
+
     def has_item_been_claimed(self, obj_id):
         return obj_id in self._claimed_items
 
@@ -146,6 +150,10 @@ class GameObjectManagerMixin:
         for persistable_data in inventory_data:
             if persistable_data.type == persistable_data.InventoryItemComponent:
                 data = persistable_data.Extensions[protocols.PersistableInventoryItemComponent.persistable_data]
+                if data.requires_claiming and not self.has_item_been_claimed(obj_id):
+                    return True
+            if persistable_data.type == persistable_data.ObjectClaimComponent:
+                data = persistable_data.Extensions[protocols.PersistableObjectClaimComponent.persistable_data]
                 if data.requires_claiming:
                     if not self.has_item_been_claimed(obj_id):
                         return True
@@ -198,22 +206,25 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
             inventory.try_remove_object_by_id(obj.id, count=obj.stack_count(), on_manager_remove=True)
         super().remove(obj, *args, **kwargs)
 
-    def get_stack_id(self, obj, stack_scheme):
+    def get_stack_id(self, obj, stack_scheme, custom_key=None):
         if stack_scheme == StackScheme.NONE:
             return self._get_new_stack_id()
         if stack_scheme == StackScheme.VARIANT_GROUP:
             variant_group_id = build_buy.get_variant_group_id(obj.definition.id)
-            if variant_group_id not in self._variant_group_stack_id_map:
-                self._variant_group_stack_id_map[variant_group_id] = self._get_new_stack_id()
-            return self._variant_group_stack_id_map[variant_group_id]
+            key = variant_group_id if custom_key is None else (variant_group_id, custom_key)
+            if key not in self._variant_group_stack_id_map:
+                self._variant_group_stack_id_map[key] = self._get_new_stack_id()
+            return self._variant_group_stack_id_map[key]
         if stack_scheme == StackScheme.DEFINITION:
             definition_id = obj.definition.id
-            if definition_id not in self._definition_stack_id_map:
-                self._definition_stack_id_map[definition_id] = self._get_new_stack_id()
-            return self._definition_stack_id_map[definition_id]
-        if stack_scheme not in self._dynamic_stack_scheme_id_map:
-            self._dynamic_stack_scheme_id_map[stack_scheme] = self._get_new_stack_id()
-        return self._dynamic_stack_scheme_id_map[stack_scheme]
+            key = definition_id if custom_key is None else (definition_id, custom_key)
+            if key not in self._definition_stack_id_map:
+                self._definition_stack_id_map[key] = self._get_new_stack_id()
+            return self._definition_stack_id_map[key]
+        key = stack_scheme if custom_key is None else (stack_scheme, custom_key)
+        if key not in self._dynamic_stack_scheme_id_map:
+            self._dynamic_stack_scheme_id_map[key] = self._get_new_stack_id()
+        return self._dynamic_stack_scheme_id_map[key]
 
     def _get_new_stack_id(self):
         self._last_stack_id += 1
@@ -319,6 +330,22 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
             inventory = parent.inventory_component
             if inventory.should_save_parented_item_to_inventory(obj):
                 return False
+            else:
+                vehicle_component = obj.vehicle_component
+                if vehicle_component is not None:
+                    driver = vehicle_component.driver
+                    if driver is not None and driver.is_sim:
+                        inventory = driver.inventory_component
+                        if inventory.should_save_parented_item_to_inventory(obj):
+                            return False
+        else:
+            vehicle_component = obj.vehicle_component
+            if vehicle_component is not None:
+                driver = vehicle_component.driver
+                if driver is not None and driver.is_sim:
+                    inventory = driver.inventory_component
+                    if inventory.should_save_parented_item_to_inventory(obj):
+                        return False
         return True
 
     def add_object_to_posture_providing_cache(self, obj):
@@ -394,8 +421,13 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
         double_bed_exist = False
         kid_bed_exist = False
         alternative_sleeping_spots = 0
+        university_roommate_beds = 0
         if store_travel_group_placed_objects:
             objects_to_save_for_clean_up = []
+        roommate_bed_tags = set()
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            roommate_bed_tags = roommate_service.BED_TAGS
         for game_object in self._objects.values():
             if self._should_save_object_on_lot(game_object):
                 save_result = ObjectManager.save_game_object(game_object, object_list, open_street_objects)
@@ -419,6 +451,9 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
                     alternative_sleeping_spots += 1
                 elif game_object.definition.has_build_buy_tag(*self.BED_TAGS.beds):
                     total_beds += 1
+                if len(roommate_bed_tags) > 0:
+                    if game_object.definition.has_build_buy_tag(*roommate_bed_tags):
+                        university_roommate_beds += 1
         if open_street_data is not None:
             open_street_data.objects = open_street_objects
         if zone_data is not None:
@@ -427,6 +462,9 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
             bed_info_data.double_bed_exist = double_bed_exist
             bed_info_data.kid_bed_exist = kid_bed_exist
             bed_info_data.alternative_sleeping_spots = alternative_sleeping_spots
+            if roommate_service is not None:
+                household_and_roommate_cap = roommate_service.HOUSEHOLD_AND_ROOMMATE_CAP
+                bed_info_data.university_roommate_beds = min(household_and_roommate_cap, university_roommate_beds)
             zone_data.gameplay_zone_data.bed_info_data = bed_info_data
             if store_travel_group_placed_objects:
                 current_zone = services.current_zone()

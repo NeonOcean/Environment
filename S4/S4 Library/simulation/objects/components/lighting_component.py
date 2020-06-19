@@ -9,6 +9,7 @@ from singletons import DEFAULT
 from tag import Tag
 from vfx import PlayEffect
 import distributor.ops
+import distributor.system
 import services
 import sims4.log
 logger = sims4.log.Logger('Lighting')
@@ -42,7 +43,16 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
     def light_dimmer(self):
         return self._light_dimmer
 
-    _resend_lighting = light_dimmer.get_resend()
+    def _resend_lighting(self):
+        _distributor = distributor.system.Distributor.instance()
+        if _distributor.client is not None and self.owner.valid_for_distribution:
+            client_dimmer_value = self._light_dimmer
+            if self._light_dimmer == self.LIGHT_AUTOMATION_DIMMER_VALUE:
+                if self._user_intensity_overrides:
+                    client_dimmer_value = -self._user_intensity_overrides
+            op = distributor.ops.SetLightDimmer(client_dimmer_value)
+            if op is not None:
+                _distributor.add_op(self.owner, op)
 
     @light_dimmer.setter
     def light_dimmer(self, value):
@@ -157,12 +167,14 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
                 self._pending_dimmer_value = self._light_dimmer
             self.set_light_dimmer_value(self.LIGHT_DIMMER_VALUE_OFF)
 
-    def on_power_on(self):
+    def on_power_on(self, from_load=False):
         if not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
             if self._pending_dimmer_value is not None:
                 self._light_dimmer = self._pending_dimmer_value
                 self._resend_lighting()
                 self._pending_dimmer_value = None
+            elif from_load:
+                self._resend_lighting()
 
     def component_super_affordances_gen(self, **kwargs):
         yield from self.component_interactions
@@ -188,7 +200,7 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
             from_load = True if self._pending_dimmer_value else False
             self.on_power_off(from_load=from_load)
         else:
-            self.on_power_on()
+            self.on_power_on(from_load=True)
 
     def on_set_sold(self):
         self.on_power_off()

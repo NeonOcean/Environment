@@ -21,19 +21,23 @@ class CreateObjectHelper:
     def __call__(self):
         return self.object
 
+    def create_object(self):
+        if self._object_to_clone is not None:
+            self._object = self._object_to_clone.clone(definition_override=self.def_id, **self.create_kwargs)
+        else:
+            if self.def_id is None:
+                raise RuntimeError('Trying to create object with None definition from interaction: {} tag: {}'.format(self._reserver, self.tag))
+            if 'obj_id' in self.create_kwargs and self.create_kwargs['obj_id'] is None:
+                raise RuntimeError('Trying to create object with None obj_id from interaction: {} tag: {}'.format(self._reserver, self.tag))
+            self._object = create_object(self.def_id, **self.create_kwargs)
+        return self._object
+
     def create(self, *args):
         reservation_handler = None
 
         def _create(_):
             nonlocal reservation_handler
-            if self._object_to_clone is not None:
-                self._object = self._object_to_clone.clone(definition_override=self.def_id, **self.create_kwargs)
-            else:
-                if self.def_id is None:
-                    raise RuntimeError('Trying to create object with None definition from interaction: {} tag: {}'.format(self._reserver, self.tag))
-                if 'obj_id' in self.create_kwargs and self.create_kwargs['obj_id'] is None:
-                    raise RuntimeError('Trying to create object with None obj_id from interaction: {} tag: {}'.format(self._reserver, self.tag))
-                self._object = create_object(self.def_id, **self.create_kwargs)
+            self._object = self.create_object()
             if self._object is None:
                 return False
             if self.sim is not None and self._reserver is not None:

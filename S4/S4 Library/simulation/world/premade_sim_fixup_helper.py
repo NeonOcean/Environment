@@ -28,6 +28,7 @@ class PremadeSimFixupHelper:
         self._apply_occult()
         self._apply_template_data()
         self._apply_aspiration()
+        self._add_fixups()
 
     def _get_sim_template_from_id(self, template_id):
         template_manager = services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE)
@@ -38,15 +39,12 @@ class PremadeSimFixupHelper:
         households = {sim_info.household for sim_info in self._premade_sim_infos.values()}
         sim_info_to_template = {sim_info: template for (template, sim_info) in self._premade_sim_infos.items()}
         for household in households:
-            if any(sim_info not in sim_info_to_template for sim_info in household):
-                logger.error('Premade Household {} has non-premade Sims', household)
+            household_templates = {sim_info_to_template[sim_info].household_template for sim_info in household if sim_info in sim_info_to_template}
+            if None in household_templates or len(household_templates) != 1:
+                logger.error('Premade Household {} has members in different PremadeHouseholdTemplates: {}', household, household_templates)
             else:
-                household_templates = {sim_info_to_template[sim_info].household_template for sim_info in household}
-                if None in household_templates or len(household_templates) != 1:
-                    logger.error('Premade Household {} has members in different PremadeHouseholdTemplates: {}', household, household_templates)
-                else:
-                    household_template = next(iter(household_templates))
-                    household_template.apply_fixup_to_household(household)
+                household_template = next(iter(household_templates))
+                household_template.apply_fixup_to_household(household, self._premade_sim_infos)
 
     def _apply_clubs(self):
 
@@ -113,3 +111,10 @@ class PremadeSimFixupHelper:
         for (premade_sim_template, sim_info) in self._premade_sim_infos.items():
             if premade_sim_template.primary_aspiration is not None:
                 sim_info.primary_aspiration = premade_sim_template.primary_aspiration
+
+    def _add_fixups(self):
+        for (premade_sim_template, sim_info) in self._premade_sim_infos.items():
+            fixup_tracker = sim_info.fixup_tracker
+            if fixup_tracker is not None:
+                for fixup in premade_sim_template._fixups:
+                    fixup_tracker.add_fixup(fixup)

@@ -109,7 +109,7 @@ class BucksTrackerBase:
             logger.error('Trying to unlock a Perk for owner {}, but there are no Sims.', self._owner)
             return
         for reward in perk.rewards:
-            reward().open_reward(dummy_sim, self._owner)
+            reward().open_reward(dummy_sim)
 
     def _award_loots(self, loot_list):
         resolver = SingleSimResolver(self._owner)
@@ -245,6 +245,7 @@ class BucksTrackerBase:
             if bucks_type not in self._bucks:
                 self._bucks[bucks_type] = 0
             perk_message.affordable = self._bucks[bucks_type] >= perk.unlock_cost
+            perk_message.ui_display_flags = perk.ui_display_flags
             if perk.required_unlocks is not None:
                 locked = False
                 for required_perk in perk.required_unlocks:
@@ -387,6 +388,8 @@ class BucksTrackerBase:
                     unlocked_by = bucks_perk_manager.get(perk_data.unlock_reason)
                     timestamp = DateAndTime(perk_data.timestamp)
                     self._unlocked_perks[perk_ref.associated_bucks_type][perk_ref] = PerkData(unlocked_by, timestamp, perk_data.currently_unlocked)
+                    if not perk_data.currently_unlocked:
+                        continue
                     self._award_buffs(perk_ref)
                     if perk_data.time_left:
                         self._set_up_temporary_perk_timer(perk_ref, perk_data.time_left)

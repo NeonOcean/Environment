@@ -1,11 +1,11 @@
 from _math import Quaternion, Vector3, Transform
 import weakref
-import enum
-import sims4.reload
 from objects.proxy import ProxyObject
 import build_buy
+import enum
 import placement
 import services
+import sims4.reload
 try:
     import _pathing
 except ImportError:
@@ -442,6 +442,13 @@ PORTAL_USE_LOCK = 25000
 PORTAL_LOCKED_COST = 100000
 EstimatePathDistance_DefaultOptions = EstimatePathFlag.NONE
 
+class PathNodeAction(enum.Int, export=False):
+    PATH_NODE_WALK_ACTION = 0
+    PATH_NODE_PORTAL_WARP_ACTION = 1
+    PATH_NODE_PORTAL_WALK_ACTION = 2
+    PATH_NODE_PORTAL_ANIMATE_ACTION = 3
+    PATH_NODE_UNDEFINED_ACTION = 4294967295
+
 def get_sim_extra_clearance_distance():
     extra_clearance_mult = get_default_agent_extra_clearance_multiplier()
     if extra_clearance_mult > 0.0:
@@ -680,6 +687,21 @@ class Path:
 
     def remove_intended_location_from_quadtree(self):
         self.sim.remove_location_from_quadtree(placement.ItemType.SIM_INTENDED_POSITION)
+
+    def remove_fake_portals(self):
+        for node in self:
+            if node.action == PathNodeAction.PATH_NODE_PORTAL_ANIMATE_ACTION:
+                if not node.portal_id:
+                    if not node.portal_object_id:
+                        node.action = PathNodeAction.PATH_NODE_PORTAL_WALK_ACTION
+
+    def get_contents_as_string(self, nodes):
+        nodes_str = ''
+        for node in nodes:
+            node_str = 'Node{{Vector3{}, {}}} '.format(str(node.position), str(node.portal_object_id))
+            nodes_str += node_str
+        path_str = 'Path[{}]'.format(nodes_str)
+        return path_str
 
 class Route:
     __slots__ = ('goals', 'options', 'path', 'origins', 'waypoints')

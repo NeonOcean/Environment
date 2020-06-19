@@ -8,9 +8,10 @@ from objects.base_interactions import ProxyInteraction
 from sims.party import Party
 from sims4.utils import classproperty, flexmethod
 from singletons import DEFAULT
-import enum
 import services
+import sims4.log
 import singletons
+logger = sims4.log.Logger('RallyInteraction', default_owner='jdimailig')
 
 class RallyInteraction(ProxyInteraction):
     INSTANCE_SUBCLASSES_ONLY = True
@@ -150,6 +151,9 @@ class RallyInteraction(ProxyInteraction):
                     appropriate_scored_interactons = tuple([scored_interaction_data for scored_interaction_data in autonomy_result if scored_interaction_data.interaction.target in self._rally_targets])
                     chosen_interaction = services.autonomy_service().choose_best_interaction(appropriate_scored_interactons, request)
                     request.invalidate_created_interactions(excluded_si=chosen_interaction)
+                    if chosen_interaction is None:
+                        logger.warn('Unable to find an interaction to satisfy {} in {}', static_commodity, request)
+                        return False
                     affordance = chosen_interaction.affordance
                     target = chosen_interaction.target
                     if target is not None:

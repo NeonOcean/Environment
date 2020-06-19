@@ -13,6 +13,7 @@ class StatisticTracker(statistics.base_statistic_tracker.BaseStatisticTracker):
         self._monetary_value_statistics = []
 
     def save(self):
+        self.check_for_unneeded_initial_statistics()
         save_list = []
         for stat in self._statistics_values_gen():
             if stat.persisted:
@@ -45,6 +46,7 @@ class StatisticTracker(statistics.base_statistic_tracker.BaseStatisticTracker):
                     logger.info('Trying to load unavailable STATISTIC resource: {}', statistics_data.name_hash)
         finally:
             self.statistics_to_skip_load = None
+        self.check_for_unneeded_initial_statistics()
 
     def add_statistic(self, stat_type, **kwargs):
         stat = super().add_statistic(stat_type, **kwargs)

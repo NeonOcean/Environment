@@ -39,6 +39,8 @@ class EventManagerService(Service):
 
     def start(self):
         self._enabled = True
+
+    def register_events_for_objectives(self):
         for aspiration in services.get_instance_manager(sims4.resources.Types.ASPIRATION).types.values():
             if not aspiration.do_not_register_events_on_load:
                 aspiration.register_callbacks()
@@ -58,6 +60,9 @@ class EventManagerService(Service):
         for household_milestone in services.get_instance_manager(sims4.resources.Types.HOUSEHOLD_MILESTONE).types.values():
             self.register_single_event(household_milestone, TestEvent.UpdateObjectiveData)
             self._handlers_to_unregister_post_load.add(household_milestone)
+
+    def on_zone_unload(self):
+        self._test_event_callback_map.clear()
 
     def disable_on_teardown(self):
         self._enabled = False

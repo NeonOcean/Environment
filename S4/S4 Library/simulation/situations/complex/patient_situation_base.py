@@ -142,8 +142,7 @@ class WaitingState(SituationState):
         career_service = services.get_career_service()
         active_career = career_service.get_career_in_career_event()
         if active_career is not None:
-            work_performance_stat = active_career.work_performance_stat
-            work_performance_stat.add_value(self.owner.waiting_timedout_performance_penalty)
+            active_career.add_work_performance(self.owner.waiting_timedout_performance_penalty)
             active_career.resend_career_data()
 
 class TreatedState(SituationState):

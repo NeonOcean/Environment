@@ -54,19 +54,20 @@ class GameTransitionDestinationNodeValidator:
             team.add(sim)
 
     def is_valid_destination(self, sim, target):
-        self._add_sim_to_team_if_necessary(sim)
-        if target in self._destinations[sim]:
-            return True
-        for (other_sim, other_targets) in self._destinations.items():
-            is_on_same_team = any(sim in team and other_sim in team for team in self._teams)
-            if is_on_same_team:
-                if not all(self._game_type.can_be_on_same_team(target, other_target) for other_target in other_targets):
-                    return False
-                    if not all(self._game_type.can_be_on_opposing_team(target, other_target) for other_target in other_targets):
+        if self._game_type.team_determines_part():
+            self._add_sim_to_team_if_necessary(sim)
+            if target in self._destinations[sim]:
+                return True
+            for (other_sim, other_targets) in self._destinations.items():
+                is_on_same_team = any(sim in team and other_sim in team for team in self._teams)
+                if is_on_same_team:
+                    if not all(self._game_type.can_be_on_same_team(target, other_target) for other_target in other_targets):
                         return False
-            elif not all(self._game_type.can_be_on_opposing_team(target, other_target) for other_target in other_targets):
-                return False
-        self._destinations[sim].add(target)
+                        if not all(self._game_type.can_be_on_opposing_team(target, other_target) for other_target in other_targets):
+                            return False
+                elif not all(self._game_type.can_be_on_opposing_team(target, other_target) for other_target in other_targets):
+                    return False
+            self._destinations[sim].add(target)
         return True
 
 class GameTransitionLiability(Liability):

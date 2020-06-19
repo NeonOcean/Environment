@@ -32,7 +32,7 @@ class RetailSummaryDialog:
                 for (career_level, hours_worked) in sorted(retail_manager.get_employee_wages_breakdown_gen(sim_info), key=lambda wage: -wage[0].simoleons_per_hour):
                     if not hours_worked and career_level is not current_career_level:
                         continue
-                    payroll_entries.append(business_tuning.summary_dialog_payroll_text(career_level.title(sim_info), career_level.simoleons_per_hour, hours_worked))
+                    payroll_entries.append(business_tuning.summary_dialog_payroll_text(career_level.get_title(sim_info), career_level.simoleons_per_hour, hours_worked))
                 if not payroll_entries:
                     raise ProtocolBufferRollbackExpected
                 line_item_msg.name = business_tuning.summary_dialog_payroll_header(sim_info)

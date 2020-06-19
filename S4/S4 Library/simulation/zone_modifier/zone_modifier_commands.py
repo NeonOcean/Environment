@@ -70,7 +70,7 @@ def run_zone_modifier_entry(zone_modifier, schedule_entry_index, _connection):
 def run_schedule_entry(zone_modifier:TunableInstanceParam(sims4.resources.Types.ZONE_MODIFIER), schedule_entry_index, _connection=None):
     run_zone_modifier_entry(zone_modifier, schedule_entry_index, _connection)
 
-@sims4.commands.Command('volcanic_eruption', command_type=sims4.commands.CommandType.Cheat)
+@sims4.commands.Command('volcanic_eruption', command_type=sims4.commands.CommandType.Live)
 def volcanic_eruption(eruption_size, _connection=None):
     size_to_schedule_entry_dict = {'large': '0', 'small': '1'}
     zone_modifier = get_tunable_instance(sims4.resources.Types.ZONE_MODIFIER, 'zoneModifier_lotTrait_VolcanicActivity')

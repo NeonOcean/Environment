@@ -10,6 +10,7 @@ from distributor.system import Distributor
 from event_testing import test_events
 from event_testing.resolver import SingleSimResolver
 from event_testing.test_events import TestEvent
+from event_testing.tests import TunableTestSet
 from fame.fame_tuning import FameTunables
 from interactions.context import QueueInsertStrategy, InteractionContext
 from interactions.interaction_finisher import FinishingType
@@ -61,6 +62,7 @@ class BaseSituation(IBouncerClient):
     PLAYABLE_SIMS_SCORE_MULTIPLIER = TunableCurve(description='Score multiplier based on number of playable Sims in the Situation')
     AUTOMATIC_BRONZE_TRAITS = TunableList(description='\n        An optional collection of traits that, if possessed by the host, will automagically promote the situation to bronze on start.', tunable=TunableReference(description='\n            A trait that if possessed by the host will start a given situation at bronze.', manager=services.get_instance_manager(sims4.resources.Types.TRAIT)))
     CHANGE_TO_SITUATION_OUTFIT = TunableReference(description='\n        The interaction used to cause Sims to spin into their situation outfit.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
+    SET_JOB_UNIFORM_TEST = TunableTestSet(description='\n        A set of tests that are run to determine whether or not a Sim is\n        allowed to set a job uniform. If these tests pass, Sims will try\n        and set a job uniform based on their situation job tuning.\n        ')
 
     @classproperty
     def distribution_override(cls):
@@ -69,6 +71,10 @@ class BaseSituation(IBouncerClient):
     @classproperty
     def main_goal_visibility_test(cls):
         return cls._main_goal_visibility_test
+
+    @classproperty
+    def use_spawner_tags_on_travel(cls):
+        return False
 
     constrained_emotional_loot = None
 
@@ -120,6 +126,9 @@ class BaseSituation(IBouncerClient):
         self._handle_automatic_bronze_promotion()
         services.get_event_manager().process_events_for_household(test_events.TestEvent.SituationStarted, services.active_household(), situation=self)
 
+    def manage_vehicle(self, vehicle):
+        logger.error('vehicle save/load persistence is not supported for this type of situation {}', self)
+
     def load_situation(self):
         logger.debug('Loading situation:{}', self)
         self._load_situation_issue_requests()
@@ -128,7 +137,7 @@ class BaseSituation(IBouncerClient):
         return True
 
     @classmethod
-    def should_seed_be_loaded(cls, seed):
+    def should_seed_be_loaded(cls, seed, load_open_street_situation_with_selectable_sim=False):
         if cls.situation_serialization_option == SituationSerializationOption.DONT:
             return False
         if cls.situation_serialization_option == SituationSerializationOption.HOLIDAY:
@@ -157,6 +166,8 @@ class BaseSituation(IBouncerClient):
                 if sim_info.household is active_lot_household:
                     logger.debug("Don't load open street situation:{},{} due to lot owner sim", seed.situation_type, seed.situation_id, owner='sscholl')
                     return False
+        if load_open_street_situation_with_selectable_sim:
+            return True
         active_household = services.active_household()
         if active_household is not None:
             for sim_info in seed.invited_sim_infos_gen():
@@ -300,6 +311,10 @@ class BaseSituation(IBouncerClient):
 
     def post_remove(self):
         self._destroy()
+
+    @property
+    def guest_list(self):
+        return self._guest_list
 
     @classproperty
     def always_elevated_importance(cls):
@@ -458,7 +473,7 @@ class BaseSituation(IBouncerClient):
         self._situation_sims[sim] = SituationSim(sim)
         self._set_job_for_sim(sim, job_type, role_state_type_override)
         self._add_situation_buff_to_sim(sim)
-        if self._should_apply_job_emotions_and_commodity_changes(sim):
+        if job_type.ignore_on_creation_restrictions and sim.is_npc or self._should_apply_job_emotions_and_commodity_changes(sim):
             job_data = self._jobs[job_type]
             resolver = sim.get_resolver()
             loot_actions = job_data.emotional_loot_actions
@@ -572,12 +587,15 @@ class BaseSituation(IBouncerClient):
             self._on_remove_sim_from_situation(sim)
             self._self_destruct()
         elif job_type.died_or_left_action == JobHolderDiedOrLeftAction.REPLACE_THEM:
-            self._on_remove_sim_from_situation(sim)
-            new_request = request.clone_for_replace()
-            if new_request is not None:
-                self.manager.bouncer.submit_request(new_request)
+            self.submit_replace_request(sim, request, job_type)
         else:
             self._on_remove_sim_from_situation(sim)
+
+    def submit_replace_request(self, sim, request, job_type):
+        self._on_remove_sim_from_situation(sim)
+        new_request = request.clone_for_replace()
+        if new_request is not None:
+            self.manager.bouncer.submit_request(new_request)
 
     def on_sim_replaced_in_request(self, old_sim, new_sim, request):
         job_type = request.job_type
@@ -866,6 +884,9 @@ class BaseSituation(IBouncerClient):
 
     def set_job_uniform(self, sim, job, outfit_for_clothing_change=None):
         job_uniform = job.job_uniform
+        resolver = SingleSimResolver(sim.sim_info)
+        if not self.SET_JOB_UNIFORM_TEST.run_tests(resolver):
+            return
         if job_uniform is None:
             weather_uniform = self._get_weather_uniform(sim)
             if weather_uniform is not None:
@@ -884,6 +905,7 @@ class BaseSituation(IBouncerClient):
                 zone_director.apply_zone_outfit(sim.sim_info, self)
                 return
         outfit_generators = job_uniform.situation_outfit_generators
+        found_outfit = True
         if outfit_generators:
             should_generate_outfit = True
             if self._seed.is_loadable:
@@ -898,7 +920,6 @@ class BaseSituation(IBouncerClient):
                 if any(entry.generator.tags.issubset(sim_tags) for entry in outfit_generators if entry.generator is not None):
                     should_generate_outfit = False
             if should_generate_outfit:
-                resolver = SingleSimResolver(sim.sim_info)
                 found_outfit = False
                 outfit_generators_test = list(outfit_generators)
                 while outfit_generators_test:
@@ -910,13 +931,12 @@ class BaseSituation(IBouncerClient):
                             found_outfit = True
                 if found_outfit:
                     outfit_generator.generator(sim.sim_info, OutfitCategory.SITUATION, outfit_index=0)
-                else:
-                    logger.error('Situation Job {} has no valid outfits for sim {}', job, sim, owner='camilogarcia')
+        if not found_outfit:
+            return
         outfit_priority_handle = sim.sim_info.add_default_outfit_priority(None, job_uniform.outfit_change_reason, job_uniform.outfit_change_priority)
         self._situation_sims[sim].outfit_priority_handle = outfit_priority_handle
         if self.manager.sim_being_created is sim or not services.current_zone().is_zone_running:
             if outfit_for_clothing_change is None:
-                resolver = SingleSimResolver(sim.sim_info)
                 new_outfit = sim.sim_info.get_outfit_for_clothing_change(None, OutfitChangeReason.DefaultOutfit, resolver=resolver)
             else:
                 new_outfit = outfit_for_clothing_change

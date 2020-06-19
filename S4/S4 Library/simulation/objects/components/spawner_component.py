@@ -41,7 +41,11 @@ class SpawnerTuning(HasTunableReference, HasTunableSingletonFactory, AutoFactory
 
     @flexmethod
     def create_spawned_object(cls, inst, spawner_object, definition, loc_type=ItemLocation.ON_LOT):
-        obj = definition(loc_type=loc_type)
+        try:
+            obj = definition(loc_type=loc_type)
+        except KeyError:
+            logger.exception('Failed to spawn object {} for {}', definition, spawner_object)
+            obj = None
         if obj is not None:
             spawner_object.spawner_component.spawned_object_created(obj)
         return obj

@@ -1,4 +1,5 @@
 import time
+from collections import namedtuple
 from sims4.sim_irq_service import yield_to_irq
 from sims4.tuning.tunable import Tunable, TunableAngle
 import enum
@@ -275,10 +276,11 @@ def find_good_location(context):
 
 FGL_DEFAULT_POSITION_INCREMENT = 0.3
 FGL_FOOTPRINT_POSITION_INCREMENT_MULTIPLIER = 0.5
+PositionIncrementInfo = namedtuple('PositionIncrementInfo', ('position_increment', 'from_exception'))
 
 class FindGoodLocationContext:
 
-    def __init__(self, starting_routing_location, object_id=None, object_def_id=None, object_def_state_index=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, terrain_tags=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, search_flags=FGLSearchFlagsDefault, min_water_depth=None, max_water_depth=None, **kwargs):
+    def __init__(self, starting_routing_location, object_id=None, object_def_id=None, object_def_state_index=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment_info=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, terrain_tags=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, raytest_start_point_override=None, search_flags=FGLSearchFlagsDefault, min_water_depth=None, max_water_depth=None, **kwargs):
         self.search_strategy = _placement.FGLSearchStrategyRouting(start_location=starting_routing_location)
         self.result_strategy = _placement.FGLResultStrategyDefault()
         self.search = _placement.FGLSearch(self.search_strategy, self.result_strategy)
@@ -325,9 +327,13 @@ class FindGoodLocationContext:
             self.search_strategy.min_distance = min_distance
         self.search_strategy.max_distance = FGLTuning.MAX_FGL_DISTANCE if max_distance is None else max_distance
         self.search_strategy.rotation_increment = PlacementConstants.rotation_increment
-        if position_increment is None:
-            position_increment = FGL_DEFAULT_POSITION_INCREMENT
-        self.search_strategy.position_increment = position_increment
+        if position_increment_info is None or position_increment_info.position_increment is None:
+            pos_increment = FGL_DEFAULT_POSITION_INCREMENT
+            failed_to_find_objects_footprint = False
+        else:
+            pos_increment = position_increment_info.position_increment
+            failed_to_find_objects_footprint = position_increment_info.from_exception
+        self.search_strategy.position_increment = pos_increment
         if restrictions is not None:
             for r in restrictions:
                 self.search_strategy.add_restriction(r)
@@ -360,6 +366,10 @@ class FindGoodLocationContext:
             self.search_strategy.raytest_radius = raytest_radius
         if raytest_ignore_flags is not None:
             self.search_strategy.raytest_ignore_flags = raytest_ignore_flags
+        if raytest_start_point_override is None:
+            self.search_strategy.raytest_start_point = starting_routing_location.position
+        else:
+            self.search_strategy.raytest_start_point = raytest_start_point_override
         if search_flags is not None:
             self.search_strategy.use_random_orientation = search_flags & FGLSearchFlag.USE_RANDOM_ORIENTATION
             self.search_strategy.allow_too_close_to_obstacle = search_flags & FGLSearchFlag.ALLOW_TOO_CLOSE_TO_OBSTACLE

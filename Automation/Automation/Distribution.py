@@ -4,7 +4,7 @@ import re
 import typing
 from json import decoder
 
-from Automation import Setup, Paths
+from Automation import Paths, Setup
 
 # noinspection SpellCheckingInspection
 ReleasesURL = "https://releases.mods.neonoceancreations.com"  # type: str
@@ -110,7 +110,7 @@ def GetReleaseLatest (namespace: str) -> typing.Optional[ModVersion]:
 	if versions is None:
 		return None
 
-	latestVersion = None  # type: ModVersion
+	latestVersion = None  # type: typing.Optional[ModVersion]
 	for version in versions:  # type: ModVersion
 		if latestVersion is None:
 			latestVersion = version
@@ -131,7 +131,7 @@ def GetPreviewLatest (namespace: str) -> typing.Optional[ModVersion]:
 	if versions is None:
 		return None
 
-	latestVersion = None  # type: ModVersion
+	latestVersion = None  # type: typing.Optional[ModVersion]
 	for version in versions:  # type: ModVersion
 		if latestVersion is None:
 			latestVersion = version
@@ -157,62 +157,64 @@ def _Setup () -> None:
 	for validModNameIndex in range(len(validModNames)):
 		validModNamesLower.append(validModNames[validModNameIndex].lower())
 
-	for modName in os.listdir(Paths.DistributionReleasesPath):  # type: str
-		modNameLower = modName.lower()  # type: str
-		modNamespace = modName  # type: str
+	if Paths.DistributionReleasesPath is not None:
+		for modName in os.listdir(Paths.DistributionReleasesPath):  # type: str
+			modNameLower = modName.lower()  # type: str
+			modNamespace = modName  # type: str
 
-		validModFolder = False  # type: bool
-		for validModName in validModNames:  # type: str
-			if validModName.lower() == modNameLower:
-				validModFolder = True
-				modNamespace = validModName
-				break
+			validModFolder = False  # type: bool
+			for validModName in validModNames:  # type: str
+				if validModName.lower() == modNameLower:
+					validModFolder = True
+					modNamespace = validModName
+					break
 
-		if not validModFolder:
-			continue
+			if not validModFolder:
+				continue
 
-		modPath = os.path.join(Paths.DistributionReleasesPath, modName)  # type: str
+			modPath = os.path.join(Paths.DistributionReleasesPath, modName)  # type: str
 
-		modVersions = list()  # type: typing.List[ModVersion]
+			modVersions = list()  # type: typing.List[ModVersion]
 
-		for modVersionName in os.listdir(modPath):  # type: str
-			modVersionPath = os.path.join(modPath, modVersionName)  # type: str
+			for modVersionName in os.listdir(modPath):  # type: str
+				modVersionPath = os.path.join(modPath, modVersionName)  # type: str
 
-			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modVersionPath, ReleasesURL, Paths.DistributionReleasesPath))
+				modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modVersionPath, ReleasesURL, Paths.DistributionReleasesPath))
 
-		Releases[modNamespace] = modVersions
+			Releases[modNamespace] = modVersions
 
-	for modName in os.listdir(Paths.DistributionPreviewsPath):  # type: str
-		modNameLower = modName.lower()  # type: str
-		modNamespace = modName  # type: str
+	if Paths.DistributionPreviewsPath is not None:
+		for modName in os.listdir(Paths.DistributionPreviewsPath):  # type: str
+			modNameLower = modName.lower()  # type: str
+			modNamespace = modName  # type: str
 
-		validModFolder = False  # type: bool
-		for validModName in validModNames:  # type: str
-			if validModName.lower() == modNameLower:
-				validModFolder = True
-				modNamespace = validModName
-				break
+			validModFolder = False  # type: bool
+			for validModName in validModNames:  # type: str
+				if validModName.lower() == modNameLower:
+					validModFolder = True
+					modNamespace = validModName
+					break
 
-		if not validModFolder:
-			continue
+			if not validModFolder:
+				continue
 
-		modPath = os.path.join(Paths.DistributionPreviewsPath, modName)  # type: str
+			modPath = os.path.join(Paths.DistributionPreviewsPath, modName)  # type: str
 
-		modVersions = list()  # type: typing.List[ModVersion]
+			modVersions = list()  # type: typing.List[ModVersion]
 
-		for modVersionName in os.listdir(modPath):  # type: str
-			modVersionPath = os.path.join(modPath, modVersionName)  # type: str
+			for modVersionName in os.listdir(modPath):  # type: str
+				modVersionPath = os.path.join(modPath, modVersionName)  # type: str
 
-			modRandomPaths = os.listdir(modVersionPath)  # type: str
+				modRandomPaths = os.listdir(modVersionPath)  # type: typing.List[str]
 
-			if len(modRandomPaths) != 1:
-				raise Exception("Missing random folder or too many folders for version at '" + modVersionPath + "'.")
+				if len(modRandomPaths) != 1:
+					raise Exception("Missing random folder or too many folders for version at '" + modVersionPath + "'.")
 
-			modRandomPath = os.path.join(modVersionPath, modRandomPaths[0])
+				modRandomPath = os.path.join(modVersionPath, modRandomPaths[0])
 
-			modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modRandomPath, PreviewsURL, Paths.DistributionPreviewsPath, modRandomPaths[0]))
+				modVersions.append(ModVersion(os.path.split(modVersionPath)[1], modRandomPath, PreviewsURL, Paths.DistributionPreviewsPath, modRandomPaths[0]))
 
-		Previews[modNamespace] = modVersions
+			Previews[modNamespace] = modVersions
 
 	for modNamespace, modReleaseVersions in Releases.items():  # type: str, typing.List[ModVersion]
 		modPreviewVersions = _GetMod(modNamespace, Previews)  # type: typing.List[ModVersion]

@@ -400,8 +400,15 @@ def remove_object_from_household_inventory(object_id, household):
     return _buildbuy.remove_object_from_household_inventory(object_id, household.id, zone_id, household.account.id)
 
 def object_exists_in_household_inventory(sim_id, household_id):
-    zone_id = services.current_zone_id()
-    return _buildbuy.object_exists_in_household_inventory(sim_id, household_id, zone_id)
+    return _buildbuy.object_exists_in_household_inventory(sim_id, household_id)
+
+def get_object_ids_in_household_inventory(household_id):
+    if is_household_inventory_available(household_id):
+        return _buildbuy.get_object_ids_in_household_inventory(household_id)
+    else:
+        household_msg = services.get_persistence_service().get_household_proto_buff(household_id)
+        if household_msg is not None and household_msg.inventory:
+            return [object_data.object_id for object_data in household_msg.inventory.objects]
 
 def __reload__(old_module_vars):
     pass
@@ -546,6 +553,9 @@ def buildbuy_session_end(zone_id):
         zone_director = services.venue_service().get_zone_director()
         if zone_director is not None:
             zone_director.on_exit_buildbuy()
+    object_preference_tracker = services.object_preference_tracker()
+    if object_preference_tracker is not None:
+        object_preference_tracker.validate_objects(zone_id)
     services.business_service().on_build_buy_exit()
     services.current_zone().on_build_buy_exit()
     services.get_reset_and_delete_service().on_build_buy_exit()
@@ -625,6 +635,16 @@ def c_api_on_apply_blueprint_lot_begin(zone_id):
 def c_api_on_apply_blueprint_lot_end(zone_id):
     from objects.components.mannequin_component import set_mannequin_group_sharing_mode, MannequinGroupSharingMode
     set_mannequin_group_sharing_mode(MannequinGroupSharingMode.ACCEPT_MERGED)
+
+@sims4.utils.exception_protected
+def c_api_on_lot_clearing_begin(zone_id):
+    zone = services.get_zone(zone_id)
+    zone.on_active_lot_clearing_begin()
+
+@sims4.utils.exception_protected
+def c_api_on_lot_clearing_end(zone_id):
+    zone = services.get_zone(zone_id)
+    zone.on_active_lot_clearing_end()
 
 @contextmanager
 def floor_feature_update_context(*args, **kwargs):

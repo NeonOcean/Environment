@@ -5,3 +5,4 @@ class OccultType(enum.IntFlags):
     ALIEN = 2
     VAMPIRE = 4
     MERMAID = 8
+    WITCH = 16

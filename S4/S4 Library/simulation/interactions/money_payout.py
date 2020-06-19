@@ -1,14 +1,15 @@
-import collections
 from protocolbuffers import Consts_pb2
+import collections
+import interactions.utils
+import sims4
 from interactions.liability import Liability
 from interactions.utils.loot_basic_op import BaseLootOperation
 from sims.funds import FundsSource
 from sims4.localization import LocalizationHelperTuning
-from sims4.tuning.tunable import Tunable, TunableList, TunableLiteralOrRandomValue
+from sims4.tuning.tunable import Tunable, TunableList, TunableLiteralOrRandomValue, OptionalTunable
 from singletons import DEFAULT
 from tunable_multiplier import TunableStatisticModifierCurve
-import interactions.utils
-import sims4
+from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
 logger = sims4.log.Logger('MoneyPayout')
 
 class MoneyLiability(Liability):
@@ -19,14 +20,15 @@ class MoneyLiability(Liability):
         self.amounts = collections.defaultdict(lambda : 0)
 
 class MoneyChange(BaseLootOperation):
-    FACTORY_TUNABLES = {'amount': TunableLiteralOrRandomValue(description='\n            The amount of Simoleons awarded. The value will be rounded to the\n            closest integer. When two integers are equally close, rounding is done\n            towards the even one (e.g. 0.5 -> 0, 1.5 -> 2).\n            ', tunable_type=float, minimum=0), 'statistic_multipliers': TunableList(description='\n            Tunables for adding statistic based multipliers to the payout in the\n            format:\n            \n            amount *= statistic.value\n            ', tunable=TunableStatisticModifierCurve.TunableFactory()), 'display_to_user': Tunable(description='\n            If true, the amount will be displayed in the interaction name.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'amount': TunableLiteralOrRandomValue(description='\n            The amount of Simoleons awarded. The value will be rounded to the\n            closest integer. When two integers are equally close, rounding is done\n            towards the even one (e.g. 0.5 -> 0, 1.5 -> 2).\n            ', tunable_type=float, minimum=0), 'statistic_multipliers': TunableList(description='\n            Tunables for adding statistic based multipliers to the payout in the\n            format:\n            \n            amount *= statistic.value\n            ', tunable=TunableStatisticModifierCurve.TunableFactory()), 'display_to_user': Tunable(description='\n            If true, the amount will be displayed in the interaction name.\n            ', tunable_type=bool, default=False), 'notification': OptionalTunable(description='\n            If set and an amount is awarded, displays a dialog to the user.\n            \n            The notification will have access to the amount awarded as a localization token. e.g. {0.Money} \n            ', tunable=TunableUiDialogNotificationSnippet())}
 
-    def __init__(self, amount, statistic_multipliers, display_to_user, **kwargs):
+    def __init__(self, amount, statistic_multipliers, display_to_user, notification, **kwargs):
         super().__init__(**kwargs)
         self._amount = amount
         self._statistic_multipliers = statistic_multipliers
         self._display_to_user = display_to_user
         self._random_amount = None
+        self._notification = notification
 
     @property
     def loot_type(self):
@@ -64,6 +66,9 @@ class MoneyChange(BaseLootOperation):
             else:
                 interaction_category_tags = None
             subject.household.funds.add(amount, Consts_pb2.TELEMETRY_INTERACTION_REWARD, subject_obj, tags=interaction_category_tags)
+            if self._notification is not None:
+                dialog = self._notification(subject, resolver=resolver)
+                dialog.show_dialog(additional_tokens=(amount,))
 
     def _on_apply_completed(self):
         self._random_amount = None

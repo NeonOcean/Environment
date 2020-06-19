@@ -1,8 +1,6 @@
-import itertools
-import random
-from filters.tunable import FilterTermTag
+from filters.tunable import FilterTermTag, FilterTermVariant
 from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import Tunable, TunableReference, TunableMapping, TunableEnumEntry, TunableSimMinute
+from sims4.tuning.tunable import Tunable, TunableReference, TunableMapping, TunableEnumEntry, TunableSimMinute, TunableInterval, TunableList
 from sims4.utils import classproperty
 from situations.ambient.busker_situation import BuskerSituationMixin, BuskSituationState
 from situations.ambient.sales_table_vendor_situation import SalesTableVendorSituationMixin
@@ -14,10 +12,13 @@ from situations.situation_complex import CommonSituationState, SituationComplexC
 from situations.situation_guest_list import SituationGuestList, SituationGuestInfo
 from situations.situation_job import SituationJob
 from situations.situation_types import SituationCreationUIOption
+from sims4.tuning.tunable_base import GroupNames
 import filters.tunable
+import itertools
 import services
 import sims4.resources
 import situations
+import random
 
 class CooldownFestivalSituationState(CommonSituationState):
     FACTORY_TUNABLES = {'should_try_and_find_new_situation': Tunable(description='\n            If True then we will try and put these Sims into new situations\n            when they enter this state.\n            ', tunable_type=bool, default=False)}
@@ -145,7 +146,7 @@ class SelectableSimFestivalSituation(BaseGenericFestivalSituation):
         request = SelectableSimRequestFactory(self, callback_data=_RequestUserData(role_state_type=self.job_and_role.role_state), job_type=self.job_and_role.job, exclusivity=self.exclusivity)
         self.manager.bouncer.submit_request(request)
 
-lock_instance_tunables(SelectableSimFestivalSituation, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE, _implies_greeted_status=False)
+lock_instance_tunables(SelectableSimFestivalSituation, load_open_street_situation_with_selectable_sim=True, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE, _implies_greeted_status=False)
 
 class MultiSimStartingFestivalSituationState(CommonSituationState):
     pass

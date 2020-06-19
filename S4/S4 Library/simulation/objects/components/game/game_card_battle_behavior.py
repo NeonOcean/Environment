@@ -73,7 +73,10 @@ class CardBattleBehavior(HasTunableFactory, AutoFactoryInit):
         reservation_handler.begin_reservation()
         self._players_cards[sim] = (player_card, from_inventory, reservation_handler)
 
-    def on_game_ended(self, winning_team):
+    def on_setup_game(self, game_object):
+        pass
+
+    def on_game_ended(self, winning_team, game_object):
         for sim in list(self._players_cards):
             if winning_team is not None:
                 if sim in winning_team.players:
@@ -101,7 +104,8 @@ class CardBattleBehavior(HasTunableFactory, AutoFactoryInit):
             logger.error('Card scoring tuning error, state value {} is not tuned inside the multiplier range of the game', level_state_value)
             return
         level_statistic = card.get_stat_instance(self.card_scoring.level_statistic, add=True)
-        level_statistic.tracker.add_value(self.card_scoring.level_statistic, win_loss_score*score_multiplier)
+        if level_statistic is not None:
+            level_statistic.tracker.add_value(self.card_scoring.level_statistic, win_loss_score*score_multiplier)
 
     def _apply_card_placement_bonus(self, sim, card):
         for placement_modifier in self.placement_state_buff:

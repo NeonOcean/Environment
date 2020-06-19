@@ -332,6 +332,9 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
         if self._current_outfit == outfit_category_and_index and not self.outfit_is_dirty(self._current_outfit[0]):
             return False
         if not self.has_outfit(outfit_category_and_index):
+            outfit_category_and_index = (self.occult_tracker.get_fallback_outfit_category(self.current_occult_types), 0)
+            logger.warn('Trying to set outfit to a possible occult sim.', owner='amohananey')
+        if not self.has_outfit(outfit_category_and_index):
             error_msg = 'Trying to set outfit on Sim missing it. Sim: {}, Category: {}, Index: {}, {}'
             error_args = [self, outfit_category_and_index[0], outfit_category_and_index[1], StackVar(('interaction',))]
             career_tracker = getattr(self, 'career_tracker', None)

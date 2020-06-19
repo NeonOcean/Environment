@@ -5,7 +5,7 @@ from animation import AnimationContext
 from animation.animation_constants import AUTO_EXIT_REF_TAG
 from element_utils import build_critical_section, build_critical_section_with_finally, build_element, must_run
 from routing import PathPlanContext
-from sims.sim_info_types import Species, SpeciesExtended, Age
+from sims.sim_info_types import Species, SpeciesExtended
 from sims4.callback_utils import protected_callback
 from sims4.utils import setdefault_callable
 from singletons import UNSET
@@ -263,9 +263,9 @@ class StubActor:
         return self.routing_context
 
 class AnimationOverrides:
-    __slots__ = ('animation_context', 'sounds', 'props', 'balloons', 'vfx', 'manifests', 'prop_state_values', 'reactionlet', 'balloon_target_override', 'required_slots', 'params')
+    __slots__ = ('animation_context', 'sounds', 'props', 'balloons', 'vfx', 'manifests', 'prop_state_values', 'reactionlet', 'balloon_target_override', 'required_slots', 'params', 'alternative_props')
 
-    def __init__(self, overrides=None, params=frozendict(), vfx=frozendict(), sounds=frozendict(), props=frozendict(), prop_state_values=frozendict(), manifests=frozendict(), required_slots=None, balloons=None, reactionlet=None, animation_context=None):
+    def __init__(self, overrides=None, params=frozendict(), vfx=frozendict(), sounds=frozendict(), props=frozendict(), prop_state_values=frozendict(), manifests=frozendict(), required_slots=None, balloons=None, reactionlet=None, animation_context=None, alternative_props=None):
         if overrides is None:
             self.params = frozendict(params)
             self.vfx = frozendict(vfx)
@@ -278,6 +278,7 @@ class AnimationOverrides:
             self.reactionlet = reactionlet or None
             self.animation_context = animation_context or None
             self.balloon_target_override = None
+            self.alternative_props = alternative_props or {}
         else:
             self.params = frozendict(params, overrides.params)
             self.vfx = frozendict(vfx, overrides.vfx)
@@ -290,13 +291,14 @@ class AnimationOverrides:
             self.reactionlet = overrides.reactionlet or (reactionlet or None)
             self.animation_context = overrides.animation_context or (animation_context or None)
             self.balloon_target_override = overrides.balloon_target_override or None
+            self.alternative_props = overrides.alternative_props or {}
 
     def __call__(self, overrides=None, **kwargs):
         if not overrides and not kwargs:
             return self
         if kwargs:
             overrides = AnimationOverrides(overrides=overrides, **kwargs)
-        return AnimationOverrides(overrides=overrides, params=self.params, vfx=self.vfx, sounds=self.sounds, props=self.props, prop_state_values=self.prop_state_values, manifests=self.manifests, required_slots=self.required_slots, balloons=self.balloons, reactionlet=self.reactionlet, animation_context=self.animation_context)
+        return AnimationOverrides(overrides=overrides, params=self.params, vfx=self.vfx, sounds=self.sounds, props=self.props, prop_state_values=self.prop_state_values, manifests=self.manifests, required_slots=self.required_slots, balloons=self.balloons, reactionlet=self.reactionlet, animation_context=self.animation_context, alternative_props=self.alternative_props)
 
     def __repr__(self):
         items = []
@@ -316,7 +318,7 @@ class AnimationOverrides:
             return True
         if type(self) != type(other):
             return False
-        elif self.params != other.params or (self.vfx != other.vfx or (self.sounds != other.sounds or (self.props != other.props or (self.prop_state_values != other.prop_state_values or (self.manifests != other.manifests or (self.required_slots != other.required_slots or (self.balloons != other.balloons or (self.reactionlet != other.reactionlet or self.animation_context != other.animation_context)))))))) or self.balloon_target_override != other.balloon_target_override:
+        elif self.params != other.params or (self.vfx != other.vfx or (self.sounds != other.sounds or (self.props != other.props or (self.prop_state_values != other.prop_state_values or (self.manifests != other.manifests or (self.required_slots != other.required_slots or (self.balloons != other.balloons or (self.reactionlet != other.reactionlet or (self.animation_context != other.animation_context or self.balloon_target_override != other.balloon_target_override))))))))) or self.alternative_props != other.alternative_props:
             return False
         return True
 
@@ -333,7 +335,8 @@ class AnimationOverrides:
                     asm.set_parameter(param_name, param_value)
             if self.props:
                 for (prop_name, definition) in self.props.items():
-                    asm.set_prop_override(prop_name, definition)
+                    alt_prop_def = self.alternative_props.get(prop_name, None)
+                    asm.set_prop_override(prop_name, definition, alternative_def=alt_prop_def)
             if self.prop_state_values:
                 for (prop_name, state_values) in self.prop_state_values.items():
                     asm.store_prop_state_values(prop_name, state_values)

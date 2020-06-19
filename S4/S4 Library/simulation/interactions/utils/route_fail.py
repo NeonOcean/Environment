@@ -1,4 +1,4 @@
-from animation.animation_element import TunableAnimationOverrides
+from animation.tunable_animation_overrides import TunableAnimationOverrides
 from animation.animation_utils import flush_all_animations
 from balloon.tunable_balloon import TunableBalloon
 from element_utils import build_element

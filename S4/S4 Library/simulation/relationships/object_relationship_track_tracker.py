@@ -60,6 +60,8 @@ class ObjectRelationshipTrackTracker(BaseStatisticTracker, RelationshipTrackTrac
         if self.is_track_locked(stat_type):
             return
         relationship_track = super().add_statistic(stat_type, owner=owner, **kwargs)
+        if relationship_track is None:
+            return
         relationship_service = services.relationship_service()
         for relationship_multipliers in itertools.chain(relationship_service.get_relationship_multipliers_for_sim(self._rel_data.sim_id_a)):
             for (rel_track, multiplier) in relationship_multipliers.items():

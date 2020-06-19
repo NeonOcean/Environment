@@ -1,5 +1,6 @@
-from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam
 import sims4
+from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam
+from traits.trait_type import TraitType
 
 @sims4.commands.Command('traits.show_traits', command_type=sims4.commands.CommandType.Automation)
 def show_traits(opt_sim:OptionalTargetParam=None, _connection=None):
@@ -62,3 +63,21 @@ def show_inherited_traits(sim_a:RequiredTargetParam=None, sim_b:OptionalTargetPa
             output('    {:24} {:.2%}'.format(inherited_trait_entry[1].__name__, inherited_trait_entry[0]/total_weight if total_weight else 0))
     output('End')
     return True
+
+@sims4.commands.Command('traits.show_traits_of_type')
+def show_traits_of_type(trait_type:TraitType, sim:OptionalTargetParam=None, _connection=None):
+    sim = get_optional_target(sim, _connection)
+    output = sims4.commands.Output(_connection)
+    if sim is None:
+        output('No valid Sim found. Try specifying a SimID as the second argument.')
+        return
+    trait_tracker = sim.sim_info.trait_tracker
+    if trait_tracker is None:
+        output("Sim {} doesn't have trait tracker".format(sim))
+        return
+    traits = trait_tracker.get_traits_of_type(trait_type)
+    if len(traits) == 0:
+        output('Sim {} has no traits of type {}.'.format(sim, trait_type))
+        return
+    for trait in traits:
+        output(trait.__name__)

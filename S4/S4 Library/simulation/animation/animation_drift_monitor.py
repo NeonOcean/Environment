@@ -135,7 +135,7 @@ with animation_drift_archive_schema.add_has_many('ARBs', GsiGridSchema) as sub_s
     sub_schema.add_field('timeline_contents', label='Client Timeline Contents', width=20)
     sub_schema.add_field('timestamp_client_completed', label='Client Completed', width=35)
     sub_schema.add_field('duration_client', label='Client Duration', width=35)
-archiver = GameplayArchiver('animation_drift_archive', animation_drift_archive_schema, add_to_archive_enable_functions=True)
+archiver = GameplayArchiver('animation_drift_archive', animation_drift_archive_schema)
 
 def is_archive_enabled():
     return archiver.enabled

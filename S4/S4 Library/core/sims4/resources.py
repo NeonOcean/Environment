@@ -196,6 +196,15 @@ class Types(enum.Int, export=False):
     HEADLINE = _add_inst_tuning('headline', resource_type=4093714525, require_reference=True)
     RABBIT_HOLE = _add_inst_tuning('rabbit_hole', resource_type=2976568058, require_reference=True)
     NARRATIVE = _add_inst_tuning('narrative', resource_type=1047870521, require_reference=True)
+    SPELL = _add_inst_tuning('spell', resource_type=523506649, require_reference=True)
+    CAS_STORIES_QUESTION = _add_inst_tuning('cas_stories_question', resource_type=52718493, require_reference=True)
+    CAS_STORIES_ANSWER = _add_inst_tuning('cas_stories_answer', resource_type=2163289367, require_reference=True)
+    CAS_STORIES_TRAIT_CHOOSER = _add_inst_tuning('cas_stories_trait_chooser', resource_type=2376930633, require_reference=True)
+    UNIVERSITY_COURSE_DATA = _add_inst_tuning('university_course_data', resource_type=689745854, require_reference=True)
+    UNIVERSITY_MAJOR = _add_inst_tuning('university_major', resource_type=660124491, require_reference=True)
+    UNIVERSITY = _add_inst_tuning('university', type_name_plural='universities', resource_type=3646477745, require_reference=True)
+    UNIVERSITY_COURSE_SCHEDULE = _add_inst_tuning('university_course_schedule', resource_type=2559322869, require_reference=True)
+    SIM_INFO_FIXUP = _add_inst_tuning('sim_info_fixup', resource_type=3797424274, require_reference=True)
     TDESC_DEBUG = _add_inst_tuning('tdesc_debug')
     TUNING_DESCRIPTION = 2519486516
     del _add_inst_tuning

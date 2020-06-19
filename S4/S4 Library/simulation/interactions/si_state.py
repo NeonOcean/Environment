@@ -265,7 +265,12 @@ class SIState:
         if force_concrete:
             constraint = constraint.apply_posture_state(self.sim.posture_state, si.get_constraint_resolver(self.sim.posture_state, sim=self.sim, participant_type=participant_type), invalid_expected=True)
             if constraint.tentative or not constraint.valid:
-                return set(to_consider)
+                for si_to_consider in to_consider:
+                    if si_to_consider.constraint_intersection() is ANYWHERE:
+                        logger.warn('{} has ANYWHERE constraint and so will not be cancelled despite force_concrete being true.', si_to_consider, owner='jjacobson')
+                    else:
+                        incompatible_sis.add(si_to_consider)
+                return incompatible_sis
         intersection = constraint
         for existing_si in self._sis_sorted(to_consider):
             if existing_si is si:

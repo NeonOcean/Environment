@@ -3,7 +3,8 @@ from event_testing.results import TestResult, TestResultNumeric
 from event_testing.test_base import BaseTest
 from event_testing.test_events import TestEvent, cached_test
 from interactions import ParticipantType, ParticipantTypeSingleSim
-from sims4.tuning.tunable import TunableFactory, TunableEnumFlags, TunableTuple, TunableSet, TunableReference, TunableInterval, Tunable, TunableEnumEntry, TunableSingletonFactory, HasTunableSingletonFactory, AutoFactoryInit, TunableVariant, TunableList, TunablePackSafeReference
+from sims4.math import Operator
+from sims4.tuning.tunable import TunableFactory, TunableEnumFlags, TunableTuple, TunableSet, TunableReference, TunableInterval, Tunable, TunableEnumEntry, TunableSingletonFactory, HasTunableSingletonFactory, AutoFactoryInit, TunableVariant, TunableList, TunablePackSafeReference, TunableOperator, TunableRange
 import enum
 import event_testing
 import services
@@ -270,6 +271,32 @@ class ComparativeRelationshipTest(HasTunableSingletonFactory, AutoFactoryInit, B
             return TestResult(False, 'Sims {} expected to have a higher average relationship with Sims {} than Sims {}, but that is not the case.', subject_a, target, subject_b)
         if a_higher and not self.expected_result:
             return TestResult(False, 'Sims {} expected to have a lower average relationship with Sims {} than Sims {}, but that is not the case.', subject_a, target, subject_b)
+        return TestResult.TRUE
+
+class RelationshipBitCountTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
+    FACTORY_TUNABLES = {'subject': TunableEnumFlags(description='\n            Owner of the relationship.\n            ', enum_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'rel_bit': TunablePackSafeReference(description="\n            The type of relationship we're looking for.\n            \n            In other words, we're looking for any relationship\n            with this Rel Bit.\n            ", manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT)), 'relationship_count': TunableRange(description="\n            The number of relationships we want to compare against\n            the sim's actual number of relationships.\n            ", tunable_type=int, minimum=0, default=0), 'comparison_operator': TunableOperator(description="\n            The operator to use to compare the sim's\n            actual relationship count vs. the tuned\n            Relationship Count.\n            ", default=Operator.EQUAL)}
+
+    def get_expected_args(self):
+        return {'sim_infos': self.subject}
+
+    @cached_test
+    def __call__(self, sim_infos):
+        if self.rel_bit is None:
+            return TestResult(False, 'Failed relationship bit count test: Rel Bit is not available due to pack-safeness')
+        sim_info_manager = services.sim_info_manager()
+        for sim_info in sim_infos:
+            rel_tracker = sim_info.relationship_tracker
+            actual_rel_count = 0
+            for other_sim_info_id in sim_info.relationship_tracker.target_sim_gen():
+                other_sim_info = sim_info_manager.get(other_sim_info_id)
+                if other_sim_info is None:
+                    continue
+                if rel_tracker.has_bit(other_sim_info_id, self.rel_bit):
+                    actual_rel_count += 1
+            threshold = sims4.math.Threshold(self.relationship_count, self.comparison_operator)
+            if not threshold.compare(actual_rel_count):
+                operator_symbol = Operator.from_function(self.comparison_operator).symbol
+                return TestResult(False, 'Failed relationship bit count test: Actual Relationship Count ({}) {} Tuned Relationship Count ({})', actual_rel_count, operator_symbol, self.relationship_count)
         return TestResult.TRUE
 
 class RelationshipBitTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):

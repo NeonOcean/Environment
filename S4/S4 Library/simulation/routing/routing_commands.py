@@ -1,12 +1,11 @@
-from _geometry import CompoundPolygon
 from _math import Vector3
 from timeit import itertools
 from elements import GeneratorElement
 from interactions.constraints import Circle, Constraint, create_constraint_set
 from interactions.utils.routing import PlanRoute, FollowPath
 from objects.components.types import ROUTING_COMPONENT
-from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam
-from server_commands.visualization_commands import extract_floats, find_substring_in_repr, POLYGON_STR, POLYGON_END_PARAM
+from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, find_substring_in_repr, extract_floats
+from server_commands.visualization_commands import POLYGON_STR, POLYGON_END_PARAM
 from sims4.commands import CommandType
 from sims4.geometry import RestrictedPolygon
 import debugvis

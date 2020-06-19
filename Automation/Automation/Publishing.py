@@ -14,20 +14,20 @@ from Automation import Mods, Paths, S4, Sites
 def VerifyStripping () -> None:
 	print("Verifying stripping.")
 
-	print("Verifiying environment file stripping.")
+	print("Verifying environment file stripping.")
 
 	environmentIncludedPaths = GetIncludedPaths(Paths.StrippingEnvironmentFilePath, Paths.RootPath)  # type: typing.List[str]
 	_VerifyStripped(Paths.RootPath, environmentIncludedPaths)
 
 	for modName in Mods.GetAllModNames():  # type: str
-		print("Verifiying mod '" + modName + "' file stripping.")
+		print("Verifying mod '" + modName + "' file stripping.")
 
 		modPath = Mods.GetModPath(modName)  # type: str
 		modIncludedPaths = GetIncludedPaths(Paths.StrippingModsFilePath, modPath)
 		_VerifyStripped(modPath, modIncludedPaths)
 
 	for siteName in Sites.GetAllSiteNames():  # type: str
-		print("Verifiying site '" + siteName + "' file stripping.")
+		print("Verifying site '" + siteName + "' file stripping.")
 
 		sitePath = Sites.GetSitePath(siteName)  # type: str
 		siteIncludedPaths = GetIncludedPaths(Paths.StrippingSitesFilePath, sitePath)
@@ -36,6 +36,9 @@ def VerifyStripping () -> None:
 
 def PublishModRelease (modNamespace: str) -> None:
 	print("Publishing mod '" + modNamespace + "' as a release.")
+
+	if Paths.DistributionReleasesPath is None:
+		raise Exception("No distribution release path has been specified via automation settings.")
 
 	mod = Mods.GetMod(modNamespace)  # type: Mods.Mod
 	modDirectoryPath = Mods.GetModPath(modNamespace)  # type: str
@@ -90,6 +93,9 @@ def PublishModRelease (modNamespace: str) -> None:
 
 def PublishModPreview (modNamespace: str) -> None:
 	print("Publishing mod '" + modNamespace + "' as a preview.")
+
+	if Paths.DistributionPreviewsPath is None:
+		raise Exception("No distribution preview path has been specified via automation settings.")
 
 	mod = Mods.GetMod(modNamespace)  # type: Mods.Mod
 	modDirectoryPath = Mods.GetModPath(modNamespace)  # type: str
@@ -148,32 +154,35 @@ def PublishSite (siteNamespace: str) -> None:
 
 	site = Sites.GetSite(siteNamespace)
 
+	if Paths.WebsitesDistributionPath is None:
+		raise Exception("No website distribution path has been specified via automation settings.")
+
 	buildDirectoryPath = site.GetBuildPath()  # type: str
-	hostingPath = os.path.join(Paths.WebsitesHostingPath, site.GetGithubName() + "_Hosting")  # type: str
+	distributionPath = os.path.join(Paths.WebsitesDistributionPath, site.GetGithubName() + "_Hosting")  # type: str
 
-	if not os.path.exists(hostingPath):
-		os.makedirs(hostingPath)
+	if not os.path.exists(distributionPath):
+		os.makedirs(distributionPath)
 
-	if os.path.exists(hostingPath):
-		for githubFileName in os.listdir(hostingPath):
+	if os.path.exists(distributionPath):
+		for githubFileName in os.listdir(distributionPath):
 			if githubFileName.startswith("."):
 				continue
 
-			hostingFilePath = os.path.join(hostingPath, githubFileName)  # type: str
+			distributionFilePath = os.path.join(distributionPath, githubFileName)  # type: str
 
-			if os.path.isdir(hostingFilePath):
-				dir_util.remove_tree(hostingFilePath)
+			if os.path.isdir(distributionFilePath):
+				dir_util.remove_tree(distributionFilePath)
 			else:
-				os.remove(hostingFilePath)
+				os.remove(distributionFilePath)
 
 	for buildFileName in os.listdir(buildDirectoryPath):  # type: str
 		buildFilePath = os.path.join(buildDirectoryPath, buildFileName)  # type: str
-		buildFileHostingPath = os.path.join(hostingPath, buildFileName)  # type: str
+		buildFileDistributionPath = os.path.join(distributionPath, buildFileName)  # type: str
 
 		if os.path.isdir(buildFilePath):
-			dir_util.copy_tree(buildFilePath, buildFileHostingPath)
+			dir_util.copy_tree(buildFilePath, buildFileDistributionPath)
 		else:
-			file_util.copy_file(buildFilePath, buildFileHostingPath)
+			file_util.copy_file(buildFilePath, buildFileDistributionPath)
 
 def GetIncludedPaths (strippingFilePath: str, targetDirectoryPath: str) -> typing.List[str]:
 	includedPaths = list()  # type: typing.List[str]

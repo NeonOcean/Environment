@@ -1,9 +1,11 @@
 import random
 from distributor.shared_messages import IconInfoData
+from event_testing.tests import TunableTestSet
 from fishing.fishing_tuning import FishingTuning
 from interactions.utils.outcome import TunableOutcomeActions
-from sims4.tuning.tunable import TunableTuple
+from sims4.tuning.tunable import TunableTuple, TunableList, TunableReference
 from sims4.tuning.tunable_base import GroupNames
+from ui.ui_dialog import TunableUiDialogOkCancelReference
 import buffs.tunable
 import build_buy
 import element_utils
@@ -231,6 +233,7 @@ class FishingLocationCatchMixerInteraction(FishingCatchMixerInteractionMixin, in
     BASE_CATCH_CHANCE = sims4.tuning.tunable.TunablePercent(description='\n        The base chance that a Sim will actually catch something here. This\n        chance can be modified using the skill curve.\n        ', default=80)
     CATCH_CHANCE_MODIFIER_CURVE = tunable_multiplier.TunableSkillModifierCurve.TunableFactory(description='\n        This curve represents the chance to catch something.\n        ', axis_name_overrides=('Skill Level', 'Catch Chance Multiplier'), locked_args={'subject': interactions.ParticipantType.Actor})
     BUFF_CATCH_FISH_WITH_BAIT = buffs.tunable.TunableBuffReference(description='\n        The invisible buff that a sim will get any time they catch a fish while\n        using bait. This will be given along with the buff provided by Buff\n        Catch Any Fish. This is meant to help aspirations/achievements know\n        when a fish was caught with bait.\n        ')
+    CATCH_ENDANGERED_FISH = TunableTuple(description='\n        Tunings associated with endangered fish.\n        ', dialog=TunableUiDialogOkCancelReference(description='\n            The dialog with ok/cancel buttons that will display, asking the \n            user if they want to release/keep endangered fish.\n            ', pack_safe=True), tests=TunableTestSet(description='\n            Tests to run to see if fish is endangered.\n            '), loots_on_ok=TunableList(description='\n            A list of loots to be run when Ok button clicked.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), pack_safe=True)), loots_on_cancel=TunableList(description='\n            A list of loots to be run when Cancel button clicked.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), pack_safe=True)))
     CATCH_FISH_NOTIFICATION = ui.ui_dialog_notification.UiDialogNotification.TunableFactory(description='\n        The notification that is displayed when a Sim successfully catches a fish.\n        ', locked_args={'text': None, 'icon': None})
     CATCH_FISH_NOTIFICATION_TEXT = sims4.localization.TunableLocalizedStringFactory(description='\n        The text of the notification that is displayed when a Sim successfully catches a fish.\n        \n        The localization tokens for the Text field are:\n        {0} = Sim - e.g. {0.SimFirstName}\n        {1} = The Fishing Location Object - e.g. {1.ObjectName}\n        {2.String} = Fish Type/Default Name\n        {3.String} = Localized Fish Weight, see FishObject tuning to change the localized string for fish weight\n        {4.String} = Fish Value, in usual simoleon format\n        ')
     CATCH_FISH_NOTIFICATION_BAIT_TEXT = sims4.localization.TunableLocalizedStringFactory(description="\n        If the Sim catches a fish because of bait, this is the text that\n        will be displayed in the 'Catch Fish Notification'.\n        {0.String} = Fish Type\n        {1.String} = Bait Type\n        ")
@@ -286,19 +289,40 @@ class FishingLocationCatchMixerInteraction(FishingCatchMixerInteractionMixin, in
         def end(_):
             if created_object is None:
                 return
+            is_dialog_show = False
             if outcome_type == self.OUTCOME_TYPE_FISH:
                 created_object.initialize_fish(sim)
                 self._apply_caught_fish_buff(created_object)
                 self._show_catch_fish_notification(sim, created_object)
                 self.super_interaction.kill_and_try_reapply_bait()
+                resolver = self.get_resolver()
+                if self.CATCH_ENDANGERED_FISH.dialog is not None and self.CATCH_ENDANGERED_FISH.tests.run_tests(resolver):
+                    is_dialog_show = True
+                    dialog = self.CATCH_ENDANGERED_FISH.dialog(sim, resolver=resolver)
+
+                    def on_response(dialog):
+                        if dialog.accepted:
+                            for loot in self.CATCH_ENDANGERED_FISH.loots_on_ok:
+                                loot.apply_to_resolver(resolver)
+                            created_object.destroy(source=self, cause='Released endangered fish.')
+                        else:
+                            for loot in self.CATCH_ENDANGERED_FISH.loots_on_cancel:
+                                loot.apply_to_resolver(resolver)
+                            self._add_fish_to_inventory(created_object)
+
+                    dialog.show_dialog(on_response=on_response)
             elif outcome_type == self.OUTCOME_TYPE_TREASURE:
                 self._show_catch_treasure_notification(sim, created_object)
-            if sim.inventory_component.can_add(created_object):
-                sim.inventory_component.player_try_add_object(created_object)
-            elif not build_buy.move_object_to_household_inventory(created_object):
-                logger.error('FishingInteractions: Failed to add object {} to household inventory.', created_object, owner='rmccord')
+            if not is_dialog_show:
+                self._add_fish_to_inventory(created_object)
 
         return element_utils.build_critical_section_with_finally(outcome.build_elements(self, update_global_outcome_result=True), end)
+
+    def _add_fish_to_inventory(self, fish_object):
+        if self.sim.inventory_component.can_add(fish_object):
+            self.sim.inventory_component.player_try_add_object(fish_object)
+        elif not build_buy.move_object_to_household_inventory(fish_object):
+            logger.error('FishingInteractions: Failed to add object {} to household inventory.', fish_object, owner='rmccord')
 
     def _is_successful_catch(self):
         modifier = self.CATCH_CHANCE_MODIFIER_CURVE.get_multiplier(self.get_resolver(), self.sim)

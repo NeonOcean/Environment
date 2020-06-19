@@ -1,6 +1,7 @@
 import itertools
 import operator
 from event_testing.test_events import TestEvent
+from objects.components.object_relationship_component import ObjectRelationshipComponent
 from scheduler import TunableDayAvailability
 from sims4.random import weighted_random_item
 from sims4.tuning.instances import lock_instance_tunables
@@ -143,14 +144,7 @@ class BowlingVenueSituation(SituationComplexCommon):
                 logger.error('Failed to add bowling lane object relationship to Sims because bowling lane is None.')
                 return
             self._bowling_lane_chosen = True
-        if self._bowling_lane.objectrelationship_component is None:
-            logger.error("Failed to add object relationship because {} doesn't have objectrelationship_component tuned", self._bowling_lane)
-            return
-        if self._bowling_lane.objectrelationship_component.has_relationship(sim.id):
-            logger.error('Bad cleanup between {} and {}. They already have object relationship setup.', sim, self._bowling_lane)
-            return
-        if not self._bowling_lane.objectrelationship_component.add_relationship(sim.id):
-            logger.error('Failed to add new object relationship between {} and {}.', sim, self._bowling_lane)
+        ObjectRelationshipComponent.setup_relationship(sim, self._bowling_lane)
 
 lock_instance_tunables(BowlingVenueSituation, exclusivity=BouncerExclusivityCategory.NORMAL, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE)
 

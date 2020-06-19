@@ -1,8 +1,9 @@
 from call_to_action.call_to_action_elements import OpenStreetDirectorCallToActionMixin
-from open_street_director.festival_open_street_director import BaseFestivalOpenStreetDirector, BaseFestivalState, FestivalStateInfo, TimedFestivalState, LoadLayerFestivalState, CleanupObjectsFestivalState
+from event_testing.resolver import GlobalResolver
+from open_street_director.festival_open_street_director import BaseFestivalOpenStreetDirector, FestivalStateInfo, TimedFestivalState, LoadLayerFestivalState, CleanupObjectsFestivalState
 from sims4.tuning.tunable import OptionalTunable
 from sims4.utils import classproperty
-from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
+from ui.tested_ui_dialog_notification import TunableTestedUiDialogNotificationSnippet
 import services
 import sims4.commands
 
@@ -31,7 +32,7 @@ class MainFestivalState(TimedFestivalState):
         return self._owner.cooldown_festival_state(self._owner)
 
 class CooldownFestivalState(TimedFestivalState):
-    FACTORY_TUNABLES = {'notification': OptionalTunable(description='\n            If enabled, the notification that will appear when we enter this festival\n            state.\n            ', tunable=TunableUiDialogNotificationSnippet())}
+    FACTORY_TUNABLES = {'notification': OptionalTunable(description='\n            If enabled, the notification that will appear when we enter this festival\n            state.\n            ', tunable=TunableTestedUiDialogNotificationSnippet())}
 
     @classproperty
     def key(cls):
@@ -43,7 +44,8 @@ class CooldownFestivalState(TimedFestivalState):
             situation.put_on_cooldown()
         if self.notification is None:
             return
-        notification = self.notification(services.active_sim_info())
+        resolver = GlobalResolver()
+        notification = self.notification(services.active_sim_info(), resolver=resolver)
         notification.show_dialog()
 
     def _get_next_state(self):

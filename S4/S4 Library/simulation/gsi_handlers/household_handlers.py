@@ -16,8 +16,8 @@ household_archive_schema.add_field('zone_name', label='Lot', type=GsiFieldVisual
 household_archive_schema.add_field('funds', label='Funds', type=GsiFieldVisualizers.INT)
 household_archive_schema.add_field('net_worth', label='Net Worth', type=GsiFieldVisualizers.INT)
 household_archive_schema.add_field('region_id', label='Region ID', type=GsiFieldVisualizers.INT)
-household_archive_schema.add_field('home_zone_id', label='Home Zone ID', type=GsiFieldVisualizers.INT)
-household_archive_schema.add_field('household_id', label='Household ID', type=GsiFieldVisualizers.INT)
+household_archive_schema.add_field('home_zone_id', label='Home Zone ID', type=GsiFieldVisualizers.STRING)
+household_archive_schema.add_field('household_id', label='Household ID', type=GsiFieldVisualizers.STRING)
 household_archive_schema.add_field('premade_household_id', label='Premade Household ID', type=GsiFieldVisualizers.STRING)
 household_archive_schema.add_field('move_in_time', label='Home Zone Move In Time', type=GsiFieldVisualizers.STRING)
 with household_archive_schema.add_has_many('sim_infos', GsiGridSchema) as sub_schema:

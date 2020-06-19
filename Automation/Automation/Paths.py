@@ -28,19 +28,32 @@ def _GetS4UserDataPath () -> str:
 	return os.path.join(os.path.normpath(pathPrefix), "Electronic Arts", "The Sims 4")
 
 def _SetupExternalPaths () -> None:
-	global ExternalPath
+	global DistributionReleasesPath, DistributionPreviewsPath, WebsitesDistributionPath
 
-	with open(os.path.join(AutomationPath, "External.json")) as externalFile:
-		externalInformation = decoder.JSONDecoder().decode(externalFile.read())
-		externalRelativePath = externalInformation["External Path"]  # type: str
+	with open(os.path.join(SettingsPath, "ExternalPaths.json")) as externalPathsFile:
+		externalPathsInformation = decoder.JSONDecoder().decode(externalPathsFile.read())
 
-		ExternalPath = os.path.normpath(os.path.abspath(os.path.join(AutomationPath, externalRelativePath)))
+		distributionReleasesRelativePath = externalPathsInformation.get("DistributionReleasesPath", None)  # type: str
+
+		if distributionReleasesRelativePath is not None:
+			DistributionReleasesPath = os.path.normpath(os.path.abspath(os.path.join(AutomationPath, distributionReleasesRelativePath)))
+		
+		distributionPreviewsRelativePath = externalPathsInformation.get("DistributionPreviewsPath", None)  # type: str
+
+		if distributionPreviewsRelativePath is not None:
+			DistributionPreviewsPath = os.path.normpath(os.path.abspath(os.path.join(AutomationPath, distributionPreviewsRelativePath)))
+
+		websitesDistributionRelativePath = externalPathsInformation.get("WebsitesDistributionPath", None)  # type: str
+
+		if websitesDistributionRelativePath is not None:
+			WebsitesDistributionPath = os.path.normpath(os.path.abspath(os.path.join(AutomationPath, websitesDistributionRelativePath)))
 
 S4UserDataPath = _GetS4UserDataPath()  # type: str
 S4ModsPath = os.path.join(S4UserDataPath, "Mods")  # type: str
 
 AutomationPath = os.path.dirname(os.path.dirname(os.path.normpath(__file__)))  # type: str
 STBLCollisionsPath = os.path.join(AutomationPath, "STBL Collisions")  # type: str
+SettingsPath = os.path.join(AutomationPath, "Settings")  # type: str
 
 StrippingPath = os.path.join(AutomationPath, "Stripping")  # type: str
 StrippingEnvironmentFilePath = os.path.join(StrippingPath, "Environment.json")  # type: str
@@ -56,13 +69,9 @@ SitesPath = os.path.join(RootPath, "Websites")
 
 PublishingPath = os.path.join(RootPath, "Publishing")  # type: str
 
-ExternalPath = None  # type: str
+DistributionReleasesPath = None  # type: typing.Optional[str]
+DistributionPreviewsPath = None  # type: typing.Optional[str]
+WebsitesDistributionPath = None  # type: typing.Optional[str]
 
 _SetupExternalPaths()
 
-DistributionPath = os.path.join(ExternalPath, "Distribution")  # type: str
-
-DistributionReleasesPath = os.path.join(DistributionPath, "Releases")  # type: str
-DistributionPreviewsPath = os.path.join(DistributionPath, "Previews")  # type: str
-
-WebsitesHostingPath = os.path.join(ExternalPath, "Websites")  # type: str

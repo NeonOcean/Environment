@@ -323,6 +323,8 @@ class BroadcasterService(Service):
                     if self._is_location_affected(constraint, object_transform, routing_surface):
                         broadcaster.apply_broadcaster_effect(obj)
                         broadcaster.remove_broadcaster_effect(obj)
+                        if not obj.valid_for_distribution:
+                            break
 
     def _update(self):
         try:
@@ -344,6 +346,9 @@ class BroadcasterService(Service):
                                 object_transform = parent.transform
                         if self._is_location_affected(constraint, object_transform, obj.routing_surface):
                             broadcaster.apply_broadcaster_effect(obj)
+                            if not obj.valid_for_distribution:
+                                is_affected = False
+                                break
                             is_affected = True
                 if not is_affected:
                     if self._object_cache is not None:

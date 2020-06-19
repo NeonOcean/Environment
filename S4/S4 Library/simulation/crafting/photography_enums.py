@@ -7,16 +7,19 @@ class CameraMode(enum.Int, export=False):
     TWO_SIM_SELFIE_PHOTO = 3
     PHOTO_STUDIO_PHOTO = 4
     PAINT_BY_REFERENCE = 5
+    TRIPOD = 6
 
 class ZoomCapability(enum.Int):
     NO_ZOOM = 0
     SHORT = 1
     LONG = 2
+    VERY_LONG = 3
 
 class CameraQuality(enum.Int):
     CHEAP = 0
     STANDARD = 1
     EXPENSIVE = 2
+    SUPER_EXPENSIVE = 3
 
 class PhotoStyleType(enum.Int):
     NORMAL = 0

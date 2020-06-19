@@ -2,5 +2,14 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Choreography" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Cycle" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Debug" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Main" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Order" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Mods/NeonOcean.S4.Time" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Main" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Distribution" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../Websites/NeonOcean.NOC.Mods.Documentation" vcs="Git" />
   </component>
 </project>

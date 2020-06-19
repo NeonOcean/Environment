@@ -152,12 +152,12 @@ class MergedTuningManager:
                 if DEBUG_MERGED_TUNING_DATA:
                     self.index_ref_record[loaded_key].append((source, tunable_template, tuned_value))
                     if isinstance(tuned_value, (int, float, str, bool)):
-                        real_value = tunable_template.load_etree_node(node=self.indexed_tunables[index], source=source)
+                        real_value = tunable_template.load_etree_node(self.indexed_tunables[index], source, False)
                         if real_value != tuned_value:
                             logger.error('Cache key error: {} != {} ({})', real_value, tuned_value, source)
                 return tuned_value
         node = self.indexed_tunables[index]
-        tuned_value = tunable_template.load_etree_node(node=node, source=source)
+        tuned_value = tunable_template.load_etree_node(node, source, False)
         self.indexed_constructed_tunables[loaded_key] = tuned_value
         if self.USE_CACHE and DEBUG_MERGED_TUNING_DATA:
             self.index_ref_record[loaded_key].append((source, tunable_template, tuned_value))

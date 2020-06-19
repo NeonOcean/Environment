@@ -182,6 +182,8 @@ class CurfewService(Service):
             self._curfew_message_alarm_handle.cancel()
             self._curfew_message_alarm_handle = None
         current_household = services.active_household()
+        if current_household is None:
+            return
         home_zone_id = current_household.home_zone_id
         curfew_setting = self._zone_curfew_data.get(home_zone_id, CurfewService.UNSET)
         if curfew_setting is CurfewService.UNSET:

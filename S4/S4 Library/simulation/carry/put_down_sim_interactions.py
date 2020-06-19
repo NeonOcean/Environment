@@ -155,9 +155,9 @@ class PutDownSimOnRoutableSurfaceInteraction(PutDownSimInteraction):
         return CarrySystemTerrainTarget(self.sim, self.carry_target, True, transform, routing_surface=routing_surface, custom_event_callback=callback)
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor, **kwargs):
         inst_or_cls = inst if inst is not None else cls
-        yield from super(PutDownSimInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type)
+        yield from super(PutDownSimInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type, **kwargs)
         if participant_type != ParticipantType.Actor:
             return
         if inst is not None:
@@ -186,9 +186,9 @@ class PutDownSimAnywhereInteraction(PutDownSimInteraction):
         return CarrySystemTerrainTarget(self.sim, self.target, True, self._terrain_transform, custom_event_callback=callback)
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor, **kwargs):
         inst_or_cls = inst if inst is not None else cls
-        yield from super(PutDownSimInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type)
+        yield from super(PutDownSimInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type, **kwargs)
         if participant_type != ParticipantType.Actor:
             return
         if inst is not None:

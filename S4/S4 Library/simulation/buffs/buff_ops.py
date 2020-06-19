@@ -4,7 +4,7 @@ from buffs.tunable import TunablePackSafeBuffReference
 from interactions import ParticipantType
 from interactions.utils.loot_basic_op import BaseLootOperation, BaseTargetedLootOperation
 from sims4.localization import TunableLocalizedString
-from sims4.tuning.tunable import Tunable, TunableMapping, TunableReference, TunableList, OptionalTunable, TunableEnumEntry, TunableFactory
+from sims4.tuning.tunable import Tunable, TunableMapping, TunableReference, TunableList, OptionalTunable, TunableEnumEntry, TunableFactory, TunableRange
 from sims4.tuning.tunable_base import GroupNames
 from tag import TunableTags
 import services
@@ -101,18 +101,19 @@ class DynamicBuffLootOp(BaseLootOperation):
         return random_buff
 
 class BuffRemovalOp(BaseLootOperation):
-    FACTORY_TUNABLES = {'description': '\n        This loot will remove buffs from a Sim.\n        ', 'remove_all_visible_buffs': Tunable(description="\n        If checked, all visible buffs on the Sim, excluding those specified in\n        the 'buffs_to_ignore' list will be removed.  If unchecked, buff removal\n        will be handled by the 'buffs_to_remove' list.\n        ", tunable_type=bool, default=False), 'buffs_to_remove': TunableList(description="\n        If 'remove_all_buffs' is not checked, this is the list of buffs that\n        will be removed from the subject.  If 'remove_all_buffs' is checked,\n        this list will be ignored.\n        ", tunable=TunableReference(description='\n            Buff to be removed.\n            ', manager=services.buff_manager(), pack_safe=True)), 'buff_tags_to_remove': TunableTags(description="\n        If 'remove_all_buffs' is not checked, buffs with any tag in this list\n        will be removed from the subject. If 'remove_all_buffs' is checked, this\n        list will be ignored.\n        ", filter_prefixes=('buff',)), 'buffs_to_ignore': TunableList(description="\n        If 'remove_all_buffs' is checked, no buffs included in this list will\n        be removed.  If 'remove_all_buffs' is unchecked, this list will be\n        ignored.\n        ", tunable=TunableReference(description='\n            Buff to be removed.\n            ', manager=services.buff_manager()))}
+    FACTORY_TUNABLES = {'remove_all_visible_buffs': Tunable(description="\n            If checked, all visible buffs on the Sim, excluding those specified in\n            the 'buffs_to_ignore' list will be removed.  If unchecked, buff removal\n            will be handled by the 'buffs_to_remove' list.\n            ", tunable_type=bool, default=False), 'buffs_to_remove': TunableList(description="\n            If 'remove_all_buffs' is not checked, this is the list of buffs that\n            will be removed from the subject.  If 'remove_all_buffs' is checked,\n            this list will be ignored.\n            ", tunable=TunableReference(description='\n                Buff to be removed.\n                ', manager=services.buff_manager(), pack_safe=True)), 'buff_tags_to_remove': TunableTags(description="\n            If 'remove_all_buffs' is not checked, buffs with any tag in this list\n            will be removed from the subject. If 'remove_all_buffs' is checked, this\n            list will be ignored. You can also specify how many buffs you want to remove\n            by tags in count_to_remove_by_tags\n            ", filter_prefixes=('buff',)), 'count_to_remove_by_tags': OptionalTunable(tunable=TunableRange(description='\n                If enabled, randomly remove x number of buffs specified in buff_tags_to_remove.\n                If disabled, all buffs specified in buff_tags_to_remove will be removed\n                ', tunable_type=int, default=1, minimum=1)), 'buffs_to_ignore': TunableList(description="\n            If 'remove_all_buffs' is checked, no buffs included in this list will\n            be removed.  If 'remove_all_buffs' is unchecked, this list will be\n            ignored.\n            ", tunable=TunableReference(description='\n                Buff to be removed.\n                ', manager=services.buff_manager()))}
 
-    def __init__(self, remove_all_visible_buffs, buffs_to_remove, buff_tags_to_remove, buffs_to_ignore, **kwargs):
+    def __init__(self, remove_all_visible_buffs, buffs_to_remove, buff_tags_to_remove, count_to_remove_by_tags, buffs_to_ignore, **kwargs):
         super().__init__(**kwargs)
         self._remove_all_visible_buffs = remove_all_visible_buffs
         self._buffs_to_remove = buffs_to_remove
         self._buff_tags_to_remove = buff_tags_to_remove
+        self._count_to_remove_by_tags = count_to_remove_by_tags
         self._buffs_to_ignore = buffs_to_ignore
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
-        removal_list = []
         if self._remove_all_visible_buffs:
+            removal_list = []
             removal_list.extend(subject.Buffs)
             for buff in removal_list:
                 if type(buff) in self._buffs_to_ignore:
@@ -124,12 +125,12 @@ class BuffRemovalOp(BaseLootOperation):
                         continue
                     tracker = subject.get_tracker(buff.commodity)
                     commodity_inst = tracker.get_statistic(buff.commodity)
-                    if commodity_inst.core:
+                    if commodity_inst is not None and commodity_inst.core:
                         continue
                 subject.Buffs.remove_buff_entry(buff)
             else:
-                subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove)
+                subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove, count_to_remove=self._count_to_remove_by_tags)
         else:
             for buff_type in self._buffs_to_remove:
                 subject.Buffs.remove_buff_by_type(buff_type)
-            subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove)
+            subject.Buffs.remove_buffs_by_tags(self._buff_tags_to_remove, count_to_remove=self._count_to_remove_by_tags)

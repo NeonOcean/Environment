@@ -223,9 +223,9 @@ class AggregateSuperInteraction(SuperInteraction):
         return cls._allow_user_directed
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor, **kwargs):
         inst_or_cls = cls if inst is None else inst
-        yield from super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type)
+        yield from super(SuperInteraction, inst_or_cls)._constraint_gen(sim, target, participant_type=participant_type, **kwargs)
         if inst_or_cls.use_aggregated_affordance_constraints:
             aggregated_constraints = []
             affordances = []
@@ -237,7 +237,7 @@ class AggregateSuperInteraction(SuperInteraction):
                 intersection = ANYWHERE
                 constraint_gen = aggregated_affordance.constraint_gen
                 constraint_gen = super(SuperInteraction, aggregated_affordance)._constraint_gen
-                for constraint in constraint_gen(sim, inst_or_cls.get_constraint_target(target), participant_type=participant_type):
+                for constraint in constraint_gen(sim, inst_or_cls.get_constraint_target(target), participant_type=participant_type, **kwargs):
                     intersection = constraint.intersect(intersection)
                     if not intersection.valid:
                         continue

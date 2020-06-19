@@ -1,4 +1,14 @@
+import build_buy
+import fishing.fishing_data
+import functools
+import objects.components.types
 import random
+import services
+import sims
+import sims4.log
+import sims4.resources
+from collections import namedtuple
+from crafting.crafting_grab_serving_mixin import GrabServingMixin
 from event_testing.resolver import InteractionResolver
 from event_testing.tests import TunableTestSet
 from interactions import ParticipantType, ParticipantTypeSingle, ParticipantTypeSingleSim, ParticipantTypeActorTargetSim, ParticipantTypeObject
@@ -11,27 +21,25 @@ from objects.components.types import STORED_SIM_INFO_COMPONENT, STORED_OBJECT_IN
 from objects.helpers.create_object_helper import CreateObjectHelper
 from objects.hovertip import TooltipFieldsComplete
 from objects.placement.placement_helper import _PlacementStrategyLocation, _PlacementStrategySlot
-from objects.system import create_object
 from postures import PostureTrackGroup, PostureTrack
 from sims4.random import weighted_random_item
-from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableList, TunableTuple, TunableEnumEntry, TunableVariant, OptionalTunable, Tunable, TunableSet, TunableRange, TunablePackSafeReference
+from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableList, TunableTuple, TunableEnumEntry, TunableVariant, OptionalTunable, Tunable, TunableSet, TunableRange, TunableFactory
+from singletons import DEFAULT
 from tag import Tag, TunableTags
 from tunable_multiplier import TunableMultiplier
-import build_buy
-import fishing.fishing_data
-import objects.components.types
-import services
-import sims
-import sims4.log
-import sims4.resources
+from ui.ui_dialog_notification import UiDialogNotification
 logger = sims4.log.Logger('Creation')
+ObjectCreationParams = namedtuple('ObjectCreationParams', ('definition', 'setup_params'))
 
 class CreationDataBase:
 
     def get_definition(self, resolver):
         raise NotImplementedError
 
-    def setup_created_object(self, resolver, created_object):
+    def get_creation_params(self, resolver):
+        return ObjectCreationParams(self.get_definition(resolver), {})
+
+    def setup_created_object(self, resolver, created_object, **setup_params):
         pass
 
     def get_source_object(self, resolver):
@@ -53,18 +61,40 @@ class _ObjectDefinitionTested(CreationDataBase, HasTunableSingletonFactory, Auto
         return self.fallback_definition
 
 class _RecipeDefinition(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'recipe': TunableReference(description='\n            The recipe to use to create the object.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE)), 'show_crafted_by_text': Tunable(description='\n            Show crafted by text on the tooltip of item created by this recipe. \n            ', tunable_type=bool, default=True)}
+    FACTORY_TUNABLES = {'show_crafted_by_text': Tunable(description='\n            Show crafted by text on the tooltip of item created by this recipe. \n            ', tunable_type=bool, default=True)}
+
+    @TunableFactory.factory_option
+    def recipe_factory_tuning(pack_safe=False):
+        return {'recipe': TunableReference(description='\n                The recipe to use to create the object.\n                ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE), pack_safe=pack_safe)}
 
     def get_definition(self, resolver):
         return self.recipe.final_product.definition
 
-    def setup_created_object(self, resolver, created_object):
+    def setup_created_object(self, resolver, created_object, **__):
         from crafting.crafting_process import CraftingProcess
         crafter = resolver.get_participant(ParticipantType.Actor)
         crafting_process = CraftingProcess(crafter=crafter, recipe=self.recipe)
         if not self.show_crafted_by_text:
             crafting_process.remove_crafted_by_text()
         crafting_process.setup_crafted_object(created_object, is_final_product=True)
+
+class _RandomWeightedRecipe(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'weighted_recipes': TunableList(description='\n            A list of weighted list of recipes that can be available for recipe creation.\n            ', tunable=TunableTuple(description='\n                The weighted recipe.\n                ', recipe=_RecipeDefinition.TunableFactory(recipe_factory_tuning={'pack_safe': True}), weight=TunableMultiplier.TunableFactory()), minlength=1)}
+
+    def get_definition(self, resolver):
+        logger.error('\n            get_definition is being called in _RandomWeightedRecipe, this should not be a standard behavior\n            when creating an object.  get_creation_params is the expected way to get the definition\n            ', owner='jdimailig')
+        return self.get_creation_params(resolver).definition
+
+    def get_creation_params(self, resolver):
+        weighted_recipe_creation_data = list((weighted_recipe.weight.get_multiplier(resolver), weighted_recipe.recipe) for weighted_recipe in self.weighted_recipes)
+        chosen_creation_data = weighted_random_item(weighted_recipe_creation_data)
+        return ObjectCreationParams(chosen_creation_data.get_definition(resolver), {'chosen_creation_data': chosen_creation_data})
+
+    def setup_created_object(self, resolver, created_object, chosen_creation_data=DEFAULT):
+        if chosen_creation_data is DEFAULT:
+            logger.error('chosen_creation_data not passed in!')
+            return
+        chosen_creation_data.setup_created_object(resolver, created_object)
 
 class _CloneObject(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
 
@@ -109,7 +139,7 @@ class _CreatePhotoObject(CreationDataBase, HasTunableSingletonFactory, AutoFacto
                 return photo_definition
         logger.error('{} create object basic extra tries to create a photo of {}, but none of the component provides get_photo_definition function', resolver, object_to_shoot, owner='cjiang')
 
-    def setup_created_object(self, resolver, created_object):
+    def setup_created_object(self, resolver, created_object, **__):
         crafter = resolver.get_participant(ParticipantType.Actor)
         created_object.add_dynamic_component(STORED_SIM_INFO_COMPONENT, sim_id=crafter.id)
 
@@ -178,7 +208,7 @@ class _CreateObjectFromStoredObjectInfo(CreationDataBase, HasTunableSingletonFac
         definition = services.definition_manager().get(definition_id)
         return definition
 
-    def setup_created_object(self, resolver, created_object):
+    def setup_created_object(self, resolver, created_object, **__):
         source_object = resolver.get_participant(self.stored_object_info_participant)
         stored_obj_info_component = source_object.get_component(STORED_OBJECT_INFO_COMPONENT)
         if stored_obj_info_component is None:
@@ -209,23 +239,50 @@ class _RandomFromTags(CreationDataBase, HasTunableSingletonFactory, AutoFactoryI
             return random.choice(filtered_defs)
         logger.error('{} create object basic extra tries to find object definitions tagged as {} , but no object definitions were found.', resolver, self.filter_tags, owner='jgiordano')
 
+class _CraftableServing(CreationDataBase, GrabServingMixin, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'serving_source': TunableEnumEntry(description='\n            The source of the \n            ', tunable_type=ParticipantType, default=ParticipantType.Object)}
+
+    def get_definition(self, resolver):
+        recipe = self._get_recipe(resolver)
+        if recipe is None:
+            return
+        return recipe.final_product_definition
+
+    def _get_recipe(self, resolver):
+        target = resolver.get_participant(self.serving_source)
+        if target is None or not target.has_component(objects.components.types.CRAFTING_COMPONENT):
+            logger.error('{} does not have a crafting component!', target)
+            return
+        recipe = target.get_recipe()
+        if self.use_linked_recipe_mapping:
+            interaction = resolver.interaction
+            if interaction is not None:
+                return recipe.get_linked_recipe(interaction.get_interaction_type())
+        return recipe.get_base_recipe()
+
+    def setup_created_object(self, resolver, created_object, **__):
+        target = resolver.get_participant(self.serving_source)
+        self._setup_crafted_object(self._get_recipe(resolver), target, created_object)
+
 class TunableObjectCreationDataVariant(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), from_fishing_data=_CreateObjectFromFishingData.TunableFactory(), default='definition', **kwargs)
+        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), random_recipe=_RandomWeightedRecipe.TunableFactory(), serving=_CraftableServing.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), from_fishing_data=_CreateObjectFromFishingData.TunableFactory(), default='definition', **kwargs)
 
 class ObjectCreationMixin:
     INVENTORY = 'inventory'
     CARRY = 'carry'
-    INSTANCE_TUNABLES = FACTORY_TUNABLES = {'creation_data': TunableObjectCreationDataVariant(description='\n            Define the object to create.\n            '), 'initial_states': TunableList(description='\n            A list of states to apply to the object as soon as it is created.\n            ', tunable=TunableTuple(description='\n                The state to apply and optional tests to decide if the state\n                should apply.\n                ', state=TunableStateValueReference(), tests=OptionalTunable(description='\n                    If enabled, the state will only get set on the created\n                    object if the tests pass. Note: These tests can not be\n                    performed on the newly created object.\n                    ', tunable=TunableTestSet()))), 'destroy_on_placement_failure': Tunable(description='\n            If checked, the created object will be destroyed on placement failure.\n            If unchecked, the created object will be placed into an appropriate\n            inventory on placement failure if possible.  If THAT fails, object\n            will be destroyed.\n            ', tunable_type=bool, default=False), 'owner_sim': TunableEnumEntry(description='\n            The participant Sim whose household should own the object. Leave this\n            as Invalid to not assign ownership.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantType.Invalid), 'location': TunableVariant(description='\n            Where the object should be created.\n            ', default='position', position=_PlacementStrategyLocation.TunableFactory(), slot=_PlacementStrategySlot.TunableFactory(), inventory=TunableTuple(description='\n                An inventory based off of the chosen Participant Type.\n                ', locked_args={'location': INVENTORY}, location_target=TunableEnumEntry(description='\n                    "The owner of the inventory the object will be created in."\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), mark_object_as_stolen_from_career=Tunable(description='\n                    Marks the object as stolen from a career by the tuned location_target participant.\n                    This should only be checked if this basic extra is on a CareerSuperInteraction.\n                    ', tunable_type=bool, default=False)), carry=TunableTuple(description='\n                Carry the object. Note: This expects an animation in the\n                interaction to trigger the carry.\n                ', locked_args={'location': CARRY}, carry_track_override=OptionalTunable(description='\n                    If enabled, specify which carry track the Sim must use to carry the\n                    created object.\n                    ', tunable=TunableEnumEntry(description='\n                        Which hand to carry the object in.\n                        ', tunable_type=PostureTrackGroup, default=PostureTrack.RIGHT)))), 'reserve_object': OptionalTunable(description='\n            If this is enabled, the created object will be reserved for use by\n            the set Sim.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor)), 'temporary_tags': OptionalTunable(description='\n            If enabled, these Tags are added to the created object and DO NOT\n            persist.\n            ', tunable=TunableSet(description='\n                A set of temporary tags that are added to the created object.\n                These tags DO NOT persist.\n                ', tunable=TunableEnumEntry(description='\n                    A tag that is added to the created object. This tag DOES\n                    NOT persist.\n                    ', tunable_type=Tag, default=Tag.INVALID), minlength=1))}
+    INSTANCE_TUNABLES = FACTORY_TUNABLES = {'creation_data': TunableObjectCreationDataVariant(description='\n            Define the object to create.\n            '), 'initial_states': TunableList(description='\n            A list of states to apply to the object as soon as it is created.\n            ', tunable=TunableTuple(description='\n                The state to apply and optional tests to decide if the state\n                should apply.\n                ', state=TunableStateValueReference(), tests=OptionalTunable(description='\n                    If enabled, the state will only get set on the created\n                    object if the tests pass. Note: These tests can not be\n                    performed on the newly created object.\n                    ', tunable=TunableTestSet()))), 'destroy_on_placement_failure': Tunable(description="\n            If checked, the created object will be destroyed on placement failure.\n            If unchecked, the created object will be placed into an appropriate\n            inventory on placement failure if possible.  If THAT fails, object\n            will be destroyed.\n            By default it goes into location target's inventory, you can use \n            fallback_location_target_override to make the created object go to\n            another participant's inventory.\n            ", tunable_type=bool, default=False), 'owner_sim': TunableEnumEntry(description='\n            The participant Sim whose household should own the object. Leave this\n            as Invalid to not assign ownership.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantType.Invalid), 'location': TunableVariant(description='\n            Where the object should be created.\n            ', default='position', position=_PlacementStrategyLocation.TunableFactory(), slot=_PlacementStrategySlot.TunableFactory(), inventory=TunableTuple(description='\n                An inventory based off of the chosen Participant Type.\n                ', locked_args={'location': INVENTORY}, location_target=TunableEnumEntry(description='\n                    "The owner of the inventory the object will be created in."\n                    ', tunable_type=ParticipantType, default=ParticipantType.Actor), mark_object_as_stolen_from_career=Tunable(description='\n                    Marks the object as stolen from a career by the tuned location_target participant.\n                    This should only be checked if this basic extra is on a CareerSuperInteraction.\n                    ', tunable_type=bool, default=False), place_in_hidden_inventory=Tunable(description='\n                    If True, the object is placed in the hidden inventory rather than the user-facing inventory.\n                    ', tunable_type=bool, default=False)), carry=TunableTuple(description='\n                Carry the object. Note: This expects an animation in the\n                interaction to trigger the carry.\n                ', locked_args={'location': CARRY}, carry_track_override=OptionalTunable(description='\n                    If enabled, specify which carry track the Sim must use to carry the\n                    created object.\n                    ', tunable=TunableEnumEntry(description='\n                        Which hand to carry the object in.\n                        ', tunable_type=PostureTrackGroup, default=PostureTrack.RIGHT)))), 'reserve_object': OptionalTunable(description='\n            If this is enabled, the created object will be reserved for use by\n            the set Sim.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor)), 'fallback_location_target_override': OptionalTunable(description="\n            This will be ignored if destroy_on_placement_failure is checked. If this is enabled, we override fallback\n            location target.\n            Currently this is used when location target is different with the target whose inventory we want this\n            created object to go into. For example we want to create an object near another object but we want this\n            object to go to actor's inventory when placement fails.\n            ", tunable=TunableEnumEntry(tunable_type=ParticipantType, default=ParticipantType.Actor)), 'notification_inventory': OptionalTunable(description='\n            The notification to show when created object is placed in an inventory.\n            ', tunable=TunableTuple(participant_inventory=UiDialogNotification.TunableFactory(description="\n                    The notification to show when created object is placed in a participant's (such as sim's) inventory.\n                    "), household_inventory=UiDialogNotification.TunableFactory(description='\n                    The notification to show when created object is placed in a household inventory.\n                    '))), 'temporary_tags': OptionalTunable(description='\n            If enabled, these Tags are added to the created object and DO NOT\n            persist.\n            ', tunable=TunableSet(description='\n                A set of temporary tags that are added to the created object.\n                These tags DO NOT persist.\n                ', tunable=TunableEnumEntry(description='\n                    A tag that is added to the created object. This tag DOES\n                    NOT persist.\n                    ', tunable_type=Tag, default=Tag.INVALID), minlength=1)), 'require_claim': Tunable(description="\n            If checked, the created object will be claimed, and will need to\n            be reclaimed on load.  If it isn't reclaimed on load, the object\n            will be destroyed.\n            ", tunable_type=bool, default=False), 'set_sim_as_owner': Tunable(description='\n            If checked and owner_sim is set, the sim will also be set on the\n            object ownership component and not just the household.\n            ', tunable_type=bool, default=False), 'set_value_to_crafted_tooltip': Tunable(description='\n            If checked, the value will be set to the tooltip if this item has\n            a crafting component.\n            ', tunable_type=bool, default=True)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.resolver = None
         self._object_helper = None
         self._assigned_ownership = set()
+        self._definition = None
+        self._setup_params = None
 
-    def initialize_helper(self, resolver):
+    def initialize_helper(self, resolver, post_add=None):
         self._assigned_ownership.clear()
         self.resolver = resolver
         reserved_sim = None
@@ -235,23 +292,25 @@ class ObjectCreationMixin:
         interaction = None
         if isinstance(self.resolver, InteractionResolver):
             interaction = self.resolver.interaction
-        self._object_helper = CreateObjectHelper(reserved_sim, self.definition, interaction, object_to_clone=self.creation_data.get_source_object(self.resolver), init=self._setup_created_object)
+        (self._definition, self._setup_params) = self.creation_data.get_creation_params(resolver)
+        self._object_helper = CreateObjectHelper(reserved_sim, self._definition, interaction, object_to_clone=self.creation_data.get_source_object(self.resolver), init=self._setup_created_object, post_add=post_add)
 
     @property
     def definition(self):
         return self.creation_data.get_definition(self.resolver)
 
-    def create_object(self):
-        object_def = self.definition
-        if object_def is not None:
-            return create_object(object_def, init=self._setup_created_object, post_add=self._place_object)
+    def create_object(self, resolver):
+        self.initialize_helper(resolver, post_add=self._place_object)
+        created_object = self._object_helper.create_object()
+        self._object_helper = None
+        return created_object
 
     def _setup_created_object(self, created_object):
-        self.creation_data.setup_created_object(self.resolver, created_object)
+        self.creation_data.setup_created_object(self.resolver, created_object, **self._setup_params)
         if self.owner_sim != ParticipantType.Invalid:
             owner_sim = self.resolver.get_participant(self.owner_sim)
             if owner_sim is not None and owner_sim.is_sim:
-                created_object.set_household_owner_id(owner_sim.household.id)
+                created_object.update_ownership(owner_sim, make_sim_owner=self.set_sim_as_owner)
                 self._assigned_ownership.add(created_object.id)
         for initial_state in self.initial_states:
             if created_object.state_component is None:
@@ -267,8 +326,11 @@ class ObjectCreationMixin:
         if created_object.has_component(objects.components.types.CRAFTING_COMPONENT):
             created_object.crafting_component.update_simoleon_tooltip()
             created_object.crafting_component.update_quality_tooltip()
-        created_object.update_tooltip_field(TooltipFieldsComplete.simoleon_value, created_object.current_value)
+            if self.set_value_to_crafted_tooltip:
+                created_object.update_tooltip_field(TooltipFieldsComplete.simoleon_value, created_object.current_value)
         created_object.update_object_tooltip()
+        if self.require_claim:
+            created_object.claim()
 
     def _get_ignored_object_ids(self):
         pass
@@ -282,6 +344,11 @@ class ObjectCreationMixin:
         return False
 
     def _get_fallback_location_target(self, created_object):
+        if self.fallback_location_target_override is not None:
+            target_override = self.resolver.get_participant(self.fallback_location_target_override)
+            if target_override is not None:
+                return target_override
+            logger.error('Fallback location target override for participant {} and created object {} is none.\n                                Invalid participant?', self.fallback_location_target_override, created_object)
         if hasattr(self.location, '_get_reference_objects_gen'):
             for obj in self.location._get_reference_objects_gen(created_object, self.resolver):
                 return obj
@@ -324,7 +391,10 @@ class ObjectCreationMixin:
                         participant_household_id = participant.get_household_owner_id()
                     created_object.set_household_owner_id(participant_household_id)
                     self._assigned_ownership.add(created_object.id)
-                if participant.inventory_component.player_try_add_object(created_object):
+                if participant.inventory_component.player_try_add_object(created_object, hidden=location_type == self.INVENTORY and self.location.place_in_hidden_inventory):
+                    if self.notification_inventory:
+                        notification = self.notification_inventory.participant_inventory(participant, self.resolver)
+                        notification.show_dialog()
                     return True
             sim = self.resolver.get_participant(ParticipantType.Actor)
             if not (participant.inventory_component is not None and sim is None or not sim.is_sim):
@@ -339,16 +409,22 @@ class ObjectCreationMixin:
                     try:
                         created_object.set_household_owner_id(sim.household.id)
                         if build_buy.move_object_to_household_inventory(created_object):
+                            if self.notification_inventory:
+                                notification = self.notification_inventory.household_inventory(sim, self.resolver)
+                                notification.show_dialog()
                             return True
                         logger.error('Creation: Failed to place object {} in household inventory.', created_object, owner='rmccord')
                     except KeyError:
                         pass
         return False
 
+class ObjectCreation(ObjectCreationMixin, HasTunableSingletonFactory, AutoFactoryInit):
+    pass
+
 class ObjectCreationOp(ObjectCreationMixin, BaseLootOperation):
     FACTORY_TUNABLES = {'quantity': TunableRange(description='\n            The number of objects that will be created.\n            ', tunable_type=int, default=1, minimum=1, maximum=10)}
 
-    def __init__(self, *, creation_data, initial_states, destroy_on_placement_failure, owner_sim, location, reserve_object, temporary_tags, quantity, **kwargs):
+    def __init__(self, *, creation_data, initial_states, destroy_on_placement_failure, owner_sim, location, reserve_object, temporary_tags, quantity, notification_inventory, fallback_location_target_override, require_claim, set_sim_as_owner, set_value_to_crafted_tooltip, **kwargs):
         super().__init__(**kwargs)
         self.creation_data = creation_data
         self.initial_states = initial_states
@@ -358,8 +434,12 @@ class ObjectCreationOp(ObjectCreationMixin, BaseLootOperation):
         self.reserve_object = reserve_object
         self.temporary_tags = temporary_tags
         self.quantity = quantity
+        self.notification_inventory = notification_inventory
+        self.fallback_location_target_override = fallback_location_target_override
+        self.set_value_to_crafted_tooltip = set_value_to_crafted_tooltip
+        self.require_claim = require_claim
+        self.set_sim_as_owner = set_sim_as_owner
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
-        self.initialize_helper(resolver)
         for _ in range(self.quantity):
-            self.create_object()
+            self.create_object(resolver)

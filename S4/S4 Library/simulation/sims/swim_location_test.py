@@ -51,11 +51,11 @@ class SwimLocationTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.Ba
     def __call__(self, subjects):
         subject = next(iter(subjects), None)
         if subject is None:
-            return TestResult(False, 'SwimLocationTest: Subject is None', tooltip=self.tooltip)
+            return TestResult(False, 'SwimLocationTest: Subject is None')
         if subject.is_sim:
             sim = subject.get_sim_instance()
             if sim is None:
-                return TestResult(False, 'SwimLocationTest: Sim is not instanced', tooltip=self.tooltip)
+                return TestResult(False, 'SwimLocationTest: Sim is not instanced')
             return self.test.evaluate(sim, self.tooltip, self.invert)
         else:
-            return TestResult(False, 'SwimLocationTest: Subject is not a Sim', tooltip=self.tooltip)
+            return TestResult(False, 'SwimLocationTest: Subject is not a Sim')

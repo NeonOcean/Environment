@@ -53,30 +53,30 @@ class DemographicsService(Service):
     def _choose_world_from_candidates(self, candidate_world_ids):
         if not candidate_world_ids:
             return
-        world_ids = set(candidate_world_ids)
-        townie_counts = defaultdict(int)
+        population_counts = defaultdict(int)
         for household in services.household_manager().values():
             if household.home_zone_id != 0:
                 continue
-            townie_counts[household.get_home_world_id()] += len(household)
-        desired_counts = {}
-        for world_id in tuple(world_ids):
+            population_counts[household.get_home_world_id()] += len(household)
+        target_counts = {}
+        for world_id in candidate_world_ids:
             street = world.street.get_street_instance_from_world_id(world_id)
             if street is None or street.townie_demographics.target_population is None:
-                world_ids.discard(world_id)
+                target_counts[world_id] = 0
             else:
-                desired_counts[world_id] = street.townie_demographics.target_population
-        if world_ids:
-            candidates = [i for i in world_ids if townie_counts[i] < desired_counts[i]]
-            candidates.sort(key=lambda x: townie_counts[x])
-            if not candidates:
-                candidates = list(world_ids)
-                candidates.sort(key=lambda x: townie_counts[x] - desired_counts[x])
-        else:
-            candidates = list(candidate_world_ids)
-            candidates.sort(key=lambda x: townie_counts[x])
-        (_, group) = next(itertools.groupby(candidates, key=lambda x: townie_counts[x]))
-        world_id = random.choice(tuple(group))
+                target_counts[world_id] = street.townie_demographics.target_population
+        worlds_that_met_target = []
+        worlds_below_target = []
+        for world_id in candidate_world_ids:
+            if population_counts[world_id] < target_counts[world_id]:
+                worlds_below_target.append(world_id)
+            else:
+                worlds_that_met_target.append(world_id)
+        if worlds_that_met_target and (len(worlds_that_met_target) == len(candidate_world_ids) or random.randint(0, 1) == 0):
+            worlds_that_met_target.sort(key=lambda world_id: population_counts[world_id] - target_counts[world_id])
+            return worlds_that_met_target[0]
+        weighted_candidates = tuple((target_counts[world_id] - population_counts[world_id], world_id) for world_id in worlds_below_target)
+        world_id = sims4.random.weighted_random_item(weighted_candidates)
         return world_id
 
     def _get_filter_feature_for_world_id(self, world_id):

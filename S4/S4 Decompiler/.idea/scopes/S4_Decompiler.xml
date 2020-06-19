@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="S4 Decompiler" pattern="file[S4 Decompiler]:*/&amp;&amp;!file[S4 Decompiler]:uncompyle6//*&amp;&amp;!file[S4 Decompiler]:unpyc37//*&amp;&amp;!file[S4 Decompiler]:spark_parser//*&amp;&amp;!file[S4 Decompiler]:rope//*&amp;&amp;!file[S4 Decompiler]:xdis//*&amp;&amp;!file[S4 Decompiler]:Licenses//*" />
+</component>

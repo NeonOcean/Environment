@@ -1,5 +1,6 @@
 import platform
 import traceback
+import typing
 
 def FormatException (exception: BaseException) -> str:
 	return str.join("", traceback.format_exception(type(exception), exception, exception.__traceback__))
@@ -53,7 +54,7 @@ def _GetRegistryKeyRoot (path: str) -> int:
 
 	rootString = path[: path.index("\\")].upper()  # type: str
 
-	root = None  # type: int
+	root = None  # type: typing.Optional[int]
 	if rootString == "HKEY_CLASSES_ROOT":
 		root = winreg.HKEY_CLASSES_ROOT
 	elif rootString == "HKEY_CURRENT_CONFIG":

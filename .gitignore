@@ -2,9 +2,8 @@
 
 **/.idea/**/misc.xml
 **/.idea/**/workspace.xml
-**/.idea/**/dictionaries
 
 **/.vs
 
-Applications/**/Source/bin
-Applications/**/Source/obj
+/Applications/**/Source/bin
+/Applications/**/Source/obj

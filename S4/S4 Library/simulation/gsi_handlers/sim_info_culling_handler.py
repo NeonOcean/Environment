@@ -12,7 +12,9 @@ sim_info_culling_archive_schema.add_field('player_sims', label='#PlayerSimInfos'
 sim_info_culling_archive_schema.add_field('households', label='#Households', width=1)
 sim_info_culling_archive_schema.add_field('sims', label='#SimInfos', width=1)
 sim_info_culling_archive_schema.add_field('full', label='#FullLod', width=1)
+sim_info_culling_archive_schema.add_field('interacted', label='#InteractedLod', width=1)
 sim_info_culling_archive_schema.add_field('base', label='#BaseLod', width=1)
+sim_info_culling_archive_schema.add_field('background', label='#BackgroundLod', width=1)
 sim_info_culling_archive_schema.add_field('minimum', label='#MinimumLod', width=1)
 with sim_info_culling_archive_schema.add_has_many('sim_infos_schema', GsiGridSchema, label='Sim Infos') as sub_schema:
     sub_schema.add_field('name', label='Name')
@@ -66,7 +68,7 @@ class CullingArchive:
         self.sim_info_actions[sim_info.id] = action
 
     def apply(self):
-        data = {'game_time': str(services.time_service().sim_now), 'reason': self.reason, 'player_households': '{} -> {}'.format(self.census_before.player_households, self.census_after.player_households), 'player_sims': '{} -> {}'.format(self.census_before.player_sims, self.census_after.player_sims), 'households': '{} -> {}'.format(self.census_before.households, self.census_after.households), 'sims': '{} -> {}'.format(self.census_before.sims, self.census_after.sims), 'full': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.FULL], self.census_after.lod_counts[SimInfoLODLevel.FULL]), 'base': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.BASE], self.census_after.lod_counts[SimInfoLODLevel.BASE]), 'minimum': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.MINIMUM], self.census_after.lod_counts[SimInfoLODLevel.MINIMUM])}
+        data = {'game_time': str(services.time_service().sim_now), 'reason': self.reason, 'player_households': '{} -> {}'.format(self.census_before.player_households, self.census_after.player_households), 'player_sims': '{} -> {}'.format(self.census_before.player_sims, self.census_after.player_sims), 'households': '{} -> {}'.format(self.census_before.households, self.census_after.households), 'sims': '{} -> {}'.format(self.census_before.sims, self.census_after.sims), 'full': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.FULL], self.census_after.lod_counts[SimInfoLODLevel.FULL]), 'interacted': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.INTERACTED], self.census_after.lod_counts[SimInfoLODLevel.INTERACTED]), 'base': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.BASE], self.census_after.lod_counts[SimInfoLODLevel.BASE]), 'background': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.BACKGROUND], self.census_after.lod_counts[SimInfoLODLevel.BACKGROUND]), 'minimum': '{} -> {}'.format(self.census_before.lod_counts[SimInfoLODLevel.MINIMUM], self.census_after.lod_counts[SimInfoLODLevel.MINIMUM])}
         data['sim_infos_schema'] = []
         for (sim_id, name) in self.sim_id_to_names.items():
             (score, info, rel_score, inst_score, importance_score) = self.sim_info_cullabilities.get(sim_id, (-1, ''))

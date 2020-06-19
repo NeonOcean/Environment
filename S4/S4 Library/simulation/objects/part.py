@@ -102,6 +102,14 @@ class Part(ProxyObject, ReservationMixin):
         return self._data.disable_child_aop_forwarding
 
     @property
+    def restrict_autonomy_preference(self):
+        return self._data.restrict_autonomy_preference
+
+    @property
+    def part_name(self):
+        return self._data.name
+
+    @property
     def forward_direction_for_picking(self):
         offset = self._data.forward_direction_for_picking
         return sims4.math.Vector3(offset.x, 0, offset.y)
@@ -144,6 +152,9 @@ class Part(ProxyObject, ReservationMixin):
     @property
     def routing_surface(self):
         return self._part_location.world_routing_surface
+
+    def is_routing_surface_overlapped_at_position(self, position):
+        return self.part_owner.is_routing_surface_overlapped_at_position(position)
 
     @property
     def provided_routing_surface(self):

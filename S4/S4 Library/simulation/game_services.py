@@ -40,6 +40,7 @@ def start_services(save_slot_data):
         from server.clientmanager import ClientManager
         from server.config_service import ConfigService
         from services.cheat_service import CheatService
+        from services.roommate_service import RoommateService
         from services.style_service import StyleService
         from sims.household_utilities.utilities_manager import UtilitiesManager
         from sims.household_manager import HouseholdManager
@@ -59,9 +60,10 @@ def start_services(save_slot_data):
         from services.rabbit_hole_service import RabbitHoleService
         from lot_decoration.lot_decoration_service import LotDecorationService
         from narrative.narrative_service import NarrativeService
+        from organizations.organization_service import OrganizationService
         from services.object_lost_and_found_service import ObjectLostAndFoundService
         from global_policies.global_policy_service import GlobalPolicyService
-        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), GlobalPolicyService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService(), LandlordService()]
+        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), GlobalPolicyService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService(), LandlordService(), RoommateService(), OrganizationService()]
         for service in service_list:
             if service is not None:
                 service_manager.register_service(service)

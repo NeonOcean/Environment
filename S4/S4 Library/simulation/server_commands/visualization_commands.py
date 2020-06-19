@@ -1,9 +1,8 @@
 import math
-import re
 from debugvis import Context, KEEP_ALTITUDE
 from interactions.constraints import Constraint, ANYWHERE
 from objects.components import types
-from server_commands.argument_helpers import OptionalTargetParam, get_optional_target
+from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, find_substring_in_repr, extract_floats, GeometryParam, PathParam
 from services.fire_visualization import FireQuadTreeVisualizer
 from sims4.color import Color, pseudo_random_color
 from sims4.commands import CommandType
@@ -20,15 +19,17 @@ from visualization.path_goal_visualizer import PathGoalVisualizer
 from visualization.portal_visualizer import PortalVisualizer
 from visualization.quad_tree_visualizer import QuadTreeVisualizer
 from visualization.sim_position_visualizer import SimPositionVisualizer
+from visualization.sim_route_visualizer import SimRouteVisualizer
 from visualization.social_group_visualizer import SocialGroupVisualizer
 from visualization.spawn_point_visualizer import SpawnPointVisualizer
+from visualization.spawner_visualizer import SpawnerVisualizer
 from visualization.transition_constraint_visualizer import TransitionConstraintVisualizer
-from visualization.transition_path_visualizer import ShortestTransitionPathVisualizer, SimShortestTransitionPathVisualizer
+from visualization.transition_path_visualizer import SimShortestTransitionPathVisualizer
 import indexed_manager
 import objects.components
 import postures.posture
-import routing.waypoints
 import routing
+import routing.waypoints
 import services
 import sims.sim
 import sims4.color
@@ -54,8 +55,10 @@ with sims4.reload.protected(globals()):
     _draw_visualizers = {}
     _ensemble_visualizers = {}
     _locator_visualizers = {}
+    _sim_route_visualizers = {}
     _portal_visualizers = {}
     _waypoint_visualizers = {}
+    _spawner_visualizers = {}
     _all_mood_visualization_enabled = set()
     _all_autonomy_timer_visualization_enabled = set()
 
@@ -160,7 +163,7 @@ def _stop_sim_visualizer(opt_sim:OptionalTargetParam, _connection, vis_name, con
 
 def _stop_all_sim_visualizer(_connection, container):
     for handle in tuple(container):
-        vis_name = handle[1]
+        vis_name = handle
         _stop_visualizer(_connection, vis_name, container, handle)
 
 @sims4.commands.Command('debugvis.waypoints.start', command_type=sims4.commands.CommandType.Automation)
@@ -299,6 +302,22 @@ def debugvis_spawn_points_start(_connection=None):
 @sims4.commands.Command('debugvis.spawn_points.stop', command_type=sims4.commands.CommandType.Automation)
 def debugvis_spawn_points_stop(_connection=None):
     if not _stop_visualizer(_connection, 'spawn_points', _spawn_point_visualizers, 0):
+        return 0
+    return 1
+
+@sims4.commands.Command('debugvis.spawner_component.start', command_type=sims4.commands.CommandType.Automation)
+def debugvis_spawner_component_start(_connection=None):
+    vis_name = 'spawner_components'
+    handle = 0
+    layer = _create_layer(vis_name, handle)
+    visualizer = SpawnerVisualizer(layer)
+    if not _start_visualizer(_connection, vis_name, _spawner_visualizers, handle, visualizer, layer=layer):
+        return 0
+    return 1
+
+@sims4.commands.Command('debugvis.spawner_component.stop', command_type=sims4.commands.CommandType.Automation)
+def debugvis_spawner_component_stop(_connection=None):
+    if not _stop_visualizer(_connection, 'spawner_components', _spawner_visualizers, 0):
         return 0
     return 1
 
@@ -752,33 +771,6 @@ def draw_vector3_in_string(*args, _connection=None):
     for vector3_str in vector3_strs:
         draw_vector3(vector3_str, _connection)
 
-def find_substring_in_repr(string, start_str, end_str):
-    start_index = 0
-    polygon_points = []
-    while start_index != -1:
-        start_index = string.find(start_str, start_index)
-        if start_index != -1:
-            points_end = string.find(end_str, start_index)
-            if points_end != -1:
-                sub_str_index = start_index + len(start_str)
-                polygon_points.append(string[sub_str_index:points_end])
-            start_index += 1
-    return polygon_points
-
-FLOAT_REGEX = '[-+]?[0-9.]+'
-
-def extract_floats(string):
-    regex = re.compile(FLOAT_REGEX)
-    matches = regex.findall(string)
-    float_list = []
-    for m in matches:
-        try:
-            cur_float = float(m)
-            float_list.append(cur_float)
-        except:
-            pass
-    return float_list
-
 @sims4.commands.Command('debugvis.draw_geometry_in_str')
 def draw_geometry_in_string(*args, _connection=None):
     draw_transform_in_string(*args, _connection=_connection)
@@ -840,3 +832,30 @@ def draw_lot_edge_polygons(width=10, depth=2.0, _connection=None):
             floats.append(vertex.x)
             floats.append(vertex.z)
         draw_polygon(floats, _connection)
+
+SIM_ROUTE_VIS_NAME = 'sim_route'
+
+@sims4.commands.Command('debugvis.sim_route.draw_path')
+def draw_path(path_id:int, route:PathParam, _connection=None):
+    _stop_visualizer(_connection, SIM_ROUTE_VIS_NAME, _sim_route_visualizers, 0)
+    erase_paths(_connection)
+    return draw_additional_path(path_id, route, _connection)
+
+@sims4.commands.Command('debugvis.sim_route.draw_additional_path')
+def draw_additional_path(path_id:int, route:PathParam, _connection=None):
+    if route is None:
+        sims4.commands.output('Failed to parse PathParam.', _connection)
+        return 0
+    else:
+        layer = _create_layer(SIM_ROUTE_VIS_NAME, path_id)
+        visualizer = SimRouteVisualizer(layer, route=route)
+        sims4.commands.output('Sim Route Visualization Enabled', _connection)
+        if not _start_visualizer(_connection, SIM_ROUTE_VIS_NAME, _sim_route_visualizers, path_id, visualizer, layer=layer):
+            return 0
+    return 1
+
+@sims4.commands.Command('debugvis.sim_route.erase_all_paths')
+def erase_paths(_connection=None):
+    handles = [handle for handle in _sim_route_visualizers]
+    for handle in handles:
+        _stop_visualizer(_connection, SIM_ROUTE_VIS_NAME, _sim_route_visualizers, handle)

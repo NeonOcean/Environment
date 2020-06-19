@@ -1,14 +1,20 @@
 from objects.object_enums import ItemLocation
+from objects.pools import pool_utils
+from objects.terrain import PoolPoint, OceanPoint, TerrainPoint
 from routing import SurfaceIdentifier, SurfaceType
 from sims4.tuning.tunable import TunableReference
 from world.ocean_tuning import OceanTuning
+import build_buy
+import routing
 import services
+import sims4.log
 import sims4.math
 import sims4.reload
 import sims4.service_manager
 with sims4.reload.protected(globals()):
     _terrain_object = None
     _ocean_object = None
+logger = sims4.log.Logger('Terrain', default_owner='rmccord')
 
 class TerrainService(sims4.service_manager.Service):
     TERRAIN_DEFINITION = TunableReference(description='\n        The definition used to instantiate the Terrain object.\n        ', manager=services.definition_manager(), class_restrictions='Terrain')
@@ -46,6 +52,30 @@ class TerrainService(sims4.service_manager.Service):
 
     def stop(self):
         destroy_terrain_object()
+
+    @staticmethod
+    def create_surface_proxy_from_location(location):
+        position = location.transform.translation
+        zone_id = services.current_zone_id()
+        routing_surface = location.routing_surface
+        level = routing_surface.secondary_id
+        pool_block_id = 0
+        if build_buy.is_location_pool(zone_id, position, level):
+            pool_block_id = build_buy.get_block_id(zone_id, position, level - 1)
+            if not pool_block_id:
+                logger.error('Failed ot get pool block id from location: {} ', location)
+                return
+            pool = pool_utils.get_pool_by_block_id(pool_block_id)
+            if pool is None:
+                logger.error('Failed to get pool from pool block id {} at location: {}', pool_block_id, location)
+                return
+            return PoolPoint(location, pool)
+        if routing_surface.type == routing.SurfaceType.SURFACETYPE_POOL:
+            if services.terrain_service.ocean_object() is None:
+                logger.error('Ocean does not exist at location: {}', location)
+                return
+            return OceanPoint(location)
+        return TerrainPoint(location)
 
 def terrain_object():
     if _terrain_object is None:

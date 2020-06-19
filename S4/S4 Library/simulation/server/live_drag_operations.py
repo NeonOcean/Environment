@@ -17,7 +17,8 @@ class LiveDragStateOperation(HasTunableFactory, AutoFactoryInit, NeedsStateValue
 
     def start(self, *_, **__):
         if self.target is None or self.target.live_drag_component is None:
-            logger.error('Applying a Live Drag State Op on {} from state {}. Does this object support live drag?', self.target, self.state_value)
+            if not self.target.is_prop:
+                logger.error('Applying a Live Drag State Op on {} from state {}. Does this object support live drag?', self.target, self.state_value)
             return
         if self.operation == LiveDragStateOp.LIVE_DRAG_OP_ALLOW:
             return
@@ -25,7 +26,8 @@ class LiveDragStateOperation(HasTunableFactory, AutoFactoryInit, NeedsStateValue
 
     def stop(self, *_, **__):
         if self.target is None or self.target.live_drag_component is None:
-            logger.error('Removing a Live Drag State Op on {} from state {}. Does this object support live drag?', self.target, self.state_value)
+            if not self.target.is_prop:
+                logger.error('Removing a Live Drag State Op on {} from state {}. Does this object support live drag?', self.target, self.state_value)
             return
         if self.operation == LiveDragStateOp.LIVE_DRAG_OP_ALLOW:
             return

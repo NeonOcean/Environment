@@ -25,7 +25,7 @@ def GetAllModPaths () -> typing.List[str]:
 
 def GetModPath (namespace: str) -> str:
 	namespaceLower = namespace.lower()  # type: str
-	modPath = None  # type: str
+	modPath = None  # type: typing.Optional[str]
 
 	for checkingModName, checkingModPath in _modPaths.items():  # type: str, str
 		if namespaceLower == checkingModName.lower():
@@ -54,7 +54,7 @@ def GetAllSitePaths () -> typing.List[str]:
 
 def GetSitePath (namespace: str) -> str:
 	namespaceLower = namespace.lower()  # type: str
-	sitePath = None  # type: str
+	sitePath = None  # type: typing.Optional[str]
 
 	for checkingSiteName, checkingSitePath in _sitePaths.items():  # type: str, str
 		if namespaceLower == checkingSiteName.lower():

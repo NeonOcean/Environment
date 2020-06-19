@@ -1,6 +1,8 @@
 from collections import namedtuple
 from interactions import ParticipantType
+from objects import ALL_HIDDEN_REASONS
 from sims.lod_mixin import HasTunableLodMixin
+from sims.sim_info_lod import SimInfoLODLevel
 from sims4.utils import classproperty, flexmethod, flexproperty, constproperty
 from statistics.base_statistic_listener import BaseStatisticCallbackListener
 import caches
@@ -50,6 +52,10 @@ class BaseStatistic(HasTunableLodMixin):
 
     @classproperty
     def min_value(cls):
+        raise NotImplementedError
+
+    @classproperty
+    def best_value(cls):
         raise NotImplementedError
 
     @classmethod
@@ -291,6 +297,22 @@ class BaseStatistic(HasTunableLodMixin):
     def core(self):
         return False
 
+    @flexmethod
+    def remove_at_owner_lod(cls, inst, lod=None, owner=None):
+        owner = inst._tracker.owner if inst is not None and inst._tracker is not None else owner
+        owner_is_sim = owner is not None and owner.is_sim
+        if owner_is_sim:
+            if lod is None:
+                lod = owner.lod
+        if lod is None:
+            return False
+        inst_or_cls = inst if inst is not None else cls
+        if owner_is_sim and owner.can_instantiate_sim and owner.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):
+            min_lod_value = min(SimInfoLODLevel.BACKGROUND, inst_or_cls.min_lod_value)
+        else:
+            min_lod_value = inst_or_cls.min_lod_value
+        return lod < min_lod_value
+
     @property
     def is_visible(self):
         return False
@@ -348,6 +370,14 @@ class BaseStatistic(HasTunableLodMixin):
     def is_skill():
         return False
 
+    @constproperty
+    def is_commodity():
+        return False
+
+    @constproperty
+    def is_ranked():
+        return False
+
     def save_statistic(self, commodities, skills, ranked_stats, tracker):
         return NotImplementedError
 
@@ -356,20 +386,37 @@ class BaseStatistic(HasTunableLodMixin):
         return True
 
     @property
+    def instance_required(self):
+        return not (self.get_value() == self.default_value and self._statistic_modifier == 0)
+
+    @property
     def _callback_queue_head(self):
         if self._statistic_callback_listeners:
             return self._statistic_callback_listeners[0]
 
-    def create_callback_listener(self, threshold, callback, on_callback_alarm_reset=None):
-        return BaseStatisticCallbackListener(self, threshold, callback, on_callback_alarm_reset)
+    def create_callback_listener(self, threshold, callback, on_callback_alarm_reset=None, should_seed=True):
+        return BaseStatisticCallbackListener(self, self.stat_type, threshold, callback, on_callback_alarm_reset, should_seed=should_seed)
 
-    def create_and_add_callback_listener(self, threshold, callback, on_callback_alarm_reset=None):
-        callback_listener = self.create_callback_listener(threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
+    def create_callback_listener_seed(stat_type, threshold, callback, on_callback_alarm_reset=None):
+        return BaseStatisticCallbackListener(None, stat_type, threshold, callback, on_callback_alarm_reset)
+
+    def create_and_add_callback_listener(self, threshold, callback, on_callback_alarm_reset=None, should_seed=True):
+        callback_listener = self.create_callback_listener(threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset, should_seed=should_seed)
         self.add_callback_listener(callback_listener)
         return callback_listener
 
     def add_callback_listener(self, callback_listener, update_active_callback=True) -> type(None):
         self._insert_callback_listener(callback_listener)
+
+    def _validate_callback_listener(self, callback_listener):
+        if callback_listener is None:
+            logger.warn('Adding None callback listener to {}', self)
+        elif callback_listener.is_seed:
+            logger.warn('Adding seed callback listener to {}', self)
+        elif callback_listener.statistic_type != self.stat_type:
+            logger.warn('Adding incompatible callback listener to {}', self)
+        elif callback_listener in self._statistic_callback_listeners:
+            logger.error('Adding listener {} to {} that already exists', callback_listener, self)
 
     def _insert_callback_listener(self, callback_listener:BaseStatisticCallbackListener):
         self._statistic_callback_listeners.append(callback_listener)
@@ -381,6 +428,11 @@ class BaseStatistic(HasTunableLodMixin):
             return True
         logger.debug('Failed to remove callback from queue because it was already removed: {}', callback_listener)
         return False
+
+    def release_control_on_all_callback_listeners(self):
+        ret = self._statistic_callback_listeners
+        self._statistic_callback_listeners = []
+        return ret
 
     @classmethod
     def get_categories(cls):

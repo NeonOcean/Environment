@@ -62,6 +62,7 @@ class WaypointInteraction(SuperInteraction):
         target = self.target
         if self._waypoint_generator.is_for_vehicle and (target is not None and target.vehicle_component is not None) and not target.is_in_inventory():
             constraint = Circle(target.position, target.vehicle_component.minimum_route_distance, routing_surface=target.routing_surface)
+            constraint = constraint.intersect(self._waypoint_generator.get_water_constraint())
         else:
             constraint = self._waypoint_generator.get_start_constraint()
         posture_constraint = self._waypoint_generator.get_posture_constraint()
@@ -169,7 +170,7 @@ class WaypointInteraction(SuperInteraction):
             routing_agent = routing_info[0]
             routing_context = routing_info[1]
             route = routing.Route(routing_agent.routing_location, waypoints[-1], waypoints=waypoints[:-1], routing_context=routing_context)
-            plan_primitive = PlanRoute(route, routing_agent)
+            plan_primitive = PlanRoute(route, routing_agent, interaction=self)
             result = yield from element_utils.run_child(timeline, plan_primitive)
             if not result:
                 self._show_route_fail_balloon()

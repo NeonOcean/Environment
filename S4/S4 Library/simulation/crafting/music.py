@@ -5,6 +5,8 @@ from interactions import ParticipantTypeSim
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.instances import TunedInstanceMetaclass, HashedTunedInstanceMetaclass
 from sims4.tuning.tunable import TunableResourceKey, TunableRealSecond, TunableList, TunableReference, Tunable, OptionalTunable, HasTunableReference, TunableEnumEntry, TunableMapping, TunableVariant, TunableTuple
+from sims4.utils import classproperty
+from singletons import EMPTY_SET
 from statistics.skill_tests import SkillRangeTest
 import services
 import sims4.log
@@ -21,6 +23,10 @@ class MusicTrack(metaclass=HashedTunedInstanceMetaclass, manager=services.get_in
     def _verify_tuning_callback(cls):
         if cls.music_clip is None and not cls.vocals:
             logger.error('{} does not have music or vocals tuned.', cls, owner='rmccord')
+
+    @classproperty
+    def tuning_tags(cls):
+        return EMPTY_SET
 
 class MusicStyle(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.RECIPE)):
     INSTANCE_TUNABLES = {'music_tracks': TunableList(TunableReference(description='\n            A particular music track to use as part of this\n            style.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE), pack_safe=True, class_restrictions=(MusicTrack,))), 'pie_menu_category': TunableReference(description='\n            The pie menu category for this music style.\n            This can be used to break styles up into genres.\n            ', manager=services.get_instance_manager(sims4.resources.Types.PIE_MENU_CATEGORY), allow_none=True)}

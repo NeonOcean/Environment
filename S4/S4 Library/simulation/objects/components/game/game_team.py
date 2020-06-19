@@ -8,6 +8,9 @@ class GameTeam(HasTunableSingletonFactory, AutoFactoryInit):
     def can_be_on_same_team(self, target_a, target_b):
         return True
 
+    def team_determines_part(self):
+        return True
+
     def can_be_on_opposing_team(self, target_a, target_b):
         return True
 

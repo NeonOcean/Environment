@@ -1,5 +1,6 @@
 from element_utils import build_critical_section, build_critical_section_with_finally, maybe
 from elements import ParentElement
+from event_testing.resolver import SingleSimResolver
 from event_testing.tests import TunableTestSet
 from interactions import ParticipantType
 from sims.outfits.outfit_change import TunableOutfitChange
@@ -26,7 +27,7 @@ class XevtOutfitChangeForTags(HasTunableSingletonFactory, AutoFactoryInit):
         self.generator(sim_info, self.outfit_category)
 
 class ChangeOutfitElement(ParentElement, HasTunableFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'subject': TunableEnumFlags(description='\n            The participant of who will change their outfit.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'outfit_change': TunableOutfitChange(description='\n            The change that you want to occur.\n            '), 'outfit_change_exit_test': TunableTestSet(description="\n            This test must pass in order for the exit change to be applied\n            successfully. Note: unlike the regular Outfit Change tunables, this\n            test is evaluated when the change executes, not when it is built. It\n            can therefore take into account any changes that happened during the\n            element's enclosed sequence.\n            "), 'xevt_outfit_change': OptionalTunable(description='\n            If enabled, outfit change will change on xevt.\n            ', tunable=TunableTuple(xevt_id=Tunable(description='\n                    Xevt id to trigger outfit change on.\n                    ', tunable_type=int, default=100), outfit_change=TunableVariant(description='\n                    The type of outfit to change into.\n                    ', for_reason=XevtOutfitChangeForReason.TunableFactory(), for_tags=XevtOutfitChangeForTags.TunableFactory(), default='for_reason')))}
+    FACTORY_TUNABLES = {'subject': TunableEnumFlags(description='\n            The participant of who will change their outfit.\n            ', enum_type=ParticipantType, default=ParticipantType.Actor), 'outfit_change': TunableOutfitChange(description='\n            The change that you want to occur.\n            '), 'outfit_change_exit_test': TunableTestSet(description="\n            This test must pass in order for the exit change to be applied\n            successfully. Note: unlike the regular Outfit Change tunables, this\n            test is evaluated when the change executes, not when it is built. It\n            can therefore take into account any changes that happened during the\n            element's enclosed sequence.\n            "), 'xevt_outfit_change': OptionalTunable(description='\n            If enabled, outfit change will change on xevt.\n            ', tunable=TunableTuple(xevt_id=Tunable(description='\n                    Xevt id to trigger outfit change on.\n                    ', tunable_type=int, default=100), outfit_change=TunableVariant(description='\n                    The type of outfit to change into.\n                    ', for_reason=XevtOutfitChangeForReason.TunableFactory(), for_tags=XevtOutfitChangeForTags.TunableFactory(), default='for_reason'))), 'tests': TunableTestSet(description='\n           Tests to run before applying any of the outfit change. If the tests\n           fail, the outfit change will not run.\n           ')}
 
     def __init__(self, interaction, *args, sequence=(), **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,10 +59,12 @@ class ChangeOutfitElement(ParentElement, HasTunableFactory, AutoFactoryInit):
 
     def _run(self, timeline):
         sequence = self.sequence
+        resolver = self.interaction.get_resolver()
+        if self.tests and not self.tests.run_tests(resolver):
+            return timeline.run_child(sequence)
         if self.entry_outfit is not None:
             sequence = build_critical_section(self.outfit_change.get_on_entry_change(self.interaction, sim_info=self.sim_info), sequence)
         if self.exit_outfit is not None:
-            resolver = self.interaction.get_resolver()
 
             def on_oufit_change_exit(_):
                 if self.sim_info._current_outfit != self.exit_outfit and self.outfit_change_exit_test.run_tests(resolver):

@@ -482,7 +482,7 @@ class ETreeTuningLoader:
                 ref_index = cur_node.get(MergedTuningAttr.Index)
                 value = mtg.get_tunable(ref_index, tunable, self.source)
             else:
-                value = tunable.load_etree_node(node=cur_node, source=self.source)
+                value = tunable.load_etree_node(cur_node, self.source, False)
             reload_context = getattr(tunable_class, '__reload_context__', None)
             if reload_context:
                 with reload_context(tunable_class, tunable_class):
@@ -550,7 +550,7 @@ class _DeferredEtreeTunableLoader:
                 mtg = get_manager()
                 self.value = mtg.get_tunable(ref_index, self.template, self.source)
             else:
-                self.value = self.template.load_etree_node(node=self.node, source=self.source)
+                self.value = self.template.load_etree_node(self.node, self.source, False)
             _loaded_deferred_tunable.append(self)
         except UnavailablePackSafeResourceError:
             self.value = self.template.default

@@ -15,6 +15,8 @@ class ContinuousStatisticTracker(statistics.base_statistic_tracker.BaseStatistic
             sims4.commands.output('{:<44} ID:{:<6} Value: {:-8.2f}, Decay: {:-5.2f}, ChangeRate: {:-5.2f}'.format(stat.__class__.__name__, stat.guid64, stat.get_value(), stat.get_decay_rate(), stat.get_change_rate()), _connection)
 
     def debug_output_all_automation(self, _connection):
+        if self._statistics is None:
+            return
         for stat in list(self._statistics.values()):
             sims4.commands.automation_output('CommodityInfo; Type:DATA, Name:{}, Value:{}, Decay:{}'.format(stat.__class__.__name__, stat.get_value(), stat.get_decay_rate()), _connection)
 

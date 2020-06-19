@@ -33,6 +33,9 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
     def is_final_product(self):
         return self._is_final_product
 
+    def set_final_product(self, is_final_product):
+        self._is_final_product = is_final_product
+
     @componentmethod_with_fallback(lambda : (DEFAULT, DEFAULT))
     def get_template_content_overrides(self):
         is_final_product = self._crafting_process.phase is None or self._crafting_process.phase.object_info_is_final_product
@@ -99,7 +102,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             current_inventory = owner.get_inventory()
             if current_inventory is not None:
                 current_inventory.push_inventory_item_update_msg(owner)
-            if new_value <= 0:
+            if new_value <= 0 and old_value != new_value:
                 self.on_mutated()
 
     def _on_object_state_change(self, owner, state, old_value, new_value):

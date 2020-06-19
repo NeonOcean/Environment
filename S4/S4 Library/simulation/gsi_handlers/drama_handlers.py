@@ -5,6 +5,20 @@ from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
 import enum
 import services
 import sims4
+NONPICKERDRAMANODES_DRAMA_NODES_FILTER = 'non-picker drama nodes'
+PICKER_DRAMA_NODE_SUBSTRING = 'pickerdramanode'
+FILTER_STRINGS = [NONPICKERDRAMANODES_DRAMA_NODES_FILTER, 'actorcareer', 'freelancer', 'oddjob']
+
+def drama_node_string_matches_filters(drama_node_string, filter_list):
+    if filter_list is None:
+        return True
+    drama_node_string = drama_node_string.lower()
+    if NONPICKERDRAMANODES_DRAMA_NODES_FILTER in filter_list and PICKER_DRAMA_NODE_SUBSTRING not in drama_node_string:
+        return True
+    elif any(a_filter in drama_node_string for a_filter in filter_list):
+        return True
+    return False
+
 drama_schema = GsiGridSchema(label='Drama Nodes/Drama Scheduler')
 drama_schema.add_field('drama_node_id', label='Drama Node Id', unique_field=True)
 drama_schema.add_field('drama_node', label='Drama Node', width=3)
@@ -12,12 +26,8 @@ drama_schema.add_field('status', label='Status', width=3)
 drama_schema.add_field('time_left', label='Time Left')
 drama_schema.add_field('receiver_sim', label='Receiver Sim')
 drama_schema.add_field('sender_sim', label='Sender Sim')
-NONPICKERDRAMANODES_DRAMA_NODES_FILTER = 'non-picker drama nodes'
-PICKER_DRAMA_NODE_SUBSTRING = 'pickerdramanode'
-drama_schema.add_filter(NONPICKERDRAMANODES_DRAMA_NODES_FILTER)
-drama_schema.add_filter('actorcareer')
-drama_schema.add_filter('freelancer')
-drama_schema.add_filter('oddjob')
+for filter_string in FILTER_STRINGS:
+    drama_schema.add_filter(filter_string)
 
 @GsiHandler('drama', drama_schema)
 def generate_drama_scheduler_data(zone_id:int=None, filter=None):
@@ -28,14 +38,8 @@ def generate_drama_scheduler_data(zone_id:int=None, filter=None):
         return all_nodes
 
     def drama_node_matches_filters(drama_node):
-        if filter_list is None:
-            return True
-        drama_node_string = type(drama_node).__name__.lower()
-        if NONPICKERDRAMANODES_DRAMA_NODES_FILTER in filter_list and PICKER_DRAMA_NODE_SUBSTRING not in drama_node_string:
-            return True
-        elif any(a_filter in drama_node_string for a_filter in filter_list):
-            return True
-        return False
+        drama_node_string = type(drama_node).__name__
+        return drama_node_string_matches_filters(drama_node_string, filter_list)
 
     for drama_node in drama_scheduler.active_nodes_gen():
         if drama_node_matches_filters(drama_node):
@@ -54,24 +58,29 @@ drama_tuning_data_schema.add_field('wednesday', label='Wednesday')
 drama_tuning_data_schema.add_field('thursday', label='Thursday')
 drama_tuning_data_schema.add_field('friday', label='Friday')
 drama_tuning_data_schema.add_field('saturday', label='Saturday')
+for filter_string in FILTER_STRINGS:
+    drama_tuning_data_schema.add_filter(filter_string)
 with drama_tuning_data_schema.add_view_cheat('drama.schedule_node', label='Schedule') as cheat:
     cheat.add_token_param('drama_node_name')
 with drama_tuning_data_schema.add_view_cheat('drama.run_node', label='Run') as cheat:
     cheat.add_token_param('drama_node_name')
 
 @GsiHandler('drama_tuning', drama_tuning_data_schema)
-def generate_drama_tuning_data(zone_id:int=None):
+def generate_drama_tuning_data(zone_id:int=None, filter=None):
     all_nodes = []
+    filter_list = parse_filter_to_list(filter)
     dnm = services.get_instance_manager(sims4.resources.Types.DRAMA_NODE)
     for node_type in dnm.types.values():
         node_data = {}
-        node_data['drama_node_name'] = node_type.__name__
-        valid_time_strings = node_type.get_debug_valid_time_strings()
-        for (day, valid_hours) in valid_time_strings.items():
-            day_name = day.name.lower()
-            time_string = ','.join(valid_hours)
-            node_data[day_name] = time_string
-        all_nodes.append(node_data)
+        node_name = node_type.__name__
+        if drama_node_string_matches_filters(node_name, filter_list):
+            node_data['drama_node_name'] = node_name
+            valid_time_strings = node_type.get_debug_valid_time_strings()
+            for (day, valid_hours) in valid_time_strings.items():
+                day_name = day.name.lower()
+                time_string = ','.join(valid_hours)
+                node_data[day_name] = time_string
+            all_nodes.append(node_data)
     return all_nodes
 
 class GSIRejectedDramaNodeScoringData:

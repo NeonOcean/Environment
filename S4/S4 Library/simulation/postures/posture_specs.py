@@ -5,7 +5,7 @@ import itertools
 import operator
 import re
 from animation.posture_manifest import AnimationParticipant
-from event_testing.resolver import DoubleSimResolver
+from event_testing.resolver import SingleActorAndObjectResolver
 from objects import ALL_HIDDEN_REASONS
 from objects.slots import RuntimeSlot
 from postures.posture_tuning import PostureTuning
@@ -925,7 +925,7 @@ class PostureOperation:
             body_target = self.target
             if not self.posture_type.is_valid_target(sim, body_target):
                 return False
-            resolver = DoubleSimResolver(sim, body_target)
+            resolver = SingleActorAndObjectResolver(sim.sim_info, body_target, 'BodyTransitionSpec')
             if not node[BODY_INDEX].posture_type.is_valid_transition(self.posture_type, resolver):
                 return False
             if body_target is None:

@@ -10,7 +10,7 @@ from objects import HiddenReasonFlag
 from objects.components.state import TunableStateValueReference, CommodityBasedObjectStateValue, ObjectStateMetaclass
 from objects.slots import SlotType
 from sims4.repr_utils import standard_repr
-from sims4.tuning.tunable import Tunable, TunableEnumEntry, TunableVariant, TunableReference, TunableThreshold, TunableFactory, TunableTuple, TunableSimMinute, HasTunableFactory, AutoFactoryInit, TunableSet, OptionalTunable, TunableList, TunableMapping, TunableEnumFlags
+from sims4.tuning.tunable import Tunable, TunableEnumEntry, TunableVariant, TunableReference, TunableThreshold, TunableFactory, TunableTuple, TunableSimMinute, HasTunableFactory, AutoFactoryInit, TunableSet, OptionalTunable, TunableList, TunableMapping, TunableEnumFlags, TunablePackSafeReference
 from statistics.mood import Mood
 from world.daytime_state_change import DaytimeStateChange
 import alarms
@@ -244,7 +244,8 @@ class TimeBasedCondition(Condition):
         self._owner = owner
         self.si_callback = callback
         time_span = clock.interval_in_sim_minutes(self._interval)
-        self._handle = alarms.add_alarm(owner.sim, time_span, self._satisfy)
+        alarm_owner = owner.sim if hasattr(owner, 'sim') else owner
+        self._handle = alarms.add_alarm(alarm_owner, time_span, self._satisfy)
         return (None, self._handle)
 
     def detach_from_owner(self, _, exiting=False):
@@ -756,7 +757,7 @@ class BuffCondition(HasTunableFactory, AutoFactoryInit, Condition):
         HAS_BUFF = 2
         NOT_HAS_BUFF = 3
 
-    FACTORY_TUNABLES = {'description': '\n            A condition that is satisfied when a Sim gains or loses a buff.\n            ', 'participant': TunableEnumEntry(description="\n            The participant whose buffs we're checking.\n            ", tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor), 'buff': TunableReference(description="\n            The buff we're checking.\n            ", manager=services.buff_manager(), pack_safe=True), 'timing': TunableEnumEntry(description='\n            When the condition satisfies.\n            Choices:\n            ON_ADD: Only check the condition on the edge of the buff being\n            added.  This will not satisfy if you have the buff when the\n            interaction starts.\n            ON_REMOVE: Only check the condition on the edge of the buff being\n            removed.  This will not satisfy if you do not have the buff when\n            the interaction starts.\n            HAS_BUFF: Check for the buff existing at any time this condition\n            is active.  This will satisfy if you have the buff when the\n            interaction starts.\n            NOT_HAS_BUFF: Check for the buff not existing at any time this\n            condition is active.  This will satisfy if you do not have the buff\n            when the interaction starts.\n            ', tunable_type=Timing, default=Timing.ON_ADD)}
+    FACTORY_TUNABLES = {'description': '\n            A condition that is satisfied when a Sim gains or loses a buff.\n            ', 'participant': TunableEnumEntry(description="\n            The participant whose buffs we're checking.\n            ", tunable_type=ParticipantTypeActorTargetSim, default=ParticipantTypeActorTargetSim.Actor), 'buff': TunablePackSafeReference(description="\n            The buff we're checking.\n            ", manager=services.buff_manager()), 'timing': TunableEnumEntry(description='\n            When the condition satisfies.\n            Choices:\n            ON_ADD: Only check the condition on the edge of the buff being\n            added.  This will not satisfy if you have the buff when the\n            interaction starts.\n            ON_REMOVE: Only check the condition on the edge of the buff being\n            removed.  This will not satisfy if you do not have the buff when\n            the interaction starts.\n            HAS_BUFF: Check for the buff existing at any time this condition\n            is active.  This will satisfy if you have the buff when the\n            interaction starts.\n            NOT_HAS_BUFF: Check for the buff not existing at any time this\n            condition is active.  This will satisfy if you do not have the buff\n            when the interaction starts.\n            ', tunable_type=Timing, default=Timing.ON_ADD)}
 
     def __str__(self):
         return 'BuffCondition: {} {} {}'.format(self.participant, self.buff, self.timing)
@@ -764,6 +765,8 @@ class BuffCondition(HasTunableFactory, AutoFactoryInit, Condition):
     def attach_to_owner(self, owner, callback):
         self.si_callback = callback
         self._owner = owner
+        if self.buff is None:
+            return (None, None)
         sim = self._owner.get_participant(self.participant)
         if self.timing == BuffCondition.Timing.HAS_BUFF:
             if sim.has_buff(self.buff):
@@ -774,7 +777,8 @@ class BuffCondition(HasTunableFactory, AutoFactoryInit, Condition):
         return (None, None)
 
     def detach_from_owner(self, owner, exiting=False):
-        self._disable_buff_watcher()
+        if self.buff is not None:
+            self._disable_buff_watcher()
         self._owner = None
         self.si_callback = None
 

@@ -21,7 +21,7 @@ from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, TunableMapp
 from sims4.utils import classproperty
 from snippets import define_snippet
 from tunable_multiplier import TunableMultiplier
-from ui.ui_dialog import UiDialog, UiDialogResponse, ButtonType
+from ui.ui_dialog import UiDialog, UiDialogResponse
 from ui.ui_dialog_labeled_icons import UiDialogLabeledIcons
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
 import clock
@@ -251,11 +251,15 @@ class AdventureMoment(HasTunableFactory, AutoFactoryInit):
         return True
 
     def _on_dialog_response(self, dialog):
-        if dialog.response is not None and dialog.response != ButtonType.DIALOG_RESPONSE_NO_RESPONSE:
-            if False and self._is_cheat_response(dialog.response):
-                self._run_action_from_cheat(dialog.response)
-            else:
-                self._run_action_from_index(dialog.response)
+        response_index = dialog.response
+        if response_index is None:
+            return
+        if False and self._is_cheat_response(response_index):
+            self._run_action_from_cheat(response_index)
+            return
+        if response_index >= len(self._finish_actions):
+            return
+        self._run_action_from_index(response_index)
 
     def _get_action_display_text(self, action):
         display_name = self._interaction.create_localized_string(action.display_text)

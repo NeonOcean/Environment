@@ -94,6 +94,14 @@ class NotebookEntryBait(NotebookEntry):
 class NotebookEntryRecipe(NotebookEntry):
     REMOVE_INSTANCE_TUNABLES = ('entry_text', 'entry_icon', 'entry_tooltip', 'entry_sublist')
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        recipe_definition = self.get_recipe_definition()
+        self.final_product = recipe_definition.final_product_definition if recipe_definition is not None else None
+        if self.entry_object_definition_id is None:
+            if self.final_product is not None:
+                self.entry_object_definition_id = self.final_product.id
+
     @property
     def recipe_object_definition_id(self):
         if self.sub_entries:
@@ -106,14 +114,15 @@ class NotebookEntryRecipe(NotebookEntry):
     def _get_entry_tooltip(self, entry_def):
         return EntryTooltip(HovertipStyle.HOVER_TIP_DEFAULT, {TooltipFields.recipe_name: LocalizationHelperTuning.get_object_name(entry_def), TooltipFields.recipe_description: LocalizationHelperTuning.get_object_description(entry_def)})
 
+    def get_recipe_definition(self):
+        manager = services.get_instance_manager(sims4.resources.Types.RECIPE)
+        return manager.get(self.recipe_object_definition_id)
+
     def get_definition_notebook_data(self, ingredient_cache=[]):
         ingredients_used = {}
-        manager = services.get_instance_manager(sims4.resources.Types.RECIPE)
-        recipe_definition = manager.get(self.recipe_object_definition_id)
-        if recipe_definition is None:
+        recipe_definition = self.get_recipe_definition()
+        if recipe_definition is None or self.final_product is None:
             return
-        final_product = recipe_definition.final_product_definition
-        self.entry_object_definition_id = final_product.id
         ingredient_display = []
         if recipe_definition.use_ingredients is not None:
             for tuned_ingredient_factory in recipe_definition.sorted_ingredient_requirements:
@@ -124,7 +133,7 @@ class NotebookEntryRecipe(NotebookEntry):
                 ingredients_found_count += ingredient_requirement.count_satisfied
                 ingredients_needed_count += ingredient_requirement.count_required
                 ingredient_display.append(SubListData(None, ingredients_found_count, ingredients_needed_count, True, False, ingredient_requirement.get_diplay_name(), None, None))
-        return EntryData(LocalizationHelperTuning.get_object_name(final_product), IconInfoData(obj_def_id=final_product.id), self._get_entry_tooltip(final_product), ingredient_display, self.entry_sublist_is_sortable)
+        return EntryData(LocalizationHelperTuning.get_object_name(self.final_product), IconInfoData(obj_def_id=self.final_product.id), self._get_entry_tooltip(self.final_product), ingredient_display, self.entry_sublist_is_sortable)
 
     def has_identical_entries(self, entries):
         if all(entry.entry_object_definition_id != self.entry_object_definition_id for entry in entries):

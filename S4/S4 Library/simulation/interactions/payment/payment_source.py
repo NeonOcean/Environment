@@ -24,6 +24,12 @@ class _PaymentSource(HasTunableSingletonFactory, AutoFactoryInit):
         funds = get_funds_for_source(self.funds_source, sim=sim)
         return funds.try_remove_amount(amount, Consts_pb2.TELEMETRY_INTERACTION_COST, sim, self.require_full_amount)
 
+    def max_funds(self, sim, resolver):
+        funds = get_funds_for_source(self.funds_source, sim=sim)
+        if funds is not None:
+            return funds.money
+        return 0
+
 class _PaymentSourceHousehold(_PaymentSource):
 
     @property
@@ -69,3 +75,13 @@ class _PaymentSourceStatistic(_PaymentSource):
                     else:
                         stat.set_value(stat.get_value() - amount)
                         return amount
+
+    def max_funds(self, sim, resolver):
+        if resolver is not None:
+            target = resolver.get_participant(self.participant)
+            if target is not None:
+                tracker = target.get_tracker(self.statistic)
+                if tracker is not None:
+                    stat = tracker.get_statistic(self.statistic)
+                    return stat.get_value()
+        return 0

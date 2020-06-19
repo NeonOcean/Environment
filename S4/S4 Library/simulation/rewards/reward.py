@@ -3,7 +3,7 @@ from event_testing.tests import TunableTestSet
 from rewards.reward_enums import RewardDestination
 from rewards.reward_tuning import TunableSpecificReward, TunableRandomReward
 from sims4 import random
-from sims4.localization import TunableLocalizedString
+from sims4.localization import TunableLocalizedString, TunableLocalizedStringFactory
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
 from sims4.tuning.tunable import HasTunableReference, TunableResourceKey, TunableList, TunableVariant, OptionalTunable, Tunable
 from sims4.tuning.tunable_base import ExportModes
@@ -13,10 +13,10 @@ import sims4.resources
 
 class Reward(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.REWARD)):
     INSTANCE_SUBCLASSES_ONLY = True
-    INSTANCE_TUNABLES = {'name': TunableLocalizedString(description='\n            The display name for this reward.\n            ', allow_catalog_name=True, export_modes=ExportModes.All), 'reward_description': TunableLocalizedString(description='\n            Description for this reward.\n            ', export_modes=ExportModes.All), 'icon': TunableResourceKey(description='\n            The icon image for this reward.\n            ', resource_types=sims4.resources.CompoundTypes.IMAGE, export_modes=ExportModes.All), 'tests': TunableTestSet(description='\n            A series of tests that must pass in order for reward to be available.\n            '), 'rewards': TunableList(TunableVariant(description='\n                The gifts that will be given for this reward. They can be either\n                a specific reward or a random reward, in the form of a list of\n                specific rewards.\n                ', specific_reward=TunableSpecificReward(), random_reward=TunableList(TunableRandomReward()))), 'notification': OptionalTunable(description='\n            If enabled, this notification will show when the sim/household receives this reward.\n            ', tunable=TunableUiDialogNotificationSnippet())}
+    INSTANCE_TUNABLES = {'name': TunableLocalizedString(description='\n            The display name for this reward.\n            ', allow_catalog_name=True, export_modes=ExportModes.All), 'reward_description': TunableLocalizedString(description='\n            Description for this reward.\n            ', export_modes=ExportModes.All), 'icon': TunableResourceKey(description='\n            The icon image for this reward.\n            ', resource_types=sims4.resources.CompoundTypes.IMAGE, export_modes=ExportModes.All), 'tests': TunableTestSet(description='\n            A series of tests that must pass in order for reward to be available.\n            '), 'rewards': TunableList(TunableVariant(description='\n                The gifts that will be given for this reward. They can be either\n                a specific reward or a random reward, in the form of a list of\n                specific rewards.\n                ', specific_reward=TunableSpecificReward(), random_reward=TunableList(TunableRandomReward()))), 'notification': OptionalTunable(description='\n            If enabled, this notification will show when the sim/household receives this reward.\n            ', tunable=TunableUiDialogNotificationSnippet()), 'reward_unavailable_tooltip': OptionalTunable(description='\n            If enabled, this text will appear if a reward is unavailable. \n            Otherwise the default unavailable reward text is used.\n            ', tunable=TunableLocalizedStringFactory())}
 
     @classmethod
-    def give_reward(cls, sim_info):
+    def give_reward(cls, sim_info, disallowed_reward_types=()):
         raise NotImplementedError
 
     @classmethod
@@ -39,30 +39,42 @@ class Reward(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manage
                     return False
             return True
 
+    @classmethod
+    def get_unavailable_tooltip(cls, sim_info):
+        if cls.reward_unavailable_tooltip is not None:
+            return cls.reward_unavailable_tooltip(sim_info)
+
 class SimReward(Reward):
 
     @classmethod
-    def give_reward(cls, sim_info):
-        return _give_reward_payout(cls, sim_info, RewardDestination.SIM)
+    def give_reward(cls, sim_info, disallowed_reward_types=(), force_rewards_to_sim_info_inventory=False):
+        return _give_reward_payout(cls, sim_info, RewardDestination.SIM, disallowed_reward_types=disallowed_reward_types, force_rewards_to_sim_info_inventory=force_rewards_to_sim_info_inventory)
 
 class HouseholdReward(Reward):
     INSTANCE_TUNABLES = {'deliver_with_mail': Tunable(description='\n            If checked, the reward will be delivered through the mail instead of\n            directly to the household inventory.\n            ', tunable_type=bool, default=False)}
 
     @classmethod
-    def give_reward(cls, sim_info):
-        return _give_reward_payout(cls, sim_info, RewardDestination.MAILBOX if cls.deliver_with_mail else RewardDestination.HOUSEHOLD)
+    def give_reward(cls, sim_info, disallowed_reward_types=()):
+        return _give_reward_payout(cls, sim_info, RewardDestination.MAILBOX if cls.deliver_with_mail else RewardDestination.HOUSEHOLD, disallowed_reward_types=disallowed_reward_types)
 
-def _give_reward_payout(reward_instance, sim_info, reward_destination):
+def _give_reward_payout(reward_instance, sim_info, reward_destination, disallowed_reward_types=(), force_rewards_to_sim_info_inventory=False):
     payout = []
     for reward in reward_instance.rewards:
         if issubclass(type(reward), tuple):
-            weighted_rewards = [(random_reward.weight, random_reward.reward) for random_reward in reward]
+            weighted_rewards = []
+            for random_reward in reward:
+                if random_reward.reward is None:
+                    weighted_rewards.append((random_reward.weight, None))
+                else:
+                    if random_reward.reward.factory.reward_type in disallowed_reward_types:
+                        continue
+                    weighted_rewards.append((random_reward.weight, random_reward.reward))
             chosen_reward_type = random.weighted_random_item(weighted_rewards)
         else:
-            chosen_reward_type = reward
+            chosen_reward_type = reward if reward.factory.reward_type not in disallowed_reward_types else None
         if chosen_reward_type is not None:
             reward = chosen_reward_type()
-            reward.open_reward(sim_info, reward_destination)
+            reward.open_reward(sim_info, reward_destination=reward_destination, force_rewards_to_sim_info_inventory=force_rewards_to_sim_info_inventory)
             payout.append(reward)
     if payout:
         reward_instance.try_show_notification(sim_info)

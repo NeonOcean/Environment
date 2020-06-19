@@ -131,6 +131,13 @@ class StoredAudioComponent(Component, AutoFactoryInit, HasTunableFactory, compon
             audio_effect_data = AudioEffectData(audio_effect.effect_id, self._channel_values_int)
             target_object.append_audio_effect(audio_effect.tag_name, audio_effect_data)
 
+    def remove_audio_effect(self, target_object):
+        if self.audio_effect is None:
+            return
+        effects = target_object.audio_effects
+        if effects is not None:
+            target_object.remove_audio_effect(self.audio_effect.tag_name)
+
 class TransferStoredAudioComponent(XevtTriggeredElement, HasTunableFactory):
     FACTORY_TUNABLES = {'source_participant': TunableEnumEntry(description='\n            The participant of the interaction whose stored audio component\n            will be copied and moved to the target participant. \n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'target_participant': TunableEnumEntry(description='\n            The participant of the interaction who will populate its stored \n            audio component with data from the source participant. \n            ', tunable_type=ParticipantType, default=ParticipantType.CreatedObject)}
 

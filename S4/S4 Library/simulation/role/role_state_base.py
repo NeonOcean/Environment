@@ -35,7 +35,7 @@ class RoleStateBase:
         raise NotImplementedError
 
     @classproperty
-    def only_allow_sub_action_autonomy(cls):
+    def autonomy_state_override(cls):
         raise NotImplementedError
 
     def __init__(self, sim):

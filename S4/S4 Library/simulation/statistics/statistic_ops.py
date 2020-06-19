@@ -13,7 +13,7 @@ from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.tunable import Tunable, TunableVariant, TunableInterval, TunableEnumEntry, TunableReference, TunablePercent, TunableFactory, TunableRate, TunableList, OptionalTunable, TunableTuple, TunableRange, HasTunableSingletonFactory, TunableEnumFlags
 from sims4.tuning.tunable_base import RateDescriptions
 from singletons import DEFAULT
-from statistics.skill import Skill, TunableSkillLootData
+from statistics.skill import Skill, TunableSkillLootData, TunableVariantSkillLootData
 from statistics.statistic_enums import PeriodicStatisticBehavior
 from tunable_multiplier import TunableStatisticModifierCurve, TunableObjectCostModifierCurve
 from ui.ui_dialog_notification import UiDialogNotification
@@ -541,6 +541,42 @@ class DynamicSkillLootOp(BaseLootOperation):
         amount = stat_type.get_skill_effectiveness_points_gain(effectiveness, point_level)
         return amount
 
+class DynamicVariantSkillLootOp(BaseLootOperation):
+    FACTORY_TUNABLES = {'skill_loot_data': TunableVariantSkillLootData(description='\n            The reference to the skill data.\n            ')}
+
+    def __init__(self, skill_loot_data, **kwargs):
+        super().__init__(**kwargs)
+        self._skill_loot_data = skill_loot_data
+
+    def _get_skill_level_data(self, subject, interaction):
+        stat = self._skill_loot_data.stat(subject, interaction)
+        if stat is None:
+            return (None, None, None)
+        effectiveness = self._skill_loot_data.effectiveness
+        if effectiveness is None:
+            logger.error('Skill Effectiveness is not tuned for this loot operation in {}')
+            return (None, None, None)
+        level_range = self._skill_loot_data.level_range
+        return (stat, effectiveness, level_range)
+
+    def _get_change_amount(self, tracker, stat_type, effectiveness, level_range):
+        cur_level = tracker.get_user_value(stat_type)
+        if level_range is not None:
+            point_level = math.clamp(level_range.lower_bound, cur_level, level_range.upper_bound)
+        else:
+            point_level = cur_level
+        amount = stat_type.get_skill_effectiveness_points_gain(effectiveness, point_level)
+        return amount
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        (stat_type, effectiveness, level_range) = self._get_skill_level_data(subject, resolver.interaction)
+        if stat_type is None:
+            return
+        tracker = subject.get_tracker(stat_type)
+        if tracker is not None:
+            amount = self._get_change_amount(tracker, stat_type, effectiveness, level_range)
+            tracker.add_value(stat_type, amount, interaction=resolver.interaction)
+
 class BaseStatisticByCategoryOp(BaseLootOperation):
     FACTORY_TUNABLES = {'statistic_category': TunableEnumEntry(statistics.statistic_categories.StatisticCategory, statistics.statistic_categories.StatisticCategory.INVALID, description='The category of commodity to remove.')}
 
@@ -549,18 +585,27 @@ class BaseStatisticByCategoryOp(BaseLootOperation):
         self._category = statistic_category
 
 class RemoveStatisticByCategory(BaseStatisticByCategoryOp):
+    FACTORY_TUNABLES = {'count_to_remove': OptionalTunable(description='\n            If enabled, randomly remove x number of commodities from the tuned category.\n            If disabled, all commodities specified by category will be removed.\n            ', tunable=TunableRange(tunable_type=int, default=1, minimum=1))}
+
+    def __init__(self, count_to_remove, **kwargs):
+        super().__init__(**kwargs)
+        self._count_to_remove = count_to_remove
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
         category = self._category
         commodity_tracker = subject.commodity_tracker
         if commodity_tracker is None:
             return
-        for commodity in tuple(commodity_tracker):
-            if category in commodity.get_categories():
-                if commodity.remove_on_convergence:
-                    commodity_tracker.remove_statistic(commodity.stat_type)
-                else:
-                    commodity_tracker.set_value(commodity.stat_type, commodity.get_initial_value())
+        qualified_commodities = [c for c in commodity_tracker if category in c.get_categories()]
+        if self._count_to_remove:
+            random.shuffle(qualified_commodities)
+        count_to_remove = min(self._count_to_remove, len(qualified_commodities)) if self._count_to_remove else len(qualified_commodities)
+        for i in range(count_to_remove):
+            commodity = qualified_commodities[i]
+            if commodity.remove_on_convergence:
+                commodity_tracker.remove_statistic(commodity.stat_type)
+            else:
+                commodity_tracker.set_value(commodity.stat_type, commodity.get_initial_value())
 
 class TunableChangeAmountFactory(TunableFactory):
 
@@ -843,6 +888,9 @@ class ObjectRelationshipOperation(RelationshipOperationMixin, StatisticOperation
 
     def _apply_to_sim_info(self, source_sim_info, target):
         obj_tag_set = ObjectRelationshipTrack.OBJECT_BASED_FRIENDSHIP_TRACKS[self._track]
+        if not target.has_any_tag(obj_tag_set.tags):
+            logger.error('Attempting to add object-type-rel between sim {} and object {} for track {}, but the target object does not have the appropriate tags {}', source_sim_info, target, self._track, obj_tag_set.tags, owner='shipark')
+            return
         apply_initial_modifier = not services.relationship_service().has_object_relationship_track(source_sim_info.sim_id, obj_tag_set, self._track)
         rel_stat = services.relationship_service().get_object_relationship_track(source_sim_info.sim_id, obj_tag_set, target_def_id=target.definition.id, track=self._track, add=True)
         if rel_stat is not None:

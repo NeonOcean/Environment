@@ -1,5 +1,5 @@
 import weakref
-from animation.animation_element import TunableAnimationObjectOverrides
+from animation.tunable_animation_overrides import TunableAnimationObjectOverrides
 from interactions import ParticipantTypeReaction
 from interactions.liability import Liability
 from sims4.tuning.tunable import HasTunableFactory, TunableEnumEntry, AutoFactoryInit

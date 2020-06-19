@@ -1,7 +1,7 @@
 from protocolbuffers import Consts_pb2
 from interactions import ParticipantType
 from interactions.payment.payment_info import PaymentBusinessRevenueType, BusinessPaymentInfo
-from sims4.tuning.tunable import AutoFactoryInit, HasTunableSingletonFactory, TunableEnumEntry, TunableReference
+from sims4.tuning.tunable import AutoFactoryInit, HasTunableSingletonFactory, TunableEnumEntry, TunableReference, OptionalTunable, TunablePercent
 import enum
 import services
 import sims4.log
@@ -21,6 +21,9 @@ class _PaymentDest(HasTunableSingletonFactory, AutoFactoryInit):
         raise NotImplementedError
         return False
 
+    def get_funds_info(self, resolver):
+        return (None, 0, None)
+
 class PaymentDestNone(_PaymentDest):
 
     def give_payment(self):
@@ -37,6 +40,13 @@ class PaymentDestActiveHousehold(_PaymentDest):
             return True
         return False
 
+    def get_funds_info(self, resolver):
+        household = services.active_household()
+        if household is not None:
+            money = household.funds.money
+            return (household.funds.MAX_FUNDS - money, money, None)
+        return (None, 0, None)
+
 class PaymentDestParticipantHousehold(_PaymentDest):
     FACTORY_TUNABLES = {'participant': TunableEnumEntry(description="\n            The participant whose household will accept the payment. If the\n            participant is not a Sim, we will use the participant's owning\n            household.\n            ", tunable_type=ParticipantType, default=ParticipantType.Actor)}
 
@@ -48,6 +58,13 @@ class PaymentDestParticipantHousehold(_PaymentDest):
                 household.funds.add(amount, Consts_pb2.FUNDS_INTERACTION_REWARD)
             return True
         return False
+
+    def get_funds_info(self, resolver):
+        household = self._get_household(resolver)
+        if household is not None:
+            money = household.funds.money
+            return (household.funds.MAX_FUNDS - money, money, None)
+        return (None, 0, None)
 
     def _get_household(self, resolver):
         participant = resolver.get_participant(self.participant)
@@ -73,8 +90,15 @@ class PaymentDestBusiness(_PaymentDest):
             return True
         return False
 
+    def get_funds_info(self, resolver):
+        business_manager = services.business_service().get_business_manager_for_zone()
+        if business_manager is not None:
+            money = business_manager.funds.money
+            return (business_manager.funds.MAX_FUNDS - money, money, None)
+        return (None, 0, None)
+
 class PaymentDestStatistic(_PaymentDest):
-    FACTORY_TUNABLES = {'statistic': TunableReference(description='\n            The statistic that should accept the payment.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)), 'participant': TunableEnumEntry(description='\n            The participant whose statistic will accept the payment.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor)}
+    FACTORY_TUNABLES = {'statistic': TunableReference(description='\n            The statistic that should accept the payment.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)), 'participant': TunableEnumEntry(description='\n            The participant whose statistic will accept the payment.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'is_debt': OptionalTunable(description='\n            True if the statistics is a debt, otherwise False.\n            ', tunable=TunablePercent(description='\n                Percent of debt that is minimum payment.\n                ', default=5), disabled_name='False', enabled_name='True')}
 
     def give_payment(self, cost_info):
         participant = cost_info.resolver.get_participant(self.participant)
@@ -84,6 +108,24 @@ class PaymentDestStatistic(_PaymentDest):
             if tracker is not None:
                 stat = tracker.get_statistic(self.statistic)
         if stat is not None:
-            stat.add_value(cost_info.amount)
+            amount = cost_info.amount
+            if self.is_debt:
+                amount = -amount
+            stat.add_value(amount)
             return True
         return False
+
+    def get_funds_info(self, resolver):
+        participant = resolver.get_participant(self.participant)
+        stat = None
+        if participant is not None:
+            tracker = participant.get_tracker(self.statistic)
+            if tracker is not None:
+                stat = tracker.get_statistic(self.statistic)
+        if stat is not None:
+            value = stat.get_value()
+            if self.is_debt is not None:
+                return (value, value, int(self.is_debt*value))
+            else:
+                return (stat.max_value - value, value, None)
+        return (None, 0, None)

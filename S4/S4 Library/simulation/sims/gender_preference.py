@@ -12,6 +12,8 @@ class GenderPreferenceOp(BaseLootOperation):
 
     def _apply_gender_preference_change(self, subject_sim_info, target_sim_info):
         for (gender, gender_preference_statistic) in subject_sim_info.get_gender_preferences_gen():
+            if gender_preference_statistic is None:
+                continue
             if gender == target_sim_info.gender:
                 gender_preference_statistic.add_value(self._gender_preference_statistic_increase)
             else:

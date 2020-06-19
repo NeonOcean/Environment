@@ -28,6 +28,10 @@ class TunableBalloon(TunableFactory):
             resolver = interaction.get_resolver()
             balloon_sims = interaction.get_participants(balloon_target)
             for sim in balloon_sims:
+                if sim.is_sim:
+                    sim = sim.sim_info.get_sim_instance()
+                if sim is None:
+                    continue
                 if gsi_handlers.balloon_handlers.archiver.enabled:
                     gsi_entries = []
                 else:

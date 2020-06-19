@@ -45,7 +45,8 @@ class RelationshipBitChange(BaseLootOperation):
                         continue
                     if recipient == ParticipantType.AllRelationships:
                         for recipient_sim_info in target.relationship_tracker.get_target_sim_infos():
-                            self._perform_bit_operation(recipient_sim_info, target, bit_operation, allow_readdition=bit_operation.allow_readdition)
+                            if recipient_sim_info is not None:
+                                self._perform_bit_operation(recipient_sim_info, target, bit_operation, allow_readdition=bit_operation.allow_readdition)
                         else:
                             self._perform_bit_operation(recipient, target, bit_operation, allow_readdition=bit_operation.allow_readdition)
                     elif target == ParticipantType.AllRelationships:

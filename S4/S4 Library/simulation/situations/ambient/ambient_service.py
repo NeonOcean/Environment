@@ -177,6 +177,16 @@ class _AmbientSourceStreet(_AmbientSource):
             street = self._walkby_tuning.__name__
         return '({0}, {1}, {2})'.format(street, self.get_desired_number_of_sims(), self.get_current_number_of_sims())
 
+    def save(self, source_data):
+        super().save(source_data)
+        if self._walkby_schedule is not None:
+            self._walkby_schedule.save_situation_shifts(source_data)
+
+    def load(self, source_data):
+        super().load(source_data)
+        if self._walkby_schedule is not None:
+            self._walkby_schedule.load_situation_shifts(source_data)
+
 class _AmbientSourceGhost(_AmbientSource):
     GHOST_SITUATIONS = TunableTestedList(description='\n        A list of possible ghost situations, tested aginst the Sim we want to\n        spawn.\n        ', tunable_type=TunableReference(description='\n            The ghost situation to spawn.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION), pack_safe=True))
     DESIRED_GHOST_COUNT_PER_URNSTONE = TunableCurve(description='\n        This curve describes the maximum number of ghosts we want in the world\n        based on the number of valid urnstones in the world. If there are more\n        urnstones than the maximum number tuned on the X axis, we will just use\n        the final Y value.\n        ', x_axis_name='Valid Urnstones', y_axis_name='Desired Ghost Count')

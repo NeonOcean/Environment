@@ -96,6 +96,10 @@ class AuditionDramaNode(BaseDramaNode):
             rabbit_hole_service.remove_rabbit_hole_expiration_callback(self._receiver_sim_info, self._on_sim_return)
         super().cleanup(from_service_stop=from_service_stop)
 
+    def resume(self):
+        if not services.get_rabbit_hole_service().is_in_rabbit_hole(self._receiver_sim_info.id):
+            services.drama_scheduler_service().complete_node(self.uid)
+
     def _run(self):
         rabbit_hole_service = services.get_rabbit_hole_service()
         rabbit_hole_service.put_sim_in_managed_rabbithole(self._receiver_sim_info, self.audition_rabbit_hole)

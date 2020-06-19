@@ -26,13 +26,13 @@ class Application:
 
 		if "Paths" in applicationPointerDictionary:
 			for pathDictionary in applicationPointerDictionary["Paths"]:  # type: typing.Dict[str, str]
-				executableFullFilePath = None  # type: str
+				executableFullFilePath = None  # type: typing.Optional[str]
 
 				executableRegistryKey = pathDictionary.get("Registry Key")  # type: str
 				executableFilePath = pathDictionary.get("File Path")  # type: str
 				executableSpecial = pathDictionary.get("Special")  # type: str
 
-				registryKeyPath = None  # type: str
+				registryKeyPath = None  # type: typing.Optional[str]
 
 				if isinstance(executableRegistryKey, str):
 					executableRegistryKey = executableRegistryKey.replace("/", "\\")

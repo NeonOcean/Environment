@@ -75,6 +75,7 @@ with sims4.reload.protected(globals()):
     _persistence_service = None
     _distributor_service = None
     _intern_service = None
+    _terrain_service = None
     definition_manager = None
     snippet_manager = None
     _terrain_object = None
@@ -136,11 +137,11 @@ def start_global_services(initial_ticks):
     for definition in INSTANCE_TUNING_DEFINITIONS:
         instantiated_tuning_managers.append(tuning_managers[definition.TYPE_ENUM_VALUE])
     services.append(TuningInstanceManager(instantiated_tuning_managers))
-    services.extend([FinalizeTuningService, TimeStampService, _intern_service.get_stop_interning(), TerrainService, _zone_manager, _account_service])
+    services.extend([FinalizeTuningService, TimeStampService, _intern_service.get_stop_interning(), get_terrain_service(), _zone_manager, _account_service])
     sims4.core_services.start_services(init_critical_services, services)
 
 def stop_global_services():
-    global _zone_manager, _account_service, _event_manager, _server_clock_service, _persistence_service, _distributor_service, _intern_service, _object_leak_tracker
+    global _zone_manager, _account_service, _event_manager, _server_clock_service, _persistence_service, _terrain_service, _distributor_service, _intern_service, _object_leak_tracker
     _zone_manager.shutdown()
     _zone_manager = None
     tuning_managers.clear()
@@ -148,6 +149,7 @@ def stop_global_services():
     _event_manager = None
     _server_clock_service = None
     _persistence_service = None
+    _terrain_service = None
     _distributor_service = None
     _intern_service = None
     if _object_leak_tracker is not None:
@@ -274,6 +276,21 @@ def owning_household_of_active_lot():
     zone = current_zone()
     if zone is not None:
         return household_manager().get(zone.lot.owner_household_id)
+
+def object_preference_tracker(require_active_household=False):
+    zone = current_zone()
+    if zone is not None:
+        household = household_manager().get(zone.lot.owner_household_id)
+        if household is not None:
+            if require_active_household and not household.is_active_household:
+                return
+            return household.object_preference_tracker
+        travel_group = travel_group_manager().get_travel_group_by_zone_id(zone.id)
+        if travel_group is not None:
+            if require_active_household and not travel_group.is_active_sim_in_travel_group:
+                return
+            else:
+                return travel_group.object_preference_tracker
 
 def get_active_sim():
     client = client_manager().get_first_client()
@@ -415,6 +432,13 @@ def business_service():
     bs = game_services.service_manager.business_service
     return bs
 
+def get_terrain_service():
+    global _terrain_service
+    if _terrain_service is None:
+        from services.terrain_service import TerrainService
+        _terrain_service = TerrainService()
+    return _terrain_service
+
 def call_to_action_service():
     return game_services.service_manager.call_to_action_service
 
@@ -472,8 +496,16 @@ def get_laundry_service():
     if zone is not None and hasattr(zone, 'laundry_service'):
         return zone.laundry_service
 
+def get_object_routing_service():
+    zone = current_zone()
+    if zone is not None and hasattr(zone, 'object_routing_service'):
+        return zone.object_routing_service
+
 def get_landlord_service():
     return getattr(game_services.service_manager, 'landlord_service', None)
+
+def get_roommate_service():
+    return getattr(game_services.service_manager, 'roommate_service', None)
 
 def get_club_service():
     return getattr(game_services.service_manager, 'club_service', None)
@@ -550,6 +582,9 @@ def global_policy_service():
 
 def narrative_service():
     return getattr(game_services.service_manager, 'narrative_service', None)
+
+def organization_service():
+    return getattr(game_services.service_manager, 'organization_service', None)
 
 def get_object_lost_and_found_service():
     return game_services.service_manager.object_lost_and_found_service

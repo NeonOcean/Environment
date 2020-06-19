@@ -7,12 +7,14 @@ class CareerCategory(enum.Int):
     TeenPartTime = 3
     Volunteer = 4
     AdultPartTime = 5
+    UniversityCourse = 6
 
 class CareerPanelType(enum.Int):
     NORMAL_CAREER = 0
     AGENT_BASED_CAREER = 1
     FREELANCE_CAREER = 2
     ODD_JOB_CAREER = 3
+    UNIVERSITY_COURSE = 4
 
 WORK_CAREER_CATEGORIES = (CareerCategory.Work, CareerCategory.TeenPartTime, CareerCategory.AdultPartTime)
 

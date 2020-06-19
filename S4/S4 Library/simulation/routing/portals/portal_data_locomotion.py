@@ -5,6 +5,7 @@ from routing.portals.portal_location import _PortalLocation
 from routing.portals.portal_tuning import PortalType
 from sims4.tuning.tunable import TunableList, TunableTuple, Tunable, OptionalTunable, TunableVariant
 import routing
+import services
 import sims4
 import terrain
 
@@ -39,6 +40,11 @@ class _PortalTypeDataLocomotion(_PortalTypeDataBase):
         portal_height_difference = abs(obj.position.y - portal_height)
         return portal_height_difference > self._height_tolerance
 
+    def _is_object_routing_surface_overlap(self, portal_position, obj):
+        if portal_position.routing_surface.type != routing.SurfaceType.SURFACETYPE_OBJECT:
+            return False
+        return obj.is_routing_surface_overlapped_at_position(portal_position.position)
+
     def get_portal_locations(self, obj):
         locations = []
         for portal_entry in self.object_portals:
@@ -47,14 +53,19 @@ class _PortalTypeDataLocomotion(_PortalTypeDataBase):
             if not self._is_offset_from_object(there_entry, obj):
                 if self._is_offset_from_object(there_exit, obj):
                     continue
-                entry_angle = sims4.math.vector3_angle(there_exit.position - there_entry.position)
-                there_entry.transform = Transform(there_entry.position, sims4.math.angle_to_yaw_quaternion(entry_angle))
-                exit_angle = sims4.math.vector3_angle(there_entry.position - there_exit.position)
-                there_exit.transform = Transform(there_exit.position, sims4.math.angle_to_yaw_quaternion(exit_angle))
-                if portal_entry.is_bidirectional:
-                    offset_entry = self._get_offset_positions(there_entry, there_exit, entry_angle)
-                    offset_exit = self._get_offset_positions(there_exit, there_entry, exit_angle)
-                    locations.append((offset_entry, offset_exit, there_exit, there_entry, 0))
-                else:
-                    locations.append((there_entry, there_exit, None, None, 0))
+                if not self._is_object_routing_surface_overlap(there_entry, obj):
+                    if self._is_object_routing_surface_overlap(there_exit, obj):
+                        continue
+                    entry_angle = sims4.math.vector3_angle(there_exit.position - there_entry.position)
+                    there_entry.transform = Transform(there_entry.position, sims4.math.angle_to_yaw_quaternion(entry_angle))
+                    exit_angle = sims4.math.vector3_angle(there_entry.position - there_exit.position)
+                    there_exit.transform = Transform(there_exit.position, sims4.math.angle_to_yaw_quaternion(exit_angle))
+                    if portal_entry.is_bidirectional:
+                        offset_entry = self._get_offset_positions(there_entry, there_exit, entry_angle)
+                        offset_exit = self._get_offset_positions(there_exit, there_entry, exit_angle)
+                        if not self._is_object_routing_surface_overlap(offset_entry, obj) and not self._is_object_routing_surface_overlap(offset_exit, obj):
+                            locations.append((offset_entry, offset_exit, there_exit, there_entry, 0))
+                            locations.append((there_entry, there_exit, None, None, 0))
+                    else:
+                        locations.append((there_entry, there_exit, None, None, 0))
         return locations

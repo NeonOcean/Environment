@@ -97,7 +97,7 @@ class BouncerRequest:
         self._sim_filter = job_type.filter
         self._spawner_tags = job_type.sim_spawner_tags
         self._spawn_at_lot = job_type.spawn_at_lot
-        self._spawn_action = job_type.sim_spawn_action
+        self._spawn_action = job_type.get_spawn_action(job_type)
         self._spawn_point_option = job_type.sim_spawner_leave_option
         self._saved_spawner_tags = job_type.sim_spawner_leave_saved_tags
         self._requested_sim_id = requested_sim_id

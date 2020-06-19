@@ -1,7 +1,7 @@
 from Automation import Mods, Publishing
 
 def Run () -> bool:
-	namespace = "NeonOcean.Choreography"  # type: str
+	namespace = "NeonOcean.S4.Choreography"  # type: str
 
 	Mods.BuildMod(namespace)
 	Mods.BuildPublishing(namespace)

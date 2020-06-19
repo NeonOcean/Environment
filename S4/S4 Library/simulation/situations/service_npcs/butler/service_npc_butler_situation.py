@@ -170,6 +170,7 @@ class ServiceNpcButlerSituation(SituationComplexCommon):
     def _on_set_sim_job(self, sim, job_type):
         service_record = self._hiring_household.get_service_npc_record(self._service_npc_type.guid64)
         service_record.add_preferred_sim(sim.sim_info.id)
+        self._hiring_household.object_preference_tracker.update_preference_if_possible(sim.sim_info)
         self._service_npc_type.on_service_sim_entered_situation(sim, self)
         services.get_event_manager().process_event(TestEvent.AvailableDaycareSimsChanged, sim_info=self.service_sim().sim_info)
         services.current_zone().service_npc_service.register_service_npc(sim.id, self._service_npc_type)
@@ -191,12 +192,12 @@ class ServiceNpcButlerSituation(SituationComplexCommon):
             service_record = household.get_service_npc_record(service_npc_type.guid64)
             service_record.time_last_finished_service = now
             self._send_leave_notification(end_work_reason, paid_amount, billed_amount)
-            if end_work_reason == ServiceNpcEndWorkReason.FIRED or end_work_reason == ServiceNpcEndWorkReason.NOT_PAID:
-                service_sim = self.service_sim()
-                if service_record is not None:
-                    service_record.add_fired_sim(service_sim.id)
-                    service_record.remove_preferred_sim(service_sim.id)
-                    services.current_zone().service_npc_service.on_service_sim_fired(service_sim.id, service_npc_type)
+            service_sim = self.service_sim()
+            if (end_work_reason == ServiceNpcEndWorkReason.FIRED or end_work_reason == ServiceNpcEndWorkReason.NOT_PAID) and service_record is not None:
+                service_record.add_fired_sim(service_sim.id)
+                service_record.remove_preferred_sim(service_sim.id)
+                services.current_zone().service_npc_service.on_service_sim_fired(service_sim.id, service_npc_type)
+            self._hiring_household.object_preference_tracker.clear_sim_restriction(service_sim.id)
             services.current_zone().service_npc_service.cancel_service(household, service_npc_type)
         except Exception as e:
             logger.exception('Exception while executing _on_leaving_situation for situation {}', self, exc=e)

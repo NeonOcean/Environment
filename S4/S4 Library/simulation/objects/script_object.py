@@ -15,9 +15,10 @@ import protocolbuffers.FileSerialization_pb2 as file_serialization
 import routing
 import services
 import sims4.log
-from animation.animation_element import TunableAnimationObjectOverrides, TunableAnimationOverrides, TunableParameterMapping
+from animation.animation_overrides_tuning import TunableParameterMapping
 from animation.animation_utils import AnimationOverrides
 from animation.focus.focus_component import FocusComponent
+from animation.tunable_animation_overrides import TunableAnimationObjectOverrides, TunableAnimationOverrides
 from autonomy.autonomy_component import AutonomyComponent
 from balloon.tunable_balloon import TunableBalloon
 from build_buy import PlacementFlags, WALL_OBJECT_POSITION_PADDING, get_object_placement_flags
@@ -38,6 +39,7 @@ from objects.base_object import BaseObject, ResetReason
 from objects.collection_manager import CollectableComponent
 from objects.components import component_definition, forward_to_components, forward_to_components_gen, get_component_priority_and_name_using_persist_id
 from objects.components.affordance_tuning import AffordanceTuningComponent
+from objects.components.autonomy_marker_component import AutonomyMarkerComponent
 from objects.components.camera_view_component import CameraViewComponent
 from objects.components.canvas_component import CanvasComponent, FamilyPortraitComponent, SimPortraitComponent
 from objects.components.carryable_component import CarryableComponent
@@ -55,10 +57,10 @@ from objects.components.lighting_component import LightingComponent
 from objects.components.line_of_sight_component import TunableLineOfSightComponent
 from objects.components.linked_object_component import LinkedObjectComponent
 from objects.components.live_drag_target_component import LiveDragTargetComponent
+from objects.components.locking_components import ObjectLockingComponent
 from objects.components.mannequin_component import MannequinComponent
 from objects.components.name_component import NameComponent
 from objects.components.object_age import TunableObjectAgeComponent
-from objects.components.object_claim_component import ObjectClaimComponent
 from objects.components.object_inventory_component import ObjectInventoryComponent
 from objects.components.object_relationship_component import ObjectRelationshipComponent
 from objects.components.object_teleportation_component import ObjectTeleportationComponent
@@ -89,6 +91,8 @@ from retail.retail_component import TunableRetailComponentSnippet
 from routing import SurfaceIdentifier, SurfaceType
 from routing.portals.portal_component import PortalComponent
 from seasons.season_aware_component import SeasonAwareComponent
+from sims.university.university_scholarship_letter_component import ScholarshipLetterComponent
+from sims4.localization import TunableLocalizedString
 from sims4.math import MAX_FLOAT
 from sims4.tuning.geometric import TunableVector2
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
@@ -115,7 +119,7 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 														 adjacent_parts = OptionalTunable(description = '\n                    Define adjacent parts. If disabled, adjacent parts will be\n                    generated automatically based on indexing. If enabled,\n                    adjacent parts must be specified here.\n                    ', tunable = TunableList(description = "\n                        The indices of parts that are adjacent to this part. The\n                        index is the zero-based position of the part within the\n                        object's Part Data list.\n                        \n                        An empty list indicates that no part is ajdacent to this\n                        part.\n                        ", tunable = int)),
 														 is_mirrored = OptionalTunable(description = '\n                    Specify whether or not solo animations played on this part\n                    should be mirrored or not.\n                    ', tunable = Tunable(description = '\n                        If checked, mirroring is enabled. If unchecked,\n                        mirroring is disabled.\n                        ', tunable_type = bool, default = False)),
 														 forward_direction_for_picking = TunableVector2(description = "\n                    When you click on the object this part belongs to, this\n                    offset will be applied to this part when determining which\n                    part is closest to where you clicked. By default, the\n                    object's forward vector will be used. It should only be\n                    necessary to tune this value if multiple parts overlap at\n                    the same location (e.g. the single bed).\n                    ", default = sims4.math.Vector2(0, 1), x_axis_name = 'x', y_axis_name = 'z'), disable_sim_aop_forwarding = Tunable(description = '\n                    If checked, Sims using this specific part will never forward\n                    AOPs.\n                    ', tunable_type = bool, default = False),
-														 disable_child_aop_forwarding = Tunable(description = '\n                    If checked, objects parented to this specific part will\n                    never forward AOPs.\n                    ', tunable_type = bool, default = False), anim_overrides = TunableAnimationOverrides(description = 'Animation overrides for this part.')), deprecated = True),
+														 disable_child_aop_forwarding = Tunable(description = '\n                    If checked, objects parented to this specific part will\n                    never forward AOPs.\n                    ', tunable_type = bool, default = False), anim_overrides = TunableAnimationOverrides(description = 'Animation overrides for this part.'), restrict_autonomy_preference = Tunable(description = '\n                    If checked, this specific part can be used for use only autonomy\n                    restriction.\n                    ', tunable_type = bool, default = False), name = OptionalTunable(description = '\n                    Name of this part.  For use if the part name needs to be surfaced\n                    to the player.  (i.e. when assigning sim to specific side of bed.)\n                    ', tunable = TunableLocalizedString())), deprecated = True),
 		'_part_data_map': TunablePartDataMapping(description = '\n            Use this to define parts for an object. Parts allow multiple Sims to\n            use an object in different or same ways, at the same time. The model\n            and the animations for this object will have to support parts.\n            Ensure this is the case with animation and modeling.\n           \n            There will be one entry in this list for every part the object has.\n           \n            e.g. The bed has six parts (two sleep parts, and four sit parts).\n                  add two entries for the sleep parts add four entries for the\n                  sit parts\n            '),
 		'custom_posture_target_name': Tunable(
 			description = '\n            An additional non-virtual actor to set for this object when used as\n            a posture target.\n            \n            This tunable is used when the object has parts. In most cases, the\n            state machines will only have one actor for the part that is\n            involved in animation. In that case, this field should not be set.\n            \n            e.g. The Sit posture requires the sitTemplate actor to be set, but\n            does not make a distinction between, for instance, Chairs and Sofas,\n            because no animation ever involves the whole object.\n            \n            However, there may be cases when, although we are dealing with\n            parts, the animation will need to also reference the entire object.\n            In that case, the ASM will have an extra actor to account for the\n            whole object, in addition to the part. Set this field to be that\n            actor name.\n            \n            e.g. The Sleep posture on the bed animates the Sim on one part.\n            However, the sheets and pillows need to animate on the entire bed.\n            In that case, we need to set this field on Bed so that the state\n            machine can have this actor set.\n            ',
@@ -128,10 +132,62 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 										 child_obj_tags = TunableSet(description = '\n                Tags for the child to look for. If empty means no tag requirement.\n                ', tunable = TunableEnumWithFilter(tunable_type = Tag, filter_prefixes = ['func'], default = Tag.INVALID, invalid_enums = (Tag.INVALID,), pack_safe = True)), should_search_forwarded_parent_aop = Tunable(description = "\n                If enabled, interactions on parent of this object will appear in\n                this object's pie menu as long as they are also tuned to allow\n                forwarding.\n                ", tunable_type = bool, default = False)),
 		'_disable_child_footprint_and_shadow': Tunable(description = "\n            If checked, all objects parented to this object will have their\n            footprints and dropshadows disabled.\n            \n            Example Use: object_sim has this checked so when a Sim picks up a\n            plate of food, the plate's footprint and dropshadow turn off\n            temporarily.\n            ", tunable_type = bool, default = False),
 		'disable_los_reference_point': Tunable(description = '\n            If checked, goal points for this interaction will not be discarded\n            if a ray-test from the object fails to connect without intersecting\n            walls or other objects.  The reason for allowing this, is for\n            objects like the door where we want to allow the sim to interact\n            with the object, but since the object doesnt have a footprint we\n            want to allow him to use the central point as a reference point and\n            not fail the LOS test.\n            ', tunable_type = bool, default = False),
-		'_components': TunableTuple(description = '\n            The components that instances of this object should have.\n            ', tuning_group = GroupNames.COMPONENTS, affordance_tuning = OptionalTunable(AffordanceTuningComponent.TunableFactory()), autonomy = OptionalTunable(AutonomyComponent.TunableFactory()), camera_view = OptionalTunable(CameraViewComponent.TunableFactory()), canvas = OptionalTunable(tunable = TunableVariant(canvas_component = CanvasComponent.TunableFactory(), family_portrait = FamilyPortraitComponent.TunableFactory(), sim_portrait = SimPortraitComponent.TunableFactory(), default = 'canvas_component')), carryable = OptionalTunable(CarryableComponent.TunableFactory()), censor_grid = OptionalTunable(TunableCensorGridComponent()), collectable = OptionalTunable(CollectableComponent.TunableFactory()), consumable = OptionalTunable(ConsumableComponent.TunableFactory()), crafting_station = OptionalTunable(CraftingStationComponent.TunableFactory()),
-									curfew = OptionalTunable(CurfewComponent.TunableFactory()), display_component = OptionalTunable(DisplayComponent.TunableFactory()), fishing_location = OptionalTunable(FishingLocationComponent.TunableFactory()), flowing_puddle = OptionalTunable(FlowingPuddleComponent.TunableFactory()), focus = OptionalTunable(FocusComponent.TunableFactory()), game = OptionalTunable(GameComponent.TunableFactory()), gardening = TunableGardeningComponentVariant(), idle_component = OptionalTunable(IdleComponent.TunableFactory()), inventory = OptionalTunable(ObjectInventoryComponent.TunableFactory()), inventory_item = OptionalTunable(InventoryItemComponent.TunableFactory()), lighting = OptionalTunable(LightingComponent.TunableFactory()), line_of_sight = OptionalTunable(TunableLineOfSightComponent()), linked_object_component = OptionalTunable(LinkedObjectComponent.TunableFactory()), live_drag_target = OptionalTunable(LiveDragTargetComponent.TunableFactory()),
-									mannequin = OptionalTunable(MannequinComponent.TunableFactory()), name = OptionalTunable(NameComponent.TunableFactory()), narrative_aware_component = OptionalTunable(NarrativeAwareComponent.TunableFactory()), object_age = OptionalTunable(TunableObjectAgeComponent()), object_claim = OptionalTunable(ObjectClaimComponent.TunableFactory()), object_relationships = OptionalTunable(ObjectRelationshipComponent.TunableFactory()), object_teleportation = OptionalTunable(ObjectTeleportationComponent.TunableFactory()), ownable_component = OptionalTunable(OwnableComponent.TunableFactory()), owning_household_component = OptionalTunable(OwningHouseholdComponent.TunableFactory()), portal = OptionalTunable(PortalComponent.TunableFactory()), privacy = OptionalTunable(PrivacyComponent.TunableFactory()), proximity_component = OptionalTunable(ProximityComponent.TunableFactory()), retail_component = OptionalTunable(TunableRetailComponentSnippet()),
-									routing_component = OptionalTunable(RoutingComponent.TunableFactory()), season_aware_component = OptionalTunable(SeasonAwareComponent.TunableFactory()), spawner_component = OptionalTunable(SpawnerComponent.TunableFactory()), spawn_point = OptionalTunable(SpawnPointComponent.TunableFactory()), state = OptionalTunable(TunableStateComponent()), stolen = OptionalTunable(StolenComponent.TunableFactory()), stored_audio_component = OptionalTunable(StoredAudioComponent.TunableFactory()), time_of_day_component = OptionalTunable(TimeOfDayComponent.TunableFactory()), tooltip_component = OptionalTunable(TooltipComponent.TunableFactory()), vehicle_component = OptionalTunable(VehicleComponent.TunableFactory()), weather_aware_component = OptionalTunable(WeatherAwareComponent.TunableFactory()), whim_component = OptionalTunable(WhimComponent.TunableFactory())),
+		'_components': TunableTuple(
+			description = '\n            The components that instances of this object should have.\n            ',
+			tuning_group = GroupNames.COMPONENTS,
+			affordance_tuning = OptionalTunable(AffordanceTuningComponent.TunableFactory()),
+			autonomy = OptionalTunable(AutonomyComponent.TunableFactory()),
+			autonomy_marker = OptionalTunable(AutonomyMarkerComponent.TunableFactory()),
+			camera_view = OptionalTunable(CameraViewComponent.TunableFactory()),
+			canvas = OptionalTunable(tunable = TunableVariant(canvas_component = CanvasComponent.TunableFactory(),
+															  family_portrait = FamilyPortraitComponent.TunableFactory(),
+															  sim_portrait = SimPortraitComponent.TunableFactory(),
+															  default = 'canvas_component')),
+			carryable = OptionalTunable(CarryableComponent.TunableFactory()),
+			censor_grid = OptionalTunable(TunableCensorGridComponent()),
+			collectable = OptionalTunable(CollectableComponent.TunableFactory()),
+			consumable = OptionalTunable(ConsumableComponent.TunableFactory()),
+			crafting_station = OptionalTunable(CraftingStationComponent.TunableFactory()),
+			curfew = OptionalTunable(CurfewComponent.TunableFactory()),
+			display_component = OptionalTunable(DisplayComponent.TunableFactory()),
+			fishing_location = OptionalTunable(FishingLocationComponent.TunableFactory()),
+			flowing_puddle = OptionalTunable(FlowingPuddleComponent.TunableFactory()),
+			focus = OptionalTunable(FocusComponent.TunableFactory()),
+			game = OptionalTunable(GameComponent.TunableFactory()),
+			gardening = TunableGardeningComponentVariant(),
+			idle_component = OptionalTunable(IdleComponent.TunableFactory()),
+			inventory = OptionalTunable(ObjectInventoryComponent.TunableFactory()),
+			inventory_item = OptionalTunable(InventoryItemComponent.TunableFactory()),
+			lighting = OptionalTunable(LightingComponent.TunableFactory()),
+			line_of_sight = OptionalTunable(TunableLineOfSightComponent()),
+			linked_object_component = OptionalTunable(LinkedObjectComponent.TunableFactory()),
+			live_drag_target = OptionalTunable(LiveDragTargetComponent.TunableFactory()),
+			mannequin = OptionalTunable(MannequinComponent.TunableFactory()),
+			name = OptionalTunable(NameComponent.TunableFactory()),
+			narrative_aware_component = OptionalTunable(NarrativeAwareComponent.TunableFactory()),
+			object_age = OptionalTunable(TunableObjectAgeComponent()),
+			object_locking_component = OptionalTunable(ObjectLockingComponent.TunableFactory()),
+			object_relationships = OptionalTunable(ObjectRelationshipComponent.TunableFactory()),
+			object_teleportation = OptionalTunable(ObjectTeleportationComponent.TunableFactory()),
+			ownable_component = OptionalTunable(OwnableComponent.TunableFactory()),
+			owning_household_component = OptionalTunable(OwningHouseholdComponent.TunableFactory()),
+			portal = OptionalTunable(PortalComponent.TunableFactory()),
+			privacy = OptionalTunable(PrivacyComponent.TunableFactory()),
+			proximity_component = OptionalTunable(ProximityComponent.TunableFactory()),
+			retail_component = OptionalTunable(TunableRetailComponentSnippet()),
+			routing_component = OptionalTunable(RoutingComponent.TunableFactory()),
+			scholarship_letter_component = OptionalTunable(ScholarshipLetterComponent.TunableFactory()),
+			season_aware_component = OptionalTunable(SeasonAwareComponent.TunableFactory()),
+			spawner_component = OptionalTunable(SpawnerComponent.TunableFactory()),
+			spawn_point = OptionalTunable(SpawnPointComponent.TunableFactory()),
+			state = OptionalTunable(TunableStateComponent()),
+			stolen = OptionalTunable(StolenComponent.TunableFactory()),
+			stored_audio_component = OptionalTunable(StoredAudioComponent.TunableFactory()),
+			time_of_day_component = OptionalTunable(TimeOfDayComponent.TunableFactory()),
+			tooltip_component = OptionalTunable(TooltipComponent.TunableFactory()),
+			vehicle_component = OptionalTunable(VehicleComponent.TunableFactory()),
+			weather_aware_component = OptionalTunable(WeatherAwareComponent.TunableFactory()),
+			whim_component = OptionalTunable(WhimComponent.TunableFactory())),
 		'_components_native': TunableTuple(description = '\n            Tuning for native components, those that an object will have even\n            if not tuned.\n            ', tuning_group = GroupNames.COMPONENTS, Slot = OptionalTunable(SlotComponent.TunableFactory()), Video = OptionalTunable(VideoComponent.TunableFactory())),
 		'_persistence': TunableEnumEntry(description = '\n            The type of persistence this object has.\n            FULL means object will persist across save/load.\n            BUILDBUY means object will support persistence enough for build buy\n            operations to successfully interact with the object.  (i.e. it can\n            be destroyed if you place a room/wall on top of it, then that can\n            be undone/redone.)\n            NONE means object will not persist at all.  Build buy operations \n            (such as the aforementioned room/wall placement) will\n            likely report errors if they intersect the object.\n            ', tunable_type = PersistenceType, default = PersistenceType.FULL),
 		'_world_file_object_persists': Tunable(description = "\n            If object is from world file, check this if object state should\n            persist. \n            Example:\n                If grill is dirty, but this is unchecked and it won't stay\n                dirty when reloading the street. \n                If Magic tree has this checked, all object relationship data\n                will be saved.\n            ", tunable_type = bool, default = False, tuning_filter = FilterTag.EXPERT_MODE),
@@ -146,7 +202,9 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 		'provides_ocean_interactions': Tunable(description = '\n            If enabled, this object will also provide ocean interactions such \n            Swim Here at the pick point.  This is used for ocean objects like\n            the Dolphin Spawner that have their own object interactions but \n            would also like to provide Swim Here.\n            ', tunable_type = bool, default = False),
 		'forward_offset_on_connectivity_check': OptionalTunable(description = "\n            If enabled, when doing connectivity test to this object, \n            destination location for connectivity test will be the position of \n            this object slightly moved by this offset in object's forward \n            directions. \n            \n            ex: When washer placed against the wall and there is a shelf above \n            it, connectivity test to the washer always fail. Because the washer\n            position is on shelf footprint. In that case, tune this offset \n            to prevent the destination location on the test from being placed\n            inside shelf's footprint.\n            ", tunable = TunableRange(description = '\n                The forward offset value.\n                ', tunable_type = float, minimum = 0, default = 0)),
 		'apply_children_component_anim_overrides': Tunable(description = '\n            If enabled, apply the component animation overrides the children \n            objects of this object may have (in addition to those of this \n            object).\n            ', tunable_type = bool, default = False),
-		'force_multi_surface_constraints': Tunable(description = '\n            If checked, any constraints generated against this object will be\n            forced to be multi-surface. This is helpful if this object is on an\n            object surface and has an animation constraint to satisfy (i.e. the\n            Ship Wheel object from EP06).\n            ', tunable_type = bool, default = False)
+		'force_multi_surface_constraints': Tunable(description = '\n            If checked, any constraints generated against this object will be\n            forced to be multi-surface. This is helpful if this object is on an\n            object surface and has an animation constraint to satisfy (i.e. the\n            Ship Wheel object from EP06).\n            ', tunable_type = bool, default = False),
+		'disallow_social_group_placement': Tunable(description = '\n            If checked, any routing surface this object provides will not be \n            considered a valid location for forming a social group. Instead,\n            a new location adjacent to the object will be chosen.\n            ', tunable_type = bool, default = False),
+		'wall_object_padding': OptionalTunable(description = '\n            If checked, this allows padding offset to be set specific to the target\n            object. Otherwise the default value in is used. This is in particular used when\n            the object is deep within the wall and lies outside sim constraints.       \n            ', tunable = Tunable(float, WALL_OBJECT_POSITION_PADDING))
 	}
 	_commodity_flags = None
 	_preroll_commodity_flags = None
@@ -268,8 +326,11 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 	def _get_locations_for_posture_internal_no_location (self):
 		pass
 
+	def _get_wall_object_positional_padding (self):
+		return self.wall_object_padding or WALL_OBJECT_POSITION_PADDING
+
 	def _get_locations_for_posture_internal_forward_wall_padding (self):
-		return self.position + self.forward * WALL_OBJECT_POSITION_PADDING
+		return self.position + self.forward * self._get_wall_object_positional_padding()
 
 	def _get_locations_for_posture_internal_world_transform (self):
 		return self.location.world_transform.translation
@@ -520,6 +581,8 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 			routing_surface = parent.routing_surface
 		else:
 			routing_surface = self.location.routing_surface
+		if routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
+			return False
 		return build_buy.is_location_pool(current_zone_id, self.location.transform.translation, routing_surface.secondary_id)
 
 	@classproperty
@@ -584,7 +647,7 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 	def remove_children_from_posture_graph_on_delete (self):
 		return True
 
-	def get_closest_parts_to_position (self, position, posture = None, posture_spec = None):
+	def get_closest_parts_to_position (self, position, posture = None, posture_spec = None, restrict_autonomy_preference = False, has_name = False):
 		best_parts = set()
 		best_distance = MAX_FLOAT
 		if position is not None:
@@ -596,6 +659,60 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 								if part.supports_posture_type(posture):
 									if not posture_spec is None:
 										if part.supports_posture_spec(posture_spec):
+											if not restrict_autonomy_preference is False:
+												if part.restrict_autonomy_preference:
+													if not has_name is False:
+														if part.part_name is not None:
+															dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+															if dist < best_distance:
+																best_parts.clear()
+																best_parts.add(part)
+																best_distance = dist
+															elif dist == best_distance:
+																best_parts.add(part)
+													dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+													if dist < best_distance:
+														best_parts.clear()
+														best_parts.add(part)
+														best_distance = dist
+													elif dist == best_distance:
+														best_parts.add(part)
+											if not has_name is False:
+												if part.part_name is not None:
+													dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+													if dist < best_distance:
+														best_parts.clear()
+														best_parts.add(part)
+														best_distance = dist
+													elif dist == best_distance:
+														best_parts.add(part)
+											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+											if dist < best_distance:
+												best_parts.clear()
+												best_parts.add(part)
+												best_distance = dist
+											elif dist == best_distance:
+												best_parts.add(part)
+									if not restrict_autonomy_preference is False:
+										if part.restrict_autonomy_preference:
+											if not has_name is False:
+												if part.part_name is not None:
+													dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+													if dist < best_distance:
+														best_parts.clear()
+														best_parts.add(part)
+														best_distance = dist
+													elif dist == best_distance:
+														best_parts.add(part)
+											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+											if dist < best_distance:
+												best_parts.clear()
+												best_parts.add(part)
+												best_distance = dist
+											elif dist == best_distance:
+												best_parts.add(part)
+									if not has_name is False:
+										if part.part_name is not None:
 											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
 											if dist < best_distance:
 												best_parts.clear()
@@ -612,6 +729,60 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 										best_parts.add(part)
 							if not posture_spec is None:
 								if part.supports_posture_spec(posture_spec):
+									if not restrict_autonomy_preference is False:
+										if part.restrict_autonomy_preference:
+											if not has_name is False:
+												if part.part_name is not None:
+													dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+													if dist < best_distance:
+														best_parts.clear()
+														best_parts.add(part)
+														best_distance = dist
+													elif dist == best_distance:
+														best_parts.add(part)
+											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+											if dist < best_distance:
+												best_parts.clear()
+												best_parts.add(part)
+												best_distance = dist
+											elif dist == best_distance:
+												best_parts.add(part)
+									if not has_name is False:
+										if part.part_name is not None:
+											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+											if dist < best_distance:
+												best_parts.clear()
+												best_parts.add(part)
+												best_distance = dist
+											elif dist == best_distance:
+												best_parts.add(part)
+									dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+									if dist < best_distance:
+										best_parts.clear()
+										best_parts.add(part)
+										best_distance = dist
+									elif dist == best_distance:
+										best_parts.add(part)
+							if not restrict_autonomy_preference is False:
+								if part.restrict_autonomy_preference:
+									if not has_name is False:
+										if part.part_name is not None:
+											dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+											if dist < best_distance:
+												best_parts.clear()
+												best_parts.add(part)
+												best_distance = dist
+											elif dist == best_distance:
+												best_parts.add(part)
+									dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
+									if dist < best_distance:
+										best_parts.clear()
+										best_parts.add(part)
+										best_distance = dist
+									elif dist == best_distance:
+										best_parts.add(part)
+							if not has_name is False:
+								if part.part_name is not None:
 									dist = (part.position_with_forward_offset - position).magnitude_2d_squared()
 									if dist < best_distance:
 										best_parts.clear()
@@ -663,7 +834,7 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 	@flexmethod
 	def super_affordances (cls, inst, context = None):
 		inst_or_cls = inst if inst is not None else cls
-		component_affordances_gen = inst.component_super_affordances_gen() if inst is not None else EMPTY_SET
+		component_affordances_gen = inst.component_super_affordances_gen(context = context) if inst is not None else EMPTY_SET
 		for sa in itertools.chain(inst_or_cls._super_affordances, component_affordances_gen):
 			if sa.is_affordance_available(context = context):
 				yield sa
@@ -672,7 +843,7 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 				yield affordance
 
 	@forward_to_components_gen
-	def component_super_affordances_gen (self):
+	def component_super_affordances_gen (self, context = None):
 		pass
 
 	@caches.cached_generator
@@ -720,6 +891,8 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 				if context_sim.posture_state is not None:
 					for (_, _, carried_object) in get_carried_objects_gen(context_sim):
 						yield from carried_object.get_provided_aops_gen(self, context, **kwargs)
+			if context_sim is not None:
+				yield from context_sim.get_object_provided_target_affordances_gen(self, context, **kwargs)
 		except Exception:
 			logger.exception('Exception while generating potential interactions for {}:', self)
 
@@ -747,18 +920,22 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 		shift_held = context.shift_held
 		if not context is not None or context is not None:
 			if context.sim is not None:
-				for affordance in context.sim.sim_info.get_target_super_affordance_availability_gen(context, self):
+				for (affordance, _) in context.sim.sim_info.get_target_super_affordance_availability_gen(context, self):
 					if self._can_show_affordance(shift_held, affordance):
 						yield affordance
-				for affordance in context.sim.sim_info.trait_tracker.get_cached_target_super_affordances_gen(context, self):
+				for (affordance, _) in context.sim.sim_info.trait_tracker.get_cached_target_super_affordances_gen(context, self):
 					if self._can_show_affordance(shift_held, affordance):
 						yield affordance
-				for affordance in context.sim.sim_info.commodity_tracker.get_cached_target_super_affordances_gen(context, self):
+				for (affordance, _) in context.sim.sim_info.commodity_tracker.get_cached_target_super_affordances_gen(context, self):
 					if self._can_show_affordance(shift_held, affordance):
 						yield affordance
-				for affordance in context.sim.inventory_component.get_cached_target_super_affordances_gen(context, self):
+				for (affordance, _) in context.sim.sim_info.unlock_tracker.get_cached_target_super_affordances_gen(context, self):
 					if self._can_show_affordance(shift_held, affordance):
 						yield affordance
+				if not context.sim.sim_info.unlock_tracker is not None or context.sim.career_tracker is not None:
+					for (affordance, _) in context.sim.career_tracker.get_cached_target_super_affordances_gen(context, self):
+						if self._can_show_affordance(shift_held, affordance):
+							yield affordance
 
 	def allow_aop_forward (self):
 		return self.aop_forward_data.should_search_forwarded_sim_aop or self.aop_forward_data.should_search_forwarded_child_aop
@@ -1042,11 +1219,13 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 	def finalize (self, **kwargs):
 		self.on_finalize_load()
 
-	def clone (self, definition_override = None, **kwargs):
+	def clone (self, definition_override = None, post_add = None, **kwargs):
 		clone = objects.system.create_object(definition_override or self.definition, **kwargs)
 		object_list = file_serialization.ObjectList()
 		save_data = self.save_object(object_list.objects)
 		clone.load_object(save_data)
+		if post_add is not None:
+			post_add(clone)
 		clone.resend_interactable()
 		return clone
 
@@ -1061,3 +1240,13 @@ class ScriptObject(BaseObject, HasStatisticComponent, HasFootprintComponent, met
 	@forward_to_components
 	def on_restock (self):
 		pass
+
+	def claim (self):
+		if self.object_claim_component is None:
+			self.add_dynamic_component(objects.components.types.OBJECT_CLAIM_COMPONENT, require_claiming = True)
+		services.object_manager().set_claimed_item(self.id)
+
+	def remove_claim_requirement (self):
+		if self.object_claim_component is not None:
+			self.remove_component(objects.components.types.OBJECT_CLAIM_COMPONENT)
+		services.object_manager().set_unclaimed_item(self.id)

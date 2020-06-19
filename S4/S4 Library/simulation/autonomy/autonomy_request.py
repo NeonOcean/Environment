@@ -24,7 +24,7 @@ AutonomyRequestGsiArchive = collections.namedtuple('AutonomyRequestGsiArchive', 
 
 class AutonomyRequest:
 
-    def __init__(self, sim, autonomy_mode=None, commodity_list=None, static_commodity_list=None, skipped_static_commodities=None, object_list=None, ignored_object_list=None, affordance_list=None, sleep_element=None, context=None, is_script_request=False, ignore_user_directed_and_autonomous=False, posture_behavior=AutonomyPostureBehavior.FULL, distance_estimation_behavior=AutonomyDistanceEstimationBehavior.FULL, record_test_result=None, constraint=None, consider_scores_of_zero=False, skipped_affordance_list=None, ignore_lockouts=False, apply_opportunity_cost=True, push_super_on_prepare=False, radius_to_consider=0, off_lot_autonomy_rule_override=None, autonomy_mode_label_override=None, test_connectivity_to_target_object=False, **interaction_parameters):
+    def __init__(self, sim, autonomy_mode=None, commodity_list=None, static_commodity_list=None, skipped_static_commodities=None, object_list=None, ignored_object_list=None, affordance_list=None, sleep_element=None, context=None, is_script_request=False, ignore_user_directed_and_autonomous=False, posture_behavior=AutonomyPostureBehavior.FULL, distance_estimation_behavior=AutonomyDistanceEstimationBehavior.FULL, record_test_result=None, constraint=None, consider_scores_of_zero=False, skipped_affordance_list=None, ignore_lockouts=False, apply_opportunity_cost=True, push_super_on_prepare=False, radius_to_consider=0, off_lot_autonomy_rule_override=None, autonomy_mode_label_override=None, test_connectivity_to_target_object=False, reping_delay_on_fail=None, **interaction_parameters):
         logger.assert_raise(autonomy_mode is not None, 'autonomy_mode cannot be None in the AutonomyRequest.')
         self._sim_ref = sim.ref()
         self.object_list = object_list
@@ -46,6 +46,7 @@ class AutonomyRequest:
         self.off_lot_autonomy_rule_override = off_lot_autonomy_rule_override
         self.test_connectivity_to_target_object = test_connectivity_to_target_object
         self.valid = True
+        self.reping_delay_on_fail = reping_delay_on_fail
         self.kwargs = interaction_parameters
         self._interactions_to_invalidate = []
         self.valid_interactions = None

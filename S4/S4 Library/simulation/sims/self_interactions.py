@@ -247,6 +247,7 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
                 yield inst_or_cls.front_door_constraint.create_constraint(sim)
             else:
                 yield inst_or_cls.home_spawn_point_constraint.create_constraint(sim, lot_id=services.current_zone().lot.lot_id)
+            yield STAND_CONSTRAINT
         elif sim.sim_info.is_child_or_older:
             persistence_service = services.get_persistence_service()
             zone_data = persistence_service.get_zone_proto_buff(home_zone_id)
@@ -271,8 +272,14 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
                     additional_sims.append(housemate_sim)
         selectable_sim_infos = services.get_selectable_sims()
         selectable_sims = selectable_sim_infos.get_instanced_sims(allow_hidden_flags=ALL_HIDDEN_REASONS)
-        if self.sim.is_human and sum(1 for sim in selectable_sims if sim.is_human if sim.sim_info.is_child_or_older) == 1:
-            additional_sims.extend([sim for sim in selectable_sims if sim.is_pet])
+        if self.sim.is_human:
+            if sum(1 for sim in selectable_sims if sim.is_human if sim.sim_info.is_child_or_older) == 1:
+                additional_sims.extend([sim for sim in selectable_sims if sim.is_pet])
+            familiar_tracker = self.sim.sim_info.familiar_tracker
+            if familiar_tracker is not None:
+                active_familiar = familiar_tracker.get_active_familiar()
+                if active_familiar is not None and active_familiar.is_sim:
+                    additional_sims.append(active_familiar)
         travel_liability = TravelSimLiability(self, self.sim.sim_info, self.to_zone_id, is_attend_career=self.attend_career, additional_sims=additional_sims)
         for next_sim_info in selectable_sim_infos:
             next_sim = next_sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
@@ -315,7 +322,11 @@ class NPCLeaveLotInteraction(TravelInteraction):
 
     def __init__(self, aop, context, **kwargs):
         to_zone_id = context.sim.sim_info.vacation_or_home_zone_id
-        super().__init__(aop, context, from_zone_id=context.sim.zone_id, to_zone_id=to_zone_id, on_complete_callback=None, on_complete_context=None, **kwargs)
+        from_zone_id = context.sim.zone_id
+        if from_zone_id == to_zone_id:
+            logger.assert_log(context.sim.sim_info.roommate_zone_id != 0, 'sim {} without roommate zone being kicked off home lot', context.sim)
+            to_zone_id = 0
+        super().__init__(aop, context, from_zone_id=from_zone_id, to_zone_id=to_zone_id, on_complete_callback=None, on_complete_context=None, **kwargs)
         self.register_on_finishing_callback(self._on_finishing_callback)
 
     def run_pre_transition_behavior(self):
@@ -353,7 +364,7 @@ class NPCLeaveLotInteraction(TravelInteraction):
     @flexmethod
     def constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
         inst_or_cls = cls if inst is None else inst
-        for constraint in inst_or_cls._constraint_gen(sim, target, participant_type):
+        for constraint in inst_or_cls._constraint_gen(sim, target, participant_type=participant_type, interaction=inst):
             constraint = constraint.get_multi_surface_version()
             yield constraint
 

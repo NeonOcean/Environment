@@ -194,9 +194,10 @@ class _SimFilterRequest(_BaseSimFilterRequest):
 
 class _MatchingFilterRequest(_SimFilterRequest):
 
-    def __init__(self, number_of_sims_to_find=1, continue_if_constraints_fail=False, zone_id=None, allow_instanced_sims=False, optional=True, gsi_source_fn=None, **kwargs):
+    def __init__(self, number_of_sims_to_find=1, continue_if_constraints_fail=False, conform_if_constraints_fail=False, zone_id=None, allow_instanced_sims=False, optional=True, gsi_source_fn=None, **kwargs):
         super().__init__(**kwargs)
         self._continue_if_constraints_fail = continue_if_constraints_fail
+        self._conform_if_constraints_fail = conform_if_constraints_fail
         self._number_of_sims_to_find = number_of_sims_to_find
         self._filter_results = []
         self._zone_id = zone_id
@@ -267,7 +268,7 @@ class _MatchingFilterRequest(_SimFilterRequest):
         blacklist_sim_ids += tuple(result.sim_info.sim_id for result in self._filter_results)
         if not self._sim_filter.repurpose_game_breaker:
             blacklist_sim_ids += tuple(sim.sim_info.sim_id for sim in services.sim_info_manager().instanced_sims_gen(allow_hidden_flags=ALL_HIDDEN_REASONS))
-        create_result = self._sim_filter.create_sim_info(zone_id=self._zone_id, household_id=self._household_id, requesting_sim_info=self._requesting_sim_info, blacklist_sim_ids=blacklist_sim_ids, start_time=self._start_time, end_time=self._end_time, additional_filter_terms=self._additional_filter_terms)
+        create_result = self._sim_filter.create_sim_info(zone_id=self._zone_id, household_id=self._household_id, requesting_sim_info=self._requesting_sim_info, blacklist_sim_ids=blacklist_sim_ids, start_time=self._start_time, end_time=self._end_time, additional_filter_terms=self._additional_filter_terms, sim_constraints=self._sim_constraints)
         if create_result:
             fake_filter_result = FilterResult(sim_info=create_result.sim_info, tag=self.tag)
             self._filter_results.append(fake_filter_result)
@@ -287,11 +288,14 @@ class _MatchingFilterRequest(_SimFilterRequest):
             if not self._create_sim_info():
                 break
 
+    def _should_try_conform(self):
+        return not self._sim_constraints or (self._continue_if_constraints_fail or self._conform_if_constraints_fail)
+
     def run(self):
         if self._state == SimFilterRequestState.SETUP:
             self.gsi_start_logging('_MatchingFilterRequest', self._sim_filter, False, self._gsi_source_fn)
             self._run_filter_query()
-            if len(self._filter_results) == self._number_of_sims_to_find or not not (self._sim_constraints and self._continue_if_constraints_fail):
+            if len(self._filter_results) == self._number_of_sims_to_find or not self._should_try_conform():
                 self._state = SimFilterRequestState.FILLED_RESULTS
             else:
                 self._state = SimFilterRequestState.RAN_QUERY
@@ -312,7 +316,7 @@ class _MatchingFilterRequest(_SimFilterRequest):
     def run_without_yielding(self):
         self.gsi_start_logging('_MatchingFilterRequest', self._sim_filter, True, self._gsi_source_fn)
         self._run_filter_query()
-        if not self._sim_constraints or self._continue_if_constraints_fail:
+        if self._should_try_conform():
             self._create_sim_infos()
         if self._gsi_logging_data is not None:
             self._gsi_logging_data.add_metadata(self._number_of_sims_to_find, self._allow_instanced_sims, self._club, self._blacklist_sim_ids, self.optional)
@@ -458,12 +462,12 @@ class SimFilterService(Service):
     def get_global_blacklist(self):
         return set(self._global_blacklist.keys())
 
-    def submit_matching_filter(self, number_of_sims_to_find=1, sim_filter=None, callback=None, callback_event_data=None, sim_constraints=None, requesting_sim_info=None, blacklist_sim_ids=EMPTY_SET, continue_if_constraints_fail=False, allow_yielding=True, start_time=None, end_time=None, household_id=None, zone_id=None, club=None, allow_instanced_sims=False, additional_filter_terms=(), gsi_source_fn=None):
+    def submit_matching_filter(self, number_of_sims_to_find=1, sim_filter=None, callback=None, callback_event_data=None, sim_constraints=None, requesting_sim_info=None, blacklist_sim_ids=EMPTY_SET, continue_if_constraints_fail=False, conform_if_constraints_fail=False, allow_yielding=True, start_time=None, end_time=None, household_id=None, zone_id=None, club=None, allow_instanced_sims=False, additional_filter_terms=(), gsi_source_fn=None):
         request = None
         if sim_filter is not None and sim_filter.is_aggregate_filter():
             request = _AggregateFilterRequest(aggregate_filter=sim_filter, callback=callback, callback_event_data=callback_event_data, blacklist_sim_ids=blacklist_sim_ids, filter_sims_with_matching_filter_request=True, additional_filter_terms=additional_filter_terms, gsi_source_fn=gsi_source_fn)
         else:
-            request = _MatchingFilterRequest(number_of_sims_to_find=number_of_sims_to_find, continue_if_constraints_fail=continue_if_constraints_fail, sim_filter=sim_filter, callback=callback, callback_event_data=callback_event_data, requesting_sim_info=requesting_sim_info, sim_constraints=sim_constraints, blacklist_sim_ids=blacklist_sim_ids, start_time=start_time, end_time=end_time, household_id=household_id, zone_id=zone_id, club=club, allow_instanced_sims=allow_instanced_sims, additional_filter_terms=additional_filter_terms, gsi_source_fn=gsi_source_fn)
+            request = _MatchingFilterRequest(number_of_sims_to_find=number_of_sims_to_find, continue_if_constraints_fail=continue_if_constraints_fail, conform_if_constraints_fail=conform_if_constraints_fail, sim_filter=sim_filter, callback=callback, callback_event_data=callback_event_data, requesting_sim_info=requesting_sim_info, sim_constraints=sim_constraints, blacklist_sim_ids=blacklist_sim_ids, start_time=start_time, end_time=end_time, household_id=household_id, zone_id=zone_id, club=club, allow_instanced_sims=allow_instanced_sims, additional_filter_terms=additional_filter_terms, gsi_source_fn=gsi_source_fn)
         if allow_yielding:
             self._add_filter_request(request)
         else:

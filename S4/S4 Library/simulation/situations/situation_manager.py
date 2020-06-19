@@ -273,8 +273,8 @@ class SituationManager(DistributableObjectManager):
             situation_seed.setup_for_custom_init_params(custom_init_writer)
         return_id = None
         if scheduled_time is not None:
-            schedule_success = services.drama_scheduler_service().schedule_node(self.DEFAULT_PLAYER_PLANNED_DRAMA_NODE, SingleSimResolver(guest_list.host_sim.sim_info), specific_time=scheduled_time, situation_seed=situation_seed)
-            return_id = situation_id if schedule_success else None
+            uid = services.drama_scheduler_service().schedule_node(self.DEFAULT_PLAYER_PLANNED_DRAMA_NODE, SingleSimResolver(guest_list.host_sim.sim_info), specific_time=scheduled_time, situation_seed=situation_seed)
+            return_id = situation_id if uid is not None else None
         else:
             return_id = self.create_situation_from_seed(situation_seed)
         return return_id
@@ -417,6 +417,11 @@ class SituationManager(DistributableObjectManager):
             return True
         self._situations_for_delayed_destruction.add(situation)
         return False
+
+    def pre_destroy_situation_by_id(self, situation_id):
+        situation = self.get(situation_id)
+        if situation is not None:
+            situation.pre_destroy()
 
     def destroy_situation_by_id(self, situation_id):
         if situation_id in self:
@@ -723,17 +728,24 @@ class SituationManager(DistributableObjectManager):
         guest_list.add_guest_info(guest_info)
         self.create_situation(leave_now_type, guest_list=guest_list, user_facing=False)
 
+    def is_sim_ss3_safe(self, sim):
+        for situation in self.get_situations_sim_is_in(sim):
+            if not situation.should_send_on_lot_home_in_super_speed_3:
+                return False
+        return True
+
     def ss3_make_all_npcs_leave_now(self):
         sim_info_manager = services.sim_info_manager()
         current_zone_id = services.current_zone_id()
         for sim in sim_info_manager.instanced_sims_gen():
-            if sim.is_npc:
-                if sim.is_on_active_lot():
-                    continue
-                if sim.sim_info.vacation_or_home_zone_id == current_zone_id:
-                    continue
-                sim.add_buff(buff_type=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_type, buff_reason=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_reason)
-                self.make_sim_leave_now_must_run(sim)
+            if not sim.is_npc:
+                continue
+            if sim.is_on_active_lot() and not self.is_sim_ss3_safe(sim):
+                continue
+            if sim.sim_info.vacation_or_home_zone_id == current_zone_id:
+                continue
+            sim.add_buff(buff_type=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_type, buff_reason=self.SUPER_SPEED_THREE_REQUEST_BUFF.buff_reason)
+            self.make_sim_leave_now_must_run(sim)
 
     def make_sim_leave(self, sim):
         leave_situation = self.get(self._leave_situation_id)

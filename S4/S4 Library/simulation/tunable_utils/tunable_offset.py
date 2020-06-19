@@ -8,8 +8,8 @@ class TunableOffset(TunableVariant):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, fixed=TunableVector3(description='\n                A fixed offset.\n                ', default=Vector3.ZERO()), random_in_circle=TunableRandomOffsetInCircle(description='\n                Specify a random offset within given full/partial circle/donut.\n                '), default='fixed', **kwargs)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if isinstance(value, Vector3):
             return lambda : value
         return value

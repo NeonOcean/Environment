@@ -36,6 +36,16 @@ class SpeciesExtended(Species):
         return value
 
     @staticmethod
+    def get_species_extended(value):
+        if value == Species.HUMAN:
+            return (SpeciesExtended.HUMAN,)
+        if value == Species.CAT:
+            return (SpeciesExtended.CAT,)
+        if value == Species.DOG:
+            return (SpeciesExtended.DOG, SpeciesExtended.SMALLDOG)
+        return (value,)
+
+    @staticmethod
     def is_age_valid_for_animation_cache(species, age):
         if species == SpeciesExtended.HUMAN:
             return age in Age.get_ages_for_animation_cache()

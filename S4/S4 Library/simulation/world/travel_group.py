@@ -6,6 +6,7 @@ from date_and_time import TimeSpan
 from distributor import shared_messages
 from distributor.rollback import ProtocolBufferRollback
 from distributor.system import Distributor
+from households.household_object_preference_tracker import HouseholdObjectPreferenceTracker
 from objects import ALL_HIDDEN_REASONS
 from sims.household import Household
 from sims.sim_spawner import SimSpawner
@@ -43,6 +44,7 @@ class TravelGroup:
         self._hours_left_notification_alarm = None
         if end_timestamp is not None and setup_alarms:
             self.setup_rented_zone_alarms()
+        self.object_preference_tracker = HouseholdObjectPreferenceTracker(self)
 
     def __repr__(self):
         sim_strings = []
@@ -265,6 +267,7 @@ class TravelGroup:
                     sim_info.assign_to_travel_group(self)
         if not self._sim_infos:
             return
+        self.object_preference_tracker.load_data(travel_group_proto.object_preference_tracker, is_household=False)
         self.setup_rented_zone_alarms()
 
     def save_data(self, travel_group_proto):
@@ -285,3 +288,4 @@ class TravelGroup:
             with ProtocolBufferRollback(travel_group_proto.household_sim_ids) as household_sim_data:
                 household_sim_data.household_id = household_id
                 household_sim_data.sim_ids.extend(sim_ids)
+        self.object_preference_tracker.save_data(travel_group_proto)

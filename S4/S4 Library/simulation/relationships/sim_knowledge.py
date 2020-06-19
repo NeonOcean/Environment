@@ -5,13 +5,14 @@ import sims4
 logger = sims4.log.Logger('Relationship', default_owner='jjacobson')
 
 class SimKnowledge:
-    __slots__ = ('_rel_data', '_known_traits', '_knows_career', '_known_stats')
+    __slots__ = ('_rel_data', '_known_traits', '_knows_career', '_known_stats', '_knows_major')
 
     def __init__(self, rel_data):
         self._rel_data = rel_data
         self._known_traits = None
         self._knows_career = False
         self._known_stats = None
+        self._knows_major = False
 
     def add_known_trait(self, trait, notify_client=True):
         if trait.is_personality_trait:
@@ -48,7 +49,7 @@ class SimKnowledge:
             target_sim_info = self._rel_data.find_target_sim_info()
             if target_sim_info is not None:
                 if target_sim_info.career_tracker.has_career:
-                    careers = tuple(career for career in target_sim_info.careers.values() if career.is_visible_career)
+                    careers = tuple(career for career in target_sim_info.careers.values() if career.is_visible_career if not career.is_course_slot)
                     if careers:
                         return careers
                 if target_sim_info.career_tracker.retirement is not None:
@@ -70,6 +71,35 @@ class SimKnowledge:
     def get_known_stats(self):
         return self._known_stats
 
+    @property
+    def knows_major(self):
+        return self._knows_major
+
+    def add_knows_major(self, notify_client=True):
+        self._knows_major = True
+        if notify_client:
+            self._rel_data.relationship.send_relationship_info()
+
+    def remove_knows_major(self, notify_client=True):
+        self._knows_major = False
+        if notify_client:
+            self._rel_data.relationship.send_relationship_info()
+
+    def get_known_major(self):
+        if self._knows_major:
+            target_sim_info = self._rel_data.find_target_sim_info()
+            if target_sim_info is not None and target_sim_info.degree_tracker:
+                return target_sim_info.degree_tracker.get_major()
+
+    def get_known_major_career(self):
+        if self._knows_major:
+            target_sim_info = self._rel_data.find_target_sim_info()
+            if target_sim_info is not None and target_sim_info.career_tracker.has_career:
+                careers = tuple(career for career in target_sim_info.careers.values() if career.is_visible_career if career.is_course_slot)
+                if careers:
+                    return careers
+        return ()
+
     def get_save_data(self):
         save_data = protocols.SimKnowledge()
         for trait in self.known_traits:
@@ -78,6 +108,7 @@ class SimKnowledge:
         if self._known_stats is not None:
             for stat in self._known_stats:
                 save_data.stats.append(stat.guid64)
+        save_data.knows_major = self._knows_major
         return save_data
 
     def load_knowledge(self, save_data):
@@ -96,3 +127,5 @@ class SimKnowledge:
             if stat is not None:
                 self._known_stats.add(stat)
         self._knows_career = save_data.knows_career
+        if hasattr(save_data, 'knows_major'):
+            self._knows_major = save_data.knows_major

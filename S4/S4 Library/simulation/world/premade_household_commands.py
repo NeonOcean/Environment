@@ -24,6 +24,16 @@ def generate(template:TunableInstanceParam(sims4.resources.Types.SIM_TEMPLATE), 
         if household is None:
             output('Failed to create household from template {}'.format(template))
             return
+        for sim_info in household.sim_info_gen():
+            tracker = sim_info.occult_tracker
+            if tracker is None:
+                continue
+            if tracker.has_any_occult_or_part_occult_trait():
+                template_manager = services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE)
+                sim_template = template_manager.get(sim_info.premade_sim_template_id)
+                if sim_template is not None:
+                    if sim_template.occult is not None:
+                        output('Household template {} contains a premade sim (sim template id: {}) who has occult trait but also has occult tuned at sim template. This is unexpected. Please check sim template tuning and .siminfo file.'.format(template, sim_info.premade_sim_template_id))
         save_active_household_command_start()
         save_slot_data_msg = services.get_persistence_service().get_save_slot_proto_buff()
         save_slot_data_msg.slot_id = 0

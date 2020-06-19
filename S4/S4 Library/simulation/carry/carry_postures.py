@@ -340,14 +340,18 @@ class CarryingObject(CarryPosture):
             starting_transform = sims4.math.Transform(parent.position + parent.forward*parent.object_radius, starting_transform.orientation)
         if starting_routing_surface is None:
             starting_routing_surface = parent.routing_surface
-        (translation, orientation) = CarryingObject.get_good_location_on_floor(target, *args, starting_transform=starting_transform, starting_routing_surface=starting_routing_surface, **kwargs)
+        translation = None
+        orientation = None
+        is_lot_clearing = services.current_zone().is_active_lot_clearing
+        if not is_lot_clearing:
+            (translation, orientation) = CarryingObject.get_good_location_on_floor(target, *args, starting_transform=starting_transform, starting_routing_surface=starting_routing_surface, **kwargs)
         if translation is not None:
             target.clear_parent(sims4.math.Transform(translation, orientation), starting_routing_surface)
             return True
-        logger.warn('snap_to_good_location_on_floor could not find good location for {}.', target)
+        logger.debug('snap_to_good_location_on_floor could not find good location for {}.', target)
         clear_transform = starting_transform
         clear_routing_surface = starting_routing_surface
-        if not build_buy.has_floor_at_location(services.current_zone_id(), starting_transform.translation, starting_routing_surface.secondary_id):
+        if not (is_lot_clearing or not build_buy.has_floor_at_location(services.current_zone_id(), starting_transform.translation, starting_routing_surface.secondary_id)):
             clear_routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_WORLD)
             ground_position = sims4.math.Vector3(starting_transform.translation.x, starting_transform.translation.y, starting_transform.translation.z)
             ground_position.y = services.terrain_service.terrain_object().get_routing_surface_height_at(starting_transform.translation.x, starting_transform.translation.z, clear_routing_surface)

@@ -7,7 +7,7 @@ from objects.components import componentmethod, types
 from objects.components.inventory import InventoryComponent
 from objects.components.inventory_enums import InventoryType
 from objects.components.inventory_item import InventoryItemComponent
-from objects.mixins import ProvidedAffordanceData, AffordanceCacheMixin
+from objects.mixins import InventoryProvidedAfforanceData, AffordanceCacheMixin
 from objects.object_enums import ItemLocation
 from postures.posture_state_spec import create_body_posture_state_spec
 from sims.sim_info_types import Species
@@ -87,18 +87,15 @@ class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_
 
     def _update_provided_affordances(self, obj):
         provided_affordances = []
+        obj_id = obj.id
         for provided_affordance in obj.inventoryitem_component.target_super_affordances:
-            provided_affordance_data = ProvidedAffordanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self)
+            provided_affordance_data = InventoryProvidedAfforanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self, obj_id)
             provided_affordances.append(provided_affordance_data)
         self.add_to_affordance_caches(obj.inventoryitem_component.super_affordances, provided_affordances)
 
     @componentmethod
     def get_super_affordance_availability_gen(self):
         yield from self.get_cached_super_affordances_gen()
-
-    @componentmethod
-    def get_target_super_affordance_availability_gen(self, context, target):
-        yield from self.get_cached_target_super_affordances_gen(context, target)
 
     @componentmethod
     def get_target_provided_affordances_data_gen(self):
@@ -111,7 +108,7 @@ class SimInventoryComponent(InventoryComponent, AffordanceCacheMixin, component_
             for obj in self._object_providing_affordances:
                 affordances.update(obj.inventoryitem_component.super_affordances)
                 for provided_affordance in obj.inventoryitem_component.target_super_affordances:
-                    provided_affordance_data = ProvidedAffordanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self)
+                    provided_affordance_data = InventoryProvidedAfforanceData(provided_affordance.affordance, provided_affordance.object_filter, provided_affordance.allow_self, obj.id)
                     target_affordances.append(provided_affordance_data)
         return (affordances, target_affordances)
 

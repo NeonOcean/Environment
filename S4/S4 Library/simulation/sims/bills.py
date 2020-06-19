@@ -406,7 +406,9 @@ class Bills:
                 plex_service = services.get_plex_service()
                 if plex_service is not None:
                     if plex_service.is_zone_a_plex(self._household.home_zone_id):
-                        icon_override = IconInfoData(obj_instance=services.get_landlord_service().get_landlord_sim_info())
+                        landlord_service = services.get_landlord_service()
+                        if landlord_service is not None:
+                            icon_override = IconInfoData(obj_instance=landlord_service.get_landlord_sim_info())
                 dialog.show_dialog(icon_override=icon_override, additional_tokens=(remaining_time, self._current_payment_owed, reduction_reasons_string))
 
     def add_additional_bill_cost(self, additional_bill_source, cost):

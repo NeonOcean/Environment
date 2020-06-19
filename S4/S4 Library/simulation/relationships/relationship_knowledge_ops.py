@@ -93,3 +93,17 @@ class KnowOtherSimsStat(BaseTargetedLootOperation):
         for stat in self._statistics:
             if target_tracker.has_statistic(stat):
                 knowledge.add_known_stat(stat)
+
+class KnowOtherSimMajorOp(BaseTargetedLootOperation):
+
+    @property
+    def loot_type(self):
+        return interactions.utils.LootType.RELATIONSHIP_BIT
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        knowledge = subject.relationship_tracker.get_knowledge(target.sim_id, initialize=True)
+        if knowledge is None or knowledge.knows_major:
+            return
+        knowledge.add_knows_major(target.sim_id)
+        degree_tracker = target.degree_tracker
+        degree_tracker.show_knowledge_notification(subject, DoubleSimResolver(subject, target))

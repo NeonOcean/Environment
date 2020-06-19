@@ -1,10 +1,10 @@
 from _sims4_collections import frozendict
 import random
 from protocolbuffers import FileSerialization_pb2 as serialization
-from cas.cas import generate_household, get_tags_from_outfit
+from cas.cas import generate_household
 from sims import sim_info_types
 from sims.baby.baby_utils import run_baby_spawn_behavior
-from sims.outfits.outfit_enums import OutfitFilterFlag, OutfitCategory
+from sims.outfits.outfit_enums import OutfitCategory
 from sims.pets import breed_tuning
 from sims.sim_info_types import Gender, Species, SpeciesExtended
 from sims.sim_spawner_enums import SimNameType, SimInfoCreationSource
@@ -28,7 +28,7 @@ OUTFITS_TO_POPULATE_ON_SPAWN = frozendict({Species.HUMAN: (OutfitCategory.SWIMWE
 
 class SimCreator:
 
-    def __init__(self, gender=None, age=None, species=None, first_name='', last_name='', breed_name='', first_name_key=0, last_name_key=0, full_name_key=0, breed_name_key=0, tunable_tag_set=None, weighted_tag_lists=None, additional_tags=(), resource_key=None, traits=(), sim_name_type=SimNameType.DEFAULT):
+    def __init__(self, gender=None, age=None, species=None, first_name='', last_name='', breed_name='', first_name_key=0, last_name_key=0, full_name_key=0, breed_name_key=0, tunable_tag_set=None, weighted_tag_lists=None, additional_tags=(), resource_key=None, traits=(), sim_name_type=SimNameType.DEFAULT, filter_flag=None, body_type_chance_overrides={}, body_type_match_not_found_policy={}):
         self.gender = random.choice(list(sim_info_types.Gender)) if gender is None else gender
         self.age = sim_info_types.Age.ADULT if age is None else age
         self.species = sim_info_types.Species.HUMAN if species is None else species
@@ -51,7 +51,9 @@ class SimCreator:
         self.traits = set(traits)
         self.sim_name_type = sim_name_type
         self.randomization_mode = None
-        self.filter_flags = None
+        self.filter_flags = filter_flag
+        self.body_type_chance_overrides = body_type_chance_overrides
+        self.body_type_match_not_found_policy = body_type_match_not_found_policy
 
     def __repr__(self):
         return '<{} {} {} - {} {}>'.format(self.age, self.gender, self.species, ','.join(str(t.__name__) for t in self.traits), ','.join(str(t) for t in self.tag_set))
@@ -67,6 +69,10 @@ class SimCreator:
             sim_builder_dictionary['randomization_mode'] = self.randomization_mode
         if self.filter_flags is not None:
             sim_builder_dictionary['filter_flags'] = self.filter_flags
+        if self.body_type_chance_overrides:
+            sim_builder_dictionary['body_type_chance_overrides'] = self.body_type_chance_overrides
+        if self.body_type_match_not_found_policy:
+            sim_builder_dictionary['body_type_match_not_found_policy'] = self.body_type_match_not_found_policy
         return sim_builder_dictionary
 
 class Language(DynamicEnum):
@@ -112,10 +118,12 @@ class SimSpawner:
         return tuning
 
     @classmethod
-    def get_random_first_name(cls, gender, species=Species.HUMAN) -> str:
+    def get_random_first_name(cls, gender, species=Species.HUMAN, sim_name_type_override=None) -> str:
         species = SpeciesExtended.get_species(species)
         sim_name_type = SimNameType.DEFAULT
-        if species in cls.SPECIES_TO_NAME_TYPE:
+        if sim_name_type_override is not None:
+            sim_name_type = sim_name_type_override
+        elif species in cls.SPECIES_TO_NAME_TYPE:
             sim_name_type = cls.SPECIES_TO_NAME_TYPE[species]
         return cls._get_random_first_name(cls._get_language_for_locale(services.get_locale()), gender == Gender.FEMALE, sim_name_type=sim_name_type)
 
@@ -272,10 +280,6 @@ class SimSpawner:
             breed_tag = breed_tuning.get_breed_tag_from_tag_set(sim_creators[index].tag_set)
             if breed_tag != Tag.INVALID:
                 breed_tuning.try_conform_sim_info_to_breed(sim_info, breed_tag)
-            sim_creation_dictionary = sim_creation_dictionaries[index]
-            if sim_creation_dictionary['tagSet']:
-                (current_outfit_category, current_outfit_index) = sim_info.get_current_outfit()
-                sim_info.generate_outfit(current_outfit_category, current_outfit_index, tag_list=sim_creation_dictionary['tagSet'], filter_flag=OutfitFilterFlag.EXCLUDE_FULLBODY | OutfitFilterFlag.OR_SAME_CATEGORY)
             if sim_creators[index].resource_key:
                 sim_info.load_from_resource(sim_creators[index].resource_key)
                 if not sim_info.first_name:

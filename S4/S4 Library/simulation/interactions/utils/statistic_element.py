@@ -17,7 +17,7 @@ from statistics.statistic import Statistic
 from statistics.statistic_categories import StatisticCategory
 from statistics.statistic_conditions import TunableCondition, TunableTimeRangeCondition, StatisticCondition
 from statistics.statistic_enums import PeriodicStatisticBehavior
-from statistics.statistic_ops import TunableStatisticChange, StatisticChangeOp, TunableProgressiveStatisticChange, DynamicSkillLootOp, StatisticOperation, GAIN_TYPE_RATE
+from statistics.statistic_ops import TunableStatisticChange, StatisticChangeOp, TunableProgressiveStatisticChange, DynamicSkillLootOp, StatisticOperation, GAIN_TYPE_RATE, DynamicVariantSkillLootOp
 import alarms
 import clock
 import element_utils
@@ -65,7 +65,7 @@ class PeriodicStatisticChangeElement(HasTunableFactory, elements.SubclassableGen
             dynamic_skill_locked_args['chance'] = SuccessChance.ONE
         if 'advertise' not in dynamic_skill_locked_args:
             dynamic_skill_locked_args['advertise'] = False
-        return {'operations': TunableList(description='\n                A list of statistic operations that occur at each interval.\n                ', tunable=TunableStatisticChange(dynamic_skill=DynamicSkillLootOp.TunableFactory(locked_args=dynamic_skill_locked_args), locked_args=locked_args, gain_type=GAIN_TYPE_RATE, statistic_override=StatisticOperation.get_statistic_override(pack_safe=True)))}
+        return {'operations': TunableList(description='\n                A list of statistic operations that occur at each interval.\n                ', tunable=TunableStatisticChange(dynamic_skill=DynamicSkillLootOp.TunableFactory(locked_args=dynamic_skill_locked_args), dynamic_variant_skill=DynamicVariantSkillLootOp.TunableFactory(), locked_args=locked_args, gain_type=GAIN_TYPE_RATE, statistic_override=StatisticOperation.get_statistic_override(pack_safe=True), default='statistic_change'))}
 
     FACTORY_TUNABLES = {'operation_actions': TunableTuple(actions=TunableList(description='\n                A list of actions that occur at each interval\n                ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), reload_dependent=True, pack_safe=True)), alarm_interval=Tunable(description='\n                Interval in sim minutes that applies operations if operation is\n                not a statistic change operation on a continious statistic and\n                not a skill loot operation.\n                \n                Example: If buff loot is in the operation list and this\n                is set to 5.  Loot op will try to be applied every 5 sim minutes\n                the sim is in the interaction.\n                Another example when this is used:\n                 - Statistic Change Op on statistic_GameForever\n                \n                If there is a statistic in operation is continuous the alarm\n                interval is not used, examples are below.\n                 - Statistic Change Op on motive_hunger\n                 - Dynamic skill on statistic_Skill_AdultMajor_Piano\n                ', tunable_type=int, default=1)), 'trigger_gain_on_start': Tunable(description='\n            If checked then we will trigger a statistic gain when we start the\n            statistic gains.  This is to make sure that things like upgrades\n            will have some statistic progress when the sim is charged for the\n            upgrade instead of loosing the payment.\n            ', tunable_type=bool, default=False), 'suppress_skill_bars': Tunable(description='\n            Whether or not to suppress any skill bars.\n            ', tunable_type=bool, default=False)}
 
@@ -145,7 +145,7 @@ class PeriodicStatisticChangeElement(HasTunableFactory, elements.SubclassableGen
                 self._add_operation_if_valid(interaction_resolver, stat_op, periodic_mods_by_participant, exclusive_mods_by_participant)
         if self._loot_operations:
             for loot in self._loot_operations:
-                for (loot_op, test_ran) in loot.get_loot_ops_gen(resolver=interaction_resolver):
+                for (loot_op, test_ran) in loot.get_loot_ops_gen(resolver=interaction_resolver, auto_select=False):
                     self._add_operation_if_valid(interaction_resolver, loot_op, periodic_mods_by_participant, exclusive_mods_by_participant, skip_test=test_ran)
         self._create_and_add_autonomy_modifier(periodic_mods_by_participant)
         si = self._interaction if self._interaction.is_super else self._interaction.super_interaction
@@ -216,7 +216,7 @@ class ProgressiveStatisticChangeElement(PeriodicStatisticChangeElement):
         completion_time = goal_completion_time.get_maximum_running_time(self._interaction)
         obj = self._interaction.get_participant(subject)
         stat = obj.get_stat_instance(goal_value.stat, add=True)
-        commodity_range = goal_value.get_maximum_change(stat)
+        commodity_range = 0 if stat is None else goal_value.get_maximum_change(stat)
         base_increase = commodity_range/completion_time
         new_statistics = []
         for operation_factory in self._basic_content_operations:

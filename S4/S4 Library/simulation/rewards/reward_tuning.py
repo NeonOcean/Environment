@@ -1,5 +1,3 @@
-from protocolbuffers import Consts_pb2
-from protocolbuffers.DistributorOps_pb2 import SetWhimBucks
 from bucks.bucks_enums import BucksType
 from bucks.bucks_utils import BucksUtils
 from buffs.tunable import TunableBuffReference
@@ -8,11 +6,14 @@ from clubs.club_enums import ClubGatheringVibe
 from objects import ALL_HIDDEN_REASONS
 from objects.object_enums import ItemLocation
 from objects.system import create_object
-from rewards.reward_enums import RewardDestination
+from protocolbuffers import Consts_pb2
+from protocolbuffers.DistributorOps_pb2 import SetWhimBucks
+from rewards.reward_enums import RewardDestination, RewardType
 from rewards.tunable_reward_base import TunableRewardBase
 from sims4.localization import LocalizationHelperTuning
 from sims4.resources import Types
 from sims4.tuning.tunable import TunableVariant, TunableReference, Tunable, TunableTuple, TunableCasPart, TunableMagazineCollection, TunableLiteralOrRandomValue, TunableEnumEntry, TunableRange, AutoFactoryInit, TunableFactory
+from sims4.utils import constproperty
 import build_buy
 import services
 import sims4.resources
@@ -24,6 +25,10 @@ class TunableRewardObject(TunableRewardBase):
     def __init__(self, *args, definition, **kwargs):
         super().__init__(*args, **kwargs)
         self._definition = definition
+
+    @constproperty
+    def reward_type():
+        return RewardType.OBJECT_DEFINITION
 
     def _try_create_in_mailbox(self, sim_info):
         if sim_info.household is None:
@@ -50,9 +55,12 @@ class TunableRewardObject(TunableRewardBase):
                 return False
         return True
 
-    def _try_create_in_sim_inventory(self, sim_info, obj=None):
+    def _try_create_in_sim_inventory(self, sim_info, obj=None, force_rewards_to_sim_info_inventory=False):
         sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
         if sim is None:
+            if force_rewards_to_sim_info_inventory:
+                obj = create_object(self._definition) if obj is None else obj
+                return sim_info.try_add_object_to_inventory_without_component(obj)
             return (False, None)
         obj = create_object(self._definition) if obj is None else obj
         if obj is None:
@@ -74,13 +82,13 @@ class TunableRewardObject(TunableRewardBase):
         if not build_buy.move_object_to_household_inventory(obj):
             logger.error('Failed to add reward definition object {} to household inventory.', self._definition, owner='rmccord')
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD):
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, force_rewards_to_sim_info_inventory=False, **kwargs):
         if reward_destination == RewardDestination.MAILBOX:
             self._try_create_in_mailbox(sim_info)
             return
         reward_object = None
         if reward_destination == RewardDestination.SIM:
-            (result, reward_object) = self._try_create_in_sim_inventory(sim_info)
+            (result, reward_object) = self._try_create_in_sim_inventory(sim_info, force_rewards_to_sim_info_inventory=force_rewards_to_sim_info_inventory)
             if result:
                 return
         self._try_create_in_household_inventory(sim_info, obj=reward_object)
@@ -95,7 +103,11 @@ class TunableRewardCASPart(TunableRewardBase):
         super().__init__(*args, **kwargs)
         self._cas_part = cas_part
 
-    def open_reward(self, sim_info, *args, **kwargs):
+    @constproperty
+    def reward_type():
+        return RewardType.CAS_PART
+
+    def open_reward(self, sim_info, **kwargs):
         household = sim_info.household
         household.add_cas_part_to_reward_inventory(self._cas_part)
 
@@ -109,7 +121,11 @@ class TunableRewardMoney(TunableRewardBase):
         super().__init__(*args, **kwargs)
         self._awarded_money = money.random_int()
 
-    def open_reward(self, sim_info, _):
+    @constproperty
+    def reward_type():
+        return RewardType.MONEY
+
+    def open_reward(self, sim_info, **kwargs):
         household = services.household_manager().get(sim_info.household_id)
         if household is not None:
             household.funds.add(self._awarded_money, Consts_pb2.TELEMETRY_MONEY_ASPIRATION_REWARD, sim_info.get_sim_instance())
@@ -124,7 +140,11 @@ class TunableRewardTrait(TunableRewardBase):
         super().__init__(*args, **kwargs)
         self._trait = trait
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD):
+    @constproperty
+    def reward_type():
+        return RewardType.TRAIT
+
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, **kwargs):
         if reward_destination == RewardDestination.HOUSEHOLD:
             household = sim_info.household
             for sim in household.sim_info_gen():
@@ -147,7 +167,7 @@ class TunableRewardBuildBuyUnlockBase(TunableRewardBase):
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD):
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, **kwargs):
         key = self.get_resource_key()
         if key is not None:
             if reward_destination == RewardDestination.SIM:
@@ -172,6 +192,10 @@ class TunableBuildBuyObjectDefinitionUnlock(TunableRewardBuildBuyUnlockBase):
         self.instance = object_definition
         self.type = Types.OBJCATALOG
 
+    @constproperty
+    def reward_type():
+        return RewardType.BUILD_BUY_OBJECT
+
     def get_resource_key(self):
         return sims4.resources.Key(self.type, self.instance.id)
 
@@ -182,6 +206,10 @@ class TunableBuildBuyMagazineCollectionUnlock(TunableRewardBuildBuyUnlockBase):
         super().__init__(*args, **kwargs)
         self.instance = magazine_collection
         self.type = Types.MAGAZINECOLLECTION
+
+    @constproperty
+    def reward_type():
+        return RewardType.BUILD_BUY_MAGAZINE_COLLECTION
 
     def get_resource_key(self):
         if self.instance is not None:
@@ -196,10 +224,14 @@ class TunableSetClubGatheringVibe(TunableRewardBase):
         super().__init__(*args, **kwargs)
         self._vibe_to_set = vibe_to_set
 
+    @constproperty
+    def reward_type():
+        return RewardType.SET_CLUB_GATHERING_VIBE
+
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, _):
+    def open_reward(self, sim_info, **kwargs):
         club_service = services.get_club_service()
         if club_service is None:
             return
@@ -213,13 +245,21 @@ class TunableSetClubGatheringVibe(TunableRewardBase):
 
 class TunableRewardDisplayText(TunableRewardBase):
 
-    def open_reward(self, *args, **kwargs):
+    @constproperty
+    def reward_type():
+        return RewardType.DISPLAY_TEXT
+
+    def open_reward(self, _, **kwargs):
         return True
 
 class TunableRewardBucks(AutoFactoryInit, TunableRewardBase):
     FACTORY_TUNABLES = {'bucks_type': TunableEnumEntry(description='\n            The type of Bucks to grant.\n            ', tunable_type=BucksType, default=BucksType.INVALID, invalid_enums=(BucksType.INVALID,)), 'amount': TunableRange(description='\n            The amount of Bucks to award. Must be a positive value.\n            ', tunable_type=int, default=10, minimum=1)}
 
-    def open_reward(self, sim_info, _):
+    @constproperty
+    def reward_type():
+        return RewardType.BUCKS
+
+    def open_reward(self, sim_info, **kwargs):
         if sim_info.is_npc:
             return
         tracker = BucksUtils.get_tracker_for_bucks_type(self.bucks_type, sim_info.id, add_if_none=True)
@@ -231,7 +271,11 @@ class TunableRewardBucks(AutoFactoryInit, TunableRewardBase):
 class TunableRewardBuff(AutoFactoryInit, TunableRewardBase):
     FACTORY_TUNABLES = {'buff': TunableBuffReference(description='\n            Buff to be given as a reward.\n            ')}
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD):
+    @constproperty
+    def reward_type():
+        return RewardType.BUFF
+
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, **kwargs):
         if reward_destination == RewardDestination.HOUSEHOLD:
             household = sim_info.household
             for sim_info in household.sim_info_gen():
@@ -244,7 +288,11 @@ class TunableRewardBuff(AutoFactoryInit, TunableRewardBase):
 class TunableRewardWhimBucks(AutoFactoryInit, TunableRewardBase):
     FACTORY_TUNABLES = {'whim_bucks': TunableRange(description='\n            The number of whim bucks to give.\n            ', tunable_type=int, default=1, minimum=1)}
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD):
+    @constproperty
+    def reward_type():
+        return RewardType.WHIM_BUCKS
+
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, **kwargs):
         if reward_destination == RewardDestination.HOUSEHOLD:
             household = sim_info.household
             for sim_info in household.sim_info_gen():

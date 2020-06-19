@@ -1,14 +1,22 @@
+import math
 from protocolbuffers import Routing_pb2 as routing_protocols
-from routing import Location
+from objects.helpers.user_footprint_helper import UserFootprintHelper
+from routing import Location, SurfaceType
 from routing.portals.portal_data_base import _PortalTypeDataBase
 from routing.portals.portal_tuning import PortalType, PortalFlags
 from sims4 import hash_util
+from sims4.geometry import Polygon, inflate_polygon
+from sims4.tuning.tunable import Tunable
 import build_buy
 import routing
+import services
 import sims4.log
+import terrain
 logger = sims4.log.Logger('Portal')
 
 class _PortalTypeDataStairs(_PortalTypeDataBase):
+    STAIR_SHOO_POLYGON_PADDING = Tunable(description='\n        When a sim uses a stair case with a stair landing, any sims who are\n        in the way will be shooed. The polygon that determines which sims are\n        shooed is based on the portals on that landing, but can be padded using\n        this constant.\n        ', tunable_type=float, default=0.3)
+    FACTORY_TUNABLES = {'supports_landing_shoo': Tunable(description='\n            If True, sims standing on a stair landing on the object on which\n            this portal exists will be shooed from the path of the stairs if\n            another sim attempts to use the stairs. This is to avoid clipping.\n            ', tunable_type=bool, default=False)}
 
     @property
     def portal_type(self):
@@ -16,6 +24,32 @@ class _PortalTypeDataStairs(_PortalTypeDataBase):
 
     def get_stair_count(self, obj):
         return build_buy.get_stair_count(obj.id, obj.zone_id)
+
+    def get_additional_required_portal_flags(self, entry_location, exit_location):
+        if entry_location.routing_surface == exit_location.routing_surface:
+            return PortalFlags.STAIRS_PORTAL_SHORT
+        else:
+            return PortalFlags.STAIRS_PORTAL_LONG
+        return 0
+
+    def notify_in_use(self, user, portal_instance, portal_object):
+        if self.supports_landing_shoo:
+            routing_surface = None
+            exit_location = portal_instance.there_exit
+            if exit_location.routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
+                exit_height = terrain.get_terrain_height(exit_location.position.x, exit_location.position.z, routing_surface=exit_location.routing_surface)
+                routing_surface = exit_location.routing_surface
+                landing_points = []
+                for (there_start, there_end, back_start, back_end, _) in self.get_portal_locations(portal_object):
+                    for portal_location in (there_start, there_end, back_start, back_end):
+                        if portal_location.routing_surface.type == SurfaceType.SURFACETYPE_OBJECT:
+                            portal_height = terrain.get_terrain_height(portal_location.position.x, portal_location.position.z, routing_surface=portal_location.routing_surface)
+                            if math.isclose(portal_height, exit_height):
+                                landing_points.append(portal_location.position)
+                polygon = Polygon(landing_points)
+                polygon = polygon.get_convex_hull()
+                polygon = inflate_polygon(polygon, _PortalTypeDataStairs.STAIR_SHOO_POLYGON_PADDING)
+                UserFootprintHelper.force_move_sims_in_polygon(polygon, routing_surface, exclude=(user,))
 
     def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
         node_data = routing_protocols.RouteNodeData()

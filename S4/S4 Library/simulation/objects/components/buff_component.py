@@ -3,6 +3,7 @@ from collections import Counter
 import collections
 import itertools
 import operator
+import random
 from protocolbuffers import Commodities_pb2, Sims_pb2
 from protocolbuffers.DistributorOps_pb2 import Operation
 from buffs import Appropriateness
@@ -26,6 +27,7 @@ from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
 from singletons import DEFAULT
 from statistics.statistic_ops import StatisticAddOp
+from teleport.teleport_enums import TeleportStyleSource
 from teleport.teleport_tuning import TeleportTuning
 from ui.ui_dialog_picker import BasePickerRow, TunablePickerDialogVariant, ObjectPickerTuningFlags
 from uid import UniqueIdGenerator
@@ -270,9 +272,18 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         return True
 
     @objects.components.componentmethod
-    def remove_buffs_by_tags(self, tags, on_destroy=False):
-        for buff_entry in [buff for buff in self._active_buffs.values() if buff.has_any_tag(tags)]:
-            self.remove_buff_entry(buff_entry, on_destroy=on_destroy)
+    def remove_buffs_by_tags(self, tags, count_to_remove=None, on_destroy=False):
+        buffs_tagged = [buff for buff in self._active_buffs.values() if buff.has_any_tag(tags)]
+        if count_to_remove is None:
+            for buff_entry in buffs_tagged:
+                self.remove_buff_entry(buff_entry, on_destroy=on_destroy)
+        else:
+            random.shuffle(buffs_tagged)
+            for buff_entry in buffs_tagged:
+                self.remove_buff_entry(buff_entry, on_destroy=on_destroy)
+                count_to_remove -= 1
+                if count_to_remove <= 0:
+                    return
 
     @objects.components.componentmethod
     def remove_buff_by_type(self, buff_type, on_destroy=False):
@@ -512,6 +523,7 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         if not self._active_teleport_styles:
             self._active_teleport_styles = None
 
+    @objects.components.componentmethod
     def get_active_teleport_multiplier(self):
         multiplier = 1
         for buff_entry in self._active_buffs.values():
@@ -524,13 +536,13 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
         if self._active_teleport_styles is None:
             return (None, None, False)
         active_multiplier = self.get_active_teleport_multiplier()
-        liability_style = self._active_teleport_styles.get(0, None)
-        if liability_style:
-            (teleport_data, cost) = self._get_teleport_data_and_cost(liability_style[0], active_multiplier)
+        tuned_liability_style = self._active_teleport_styles.get(TeleportStyleSource.TUNED_LIABILITY, None)
+        if tuned_liability_style:
+            (teleport_data, cost) = self.get_teleport_data_and_cost(tuned_liability_style[0], active_multiplier)
             return (teleport_data, cost, True)
         for active_teleports in self._active_teleport_styles.values():
             for teleport_style in active_teleports:
-                (teleport_data, cost) = self._get_teleport_data_and_cost(teleport_style, active_multiplier)
+                (teleport_data, cost) = self.get_teleport_data_and_cost(teleport_style, active_multiplier)
                 if teleport_data is None:
                     continue
                 return (teleport_data, cost, False)
@@ -539,15 +551,20 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
     @objects.components.componentmethod_with_fallback(lambda *_, **__: False)
     def can_trigger_teleport_style(self, teleport_style):
         active_multiplier = self.get_active_teleport_multiplier()
-        (_, cost) = self._get_teleport_data_and_cost(teleport_style, active_multiplier)
+        (_, cost) = self.get_teleport_data_and_cost(teleport_style, active_multiplier)
         return cost is not None
 
-    def _get_teleport_data_and_cost(self, teleport_style, active_multiplier):
+    @objects.components.componentmethod
+    def get_teleport_data_and_cost(self, teleport_style, active_multiplier):
         teleport_data = TeleportTuning.get_teleport_data(teleport_style)
-        if teleport_data.teleport_cost is not None:
+        cost_tuning = teleport_data.teleport_cost
+        if cost_tuning is not None:
             current_value = self.owner.get_stat_value(teleport_data.teleport_cost.teleport_statistic)
             current_cost = active_multiplier*teleport_data.teleport_cost.cost
-            if current_value - current_cost > teleport_data.teleport_cost.teleport_statistic.min_value:
+            if cost_tuning.cost_is_additive:
+                if current_value + current_cost < cost_tuning.teleport_statistic.max_value:
+                    return (teleport_data, current_cost)
+            elif current_value - current_cost > cost_tuning.teleport_statistic.min_value:
                 return (teleport_data, current_cost)
             return (None, None)
         return (TeleportTuning.get_teleport_data(teleport_style), None)
@@ -799,6 +816,15 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             return
         self._remove_non_persist_buffs()
 
+    def remove_all_buffs_with_temporary_commodities(self):
+        buff_types_to_remove = set()
+        for (buff_type, buff) in self._active_buffs.items():
+            if buff.has_temporary_commodity:
+                buff_types_to_remove.add(buff_type)
+        if buff_types_to_remove:
+            for buff_type in buff_types_to_remove:
+                self.remove_buff_by_type(buff_type)
+
     def _remove_non_persist_buffs(self):
         buff_types_to_remove = set()
         for (buff_type, buff) in self._active_buffs.items():
@@ -818,13 +844,11 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             return
         sim = self.owner.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
         if sim is None:
+            if new_lod != SimInfoLODLevel.ACTIVE:
+                logger.warn('{} is increasing LOD while not instanced', self.owner)
             return
-        resolver = sim.get_resolver()
         for buff_entry in tuple(self._active_buffs.values()):
-            for loot_actions in list(itertools.chain(buff_entry._loot_on_instance, buff_entry._loot_on_addition)):
-                for loot_action in loot_actions.loot_actions:
-                    if isinstance(loot_action, StatisticAddOp):
-                        loot_action.apply_to_resolver(resolver)
+            buff_entry.on_lod_increase(sim, old_lod, new_lod)
 
 def _update_buffs_with_exclusive_data(buff_manager):
     for (index, exclusive_set) in enumerate(BuffComponent.EXCLUSIVE_SET):

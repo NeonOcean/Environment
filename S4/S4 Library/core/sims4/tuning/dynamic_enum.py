@@ -37,8 +37,8 @@ class TunableDynamicEnumElements(TunableList):
         self._finalize = finalize
         self.needs_deferring = False
 
-    def load_etree_node(self, source=None, **kwargs):
-        value = super().load_etree_node(source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         self._finalize(*value)
 
 class DynamicEnumMetaclass(enum.Metaclass):

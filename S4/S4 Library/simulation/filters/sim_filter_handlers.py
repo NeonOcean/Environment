@@ -1,11 +1,15 @@
 from gsi_handlers.gameplay_archiver import GameplayArchiver
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
+import sims4.log
+logger = sims4.log.Logger('SimFilterGSIHandlers', default_owner='skorman')
 
 class SimFilterGSILoggingData:
 
     def __init__(self, request_type, sim_filter_type, gsi_source_fn):
         self.request_type = request_type
         self.sim_filter_type = sim_filter_type
+        if gsi_source_fn is None:
+            logger.warn('{} filter request for {} did not specify a gsi_source_fn. Please make sure the filter request is provided with this argument.', request_type, sim_filter_type)
         self.gsi_source_fn = gsi_source_fn
         self.filters = {}
 
@@ -28,7 +32,10 @@ def archive_filter_request(sim_info, gsi_logging_data, *, rejected, reason):
     entry = {}
     entry['sim_id'] = sim_info.id
     entry['request_type'] = str(gsi_logging_data.request_type)
-    entry['source'] = gsi_logging_data.gsi_source_fn()
+    if gsi_logging_data.gsi_source_fn is not None:
+        entry['source'] = gsi_logging_data.gsi_source_fn()
+    else:
+        entry['source'] = 'Not Specified'
     entry['filter_type'] = str(gsi_logging_data.sim_filter_type)
     entry['rejected'] = rejected
     entry['reason'] = reason

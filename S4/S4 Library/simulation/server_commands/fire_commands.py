@@ -1,4 +1,4 @@
-from server_commands.argument_helpers import get_optional_target, OptionalTargetParam
+from server_commands.argument_helpers import get_optional_target, OptionalTargetParam, RequiredTargetParam
 from sims4.commands import CommandType
 import services
 import sims4.commands
@@ -31,3 +31,12 @@ def singe_sim(opt_target:OptionalTargetParam=None, set_singed:bool=None, _connec
         sim_info.singed = not sim_info.singed
     else:
         sim_info.singed = set_singed
+
+@sims4.commands.Command('fire.spawn_at_object')
+def spawn_fire_at_object(target:RequiredTargetParam, num_fires:int=1, _connection=None):
+    target_object = target.get_target()
+    if target_object is None:
+        sims4.commands.output(f'Invalid target object id {target_object}')
+        return
+    fire_service = services.get_fire_service()
+    fire_service.spawn_fire_at_object(target_object, num_fires=num_fires)

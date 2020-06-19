@@ -95,15 +95,18 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
         self._full_autonomy_element_handle = timeline.schedule(elements.GeneratorElement(self._run_full_autonomy_callback_gen))
 
     def _run_full_autonomy_callback_gen(self, timeline):
+        reping_delay_on_fail = self._queued_autonomy_request.reping_delay_on_fail if self._queued_autonomy_request is not None else None
         try:
             self.set_last_autonomous_action_time(False)
             autonomy_pushed_interaction = yield from self._attempt_full_autonomy_gen(timeline)
             self._last_autonomy_result_was_none = not autonomy_pushed_interaction
+            if autonomy_pushed_interaction or self._queued_autonomy_request is not None:
+                reping_delay_on_fail = None
         except Exception:
             logger.exception('Exception hit while processing FullAutonomy for {}:', self.owner, owner='rez')
         finally:
             self._full_autonomy_element_handle = None
-            self._schedule_next_full_autonomy_update()
+            self._schedule_next_full_autonomy_update(delay_in_sim_minutes=reping_delay_on_fail)
 
     def _attempt_full_autonomy_gen(self, timeline):
         if self._full_autonomy_request is not None and self._full_autonomy_request.valid:
@@ -397,7 +400,7 @@ class AutonomyComponent(Component, HasTunableFactory, AutoFactoryInit, component
 
     @componentmethod
     def skip_autonomy(self, si, to_skip):
-        if si.source == InteractionSource.BODY_CANCEL_AOP or si.source == InteractionSource.CARRY_CANCEL_AOP or si.source == InteractionSource.SOCIAL_ADJUSTMENT:
+        if si.source == InteractionSource.BODY_CANCEL_AOP or (si.source == InteractionSource.CARRY_CANCEL_AOP or si.source == InteractionSource.SOCIAL_ADJUSTMENT) or si.source == InteractionSource.VEHCILE_CANCEL_AOP:
             return
         if to_skip:
             logger.debug('Skipping autonomy for {} due to {}', self.owner, si)

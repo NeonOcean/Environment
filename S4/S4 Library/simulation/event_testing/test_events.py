@@ -100,6 +100,12 @@ class TestEvent(DynamicEnum):
     TraitRemoveEvent = 90
     NarrativesUpdated = 91
     GlobalPolicyProgress = 92
+    PhotoTaken = 93
+    ExitedPhotoMode = 94
+    UnlockTrackerItemUnlocked = 95
+    HouseholdSplitPanelClosed = 96
+    SimEnrolledInUniversity = 97
+    ScholarshipInfoSignShown = 98
 
 CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP = 'CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP'
 

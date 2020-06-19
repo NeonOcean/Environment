@@ -77,6 +77,14 @@ class PoolSeat(GameObject):
         return True
 
     @property
+    def restrict_autonomy_preference(self):
+        return False
+
+    @property
+    def part_name(self):
+        pass
+
+    @property
     def forward_direction_for_picking(self):
         return sims4.math.Vector3.Z_AXIS()
 

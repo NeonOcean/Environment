@@ -3,6 +3,7 @@ from event_testing import test_events
 from event_testing.event_data_const import SimoleonData
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.tunable import TunableRange, TunableMapping, TunableEnumEntry
+from sims4.tuning.tunable_base import ExportModes
 import distributor.ops
 import enum
 import services
@@ -47,7 +48,7 @@ def transfer_funds(amount, *, from_funds, to_funds):
 
 class _Funds:
     __slots__ = ('_household_id', '_funds')
-    MAX_FUNDS = TunableRange(int, 99999999, 0, sims4.math.MAX_INT32, description='Max Funds a household can have.')
+    MAX_FUNDS = TunableRange(description='\n        Max Funds a household can have.\n        \n        If this is tuned please update GlobalTunables.as in the UI code. There\n        is a constant there that matches this value and will need to be updated\n        if we ever retune this value.\n        ', tunable_type=int, default=99999999, minimum=0, maximum=sims4.math.MAX_INT32)
 
     def __init__(self, household_id, starting_amount):
         self._household_id = household_id
@@ -79,11 +80,11 @@ class _Funds:
     def _get_household(self):
         return services.household_manager().get(self._household_id)
 
-    def send_money_update(self, vfx_amount, sim=None, reason=0):
+    def send_money_update(self, vfx_amount, reason=0):
         raise NotImplementedError
 
-    def _send_money_update_internal(self, household_id, vfx_amount, sim=None, reason=0):
-        op = distributor.ops.SetMoney(self.money, vfx_amount, sim, reason)
+    def _send_money_update_internal(self, household_id, vfx_amount, reason=0):
+        op = distributor.ops.SetMoney(self.money, vfx_amount, reason)
         household = services.household_manager().get(household_id)
         if household is not None:
             distributor.ops.record(household, op)
@@ -126,7 +127,7 @@ class _Funds:
                 logger.error('Negative funds amount ({}) not supported', self._funds)
                 self._funds = 0
         vfx_amount = amount if show_fx else 0
-        self.send_money_update(vfx_amount=vfx_amount, sim=sim, reason=reason)
+        self.send_money_update(vfx_amount=vfx_amount, reason=reason)
         with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_FUNDS_CHANGE, sim=sim) as hook:
             hook.write_int(TELEMETRY_AMOUNT, amount)
             hook.write_int(TELEMETRY_REASON, reason)
@@ -149,5 +150,5 @@ class FamilyFunds(_Funds):
     def funds_transfer_loss_reason(self):
         return Consts_pb2.FUNDS_HOUSEHOLD_TRANSFER_LOSS
 
-    def send_money_update(self, vfx_amount, sim=None, reason=0):
-        self._send_money_update_internal(self._household_id, vfx_amount, sim, reason)
+    def send_money_update(self, vfx_amount, reason=0):
+        self._send_money_update_internal(self._household_id, vfx_amount, reason)

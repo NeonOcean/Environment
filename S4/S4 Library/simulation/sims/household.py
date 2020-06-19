@@ -3,7 +3,6 @@ from event_testing.resolver import DoubleSimResolver
 from interactions.utils.loot import LootActions
 from protocolbuffers import FileSerialization_pb2 as serialization, ResourceKey_pb2, S4Common_pb2, FileSerialization_pb2, GameplaySaveData_pb2
 from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
-from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
 from protocolbuffers.DistributorOps_pb2 import Operation
 from bucks.household_bucks_tracker import HouseholdBucksTracker
 from careers.career_enums import ReceiveDailyHomeworkHelp
@@ -15,14 +14,15 @@ from distributor.system import Distributor
 from event_testing import test_events
 from holidays.holiday_tracker import HolidayTracker
 from household_milestones.household_milestone_tracker import HouseholdMilestoneTracker
+from households.household_object_preference_tracker import HouseholdObjectPreferenceTracker
 from laundry.household_laundry_tracker import HouseholdLaundryTracker
 from objects import HiddenReasonFlag, ALL_HIDDEN_REASONS
 from objects.collection_manager import CollectionTracker
 from pets.missing_pets_tracker import MissingPetsTracker
-from relationships.relationship_bit import RelationshipBit
 from sims import bills, sim_info
 from sims.aging.aging_tuning import AgingTuning
 from sims.baby.baby_utils import remove_stale_babies, run_baby_spawn_behavior
+from sims.fixup.sim_info_fixup_action import SimInfoFixupActionTiming
 from sims.household_telemetry import send_sim_added_telemetry
 from sims.outfits.outfit_enums import OutfitCategory
 from sims.sim_info_lod import SimInfoLODLevel
@@ -54,7 +54,7 @@ class Household:
     ANCESTRY_PURGE_DEPTH = sims4.tuning.tunable.TunableRange(description='\n        The maximum number of links that living Sims can have with an ancestor\n        before the ancestor is purged.\n        ', tunable_type=int, default=3, minimum=1)
     NPC_HOUSEHOLD_DEFAULT_FUNDS = sims4.tuning.tunable.TunableRange(description='\n        The default amount of funds an NPC household will have. This will\n        determine how much money an NPC sims brings with them when you invite\n        to household.\n        ', tunable_type=int, default=20000, minimum=0)
     SPECIAL_FIXES = TunableTuple(description='\n        Special Case tuning to fix up bad save data\n        ', pet_relbits=TunableTuple(description='\n            Not all sims in a household with a pet have the correct pet\n            ownership relbits. If this is the case, we will fix this for the \n            active household on load.\n            ', loot_for_pets=LootActions.TunablePackSafeReference()))
-    HOUSEHOLD_TRACKERS = OrderedDict((('bucks_tracker', HouseholdBucksTracker), ('laundry_tracker', HouseholdLaundryTracker), ('missing_pet_tracker', MissingPetsTracker), ('delivery_tracker', DeliveryTracker), ('_collection_tracker', CollectionTracker)))
+    HOUSEHOLD_TRACKERS = OrderedDict((('bucks_tracker', HouseholdBucksTracker), ('laundry_tracker', HouseholdLaundryTracker), ('missing_pet_tracker', MissingPetsTracker), ('delivery_tracker', DeliveryTracker), ('_collection_tracker', CollectionTracker), ('object_preference_tracker', HouseholdObjectPreferenceTracker)))
 
     def __init__(self, account, starting_funds=singletons.DEFAULT):
         self.account = account
@@ -80,7 +80,7 @@ class Household:
         self._telemetry_tracker = HouseholdTelemetryTracker(self)
         self._last_active_sim_id = 0
         self._reward_inventory = serialization.RewardPartList()
-        self._cached_billable_household_value = 0
+        self._cached_home_lot_value = 0
         self._highest_earned_situation_medals = {}
         self._situation_scoring_enabled = True
         self._hidden = False
@@ -97,6 +97,7 @@ class Household:
         self._last_played_home_zone_id = 0
         self._home_zone_move_in_time = DATE_AND_TIME_ZERO
         self.premade_household_id = 0
+        self.premade_household_template_id = 0
         self._is_player_household = False
         self._is_played_household = False
         self.pending_urnstone_ids = []
@@ -160,6 +161,13 @@ class Household:
 
     resend_is_played_household = is_played_household.get_resend()
 
+    def set_played_household(self, value):
+        if self._is_played_household != value:
+            self._is_played_household = value
+            self._is_player_household = value
+            self.resend_is_played_household()
+            self.resend_is_player_household()
+
     @sim_info_auto_finder
     def get_pending_urnstone_sim_infos(self):
         return self.pending_urnstone_ids
@@ -189,14 +197,14 @@ class Household:
                         tracker.household_lod_cleanup()
                 tracker.household_lod_cleanup()
 
-    def set_to_hidden(self):
+    def set_to_hidden(self, family_funds=singletons.DEFAULT):
         services.business_service().clear_owned_business(self.id)
         if self.home_zone_id:
             self.clear_household_lot_ownership()
         self._hidden = True
         self._is_player_household = False
         self._is_played_household = False
-        self._funds = sims.funds.FamilyFunds(self.id, self.NPC_HOUSEHOLD_DEFAULT_FUNDS)
+        self._funds = sims.funds.FamilyFunds(self.id, self.NPC_HOUSEHOLD_DEFAULT_FUNDS if family_funds is singletons.DEFAULT else family_funds)
         self.bucks_tracker.clear_bucks_tracker()
         self._collection_tracker.clear_collection_tracker()
         self._service_npc_record = None
@@ -219,6 +227,11 @@ class Household:
                 sim_info.transfer_to_hidden_household()
                 sim_info.request_lod(SimInfoLODLevel.MINIMUM)
             self.set_to_hidden()
+
+    def validate_household(self, creation_source=None):
+        humans = tuple(self.get_humans_gen())
+        if humans and not any(sim_info.can_live_alone for sim_info in humans):
+            logger.warn('Created a household of parent-less Sims: {0}, from source {1}', self, creation_source)
 
     @property
     def home_zone_move_in_time(self):
@@ -371,21 +384,10 @@ class Household:
                 at_home_sim_ids.add(sim_info.id)
         return at_home_sim_ids
 
-    def household_net_worth(self, billable=False):
-        household_inventory_value = build_buy.get_household_inventory_value(self.id)
-        if household_inventory_value is None:
-            household_inventory_value = 0
-        sim_inventories_value = 0
-        for sim_info in self.sim_info_gen():
-            sim_inventories_value += sim_info.inventory_value()
-        final_household_value = self._cached_billable_household_value + household_inventory_value + sim_inventories_value
+    def _update_cached_home_lot_value(self):
         home_zone = services.get_zone(self.home_zone_id)
-        if home_zone is None and billable:
-            return final_household_value
-        if not billable:
-            household_funds = self._funds.money
-            if home_zone is None:
-                return final_household_value + household_funds
+        if not home_zone:
+            return
         billable_value = 0
         billable_value += home_zone.lot.furnished_lot_value
         plex_service = services.get_plex_service()
@@ -395,9 +397,10 @@ class Household:
                 continue
             if obj.get_household_owner_id() == self.id:
                 continue
-            if not home_zone.lot.is_position_on_lot(obj.position):
-                continue
-            if is_plex and plex_service.get_plex_zone_at_position(obj.position, obj.level) != self.home_zone_id:
+            if is_plex:
+                if plex_service.get_plex_zone_at_position(obj.position, obj.level) != self.home_zone_id:
+                    continue
+            elif not home_zone.lot.is_position_on_lot(obj.position):
                 continue
             billable_value -= obj.current_value
             obj_inventory = obj.inventory_component
@@ -406,11 +409,41 @@ class Household:
         if billable_value < 0:
             logger.error('The billable household value for household {} is a negative number ({}). Defaulting to 0.', self, billable_value, owner='tastle')
             billable_value = 0
-        self._cached_billable_household_value = billable_value
-        final_household_value = self._cached_billable_household_value + household_inventory_value + sim_inventories_value
+        self._cached_home_lot_value = billable_value
+
+    def household_net_worth(self, billable=False):
+        household_inventory_value = build_buy.get_household_inventory_value(self.id)
+        if household_inventory_value is None:
+            household_inventory_value = 0
+        sim_inventories_value = 0
+        for sim_info in self.sim_info_gen():
+            sim_inventories_value += sim_info.inventory_value()
+        final_household_value = self._cached_home_lot_value + household_inventory_value + sim_inventories_value
+        home_zone = services.get_zone(self.home_zone_id)
+        if home_zone is None and billable:
+            return final_household_value
+        if not billable:
+            household_funds = self._funds.money
+            if home_zone is None:
+                return final_household_value + household_funds
+        self._update_cached_home_lot_value()
+        final_household_value = self._cached_home_lot_value + household_inventory_value + sim_inventories_value
         if billable:
             return final_household_value
         return final_household_value + household_funds
+
+    def get_home_lot_value(self):
+        self._update_cached_home_lot_value()
+        return self._cached_home_lot_value
+
+    def get_property_value(self):
+        value = 0
+        lot = services.active_lot()
+        if lot is not None:
+            if self.id != lot.owner_household_id:
+                return value
+            value = self.household_net_worth() - self.funds.money
+        return value
 
     @property
     def client(self):
@@ -421,6 +454,7 @@ class Household:
         self.bucks_tracker.on_all_households_and_sim_infos_loaded()
         self.missing_pet_tracker.on_all_households_and_sim_infos_loaded()
         self._load_fixup_always_welcomed_sims()
+        self._handle_fixup_sims_degree_tracker()
         self._initialize_max_household_lod()
         if self.is_active_household:
             if self.SPECIAL_FIXES.pet_relbits.loot_for_pets is not None:
@@ -431,6 +465,19 @@ class Household:
     def _load_fixup_always_welcomed_sims(self):
         mgr = services.sim_info_manager()
         self._always_welcome_sim_ids = set([i for i in self._always_welcome_sim_ids if mgr.is_sim_id_valid(i)])
+
+    def _handle_fixup_sims_degree_tracker(self):
+        self.handle_delayed_reenrollment_dialog()
+
+    def handle_delayed_reenrollment_dialog(self):
+        if not self.is_active_household:
+            return
+        for sim_info in self._sim_infos:
+            degree_tracker = sim_info.degree_tracker
+            if degree_tracker is None:
+                continue
+            if degree_tracker.show_delayed_reenrollment_dialog():
+                break
 
     def on_active_sim_set(self):
         self.bills_manager.on_active_sim_set()
@@ -564,6 +611,9 @@ class Household:
         elif sim_info.lod == SimInfoLODLevel.ACTIVE and not sim_info.request_lod(SimInfoLODLevel.FULL):
             logger.error("Failed to set non-active sim's LOD: {}", self, owner='tingyul')
         if process_events:
+            roommate_service = services.get_roommate_service()
+            if roommate_service is not None:
+                roommate_service.on_household_member_added(self, sim_info)
             if self._is_played_household:
                 send_sim_added_telemetry(sim_info)
             self._on_sim_added(sim_info)
@@ -579,10 +629,22 @@ class Household:
             self.add_build_buy_unlock(unlock)
         sim_info.refresh_age_settings()
 
-    def remove_sim_info(self, sim_info, destroy_if_empty_household=False, process_events=True):
+    def remove_sim_info(self, sim_info, destroy_if_empty_household=False, process_events=True, assign_to_none=True):
         self._sim_infos.remove(sim_info)
-        sim_info.assign_to_household(None, assign_is_npc=False)
+        if assign_to_none:
+            sim_info.assign_to_household(None, assign_is_npc=False)
+        familiar_tracker = sim_info.familiar_tracker
+        if familiar_tracker is not None:
+            familiar_tracker.on_household_member_removed()
+        for other_sim_info in self._sim_infos:
+            familiar_tracker = other_sim_info.familiar_tracker
+            if familiar_tracker is not None:
+                familiar_tracker.on_household_member_removed()
+        self.object_preference_tracker.clear_sim_restriction(sim_info.sim_id)
         if process_events:
+            roommate_service = services.get_roommate_service()
+            if roommate_service is not None:
+                roommate_service.on_household_member_removed(self, sim_info)
             self.notify_dirty()
             if services.current_zone().is_zone_running:
                 services.get_event_manager().process_events_for_household(test_events.TestEvent.HouseholdChanged, self)
@@ -673,12 +735,14 @@ class Household:
                 client.add_selectable_sim_info(sim_info)
                 if not spawn:
                     sim_info.inject_into_inactive_zone(self.home_zone_id)
+            sim_info.apply_fixup_actions(SimInfoFixupActionTiming.ON_ADDED_TO_ACTIVE_HOUSEHOLD)
         except Exception:
             logger.exception('Sim {} failed to load', sim_id)
 
     def load_data(self, household_msg, fixup_helper):
         self.id = household_msg.household_id
         self.premade_household_id = household_msg.premade_household_id
+        self.premade_household_template_id = household_msg.premade_household_template_id
         self._name = household_msg.name
         self._description = household_msg.description
         self._hidden = household_msg.hidden
@@ -757,12 +821,13 @@ class Household:
             if any(sim_info.creation_source.is_creation_source(SimInfoCreationSource.CAS_INITIAL | SimInfoCreationSource.CAS_REENTRY | SimInfoCreationSource.GALLERY) for sim_info in self):
                 self._is_player_household = True
         self.bills_manager.load_data(household_msg)
-        self._cached_billable_household_value = household_msg.gameplay_data.billable_household_value
+        self._cached_home_lot_value = household_msg.gameplay_data.billable_household_value
         self.collection_tracker.load_data(household_msg)
         self.bucks_tracker.load_data(household_msg.gameplay_data)
         self.missing_pet_tracker.load_data(household_msg.gameplay_data)
         self.laundry_tracker.load_data(household_msg.gameplay_data)
         self.delivery_tracker.load_data(household_msg.gameplay_data)
+        self.object_preference_tracker.load_data(household_msg.gameplay_data.object_preference_tracker)
         for record_msg in household_msg.gameplay_data.service_npc_records:
             record = self.get_service_npc_record(record_msg.service_type, add_if_no_record=True)
             record.load_npc_record(record_msg)
@@ -869,6 +934,7 @@ class Household:
         self.missing_pet_tracker.save_data(household_msg.gameplay_data)
         self.laundry_tracker.save_data(household_msg.gameplay_data)
         self.delivery_tracker.save_data(household_msg.gameplay_data)
+        self.object_preference_tracker.save_data(household_msg.gameplay_data)
         if self._service_npc_record is not None:
             for service_record in self._service_npc_record.values():
                 with ProtocolBufferRollback(household_msg.gameplay_data.service_npc_records) as record_msg:
@@ -882,6 +948,8 @@ class Household:
         household_msg.needs_welcome_wagon = self.needs_welcome_wagon
         if self.premade_household_id > 0:
             household_msg.premade_household_id = self.premade_household_id
+        if self.premade_household_template_id > 0:
+            household_msg.premade_household_template_id = self.premade_household_template_id
         if self._household_milestone_tracker is not None:
             self._household_milestone_tracker.save(blob=household_milestone_msg)
         household_msg.gameplay_data.household_milestone_tracker = household_milestone_msg
@@ -1075,3 +1143,10 @@ class Household:
 
     def set_homework_help(self, age, homework_help_status):
         self._receive_homework_help_map[age] = homework_help_status
+
+    def get_reward_inventory(self):
+        return self._reward_inventory
+
+    def copy_rewards_inventory_from_household(self, household):
+        rewards_to_transfer = household.get_reward_inventory()
+        self._reward_inventory.MergeFrom(rewards_to_transfer)

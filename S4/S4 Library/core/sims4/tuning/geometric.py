@@ -55,8 +55,8 @@ class TunablePolygon(TunableList):
         self._default = None
         self.cache_key = '{}_{}'.format('TunablePolygon', vertex_type.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = sims4.geometry.Polygon(value)
         return constructed_value
 
@@ -110,8 +110,8 @@ class TunableCurve(BaseTunableCurve):
         super().__init__(*args, **kwargs)
         self.cache_key = '{}_{}'.format('TunableCurve', self._template.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = sims4.math.LinearCurve(self._generate_point_list(value))
         return constructed_value
 
@@ -121,8 +121,8 @@ class TunableWeightedUtilityCurve(BaseTunableCurve):
         super().__init__(*args, **kwargs)
         self.cache_key = '{}_{}'.format('TunableWeightedUtilityCurve', self._template.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = sims4.math.WeightedUtilityCurve(self._generate_point_list(value))
         return constructed_value
 
@@ -132,8 +132,8 @@ class TunableWeightedUtilityCurveAndWeight(BaseWeightedTunableCurve):
         super().__init__(*args, **kwargs)
         self.cache_key = '{}_{}'.format('TunableWeightedUtilityCurveAndWeight', id(self))
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = sims4.math.WeightedUtilityCurve(self._generate_point_list(value.curve_points), max_y=value.max_y, weight=value.weight)
         return constructed_value
 
@@ -143,7 +143,7 @@ class TunableCircularUtilityCurve(BaseTunableCurve):
         super().__init__(*args, **kwargs)
         self.cache_key = '{}_{}'.format('TunableCircularUtilityCurve', self._template.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = sims4.math.CircularUtilityCurve(self._generate_point_list(value))
         return constructed_value

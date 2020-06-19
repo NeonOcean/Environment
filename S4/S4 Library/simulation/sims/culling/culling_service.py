@@ -1,19 +1,23 @@
 import itertools
 import operator
 from alarms import add_alarm
-from date_and_time import create_time_span
+from date_and_time import create_time_span, DateAndTime
+from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.test_events import TestEvent
 from fame.fame_tuning import FameTunables
 from objects import ALL_HIDDEN_REASONS
 from objects.components import types
 from objects.system import create_object
+from protocolbuffers import GameplaySaveData_pb2
 from sims.culling.culling_tuning import CullingTuning
 from sims.ghost import Ghost
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_types import Age, Species
 from sims4.service_manager import Service
+from sims4.utils import classproperty
 from story_progression.story_progression_action_sim_info_culling import SimInfoCullingScoreInfo
+import persistence_error_types
 import services
 import sims4.log
 import sims4.math
@@ -27,6 +31,7 @@ class CullingService(Service):
         super().__init__(*args, **kwargs)
         self._max_player_population = 0
         self._culling_ghost_alarm_handles = set()
+        self._interacting_sims = {}
 
     def start(self):
         services.get_event_manager().register(self, self.CULLING_EVENTS)
@@ -34,11 +39,60 @@ class CullingService(Service):
     def stop(self):
         services.get_event_manager().unregister(self, self.CULLING_EVENTS)
 
+    def load(self, **_):
+        super().load(**_)
+        self._interacting_sims = {}
+        save_slot_data_msg = services.get_persistence_service().get_save_slot_proto_buff()
+        if save_slot_data_msg is None or not (save_slot_data_msg.gameplay_data is None or not save_slot_data_msg.gameplay_data.HasField('culling_service')):
+            return
+        culling_service = save_slot_data_msg.gameplay_data.culling_service
+        for interacting_sim in culling_service.interacting_sims:
+            self._interacting_sims[interacting_sim.sim_id] = DateAndTime(interacting_sim.time_stamp)
+
+    def save(self, object_list=None, zone_data=None, open_street_data=None, store_travel_group_placed_objects=False, save_slot_data=None):
+        super().save(object_list, zone_data, open_street_data, store_travel_group_placed_objects, save_slot_data)
+        culling_service = GameplaySaveData_pb2.PersistableCullingService()
+        for (sim_id, time_stamp) in self._interacting_sims.items():
+            with ProtocolBufferRollback(culling_service.interacting_sims) as interacting_sim:
+                interacting_sim.sim_id = sim_id
+                interacting_sim.time_stamp = time_stamp.absolute_ticks()
+        save_slot_data.gameplay_data.culling_service = culling_service
+
+    @classproperty
+    def save_error_code(cls):
+        return persistence_error_types.ErrorCodes.SERVICE_SAVE_FAILED_CULLING_SERVICE
+
     def save_options(self, options_proto):
         options_proto.max_player_population = self._max_player_population
 
     def load_options(self, options_proto):
         self._max_player_population = options_proto.max_player_population
+
+    def has_sim_interacted_with_active_sim(self, sim_id):
+        return sim_id in self._interacting_sims
+
+    def sim_interacted_with_active_sim(self, sim):
+        if sim is None or not sim.is_sim or sim.sim_info is None:
+            logger.error('Attempted to log {} as an interacting Sim', sim, owner='shouse')
+            return
+        lod = sim.sim_info.lod
+        if lod == SimInfoLODLevel.INTERACTED:
+            self.add_sim_to_interacted_sims(sim.sim_info.sim_id)
+        elif lod < SimInfoLODLevel.INTERACTED and lod != SimInfoLODLevel.MINIMUM:
+            if sim.sim_info.request_lod(SimInfoLODLevel.INTERACTED):
+                self.add_sim_to_interacted_sims(sim.sim_info.sim_id)
+            else:
+                logger.error("Failed to set sim's LOD from {} to INTERACTED".format(lod), owner='shouse')
+
+    def add_sim_to_interacted_sims(self, sim_id):
+        self._interacting_sims[sim_id] = services.time_service().sim_now
+
+    def remove_sim_from_interacted_sims(self, sim_id):
+        if sim_id in self._interacting_sims:
+            del self._interacting_sims[sim_id]
+
+    def get_interacted_sim_ids_in_priority_order(self):
+        return sorted(self._interacting_sims.keys(), key=lambda k: self._interacting_sims[k], reverse=True)
 
     def handle_event(self, sim_info, event_type, resolver):
         if event_type == TestEvent.SimDeathTypeSet:
@@ -237,6 +291,9 @@ class CullingService(Service):
         if sim_info.is_player_sim:
             return 0
         score = services.get_service_npc_service().get_culling_npc_score(sim_info.id)
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            score += roommate_service.get_culling_npc_score(sim_info.id)
         score += services.business_service().get_culling_npc_score(sim_info)
         score += sum(trait.culling_behavior.get_culling_npc_score() for trait in sim_info.trait_tracker)
         if FameTunables.FAME_RANKED_STATISTIC is not None:

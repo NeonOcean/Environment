@@ -181,7 +181,8 @@ class RelationshipService(Service):
             for relationship_msg in save_slot_data_msg.gameplay_data.relationship_service.object_relationships:
                 try:
                     relationship = self._find_object_relationship(relationship_msg.sim_id_a, None, target_def_id=relationship_msg.sim_id_b, from_load=True, create=True)
-                    relationship.load_object_relationship(relationship_msg)
+                    if relationship is not None:
+                        relationship.load_object_relationship(relationship_msg)
                 except:
                     logger.exception('Exception encountered when trying to load relationship between {} and {}', relationship_msg.sim_id_a, relationship_msg.sim_id_b)
                     self.destroy_object_relationship(relationship_msg.sim_id_a, relationship_msg.sim_id_b)
@@ -413,6 +414,8 @@ class RelationshipService(Service):
                     for default_relationship in default_relationships(resolver=resolver):
                         default_relationship.apply(relationship, sim_id_a, sim_id_b, bits_only=bits_only)
                     for (gender, gender_preference_statistic) in sim_info_a.get_gender_preferences_gen():
+                        if gender_preference_statistic is None:
+                            continue
                         if gender == sim_info_b.gender:
                             gender_preference_statistic.set_value(gender_preference_statistic.max_value)
             logger.info('Set default tracks {:25} -> {:25} as {}', sim_info_a.full_name, sim_info_b.full_name, key)
@@ -548,6 +551,16 @@ class RelationshipService(Service):
         knowledge = self.get_knowledge(actor_sim_id, target_sim_id)
         if knowledge is not None:
             knowledge.remove_knows_career(notify_client=notify_client)
+
+    def add_knows_major(self, actor_sim_id, target_sim_id:int, notify_client=True):
+        knowledge = self.get_knowledge(actor_sim_id, target_sim_id)
+        if knowledge is not None:
+            knowledge.add_knows_major(notify_client=notify_client)
+
+    def remove_knows_major(self, actor_sim_id, target_sim_id:int, notify_client=True):
+        knowledge = self.get_knowledge(actor_sim_id, target_sim_id)
+        if knowledge is not None:
+            knowledge.remove_knows_major(notify_client=notify_client)
 
     def print_relationship_info(self, actor_sim_id, target_sim_id:int, _connection):
         relationship = self._find_relationship(actor_sim_id, target_sim_id)
@@ -783,7 +796,7 @@ class RelationshipService(Service):
         Distributor.instance().add_op(name_override_obj, GenericProtocolBufferOp(Operation.HOVERTIP_CREATED, hovertip_created_msg))
         obj_tag_set = self.get_mapped_tag_set_of_id(object_id_b)
         object_relationship = self._find_object_relationship(sim_id_a, obj_tag_set)
-        if not object_relationship:
+        if object_relationship is None:
             return
         object_relationship.set_object_rel_name(name)
         object_relationship.send_object_relationship_info()
@@ -863,7 +876,7 @@ class RelationshipService(Service):
         if not self._validate_bit(bit_to_add, actor_sim_id, obj_tag_set):
             return
         relationship = self._find_object_relationship(actor_sim_id, obj_tag_set, create=False)
-        if not relationship:
+        if relationship is None:
             return
         member_obj_def_id = relationship.get_sim_id_b
         relationship.add_relationship_bit(actor_sim_id, member_obj_def_id, bit_to_add, force_add=force_add, from_load=from_load, send_rel_change_event=send_rel_change_event)
@@ -892,7 +905,9 @@ class RelationshipService(Service):
 
     def has_object_bit(self, actor_sim_id, obj_tag_set, bit):
         obj_relationship = self._find_object_relationship(actor_sim_id, obj_tag_set)
-        if obj_relationship.has_bit(actor_sim_id, bit):
+        if obj_relationship is None:
+            return False
+        elif obj_relationship.has_bit(actor_sim_id, bit):
             return obj_relationship
         return False
 
@@ -951,8 +966,13 @@ class RelationshipService(Service):
     def _create_object_relationship(self, sim_id_a, obj_tag_set, target_def_id:int, from_load=False):
         defs_in_set = list(services.definition_manager().get_definitions_for_tags_gen(obj_tag_set.tags))
         def_ids_in_set = list(definition.id for definition in defs_in_set)
+        if target_def_id not in def_ids_in_set:
+            object_definition = services.definition_manager().get(target_def_id)
+            logger.error('Object with definition {} is not of object-type defined by the tag set {}. Object Relationship creation failed', object_definition, obj_tag_set)
+            return
         if len(defs_in_set) == 0:
             logger.error('There are no objects with tag {}. This cannot be true for Object Relationship creation.', obj_tag_set)
+            return
         self._tag_set_to_ids_map[obj_tag_set] = def_ids_in_set
         for def_id in def_ids_in_set:
             self._def_id_to_tag_set_map[def_id] = obj_tag_set
@@ -974,15 +994,17 @@ class RelationshipService(Service):
             if target_def_id is None:
                 logger.error('Failed to create an object relationship, no target was specified')
                 return
+            relationship = self._create_object_relationship(sim_id_a, obj_tag_set, target_def_id, from_load=from_load)
+            if relationship is None:
+                return
             else:
-                relationship = self._create_object_relationship(sim_id_a, obj_tag_set, target_def_id, from_load=from_load)
                 self._object_relationships[key] = relationship
                 self._sim_object_relationships[sim_id_a].append(relationship)
                 self._object_sim_relationships[obj_tag_set].append(relationship)
                 if sim_id_a in self._create_relationship_callbacks:
-                    self._create_relationships_callback[sim_id_a](relationship)
+                    self._create_relationship_callbacks[sim_id_a](relationship)
                 if obj_tag_set in self._create_relationship_callbacks:
-                    self._create_relationships_callback[obj_tag_set](relationship)
+                    self._create_relationship_callbacks[obj_tag_set](relationship)
                 return relationship
 
     def _get_object_relationships_for_sim(self, sim_id):

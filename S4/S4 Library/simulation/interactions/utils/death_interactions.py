@@ -10,14 +10,17 @@ from interactions.utils.death import DeathType, is_death_enabled, DEATH_INTERACT
 from interactions.utils.interaction_liabilities import RESERVATION_LIABILITY
 from interactions.utils.outcome_enums import OutcomeResult
 from objects.components import types
+from objects.object_creation import CreationDataBase, ObjectCreationParams
 from sims.ghost import Ghost
+from sims.loan_tuning import LoanTunables
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.localization.localization_tunables import LocalizedStringHouseholdNameSelector
-from sims4.tuning.tunable import TunableEnumEntry, OptionalTunable, Tunable
+from sims4.tuning.tunable import TunableEnumEntry, OptionalTunable, Tunable, TunableTuple
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
 from singletons import DEFAULT
+from traits.trait_type import TraitType
 from ui.ui_dialog_generic import UiDialog
 from ui.ui_dialog_notification import UiDialogNotification
 import build_buy
@@ -76,14 +79,17 @@ class DeathElement(ObjectCreationElement):
     def create_object(self):
         if self.definition is None:
             return
-        return super().create_object()
+        return super().create_object(self._interaction.get_resolver())
 
 class DeathSuperInteraction(SuperInteraction):
 
-    class UrnstoneCreationData:
+    class UrnstoneCreationData(CreationDataBase):
 
         def get_definition(*args, **kwargs):
             return Ghost.URNSTONE_DEFINITION.get_definition(*args, **kwargs)
+
+        def get_creation_params(*args, **kwargs):
+            return ObjectCreationParams(Ghost.URNSTONE_DEFINITION.get_definition(*args, **kwargs), {})
 
         def setup_created_object(*args, **kwargs):
             return Ghost.URNSTONE_DEFINITION.setup_created_object(*args, **kwargs)
@@ -91,7 +97,7 @@ class DeathSuperInteraction(SuperInteraction):
         def get_source_object(*args, **kwargs):
             return Ghost.URNSTONE_DEFINITION.get_source_object(*args, **kwargs)
 
-    INSTANCE_TUNABLES = {'death_element': DeathElement.TunableFactory(description='\n            Define what object is created by the dying Sim.\n            ', locked_args={'creation_data': UrnstoneCreationData, 'destroy_on_placement_failure': False}, tuning_group=GroupNames.DEATH), 'death_subject': TunableEnumEntry(description='\n            The participant whose death will be occurring.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor, tuning_group=GroupNames.DEATH), 'death_type': OptionalTunable(description="\n            If enabled, this is a regular Death interactions: the Sim will have\n            its death type set to this value, and it will effectively become a\n            ghost.\n            \n            If disabled, the interaction behavior is mostly the same, except\n            that the Sim won't become a ghost. Instead, they'll be split out of\n            this household (into a hidden household) and its LOD set to MINIMUM.\n            ", tunable=TunableEnumEntry(description="\n                The subject's death type will be set to this value.\n                ", tunable_type=DeathType, default=DeathType.NONE, tuning_group=GroupNames.DEATH), enabled_by_default=True, disabled_name='Set_To_Minimum_LOD'), 'death_dialog': UiDialog.TunableFactory(description='\n            A dialog informing the Player that their last selectable Sim is\n            dead, prompting them to either save and quit, or quit.\n            ', text=LocalizedStringHouseholdNameSelector.TunableFactory(), tuning_group=GroupNames.DEATH), 'off_lot_death_notification': OptionalTunable(description='\n            If enabled, show a notification when Sims die off-lot.\n            ', tunable=UiDialogNotification.TunableFactory(description='\n                The notification that is displayed when sim has died off lot and\n                then switching to sim that is not on current lot the sim died\n                on.\n                \n                Tokens:\n                0 - Sim that has died\n                1 - Zone Name the sim died on.\n                '), tuning_group=GroupNames.DEATH), 'save_lock_tooltip': TunableLocalizedStringFactory(description='\n            The tooltip/message to show when the player tries to save the game\n            while the death interaction is happening\n            ', tuning_group=GroupNames.UI)}
+    INSTANCE_TUNABLES = {'death_element': DeathElement.TunableFactory(description='\n            Define what object is created by the dying Sim.\n            ', locked_args={'creation_data': UrnstoneCreationData, 'destroy_on_placement_failure': False}, tuning_group=GroupNames.DEATH), 'death_subject': TunableEnumEntry(description='\n            The participant whose death will be occurring.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor, tuning_group=GroupNames.DEATH), 'death_info': OptionalTunable(description="\n            If enabled, this is a regular Death interactions: the Sim will have\n            its death type set to this value, the Sim will become a ghost\n            if the death type has a ghost trait associated with it, and other\n            death related gameplay effects are triggered (other Sim's getting\n            buffs based on relationship, remove rel bits on death, etc.) \n            \n            If disabled, the interaction behavior is mostly the same, except\n            that the Sim won't become a ghost, and other death related\n            gameplay effects are not triggered.\n            Instead, they'll be split out of this household (into a hidden \n            household) and its LOD set to MINIMUM.\n            ", tunable=TunableTuple(death_type=TunableEnumEntry(description="\n                    The subject's death type will be set to this value.\n                    ", tunable_type=DeathType, default=DeathType.NONE, tuning_group=GroupNames.DEATH), set_to_minimum_lod=Tunable(description="\n                    If checked set the Sim's LOD to MINIMUM. This should be\n                    used when we want a Sim's death to trigger the normal\n                    death related gameplay effects, but also want to set it's\n                    LOD to minimum. This should not be used if the death type\n                    has an associated ghost trait. Please check with a GPE\n                    if you think you need to check this.\n                    ", tunable_type=bool, default=False)), enabled_by_default=True, disabled_name='Set_To_Minimum_LOD'), 'death_dialog': UiDialog.TunableFactory(description='\n            A dialog informing the Player that their last selectable Sim is\n            dead, prompting them to either save and quit, or quit.\n            ', text=LocalizedStringHouseholdNameSelector.TunableFactory(), tuning_group=GroupNames.DEATH), 'off_lot_death_notification': OptionalTunable(description='\n            If enabled, show a notification when Sims die off-lot.\n            ', tunable=UiDialogNotification.TunableFactory(description='\n                The notification that is displayed when sim has died off lot and\n                then switching to sim that is not on current lot the sim died\n                on.\n                \n                Tokens:\n                0 - Sim that has died\n                1 - Zone Name the sim died on.\n                '), tuning_group=GroupNames.DEATH), 'save_lock_tooltip': TunableLocalizedStringFactory(description='\n            The tooltip/message to show when the player tries to save the game\n            while the death interaction is happening\n            ', tuning_group=GroupNames.UI)}
 
     def __init__(self, *args, **kwargs):
         self._removed_sim = None
@@ -109,7 +115,7 @@ class DeathSuperInteraction(SuperInteraction):
         running_death_interaction = getattr(context.sim, DEATH_INTERACTION_MARKER_ATTRIBUTE, None)
         if running_death_interaction is not None and running_death_interaction is not inst:
             return TestResult(False, '{} is already dying.', context.sim)
-        if cls.death_type is not None:
+        if cls.death_info is not None:
             if not is_death_enabled():
                 return TestResult(False, 'Death is disabled.')
             sim_info = context.sim.sim_info
@@ -171,13 +177,17 @@ class DeathSuperInteraction(SuperInteraction):
             death_object_data = (death_element.create_object(), death_element.placement_failed)
         self._death_object_data = death_object_data
         self.sim.sim_info.career_tracker.on_death()
+        if self.sim.sim_info.degree_tracker is not None:
+            self.sim.sim_info.degree_tracker.on_death()
+        LoanTunables.on_death(self.sim.sim_info)
+        self.sim.sim_info.Buffs.remove_all_buffs_with_temporary_commodities()
         if not self.sim.is_npc:
             self.sim.inventory_component.push_items_to_household_inventory()
         self.sim.inventory_component.purge_inventory()
         self.sim.sim_info.inventory_data = self.sim.inventory_component.save_items()
-        if self.death_type is not None:
+        if self.death_info is not None:
             with telemetry_helper.begin_hook(death_telemetry_writer, TELEMETRY_HOOK_SIM_DIES, sim_info=self.sim.sim_info) as hook:
-                hook.write_int(TELEMETRY_DEATH_TYPE, self.death_type)
+                hook.write_int(TELEMETRY_DEATH_TYPE, self.death_info.death_type)
         for si in list(self.sim.interaction_refs):
             si.refresh_conditional_actions()
             si.set_target(None)
@@ -210,8 +220,11 @@ class DeathSuperInteraction(SuperInteraction):
                 except KeyError:
                     logger.exception('Failed to place an urnstone for {} in household inventory: {}', sim_info, sim_info.household.id)
         death_tracker = sim_info.death_tracker
-        death_tracker.set_death_type(self.death_type)
-        if self.death_type is None:
+        death_type = None
+        if self.death_info is not None:
+            death_type = self.death_info.death_type
+        death_tracker.set_death_type(death_type)
+        if self.death_info is None or self.death_info.set_to_minimum_lod:
             sim_info.request_lod(SimInfoLODLevel.MINIMUM)
         if self._client is not None:
             self._client.set_next_sim_or_none(only_if_this_active_sim_info=sim_info)

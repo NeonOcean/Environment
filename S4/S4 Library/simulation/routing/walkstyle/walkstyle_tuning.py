@@ -18,8 +18,8 @@ class TunableWalkstyle(TunableResourceKey):
     def validate_pack_safe(self):
         return False
 
-    def load_etree_node(self, *args, node, **kwargs):
-        value = super().load_etree_node(*args, node=node, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value is not None:
             walkstyle_hash = routing.get_walkstyle_hash_from_resource(value)
             walkstyle_name = routing.get_walkstyle_name_from_resource(value)

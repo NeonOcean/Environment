@@ -30,7 +30,7 @@ class HiddenSimService(Service):
         sim_info = services.sim_info_manager().get(sim_id)
         if sim_info is None:
             logger.error('Could not get the sim_info when attempting to hide sim {}. Maybe it was culled?', sim_id)
-        if default_away_action is not None:
+        if default_away_action is not None and sim_info.away_action_tracker is not None:
             sim_info.away_action_tracker.create_and_apply_away_action(default_away_action)
         client = services.client_manager().get_client_by_household_id(sim_info._household_id)
         if client is not None:

@@ -6,6 +6,12 @@ import services
 class _StoryProgressionAction(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'description': '\n            An action defines behavior that is to occur on a certain\n            subset of Sims affected by Story Progression.\n            '}
 
+    def save(self, data):
+        pass
+
+    def load(self, data):
+        pass
+
     def should_process(self, options):
         return True
 

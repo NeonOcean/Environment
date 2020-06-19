@@ -271,7 +271,8 @@ class BroadcasterEffectSelfBuff(_BroadcasterEffectTested):
                 self._buff_handles[broadcaster] = broadcasting_object.add_buff(self.buff.buff_type, buff_reason=self.buff.buff_reason)
         elif broadcaster in self._buff_handles:
             broadcasting_object = broadcaster.broadcasting_object
-            broadcasting_object.remove_buff(self._buff_handles[broadcaster])
+            if broadcasting_object is not None:
+                broadcasting_object.remove_buff(self._buff_handles[broadcaster])
             del self._buff_handles[broadcaster]
 
     def _apply_broadcaster_effect(self, broadcaster, affected_object):

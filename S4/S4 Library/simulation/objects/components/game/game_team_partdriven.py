@@ -1,5 +1,5 @@
 from objects.components.game.game_team import GameTeam
-from sims4.tuning.tunable import TunableVariant, HasTunableSingletonFactory
+from sims4.tuning.tunable import Tunable, TunableVariant, HasTunableSingletonFactory
 
 class GameTeamPartDriven(GameTeam):
 
@@ -12,7 +12,7 @@ class GameTeamPartDriven(GameTeam):
                 return False
             return part_a is part_b or any(part_a is adjacent_part for adjacent_part in part_b.adjacent_parts_gen())
 
-    FACTORY_TUNABLES = {'part_requirement': TunableVariant(description='\n            Define how part relationships define team structure.\n            ', adjacent=_PartRequirementAdjacent.TunableFactory(), default='adjacent')}
+    FACTORY_TUNABLES = {'part_requirement': TunableVariant(description='\n            Define how part relationships define team structure.\n            ', adjacent=_PartRequirementAdjacent.TunableFactory(), default='adjacent'), '_team_determines_part': Tunable(description='\n            If True, the team a sim is added to determines which parts can be\n            used.  If false, the part a team chooses to use determines which\n            team the sim should be on.\n            ', tunable_type=bool, default=True)}
 
     def add_player(self, game, sim):
         target_object = game.get_target_object_for_sim(sim)
@@ -24,6 +24,9 @@ class GameTeamPartDriven(GameTeam):
 
     def can_be_on_same_team(self, target_a, target_b):
         return self.part_requirement.is_on_same_team(target_a, target_b)
+
+    def team_determines_part(self):
+        return self._team_determines_part
 
     def can_be_on_opposing_team(self, target_a, target_b):
         return not self.can_be_on_same_team(target_a, target_b)

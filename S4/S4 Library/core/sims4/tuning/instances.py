@@ -43,21 +43,26 @@ class TunedInstanceMetaclass(type):
         return parents
 
     def get_tunables(cls, ignore_tuned_instance_metaclass_subclasses=False):
-        tuning = {}
+        parents = cls.__mro__
         if ignore_tuned_instance_metaclass_subclasses:
-            parents = cls.get_parents()
-        else:
-            parents = cls.mro()
-        for base_cls in reversed(parents):
-            cls_vars = vars(base_cls)
+            i = 0
+            for c in parents:
+                if i != 0:
+                    if TunedInstanceMetaclass in c.__class__.__mro__:
+                        parents = parents[:i]
+                        break
+                i += 1
+        tuning = {}
+        for base_cls in parents[::-1]:
+            cls_vars = base_cls.__dict__
             if REMOVE_INSTANCE_TUNABLES in cls_vars:
-                remove_instance_tunables = cls_vars[REMOVE_INSTANCE_TUNABLES]
-                for key in remove_instance_tunables:
-                    if key in tuning:
+                for key in cls_vars[REMOVE_INSTANCE_TUNABLES]:
+                    try:
                         del tuning[key]
+                    except:
+                        pass
             if INSTANCE_TUNABLES in cls_vars:
-                instance_tunables = cls_vars[INSTANCE_TUNABLES]
-                tuning.update(instance_tunables)
+                tuning.update(cls_vars[INSTANCE_TUNABLES])
         return tuning
 
     def get_invalid_removals(cls):

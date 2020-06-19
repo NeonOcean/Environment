@@ -56,11 +56,11 @@ class ReservationMixin:
     def get_use_list_handler(self, sim, **kwargs):
         return ReservationHandlerUseList(sim, self, **kwargs)
 
-    def may_reserve(self, sim, *_, reservation_handler=None, _from_reservation_call=False, **kwargs):
+    def may_reserve(self, reserver, *_, reservation_handler=None, _from_reservation_call=False, **kwargs):
         if reservation_handler is None:
-            reservation_handler = self.get_reservation_handler(sim)
+            reservation_handler = self.get_reservation_handler(reserver)
         reserve_result = reservation_handler.may_reserve_internal(**kwargs)
-        if gsi_handlers.sim_handlers_log.sim_reservation_archiver.enabled:
+        if gsi_handlers.sim_handlers_log.sim_reservation_archiver.enabled and reserver.is_sim:
             reserve_result_str = '{}: {}'.format('reserve' if not _from_reservation_call else 'may_reserve', reserve_result)
             gsi_handlers.sim_handlers_log.archive_sim_reservation(reservation_handler, reserve_result_str)
         return reserve_result

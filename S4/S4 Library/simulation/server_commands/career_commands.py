@@ -5,6 +5,7 @@ from careers.career_tuning import Career
 from careers.career_enums import CareerShiftType
 from event_testing.resolver import SingleSimResolver
 from interactions.context import QueueInsertStrategy
+from rewards.reward_enums import RewardType
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam, OptionalSimInfoParam
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.localization import LocalizationHelperTuning
@@ -46,7 +47,11 @@ def select_career(sim_id:int=None, career_instance_id:int=None, track_id:int=Non
         if current_career is not None:
             current_career.on_branch_selection(career_track)
         else:
-            career_tracker.add_career(career_type(sim_info), show_confirmation_dialog=True, schedule_shift_override=schedule_shift_type)
+            if level >= len(career_track.career_levels):
+                logger.error('The career track {} does not have a level {}', career_track, level, owner='jmorrow')
+                return False
+            career = career_type(sim_info)
+            career_tracker.add_career(career, show_confirmation_dialog=True, schedule_shift_override=schedule_shift_type, career_level_override=career_track.career_levels[level], disallowed_reward_types=(RewardType.MONEY,))
     if reason == CareerOps.QUIT_CAREER:
         career_tracker.remove_career(career_instance_id)
 

@@ -184,6 +184,7 @@ class Asm(native.animation.NativeAsm):
         self.context = context
         self._posture_manifest_overrides = posture_manifest_overrides
         self._prop_overrides = {}
+        self._alt_prop_definitions = {}
         self._prop_state_values = {}
         self._vfx_overrides = {}
         self._sound_overrides = {}
@@ -538,8 +539,10 @@ class Asm(native.animation.NativeAsm):
         boundary_list = self._make_boundary_conditions_list(actor, to_state_name, from_state_name, locked_params, entry=entry, posture=posture, base_object_name=base_object_name, target=target)
         return boundary_list
 
-    def set_prop_override(self, prop_name, override_tuning):
+    def set_prop_override(self, prop_name, override_tuning, alternative_def=None):
         self._prop_overrides[prop_name] = override_tuning
+        if alternative_def is not None:
+            self._alt_prop_definitions[prop_name] = alternative_def
 
     def store_prop_state_values(self, prop_name, state_values):
         self._prop_state_values[prop_name] = state_values
@@ -557,7 +560,8 @@ class Asm(native.animation.NativeAsm):
         result = {}
         for (prop_name, prop_key) in prop_keys.items():
             if prop_name in self._prop_overrides and self._prop_overrides[prop_name].definition is not None:
-                result[prop_name] = self._prop_overrides[prop_name].definition.id
+                alt_def = self._alt_prop_definitions.get(prop_name, None)
+                result[prop_name] = alt_def.id if alt_def is not None else self._prop_overrides[prop_name].definition.id
             else:
                 result[prop_name] = prop_key.instance
         return result

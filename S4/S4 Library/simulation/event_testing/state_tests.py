@@ -37,8 +37,9 @@ class StateTest(event_testing.test_base.BaseTest):
                 if target.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS) is None:
                     return TestResult(False, '{} failed state check: It is not an instantiated sim.', target, tooltip=self.tooltip)
                 target = target.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-            if self.value is not None and target.state_component and target.has_state(self.value.state):
-                curr_value = target.get_state(self.value.state)
+            state_component = target.state_component
+            if self.value is not None and state_component is not None and state_component.has_state(self.value.state):
+                curr_value = state_component.get_state(self.value.state)
             elif self.fallback_behavior == self.ALWAYS_FAIL:
                 return TestResult(False, '{} failed state check: {} does not have the {} state.', self.who.name, target.__class__.__name__, self.value.state if self.value is not None else '<Unavailable>', tooltip=self.tooltip)
                 if self.operator_enum.category == sims4.math.Operator.EQUAL:

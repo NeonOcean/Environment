@@ -253,18 +253,36 @@ class FireService(Service):
         if state is self.FIRE_OBJECT_FIRE_STATE and new_value is self.FIRE_OBJECT_EXTINGUISHED_STATE_VALUE and not owner.get_users():
             owner.destroy(source=owner, cause='Fire is being extinguished.')
 
-    def _spawn_fire(self, transform, routing_surface, run_placement_tests=True):
+    def is_fire_allowed(self, transform, routing_surface, run_placement_tests=True):
         if not fire_enabled:
             logger.info('Trying to spawn fire when fire is disabled. Please use |fire.toggle_enabled cheat to turn fire on.')
-            return
+            return False
         if not services.active_lot().is_position_on_lot(transform.translation):
             logger.info('Trying to spawn fire on a lot other than the active lot.')
-            return
+            return False
         if not services.venue_service().venue.allows_fire:
             logger.info("Trying to spawn a fire on a venue that doesn't allow fire.")
-            return
-        if run_placement_tests and not self._placement_tests(transform.translation, routing_surface):
+            return False
+        elif run_placement_tests and not self._placement_tests(transform.translation, routing_surface):
             logger.info('Trying to spawn a fire on a lot at a position that is not valid.')
+            return False
+        return True
+
+    def get_fires_in_potential_targets(self, target_objects):
+        if not target_objects:
+            return []
+        on_fire_object = None
+        max_radius = -1
+        for (potential_target, _) in target_objects:
+            radius = potential_target.object_radius
+            if radius > max_radius:
+                max_radius = radius
+                on_fire_object = potential_target
+        on_fire_object_position = on_fire_object.position
+        return self.query_quadtree_for_fire_object(sims4.math.Vector2(on_fire_object_position.x, on_fire_object_position.z), radius=max_radius, surface_id=on_fire_object.routing_surface)
+
+    def _spawn_fire(self, transform, routing_surface, run_placement_tests=True):
+        if not self.is_fire_allowed(transform, routing_surface, run_placement_tests=run_placement_tests):
             return
         fire_object = system.create_object(self.FIRE_OBJECT_DEF)
         fire_object.move_to(transform=transform, routing_surface=routing_surface)
@@ -287,20 +305,26 @@ class FireService(Service):
             time_span = date_and_time.create_time_span(minutes=self.FIRE_SPREAD_INTIAL_TIME_IN_SIM_MINUTES)
             repeating_time_span = date_and_time.create_time_span(minutes=self.FIRE_SPREAD_REPEATING_TIME_IN_SIM_MINUTES)
             self._fire_spread_alarm = alarms.add_alarm(self, time_span, self._fire_spread_alarm_callback, repeating=True, repeating_time_span=repeating_time_span)
+        return fire_object
 
-    def spawn_fire_at_object(self, obj):
-        self._spawn_fire(obj.transform, obj.routing_surface)
+    def spawn_fire_at_object(self, obj, num_fires=1):
+        fire_object = self._spawn_fire(obj.transform, obj.routing_surface)
+        if fire_object is None or num_fires <= 1:
+            return
+        created_fire_objects = (fire_object,)
+        for _ in range(1, num_fires):
+            self.spread_fire(fire_object_list_override=created_fire_objects)
 
     def _show_fire_notification(self):
         client = services.client_manager().get_first_client()
         dialog = self.FIRE_STARTED_NOTIFICATION(client.active_sim)
         dialog.show_dialog()
 
-    def spread_fire(self):
+    def spread_fire(self, fire_object_list_override=None):
         if not self._fire_objects:
             return
         logger.debug('Starting to attempt to spread fire.')
-        fire_object_list = list(self._fire_objects)
+        fire_object_list = fire_object_list_override or list(self._fire_objects)
         for attempt in range(self.MAX_NUM_ATTEMPTS_TO_PLACE_FIRE):
             logger.debug('Attempt {} to spread fire.', attempt)
             fire_object = random.choice(fire_object_list)

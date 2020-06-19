@@ -62,11 +62,14 @@ class SituationGoalMultipleSimsInInteraction(SituationGoal):
             services.get_event_manager().unregister_with_custom_key(self, event_testing.test_events.TestEvent.InteractionComplete, custom_key)
         super()._decommision()
 
-    def _run_goal_completion_tests(self, sim_info, event, resolver):
+    def _valid_event_sim_of_interest(self, sim_info):
         if self._situation is not None and not self._select_sims_outside_of_situation:
             sim = sim_info.get_sim_instance()
             if not self._situation.is_sim_in_situation(sim):
                 return False
+        return True
+
+    def _run_goal_completion_tests(self, sim_info, event, resolver):
         if not resolver(self._goal_test):
             return False
         else:

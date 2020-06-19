@@ -1,0 +1,6 @@
+{
+	"DistributionPath": "../../Distribution",
+	"DistributionReleasesPath": "../../Distribution/Releases",
+	"DistributionPreviewsPath": "../../Distribution/Previews",
+	"WebsitesDistributionPath": "../../Websites"
+}

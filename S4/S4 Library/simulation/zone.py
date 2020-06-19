@@ -48,6 +48,7 @@ import sims4.random
 import tag
 import telemetry_helper
 import zone_types
+from objects.components.types import AUTONOMY_MARKER_COMPONENT
 with sims4.reload.protected(globals()):
     gc_count_log = None
 TELEMETRY_GROUP_GCSTATS = 'GCST'
@@ -106,6 +107,7 @@ class Zone:
         self._restricted_open_street_autonomy_area = None
         self._should_perform_deferred_front_door_check = False
         self._gc_full_count = 0
+        self.is_active_lot_clearing = False
 
     def __repr__(self):
         return '<Zone ID: {0:#x}>'.format(self.id)
@@ -203,6 +205,7 @@ class Zone:
         from services.cleanup_service import CleanupService
         from services.fire_service import FireService
         from services.reset_and_delete_service import ResetAndDeleteService
+        from services.object_routing_service import ObjectRoutingService
         from sims.culling.culling_service import CullingService
         from sims.daycare import DaycareService
         from sims.master_controller import MasterController
@@ -217,7 +220,7 @@ class Zone:
         from venues.venue_service import VenueService
         from zone_modifier.zone_modifier_service import ZoneModifierService
         from zone_spin_up_service import ZoneSpinUpService
-        service_list = [SimIrqService(), PlexService(), LocatorManager(), ResetAndDeleteService(), ObjectManager(manager_id=MGR_OBJECT), InventoryManager(manager_id=MGR_OBJECT), ConditionalLayerService(), DoorService(), PropManager(manager_id=MGR_OBJECT), TravelGroupManager(manager_id=MGR_TRAVEL_GROUP), PostureGraphService(), ArbAccumulatorService(None, None), AutonomyService(), SimSpawnerService(), EnsembleService(), SituationManager(manager_id=MGR_SITUATION), DemographicsService(), SimFilterService(), NPCHostedSituationService(), PartyManager(manager_id=MGR_PARTY), SocialGroupManager(manager_id=MGR_SOCIAL_GROUP), UiDialogService(), CalendarService(), DramaScheduleService(), ObjectClusterService(), SocialGroupClusterService(), NeighborhoodPopulationService(), ServiceNpcService(), VenueService(), AmbientService(), StoryProgressionService(), ZoneSpinUpService(), PrivacyService(), FireService(), ZoneModifierService(), BroadcasterService(), BroadcasterRealTimeService(), CleanupService(), CareerService(), DaycareService(), LaundryService(), PhotographyService(), AdoptionService(), CullingService(), GardeningService(), MasterController()]
+        service_list = [SimIrqService(), PlexService(), LocatorManager(), ResetAndDeleteService(), ObjectManager(manager_id=MGR_OBJECT), InventoryManager(manager_id=MGR_OBJECT), ConditionalLayerService(), DoorService(), PropManager(manager_id=MGR_OBJECT), TravelGroupManager(manager_id=MGR_TRAVEL_GROUP), PostureGraphService(), ArbAccumulatorService(None, None), AutonomyService(), SimSpawnerService(), EnsembleService(), SituationManager(manager_id=MGR_SITUATION), DemographicsService(), SimFilterService(), NPCHostedSituationService(), PartyManager(manager_id=MGR_PARTY), SocialGroupManager(manager_id=MGR_SOCIAL_GROUP), UiDialogService(), CalendarService(), DramaScheduleService(), ObjectClusterService(), SocialGroupClusterService(), NeighborhoodPopulationService(), ServiceNpcService(), VenueService(), AmbientService(), StoryProgressionService(), ZoneSpinUpService(), PrivacyService(), FireService(), ZoneModifierService(), BroadcasterService(), BroadcasterRealTimeService(), CleanupService(), CareerService(), DaycareService(), LaundryService(), PhotographyService(), AdoptionService(), CullingService(), GardeningService(), ObjectRoutingService(), MasterController()]
         from sims4.service_manager import ServiceManager
         self.service_manager = ServiceManager()
         for service in service_list:
@@ -233,6 +236,7 @@ class Zone:
         season_service = services.season_service()
         weather_service = services.weather_service()
         narrative_service = services.narrative_service()
+        roommate_service = services.get_roommate_service()
         if self._zone_state == zone_types.ZoneState.CLIENT_CONNECTED:
             game_clock.tick_game_clock(absolute_ticks)
         elif self._zone_state == zone_types.ZoneState.HITTING_THEIR_MARKS:
@@ -260,6 +264,8 @@ class Zone:
                     season_service.update()
                 if weather_service is not None:
                     weather_service.update()
+                if roommate_service is not None:
+                    roommate_service.update(self.id)
                 adaptive_clock_speed.AdaptiveClockSpeed.update_adaptive_speed()
         self._gather_tick_metrics(absolute_ticks)
 
@@ -376,6 +382,10 @@ class Zone:
         sims4.core_services.service_manager.on_zone_unload()
         game_services.service_manager.on_zone_unload()
         self.service_manager.on_zone_unload()
+        logger.debug('Zone teardown: delete empty active household if necessary.')
+        active_household = services.active_household()
+        if active_household is not None:
+            active_household.destroy_household_if_empty()
         logger.debug('Zone teardown: disable event manager')
         services.get_event_manager().disable_on_teardown()
         self.ui_dialog_service.disable_on_teardown()
@@ -507,6 +517,9 @@ class Zone:
 
     def on_households_and_sim_infos_loaded(self):
         self._set_zone_state(zone_types.ZoneState.HOUSEHOLDS_AND_SIM_INFOS_LOADED)
+        object_preference_tracker = services.object_preference_tracker()
+        if object_preference_tracker is not None:
+            object_preference_tracker.convert_existing_preferences()
 
     def on_loading_screen_animation_finished(self):
         logger.debug('on_loading_screen_animation_finished')
@@ -618,7 +631,7 @@ class Zone:
             return
         return
 
-    def get_spawn_points_constraint(self, sim_info=None, lot_id=None, sim_spawner_tags=None, except_lot_id=None, spawn_point_request_reason=SpawnPointRequestReason.DEFAULT, generalize=False):
+    def get_spawn_points_constraint(self, sim_info=None, lot_id=None, sim_spawner_tags=None, except_lot_id=None, spawn_point_request_reason=SpawnPointRequestReason.DEFAULT, generalize=False, backup_sim_spawner_tags=None, backup_lot_id=None):
         spawn_point_option = SpawnPointOption.SPAWN_ANY_POINT_WITH_CONSTRAINT_TAGS
         search_tags = sim_spawner_tags
         spawn_point_id = None
@@ -633,6 +646,9 @@ class Zone:
         points = []
         if search_tags is not None:
             spawn_points_with_tags = self._get_spawn_points_with_lot_id_and_tags(sim_info=sim_info, lot_id=lot_id, sim_spawner_tags=search_tags, except_lot_id=except_lot_id, spawn_point_request_reason=spawn_point_request_reason)
+            if not spawn_points_with_tags:
+                if backup_sim_spawner_tags is not None:
+                    spawn_points_with_tags = self._get_spawn_points_with_lot_id_and_tags(sim_info=sim_info, lot_id=backup_lot_id, sim_spawner_tags=backup_sim_spawner_tags, except_lot_id=except_lot_id, spawn_point_request_reason=spawn_point_request_reason)
             if spawn_points_with_tags:
                 for spawn_point in spawn_points_with_tags:
                     if spawn_point_option == SpawnPointOption.SPAWN_DIFFERENT_POINT_WITH_SAVED_TAGS and original_spawn_point is not None and spawn_point.spawn_point_id == original_spawn_point.spawn_point_id:
@@ -757,6 +773,12 @@ class Zone:
         laundry_service = services.get_laundry_service()
         if laundry_service is not None:
             laundry_service.on_build_buy_exit()
+
+    def on_active_lot_clearing_begin(self):
+        self.is_active_lot_clearing = True
+
+    def on_active_lot_clearing_end(self):
+        self.is_active_lot_clearing = False
 
     def set_to_fixup_on_build_buy_exit(self, obj):
         if self.objects_to_fixup_post_bb is None:
@@ -905,7 +927,7 @@ class Zone:
         if zone_data_proto is None:
             return
         venue_instance = self.venue_service.venue
-        if venue_instance is None or not venue_instance.venue_requires_front_door:
+        if venue_instance is None or not venue_instance.requires_front_door:
             return
         gameplay_zone_data = zone_data_proto.gameplay_zone_data
         if self.lot.owner_household_id == 0:
@@ -981,7 +1003,6 @@ class Zone:
             return self._restricted_open_street_autonomy_area
         points = [obj.position for obj in services.object_manager().get_objects_with_tag_gen(self.RESTRICTED_AUTONOMY_AREA_TAG)]
         if len(points) != self.FESTIVAL_AUTONOMY_AREA_POINT_COUNT:
-            logger.error('Festival autonomy area not defined by exactly 4\n                         points.  {} points found.  Either we or trying to use\n                         the Restricted Autonomy Option on an open street that\n                         does not support it or World Building has not set up\n                         the open street correctly.\n                         ', len(points), owner='jjacobson')
             return
         center = sum(points, sims4.math.Vector3.ZERO())/len(points)
         points.sort(key=lambda k: sims4.math.atan2(k.x - center.x, k.z - center.z), reverse=True)
@@ -993,3 +1014,6 @@ class Zone:
         if festival_polygon is None:
             return False
         return festival_polygon.contains_point(point)
+
+    def clear_autonomy_area(self):
+        self._restricted_open_street_autonomy_area = None

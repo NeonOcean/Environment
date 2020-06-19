@@ -1,10 +1,11 @@
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, OptionalTunable, TunableRange, Tunable
-import sims4.reload
 from interactions.constraints import ANYWHERE, Constraint
 from postures.base_postures import MobilePosture
 from postures.posture_graph import get_mobile_posture_constraint
+from routing import SurfaceType
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, OptionalTunable, TunableRange, Tunable, TunedInterval
 from world.ocean_tuning import OceanTuning
 import routing
+import sims4.reload
 DEBUGVIS_WAYPOINT_LAYER_NAME = 'waypoints'
 with sims4.reload.protected(globals()):
     enable_waypoint_visualization = False
@@ -49,6 +50,9 @@ class _WaypointGeneratorBase(HasTunableFactory, AutoFactoryInit):
         if self._target is not None:
             if self._target is not self._context.sim:
                 (min_water_depth, max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface_and_sim(self._routing_surface, self._target, min_water_depth, max_water_depth)
+        if self.is_for_vehicle:
+            wading_interval = TunedInterval(0.1, 0.1)
+            (min_water_depth, max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface(self._routing_surface, wading_interval, min_water_depth, max_water_depth)
         if min_water_depth is None and max_water_depth is None:
             constraint = ANYWHERE
         else:

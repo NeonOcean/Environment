@@ -21,6 +21,7 @@ from routing import FootprintType
 from server.pick_info import PickInfo, PickType
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam, OptionalSimInfoParam
 from sims.genealogy_tracker import FamilyRelationshipIndex
+from sims.loan_tuning import LoanType, LoanTunables
 from sims.outfits.outfit_enums import OutfitCategory
 from sims.sim_info_types import Age, Gender, Species
 from sims.sim_spawner import SimSpawner, SimCreator
@@ -417,7 +418,7 @@ def remove_all_buffs(opt_target:OptionalSimInfoParam=None, _connection=None):
                     continue
                 tracker = target.get_tracker(buff_type.commodity)
                 commodity_inst = tracker.get_statistic(buff_type.commodity)
-                if commodity_inst.core:
+                if commodity_inst is not None and commodity_inst.core:
                     continue
             target.remove_buff_by_type(buff_type)
             sims4.commands.output('({0}) has been removed.'.format(buff_type.__name__), _connection)
@@ -805,9 +806,9 @@ def clear_all_stats(opt_sim:OptionalTargetParam=None, _connection=None):
     return True
 
 @sims4.commands.Command('sims.fill_all_commodities', command_type=sims4.commands.CommandType.Cheat)
-def fill_commodities(visible_only:bool=True, _connection=None):
+def set_commodities_to_best_values(visible_only:bool=True, _connection=None):
     for sim_info in services.sim_info_manager().objects:
-        sim_info.commodity_tracker.set_all_commodities_to_max(visible_only=visible_only)
+        sim_info.commodity_tracker.set_all_commodities_to_best_value(visible_only=visible_only)
 
 @sims4.commands.Command('rosebud', 'kaching', command_type=sims4.commands.CommandType.Live, console_type=sims4.commands.CommandType.Cheat)
 def rosebud(_connection=None):
@@ -1294,3 +1295,16 @@ def raytest_3d(x1:float=0.0, y1:float=0.0, z1:float=0.0, x2:float=0.0, y2:float=
         sims4.commands.execute('debugvis.draw.line {} {} {} {} {} {} false {}'.format(x1 + cross1.x, y1 + cross1.y, z1 + cross1.z, x2 + cross1.x, y2 + cross1.y, z2 + cross1.z, color), _connection)
         sims4.commands.execute('debugvis.draw.line {} {} {} {} {} {} false {}'.format(x1 - cross2.x, y1 - cross2.y, z1 - cross2.z, x2 - cross2.x, y2 - cross2.y, z2 - cross2.z, color), _connection)
         sims4.commands.execute('debugvis.draw.line {} {} {} {} {} {} false {}'.format(x1 + cross2.x, y1 + cross2.y, z1 + cross2.z, x2 + cross2.x, y2 + cross2.y, z2 + cross2.z, color), _connection)
+
+@sims4.commands.Command('sims.take_out_loan')
+def take_out_loan(opt_sim:OptionalSimInfoParam=None, loan_amount:float=0.0, loan_type:LoanType=LoanType.INVALID, _connection=None):
+    if loan_type is LoanType.INVALID:
+        sims4.commands.output('take_out_loan: Invalid loan type specified', _connection)
+        return False
+    sim_info = get_optional_target(opt_sim, _connection=_connection)
+    if sim_info is None:
+        sims4.commands.output('take_out_loan: No sim_info specified', _connection)
+        return False
+    loan_amount = LoanTunables.get_loan_amount(loan_amount, loan_type)
+    LoanTunables.add_debt(sim_info, loan_amount)
+    return True

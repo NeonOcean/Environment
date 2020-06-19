@@ -146,6 +146,11 @@ class Python26Parser(Python2Parser):
         whilestmt      ::= SETUP_LOOP testexpr l_stmts_opt jb_cf_pop POP_BLOCK
         whilestmt      ::= SETUP_LOOP testexpr returns POP_BLOCK COME_FROM
 
+        # In the "whilestmt" below, there isn't a COME_FROM when the
+        # "while" is the last thing in the module or function.
+
+        whilestmt      ::= SETUP_LOOP testexpr returns POP_TOP POP_BLOCK
+
         whileelsestmt  ::= SETUP_LOOP testexpr l_stmts_opt jb_pop POP_BLOCK
                            else_suitel COME_FROM
         while1elsestmt ::= SETUP_LOOP l_stmts JUMP_BACK else_suitel COME_FROM
@@ -186,7 +191,11 @@ class Python26Parser(Python2Parser):
         jmp_false_then ::= JUMP_IF_FALSE THEN POP_TOP
         jmp_true_then  ::= JUMP_IF_TRUE THEN POP_TOP
 
-        while1stmt ::= SETUP_LOOP returns COME_FROM
+        # In the "while1stmt" below, there sometimes isn't a
+        # "COME_FROM" when the "while1" is the last thing in the
+        # module or function.
+
+        while1stmt ::= SETUP_LOOP returns come_from_opt
         for_block  ::= returns _come_froms
         """
 
@@ -240,6 +249,9 @@ class Python26Parser(Python2Parser):
 
         genexpr_func ::= setup_loop_lf FOR_ITER store comp_iter JUMP_ABSOLUTE come_froms
                          POP_TOP jb_pop jb_pb_come_from
+
+        genexpr_func ::= setup_loop_lf FOR_ITER store comp_iter JUMP_BACK come_froms
+                         POP_TOP jb_pb_come_from
 
         generator_exp ::= LOAD_GENEXPR MAKE_FUNCTION_0 expr GET_ITER CALL_FUNCTION_1 COME_FROM
         list_if ::= list_if ::= expr jmp_false_then list_iter

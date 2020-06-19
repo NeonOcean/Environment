@@ -48,6 +48,7 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
     def on_initial_startup(self):
         for commodity in tuple(self._statistics_values_gen()):
             commodity.on_initial_startup()
+        self.check_for_unneeded_initial_statistics()
         self.send_commodity_progress_update(from_add=True)
 
     def start_low_level_simulation(self):
@@ -55,7 +56,10 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         self.stop_regular_simulation()
         for commodity in tuple(self._statistics_values_gen()):
             commodity.start_low_level_simulation()
-        self.send_commodity_progress_update(from_add=True)
+        self.check_for_unneeded_initial_statistics()
+        owner = self.owner
+        if owner is not None and owner.is_selectable:
+            self.send_commodity_progress_update(from_add=True)
 
     def stop_low_level_simulation(self):
         for commodity in tuple(self._statistics_values_gen()):
@@ -125,6 +129,7 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         commodities_to_update = tuple(self._statistics_values_gen())
         for commodity in commodities_to_update:
             commodity._update_value()
+        self.check_for_unneeded_initial_statistics()
 
     def get_all_commodities(self):
         if self._statistics:

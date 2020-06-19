@@ -9,7 +9,9 @@ from element_utils import build_critical_section_with_finally
 from interactions.interaction_finisher import FinishingType
 from objects.components import Component, componentmethod, types, componentmethod_with_fallback, ComponentPriority
 from protocolbuffers import SimObjectAttributes_pb2 as persistence_protocols
+from statistics.statistic_enums import StatisticLockAction
 from statistics.commodity import SkewerAlertType
+import game_services
 import services
 import sims4.log
 import statistics.base_statistic_tracker
@@ -126,6 +128,7 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
         self._statistic_tracker = None
         self._commodity_distress_refs = []
         self._commodities_added = {}
+        self._saved_commodities_value_for_travel = {}
         self._interaction_modifiers = {}
         self._suspended_modifiers = {}
         self._interaction_score_modifier = []
@@ -256,12 +259,19 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                     self._commodities_added[commodity_type] = 1
                 else:
                     self._commodities_added[commodity_type] += 1
+                if commodity_type.guid64 in self._saved_commodities_value_for_travel:
+                    if game_services.service_manager.is_traveling and modifier.commodities_value_persist_for_travel:
+                        tracker.set_value(commodity_type, self._saved_commodities_value_for_travel[commodity_type.guid64], False)
+                    del self._saved_commodities_value_for_travel[commodity_type.guid64]
         if modifier.override_convergence is not None:
             for (commodity_to_override, convergence_value) in modifier.override_convergence.items():
                 tracker = self.get_tracker(commodity_to_override)
                 tracker.set_convergence(commodity_to_override, convergence_value)
         for stat_type in modifier.locked_stats_gen():
-            if not self.lock_statistic(stat_type, max_out=not interaction_modifier):
+            action_on_lock = StatisticLockAction.DO_NOT_CHANGE_VALUE
+            if not interaction_modifier:
+                action_on_lock = StatisticLockAction.USE_BEST_VALUE_TUNING
+            if not self.lock_statistic(stat_type, action_on_lock):
                 autonomy_modifier_entry.add_locked_statistics_skipped(stat_type)
         if modifier.decay_modifiers:
             for (stat_type, decay_modifiers) in modifier.decay_modifiers.items():
@@ -354,7 +364,7 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             if modifier.statistic_multipliers is not None:
                 statistic_multiplier = modifier.statistic_multipliers.get(stat_type, None)
                 if statistic_multiplier is not None:
-                    if not modifier_entry.has_multiplier(tracker, stat_type):
+                    if not modifier_entry.has_multiplier(stat_type, tracker):
                         stat.add_statistic_multiplier(statistic_multiplier)
                         modifier_entry.add_multiplier(stat_type, tracker)
 
@@ -492,6 +502,11 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                         else:
                             del self._commodities_added[commodity_type]
                             tracker = self.get_tracker(commodity_type)
+                            if game_services.service_manager.is_traveling:
+                                if modifier.commodities_value_persist_for_travel:
+                                    if tracker.has_statistic(commodity_type):
+                                        if commodity_type.persisted:
+                                            self._saved_commodities_value_for_travel[commodity_type.guid64] = tracker.get_value(commodity_type)
                             tracker.remove_statistic(commodity_type)
                 if modifier.relationship_score_multiplier_with_buff_on_target is not None:
                     for (buff_type, multiplier) in modifier.relationship_score_multiplier_with_buff_on_target.items():
@@ -602,13 +617,13 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
         return False
 
     @componentmethod_with_fallback(lambda _: False)
-    def lock_statistic(self, stat_type, max_out=True, zero_out=False):
+    def lock_statistic(self, stat_type, action_on_lock):
         if stat_type in self._locked_commodities:
             self._locked_commodities[stat_type] += 1
         else:
             stat = self._commodity_tracker.get_statistic(stat_type, stat_type.add_if_not_in_tracker)
             if stat is not None:
-                stat.on_lock(max_out=max_out, zero_out=zero_out)
+                stat.on_lock(action_on_lock)
                 self._locked_commodities[stat_type] = 1
             else:
                 return False
@@ -621,8 +636,6 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
                 stat = self._commodity_tracker.get_statistic(stat_type)
                 if stat is not None:
                     stat.on_unlock(auto_satisfy=auto_satisfy)
-                else:
-                    logger.warn("Attempting to unlock commodity that doesn't exist on object {},({}) : {}", self.owner, self.owner.id, stat_type)
                 del self._locked_commodities[stat_type]
             else:
                 self._locked_commodities[stat_type] -= 1

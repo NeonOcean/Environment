@@ -1,7 +1,8 @@
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.results import TestResult
 from event_testing.test_events import TestEvent, cached_test
-from sims4.tuning.tunable import Tunable, OptionalTunable, TunableTuple, TunableReference, HasTunableSingletonFactory, AutoFactoryInit
+from interactions import ParticipantTypeSingleSim
+from sims4.tuning.tunable import Tunable, OptionalTunable, TunableTuple, TunableReference, HasTunableSingletonFactory, AutoFactoryInit, TunableEnumEntry, TunableList
 import event_testing.test_base
 import services
 import sims4
@@ -103,4 +104,44 @@ class TimeUntilFestivalTest(HasTunableSingletonFactory, AutoFactoryInit, event_t
                 return TestResult(False, 'Next scheduled Festival is within specified time', tooltip=self.tooltip)
         elif not self.negate:
             return TestResult(False, "Next scheduled Festival isn't within specified time", tooltip=self.tooltip)
+        return TestResult.TRUE
+
+class DramaNodeTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
+    FACTORY_TUNABLES = {'drama_nodes': TunableList(description='\n            The types of drama nodes that we want to check.\n            ', tunable=TunableReference(description='\n                A Drama node type we want to check.\n                ', manager=services.get_instance_manager(sims4.resources.Types.DRAMA_NODE), pack_safe=True)), 'check_scheduled_nodes': Tunable(description='\n            Check against nodes that are scheduled, but not actively running.\n            ', tunable_type=bool, default=True), 'check_active_nodes': Tunable(description='\n            Check against nodes that are actively running.\n            ', tunable_type=bool, default=True), 'exists': Tunable(description='\n            If checked then this drama node will pass if a node meeting the requirements exists.\n            Otherwise it will pass if there is not a node meeting the requirements.\n            ', tunable_type=bool, default=True), 'receiver_sim': OptionalTunable(description='\n            If enabled we will check that the receiver Sim is the tuned Sim.\n            ', tunable=TunableEnumEntry(description='\n                The Sim that we will make sure is the receiver Sim.\n                ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.TargetSim))}
+
+    def get_expected_args(self):
+        if self.receiver_sim is None:
+            return {}
+        else:
+            return {'receiver_sim': self.receiver_sim}
+
+    @cached_test
+    def __call__(self, receiver_sim=None):
+        if not self.drama_nodes:
+            if self.exists:
+                return TestResult(False, 'No drama node exists meeting the requirements.', tooltip=self.tooltip)
+            return TestResult.TRUE
+        drama_scheduler = services.drama_scheduler_service()
+        if self.check_scheduled_nodes and self.check_active_nodes:
+            drama_node_gen = drama_scheduler.all_nodes_gen
+        elif self.check_scheduled_nodes:
+            drama_node_gen = drama_scheduler.scheduled_nodes_gen
+        elif self.check_active_nodes:
+            drama_node_gen = drama_scheduler.active_nodes_gen
+        else:
+            if self.exists:
+                return TestResult(False, 'No drama node exists meeting the requirements.', tooltip=self.tooltip)
+            return TestResult.TRUE
+        if receiver_sim is not None:
+            receiver_sim = next(iter(receiver_sim))
+        for drama_node in drama_node_gen():
+            if type(drama_node) not in self.drama_nodes:
+                continue
+            if receiver_sim is not None and drama_node.get_receiver_sim_info() is not receiver_sim:
+                continue
+            if self.exists:
+                return TestResult.TRUE
+            return TestResult(False, 'Drama node meeting the requirements exists when we are asking for non-existence.', tooltip=self.tooltip)
+        if self.exists:
+            return TestResult(False, 'No drama node exists meeting the requirements.', tooltip=self.tooltip)
         return TestResult.TRUE

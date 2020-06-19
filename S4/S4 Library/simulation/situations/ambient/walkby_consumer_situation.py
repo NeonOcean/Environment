@@ -2,27 +2,41 @@ import random
 from crafting.crafting_interactions import DebugCreateCraftableInteraction
 from event_testing.test_events import TestEvent
 from objects import ALL_HIDDEN_REASONS
-from sims4.tuning.tunable import TunableList, TunableReference, TunableInterval, TunableSimMinute
+from sims4.tuning.tunable import TunableList, TunableReference, TunableInterval, TunableSimMinute, TunableVariant, TunableTuple
 from sims4.utils import classproperty
 from situations.situation_complex import SituationStateData, CommonSituationState, CommonInteractionCompletedSituationState
 import services
 import sims4.tuning.instances
 import situations.bouncer
 import situations.situation_complex
+RECIPE_CREATION = 0
+DEFINITION_CREATION = 1
 
 class StartingState(CommonInteractionCompletedSituationState):
-    FACTORY_TUNABLES = {'possible_recipes': TunableList(description='\n            The possible recipes that can be chosen for this walker.\n            ', tunable=TunableReference(description='\n                A recipe that can be chosen for the walker to have.\n                ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE)))}
+    FACTORY_TUNABLES = {'create_object': TunableVariant(description='\n            How to create the object.\n            ', create_via_recipe=TunableTuple(description='\n                Create the object using a recipe.\n                ', possible_recipes=TunableList(description='\n                    The possible recipes that can be chosen for this walker.\n                    ', tunable=TunableReference(description='\n                        A recipe that can be chosen for the walker to have.\n                        ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE))), locked_args={'creation_method': RECIPE_CREATION}), create_via_object_definition=TunableTuple(description='\n                Create the object using an object definition\n                ', possible_objects=TunableList(description='\n                    The possible objects that can be chosen for this walker.\n                    ', tunable=TunableReference(description='\n                        A object that can be chosen for the walker to have.\n                        ', manager=services.definition_manager())), locked_args={'creation_method': DEFINITION_CREATION}), default='create_via_recipe')}
 
-    def __init__(self, *args, possible_recipes, **kwargs):
+    def __init__(self, *args, create_object, **kwargs):
         super().__init__(*args, **kwargs)
-        self._chosen_recipe = random.choice(possible_recipes)
+        self._chosen_recipe = None
+        self._chosen_object = None
+        if create_object.creation_method == RECIPE_CREATION:
+            self._chosen_recipe = random.choice(create_object.possible_recipes)
+        else:
+            self._chosen_object = random.choice(create_object.possible_objects)
 
     def _get_role_state_overrides(self, sim, job_type, role_state_type, role_affordance_target):
         target = self.owner.get_created_object()
         if target is None:
-            target = DebugCreateCraftableInteraction.create_craftable(self._chosen_recipe, sim, owning_household_id_override=services.active_household_id(), place_in_crafter_inventory=True)
-            if target is None:
-                raise ValueError('No craftable created for {} on {}'.format(self.owner._chosen_recipe, self))
+            if self._chosen_recipe is not None:
+                target = DebugCreateCraftableInteraction.create_craftable(self._chosen_recipe, sim, owning_household_id_override=services.active_household_id(), place_in_crafter_inventory=True)
+                if target is None:
+                    raise ValueError('No craftable created for {} on {}'.format(self._chosen_recipe, self))
+            elif self._chosen_object is not None:
+                target = self.owner._create_object_for_situation(sim, self._chosen_object)
+                if target is None:
+                    raise ValueError('No object created for {} on {}'.format(self._chosen_object, self))
+            else:
+                raise ValueError('No valid object to create for {}'.format(self))
             self.owner._created_object_id = target.id
         if target is not None:
             target.transient = True
@@ -97,6 +111,8 @@ class WalkbyConsumerSituation(situations.situation_complex.SituationComplexCommo
             self._created_object_id = None
         else:
             self._created_object_id = reader.read_uint64(CREATED_OBJECT_TOKEN, None)
+            if self._starting_state.create_object.creation_method == DEFINITION_CREATION:
+                self._claim_object(self._created_object_id)
 
     @classmethod
     def _states(cls):

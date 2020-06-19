@@ -1,9 +1,10 @@
 import weakref
-from protocolbuffers import Animation_pb2, DistributorOps_pb2, Routing_pb2, Sims_pb2, Area_pb2, InteractionOps_pb2, Commodities_pb2, UI_pb2 as ui_ops, Clubs_pb2
+from protocolbuffers import Animation_pb2, DistributorOps_pb2, Routing_pb2, Sims_pb2, Area_pb2, InteractionOps_pb2, Commodities_pb2, UI_pb2 as ui_ops, Clubs_pb2, FileSerialization_pb2
 from protocolbuffers.Consts_pb2 import MGR_UNMANAGED
 import protocolbuffers.Audio_pb2
 import protocolbuffers.VFX_pb2
 from distributor.rollback import ProtocolBufferRollback
+from sims4.collections import ListSet
 from sims4.repr_utils import standard_repr, standard_float_tuple_repr, standard_brief_id_repr, standard_angle_repr
 from sims4.resources import get_protobuff_for_key
 from singletons import EMPTY_SET
@@ -25,6 +26,7 @@ def record(obj, op):
 
 class DistributionSet(weakref.WeakSet):
     __slots__ = ('obj',)
+    DEFAULT_SET = ListSet
 
     def __init__(self, obj):
         super().__init__()
@@ -1043,8 +1045,8 @@ class SetObjectDefStateIndex(Op):
 
 class FadeOpacity(Op):
 
-    def __init__(self, opacity, duration):
-        super().__init__()
+    def __init__(self, opacity, duration, immediate=False):
+        super().__init__(immediate=immediate)
         self.opacity = opacity
         self.duration = duration
 
@@ -1293,11 +1295,10 @@ class SetSortOrder(Op):
 
 class SetMoney(Op):
 
-    def __init__(self, amount, vfx_amount, sim, reason):
+    def __init__(self, amount, vfx_amount, reason):
         super().__init__()
         self.amount = amount
         self.vfx_amount = vfx_amount
-        self.sim_id = 0 if sim is None else sim.id
         self.reason = reason
 
     def __repr__(self):
@@ -1306,7 +1307,6 @@ class SetMoney(Op):
     def write(self, msg):
         op = DistributorOps_pb2.SetMoney()
         op.money = self.amount
-        op.sim_id = self.sim_id
         op.reason = self.reason
         op.vfx_amount = self.vfx_amount
         self.serialize_op(msg, op, protocol_constants.SET_MONEY)
@@ -1588,6 +1588,19 @@ class TravelSwitchToZone(Op):
         op.zone_id = self.travel_info[2]
         op.world_id = self.travel_info[3]
         self.serialize_op(msg, op, protocol_constants.TRAVEL_SWITCH_TO_ZONE)
+
+class TravelLiveToNhdToLive(Op):
+
+    def __init__(self, sim_to_control_id, household_to_control_id):
+        super().__init__()
+        self.sim_to_control_id = sim_to_control_id
+        self.household_to_control_id = household_to_control_id
+
+    def write(self, msg):
+        op = DistributorOps_pb2.TravelLiveToNhdToLive()
+        op.sim_to_control_id = self.sim_to_control_id
+        op.household_to_control_id = self.household_to_control_id
+        self.serialize_op(msg, op, protocol_constants.TRAVEL_LIVE_TO_NHD_TO_LIVE)
 
 class TravelBringToZone(Op):
 
@@ -1883,7 +1896,7 @@ class HouseholdCreate(GenericCreate):
 
     def __init__(self, obj, *args, is_active=False, **kwargs):
         op = DistributorOps_pb2.HouseholdCreate()
-        additional_ops = (distributor.ops.SetMoney(obj.funds.money, False, None, 0),)
+        additional_ops = (distributor.ops.SetMoney(obj.funds.money, False, 0),)
         if is_active:
             additional_ops += (distributor.ops.InitializeCollection(obj.get_household_collections()),)
         super().__init__(obj, op, *args, additional_ops=additional_ops, **kwargs)
@@ -2787,10 +2800,11 @@ class SendClubValdiation(Op):
 
 class AskAboutClubsDialog(Op):
 
-    def __init__(self, sim_id, club_ids):
+    def __init__(self, sim_id, club_ids=(), show_orgs=False):
         super().__init__()
         self.op = DistributorOps_pb2.AskAboutClubsDialog()
         self.op.sim_id = sim_id
+        self.op.show_orgs = show_orgs
         for club_id in club_ids:
             self.op.club_ids.append(club_id)
 
@@ -2868,6 +2882,18 @@ class CompositeThumbnail(Op):
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.COMPOSITE_THUMBNAIL)
+
+class CompositeImages(Op):
+
+    def __init__(self, composite_target, composite_target_effect, target_object):
+        super().__init__(self)
+        self.op = DistributorOps_pb2.CompositeImages()
+        self.op.composite_target = composite_target
+        self.op.composite_target_effect = composite_target_effect
+        self.op.target_object = target_object
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.COMPOSITE_IMAGES)
 
 class FollowRoute(Op):
     __slots__ = ('actor', 'path', 'start_time', 'mask_override')
@@ -2955,3 +2981,41 @@ class DisplayHeadline(Op):
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.DISPLAY_HEADLINE)
+
+class OwnedUniversityHousingLoad(Op):
+
+    def __init__(self, zone_id):
+        super().__init__()
+        self.op = DistributorOps_pb2.OwnedUniversityHousingLoad()
+        self.op.zone_id = zone_id
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.OWNED_UNIVERSITY_HOUSING_LOAD)
+
+class SplitHouseholdDialog(Op):
+
+    def __init__(self, source_household_id, target_household_id=0, cancelable=True, allow_sim_transfer=True, selected_sim_ids=[], destination_zone_id=0, callback_command_name=None, lock_preselected_sims=True):
+        super().__init__()
+        self.op = DistributorOps_pb2.SplitHouseholdDialog()
+        self.op.source_household_id = source_household_id
+        self.op.target_household_id = target_household_id
+        self.op.cancelable = cancelable
+        self.op.allow_sim_transfer = allow_sim_transfer
+        self.op.selected_sim_ids.extend(selected_sim_ids)
+        self.op.destination_zone_id = destination_zone_id
+        self.op.lock_preselected_sims = lock_preselected_sims
+        if callback_command_name is not None:
+            self.op.callback_command_name = callback_command_name
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.SPLIT_HOUSEHOLD_DIALOG)
+
+class SendUIMessage(Op):
+
+    def __init__(self, message_name):
+        super().__init__()
+        self.op = DistributorOps_pb2.SendUIMessage()
+        self.op.message_name = message_name
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.SEND_UI_MESSAGE)

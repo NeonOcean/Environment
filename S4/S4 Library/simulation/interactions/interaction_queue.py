@@ -238,6 +238,9 @@ class SocialAdjustmentBucket(BucketSingle):
     __slots__ = ()
     get_next_unblocked_interaction = BucketBase.get_next_unblocked_interaction_cancel_incompatible
 
+class VehicleBodyCancelAOPBucket(BucketSingle):
+    __slots__ = ()
+
 class BodyCancelAOPBucket(BucketList):
     __slots__ = ()
 
@@ -255,10 +258,12 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         self._carry_cancel_replacements = CarryCancelAOPBucket(sim)
         self._interactions = InteractionBucket(sim)
         self._body_cancel_replacements = BodyCancelAOPBucket(sim)
+        self._vehicle_cancel_replacements = VehicleBodyCancelAOPBucket(sim)
         self._autonomy = AutonomyBucket(sim)
-        self._buckets = (self._social_adjustment, self._carry_cancel_replacements, self._interactions, self._body_cancel_replacements, self._autonomy)
+        self._buckets = (self._social_adjustment, self._carry_cancel_replacements, self._vehicle_cancel_replacements, self._interactions, self._body_cancel_replacements, self._autonomy)
         self.transition_controller = None
         self._locked = False
+        self._being_destroyed = False
         self._must_run_next_interaction = None
         self.on_head_changed = CallableList()
         self._head_cache = UNSET
@@ -1457,7 +1462,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         return self.visible_len() < self.max_interactions
 
     @contextmanager
-    def _head_change_watcher(self, suppress_child=False):
+    def _head_change_watcher(self, defer_on_head_change_call=False):
         if self._suppress_head_depth is None:
             old_head = self.get_head()
             self._suppress_head_depth = 1
@@ -1548,14 +1553,15 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             interaction_priority = interaction.priority
             max_priority = max(super_priority, interaction_priority)
             if highest_priority_interaction is not None and not interaction.is_related_to(highest_priority_interaction) and can_priority_displace(highest_priority_interaction.priority, max_priority, allow_clobbering=allow_clobbering):
-                if not interaction.source is InteractionSource.CARRY_CANCEL_AOP:
-                    if interaction.source is InteractionSource.BODY_CANCEL_AOP:
-                        continue
-                    interaction.displace(highest_priority_interaction, cancel_reason_msg='Interaction Queue displaced from resolving priority pressure.')
-                    if not highest_priority_interaction is None:
-                        if interaction.priority > highest_priority_interaction.priority:
-                            highest_priority_interaction = interaction
-                    highest_priority_interaction = interaction
+                if not interaction.source == InteractionSource.CARRY_CANCEL_AOP:
+                    if not interaction.source == InteractionSource.BODY_CANCEL_AOP:
+                        if interaction.source == InteractionSource.VEHCILE_CANCEL_AOP:
+                            continue
+                        interaction.displace(highest_priority_interaction, cancel_reason_msg='Interaction Queue displaced from resolving priority pressure.')
+                        if not highest_priority_interaction is None:
+                            if interaction.priority > highest_priority_interaction.priority:
+                                highest_priority_interaction = interaction
+                        highest_priority_interaction = interaction
             else:
                 if not highest_priority_interaction is None:
                     if interaction.priority > highest_priority_interaction.priority:
@@ -1650,7 +1656,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             return
         for interaction in combined_interactions:
             interaction.combinable_interactions = combined_interactions
-        if original_head_combinables != combined_interactions and head_interaction.transition is not None:
+        if original_head_combinables and original_head_combinables != combined_interactions and head_interaction.transition is not None:
             if len(combined_carry_targets) > 1:
                 posture_graph_service = services.current_zone().posture_graph_service
                 posture_graph_service.clear_goal_costs()
@@ -1668,12 +1674,16 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                 bucket_type = InteractionBucketType.BODY_CANCEL_REPLACEMENT
             elif source == InteractionContext.SOURCE_CARRY_CANCEL_AOP:
                 bucket_type = InteractionBucketType.CARRY_CANCEL_REPLACEMENT
+            elif source == InteractionContext.SOURCE_VEHICLE_CANCEL_AOP:
+                bucket_type = InteractionBucketType.VEHICLE_CANCEL_REPLACEMENT
             else:
                 bucket_type = InteractionBucketType.DEFAULT
         if bucket_type == InteractionBucketType.AUTONOMY:
             bucket = self._autonomy
         elif bucket_type == InteractionBucketType.SOCIAL_ADJUSTMENT:
             bucket = self._social_adjustment
+        elif bucket_type == InteractionBucketType.VEHICLE_CANCEL_REPLACEMENT:
+            bucket = self._vehicle_cancel_replacements
         elif bucket_type == InteractionBucketType.BODY_CANCEL_REPLACEMENT:
             bucket = self._body_cancel_replacements
         elif bucket_type == InteractionBucketType.CARRY_CANCEL_REPLACEMENT:
@@ -1775,8 +1785,9 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
         for interaction in interactions:
             interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='InteractionQueue: all interactions canceled')
 
-    def on_reset(self):
-        with self._head_change_watcher(suppress_child=True):
+    def on_reset(self, being_destroyed=False):
+        self._being_destroyed = being_destroyed
+        with self._head_change_watcher(defer_on_head_change_call=True):
             if self.transition_controller is not None:
                 self.transition_controller.on_reset()
                 self.transition_controller.interaction.on_reset()
@@ -1808,7 +1819,7 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
                         break
         if self.running is not None and self.running.should_cancel_on_si_cancel(interaction):
             self.running.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Interaction Queue cancel running interaction to expedite SI cancel.')
-        if si_order_changed:
+        if not self._being_destroyed and si_order_changed:
             self._combine_compatible_interactions()
             self._resolve_collapsible_interaction()
 

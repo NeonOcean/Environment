@@ -16,7 +16,7 @@ def Run () -> bool:
 	argumentParser.add_argument("-t", metavar = "target", type = str, help = "The target archive file path.")
 	argumentParser.add_argument("-d", metavar = "destination", type = str, help = "The directory the decompiled files will be saved to.")
 	argumentParser.add_argument("-s", action = "store_true", help = "Prevents gui from appearing.")
-	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: argparse.Namespace
+	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: typing.Dict[str, typing.Any]
 
 	if argumentDictionary["t"] is not None:
 		if not os.path.exists(argumentDictionary["t"]):
@@ -38,23 +38,29 @@ def Run () -> bool:
 	tkRoot = tkinter.Tk()
 	tkRoot.withdraw()
 
-	targetFile = filedialog.askopenfilename(initialdir = os.path.dirname(os.path.realpath(__file__)), title = "Select the target file")  # type: str
+	if _targetPath is None:
+		if not _silent:
+			_targetPath = filedialog.askopenfilename(initialdir = os.path.dirname(os.path.realpath(__file__)), title = "Select the target file")  # type: str
 
-	if not targetFile:
-		return False
+		if not _targetPath:
+			print("No target file specified.", file = sys.stderr)
+			return False
 
-	targetFile = os.path.abspath(targetFile)
+		_targetPath = os.path.abspath(_targetPath)
 
-	destinationDirectory = filedialog.askdirectory(initialdir = targetFile if targetFile else os.path.dirname(os.path.realpath(__file__)), title = "Select destination directory")  # type: str
+	if _destinationPath is None:
+		if not _silent:
+			_destinationPath = filedialog.askdirectory(initialdir = _targetPath if _targetPath else os.path.dirname(os.path.realpath(__file__)), title = "Select destination directory")  # type: str
 
-	if not destinationDirectory:
-		return False
+		if not _destinationPath:
+			print("No output destination specified.", file = sys.stderr)
+			return False
 
-	destinationDirectory = os.path.abspath(destinationDirectory)
+		_destinationPath = os.path.abspath(_destinationPath)
 
-	temporaryDirectory = destinationDirectory + "_TEMP"  # type: str
+	temporaryDirectory = _destinationPath + "_TEMP"  # type: str
 
-	with zipfile.ZipFile(targetFile, "r") as targetArchive:
+	with zipfile.ZipFile(_targetPath, "r") as targetArchive:
 		targetArchive.extractall(temporaryDirectory)
 
 	failedFiles = list()  # type: typing.List[str]
@@ -66,7 +72,7 @@ def Run () -> bool:
 			Extension = fileExtension.casefold()
 
 			if Extension == ".pyc":
-				if not Decompile.DecompileFileToDirectory(filePath, directoryRoot.replace(temporaryDirectory, destinationDirectory)):
+				if not Decompile.DecompileFileToDirectory(filePath, directoryRoot.replace(temporaryDirectory, _destinationPath)):
 					failedFiles.append(filePath.replace(temporaryDirectory + os.sep, ""))
 
 	dir_util.remove_tree(temporaryDirectory)
@@ -90,9 +96,9 @@ def _FormatListToLines (targetList: typing.List[str]) -> str:
 
 	return text
 
-_targetPath = None  # type: str
-_destinationPath = None  # type: str
-_silent = False  # type: str
+_targetPath = None  # type: typing.Optional[str]
+_destinationPath = None  # type: typing.Optional[str]
+_silent = False  # type: bool
 
 if __name__ == "__main__":
 	if not Run():

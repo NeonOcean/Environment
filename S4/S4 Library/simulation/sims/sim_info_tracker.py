@@ -6,7 +6,7 @@ class BaseLODTracker:
 
     @classproperty
     def _tracker_lod_threshold(cls):
-        return SimInfoLODLevel.BASE
+        return SimInfoLODLevel.BACKGROUND
 
     @classmethod
     def is_valid_for_lod(cls, lod):

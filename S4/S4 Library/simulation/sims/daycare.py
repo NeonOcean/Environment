@@ -212,7 +212,7 @@ class DaycareService(Service):
                     sim_info.remove_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
                 if sim_info.zone_id != household.home_zone_id:
                     sim_info.inject_into_inactive_zone(household.home_zone_id)
-        if is_active_household:
+        if is_active_household and sent_sim_infos:
             services.client_manager().get_first_client().send_selectable_sims_update()
             self._show_nanny_notification(household, sent_sim_infos, is_enable=True)
         if nanny_sim_infos:
@@ -234,7 +234,8 @@ class DaycareService(Service):
                         if sim_info.zone_id != household.home_zone_id:
                             sim_info.inject_into_inactive_zone(household.home_zone_id)
                     if sim_info.zone_id != current_zone_id:
-                        sim_info.away_action_tracker.reset_to_default_away_action()
+                        if sim_info.away_action_tracker is not None:
+                            sim_info.away_action_tracker.reset_to_default_away_action()
                 if is_active_household:
                     services.client_manager().get_first_client().send_selectable_sims_update()
                     self._show_daycare_notification(household, sent_sim_infos, is_enable=True)

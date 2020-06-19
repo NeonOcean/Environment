@@ -31,6 +31,7 @@ from animation.arb_accumulator import with_skippable_animation_time
 from animation.awareness.awareness_component import AwarenessComponent
 from animation.posture_manifest import Hand
 from autonomy import autonomy_modes
+from autonomy.autonomy_preference import AutonomyPreferenceType
 from broadcasters.environment_score.environment_score_mixin import EnvironmentScoreMixin
 from buffs.tunable import TunableBuffReference
 from careers.school.school_tuning import SchoolTuning
@@ -52,6 +53,7 @@ from interactions.context import InteractionContext, InteractionSource, QueueIns
 from interactions.interaction_finisher import FinishingType
 from interactions.interaction_queue import InteractionQueue
 from interactions.priority import Priority
+from interactions.privacy import PrivacyViolators
 from interactions.si_state import SIState
 from interactions.utils.death import DeathTracker
 from interactions.utils.interaction_liabilities import FITNESS_LIABILITY, FitnessLiability
@@ -68,6 +70,7 @@ from postures import ALL_POSTURES, posture_graph
 from postures.posture_specs import PostureSpecVariable, get_origin_spec
 from postures.posture_state import PostureState
 from postures.transition_sequence import DerailReason
+from protocolbuffers.Consts_pb2 import MGR_OBJECT
 from routing import SurfaceIdentifier, SurfaceType
 from routing.portals.portal_tuning import PortalFlags
 from services.reset_and_delete_service import ResetRecord
@@ -86,9 +89,12 @@ from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import classproperty, constproperty, flexmethod
 from singletons import DEFAULT
 from socials.social_tests import SocialContextTest
+from teleport.teleport_helper import TeleportHelper
+from teleport.teleport_tuning import TeleportTuning
 from terrain import get_water_depth, get_water_depth_at_location
 from traits.trait_quirks import TraitQuirkSet
 from uid import UniqueIdGenerator
+from vehicles.vehicle_tuning import get_favorite_tag_for_surface
 from world import region
 from world.ocean_tuning import OceanTuning
 
@@ -206,6 +212,7 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		self.asm_last_call_time = 0
 		self.zero_length_asm_calls = 0
 		self._dynamic_preroll_commodity_flags_map = None
+		self._teleport_style_interactions_to_inject = None
 
 	def __repr__ (self):
 		if self.sim_info is None:
@@ -505,11 +512,33 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		inventory_msg = self.inventory_component.save_items()
 		if inventory_msg is None:
 			return
+		inventory = self.inventory_component
 		for parented_item in self.children:
-			inventory = self.inventory_component
 			if inventory.should_save_parented_item_to_inventory(parented_item):
 				parented_item.save_object(inventory_msg.objects, ItemLocation.SIM_INVENTORY, self.id)
+		vehicle = self.parented_vehicle
+		if vehicle is not None and inventory.should_save_parented_item_to_inventory(vehicle):
+			vehicle.save_object(inventory_msg.objects, ItemLocation.SIM_INVENTORY, self.id)
 		return inventory_msg
+
+	def get_vehicles_for_path (self, path):
+		supported_vehicles = []
+		favorites_tracker = self.sim_info.favorites_tracker
+		favorite_vehicle = None
+		favorite_tag = get_favorite_tag_for_surface(self.routing_surface.type)
+		favorite_vehicle_id = None
+		if favorites_tracker is not None:
+			if favorite_tag is not None:
+				favorite_vehicle_id = favorites_tracker.get_favorite_object_id(favorite_tag)
+		for vehicle in self.inventory_component.vehicle_objects_gen():
+			if vehicle.vehicle_component.should_deploy_for_path(path, self.routing_surface):
+				if vehicle.id == favorite_vehicle_id:
+					favorite_vehicle = vehicle
+				else:
+					supported_vehicles.append(vehicle)
+		if favorite_vehicle is not None:
+			return [favorite_vehicle] + supported_vehicles
+		return supported_vehicles
 
 	def get_create_after_objs (self):
 		super_objs = super().get_create_after_objs()
@@ -555,7 +584,7 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 
 	def execute_adjustment_interaction (self, affordance, constraint, int_priority, group_id = None, **kwargs):
 		aop = AffordanceObjectPair(affordance, None, affordance, None, constraint_to_satisfy = constraint, route_fail_on_transition_fail = False, is_adjustment_interaction = True, **kwargs)
-		context = InteractionContext(self, InteractionContext.SOURCE_SOCIAL_ADJUSTMENT, int_priority, insert_strategy = QueueInsertStrategy.NEXT, group_id = group_id, must_run_next = True, cancel_if_incompatible_in_queue = True)
+		context = InteractionContext(self, InteractionContext.SOURCE_SOCIAL_ADJUSTMENT, int_priority, insert_strategy = QueueInsertStrategy.NEXT, group_id = group_id, must_run_next = True, cancel_if_incompatible_in_queue = True, can_derail_if_constraint_invalid = False)
 		return aop.test_and_execute(context)
 
 	@property
@@ -882,6 +911,26 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 			return
 		logger.warn('No landing strip exists in zone {}', zone)
 
+	def fade_in (self, fade_duration = None, immediate = False, additional_channels = None):
+		if self.posture.is_vehicle:
+			vehicle = self.posture.target
+			if not immediate:
+				additional_channels = [] if additional_channels is None else additional_channels
+				additional_channels.append((MGR_OBJECT, vehicle.id, None))
+				additional_channels.append((MGR_OBJECT, self.id, None))
+			vehicle.fade_in(fade_duration = fade_duration, immediate = immediate, additional_channels = additional_channels)
+		super().fade_in(fade_duration = fade_duration, immediate = immediate, additional_channels = additional_channels)
+
+	def fade_out (self, fade_duration = None, immediate = False, additional_channels = None):
+		if self.posture.is_vehicle:
+			vehicle = self.posture.target
+			if not immediate:
+				additional_channels = [] if additional_channels is None else additional_channels
+				additional_channels.append((MGR_OBJECT, vehicle.id, None))
+				additional_channels.append((MGR_OBJECT, self.id, None))
+			vehicle.fade_out(fade_duration = fade_duration, immediate = immediate, additional_channels = additional_channels)
+		super().fade_out(fade_duration = fade_duration, immediate = immediate, additional_channels = additional_channels)
+
 	def _start_animation_interaction (self):
 		animation_interaction_context = InteractionContext(self, InteractionContext.SOURCE_SCRIPT, priority.Priority.High)
 		animation_aop = AffordanceObjectPair(AnimationInteraction, None, AnimationInteraction, None)
@@ -907,7 +956,7 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 				self.set_last_user_directed_action_time()
 			services.get_master_controller().on_reset_sim(self, reset_reason)
 			self.hide(HiddenReasonFlag.NOT_INITIALIZED)
-			self.queue.on_reset()
+			self.queue.on_reset(being_destroyed)
 			self.si_state.on_reset()
 			self.socials_locked = False
 			if self.posture_state is not None:
@@ -1023,18 +1072,19 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 	@caches.cached
 	def _all_affordance_targets (self):
 		results = []
-		for si in self.si_state.sis_actor_gen():
-			if si.is_finishing:
-				continue
-			affordance = si.get_interaction_type()
-			results.append((affordance, si.target))
-			linked_affordance = si.get_linked_interaction_type()
-			if linked_affordance is not None:
-				results.append((linked_affordance, si.target))
-			for other_target in si.get_potential_mixer_targets():
-				results.append((affordance, other_target))
+		if self.si_state is not None:
+			for si in self.si_state.sis_actor_gen():
+				if si.is_finishing:
+					continue
+				affordance = si.get_interaction_type()
+				results.append((affordance, si.target))
+				linked_affordance = si.get_linked_interaction_type()
 				if linked_affordance is not None:
-					results.append((linked_affordance, other_target))
+					results.append((linked_affordance, si.target))
+				for other_target in si.get_potential_mixer_targets():
+					results.append((affordance, other_target))
+					if linked_affordance is not None:
+						results.append((linked_affordance, other_target))
 		return frozenset(results)
 
 	@caches.cached
@@ -1098,6 +1148,17 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 			if context.sim is not self:
 				for (_, _, carried_object) in get_carried_objects_gen(context.sim):
 					yield from carried_object.get_provided_aops_gen(self, context, **kwargs)
+
+	def get_object_provided_target_affordances_gen (self, target, context, **kwargs):
+		sim_inventory_component = self.get_component(objects.components.types.INVENTORY_COMPONENT)
+		if sim_inventory_component is None:
+			return
+		shift_held = context.shift_held if context is not None else False
+		for (affordance, provided_affordance_data) in sim_inventory_component.get_cached_target_super_affordances_gen(context, target):
+			if self._can_show_affordance(shift_held, affordance):
+				kwargs_copy = kwargs.copy()
+				kwargs_copy['object_providing_target_affordance'] = provided_affordance_data.provider_id
+				yield from affordance.potential_interactions(target, context, **kwargs_copy)
 
 	def _potential_joinable_interactions_gen (self, context, **kwargs):
 
@@ -1215,7 +1276,14 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		for affordance in self.inventory_component.get_cached_super_affordances_gen():
 			if self._can_show_affordance(shift_held, affordance):
 				yield affordance
-		if (not context is not None or context is not None) and context.sim is not None:
+		for affordance in self.sim_info.unlock_tracker.get_cached_super_affordances_gen():
+			if self._can_show_affordance(shift_held, affordance):
+				yield affordance
+		if not (not context is not None or self.sim_info.unlock_tracker is not None) or self.sim_info.career_tracker is not None:
+			for affordance in self.sim_info.career_tracker.get_cached_super_affordances_gen():
+				if self._can_show_affordance(shift_held, affordance):
+					yield affordance
+		if context is not None and context.sim is not None:
 			yield from _get_role_state_affordances_gen(context.sim.active_roles(), use_target = True)
 		yield from super()._potential_behavior_affordances_gen(context, **kwargs)
 
@@ -1241,10 +1309,12 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		for relbit in context.sim.sim_info.relationship_tracker.get_all_bits(self.sim_id):
 			for affordance in relbit.super_affordances:
 				yield from self._get_interactions_gen(context, get_interaction_parameters, affordance, **kwargs)
+		if not context.sim is not None or context.sim is not None:
+			yield from context.sim.get_object_provided_target_affordances_gen(self, context, **kwargs)
 		yield from self.sim_info.template_affordance_tracker.get_template_interactions_gen(context, **kwargs)
 		for ensemble in services.ensemble_service().get_all_ensembles_for_sim(self):
 			yield from ensemble.get_ensemble_autonomous_interactions_gen(context, **kwargs)
-		if not (not context.sim is not None or context.source == InteractionSource.AUTONOMY) or not context.sim is self or context.sim is not self:
+		if not context.source == InteractionSource.AUTONOMY or not context.sim is self or context.sim is not self:
 			yield from self._potential_joinable_interactions_gen(context, **kwargs)
 		else:
 			for si in self.si_state.sis_actor_gen():
@@ -1270,6 +1340,8 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 
 	def locked_from_obj_by_privacy (self, obj):
 		for privacy in services.privacy_service().privacy_instances:
+			if not privacy.privacy_violators & PrivacyViolators.SIM:
+				continue
 			if self in privacy.allowed_sims:
 				continue
 			if self not in privacy.disallowed_sims and privacy.evaluate_sim(self):
@@ -1438,6 +1510,11 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 	def _update_face_and_posture_gen (self, timeline):
 		target_override = None
 		posture_type = None
+		previous_posture_type = None
+		previous_posture_target = None
+		if self.posture_state is not None:
+			previous_posture_type = self.posture_state.body.posture_type
+			previous_posture_target = self.posture_state.body.target
 		try:
 			if self._should_be_swimming():
 				posture_type = posture_graph.SIM_SWIM_POSTURE_TYPE
@@ -1481,6 +1558,11 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		self._start_animation_interaction()
 		self.start_animation_overlays()
 		self.update_animation_overlays()
+		if previous_posture_type is not None and (previous_posture_type.is_vehicle and (previous_posture_target is not None and (previous_posture_target.vehicle_component is not None and previous_posture_target.inventoryitem_component is not None))) and previous_posture_target.vehicle_component.retrieve_tuning is not None:
+			household_owner_id = previous_posture_target.household_owner_id
+			if household_owner_id == self.household_id:
+				previous_posture_target = previous_posture_target.part_owner if previous_posture_target.is_part else previous_posture_target
+				self.inventory_component.player_try_add_object(previous_posture_target)
 
 	def _update_multi_motive_buff_trackers (self):
 		for multi_motive_buff_tracker in self._multi_motive_buff_trackers:
@@ -1560,6 +1642,8 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 					self.sim_info.whim_tracker.load_whims_info_from_proto()
 					self.sim_info.whim_tracker.start_whims_tracker()
 				self.update_sleep_schedule()
+				if self.sim_info.time_sim_was_saved is None and self.sim_info.degree_tracker.get_enrolled_major() is not None:
+					self.sim_info.degree_tracker.create_university_objects()
 				sims.ghost.Ghost.make_ghost_if_needed(self.sim_info)
 				if self.sim_info.is_in_travel_group():
 					travel_group = self.travel_group
@@ -1568,7 +1652,8 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 					if not current_region.is_region_compatible(travel_group_region):
 						travel_group.remove_sim_info(self.sim_info)
 				if services.current_zone().is_zone_running:
-					self.sim_info.away_action_tracker.refresh()
+					if self.sim_info.away_action_tracker is not None:
+						self.sim_info.away_action_tracker.refresh()
 					services.sim_info_manager().update_greeted_relationships_on_spawn(self.sim_info)
 					if self.is_selectable:
 						self.sim_info.start_aspiration_tracker_on_instantiation(force_ui_update = True)
@@ -1588,6 +1673,9 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 			suntan_tracker = self.sim_info.suntan_tracker
 			if suntan_tracker is not None:
 				suntan_tracker.on_start_up(self)
+			familiar_tracker = self.sim_info.familiar_tracker
+			if familiar_tracker is not None:
+				familiar_tracker.on_sim_startup()
 			if gsi_handlers.sim_info_lifetime_handlers.archiver.enabled:
 				gsi_handlers.sim_info_lifetime_handlers.archive_sim_info_event(self.sim_info, 'instantiated')
 		finally:
@@ -1600,6 +1688,9 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		self.routing_component.on_sim_removed()
 		self._stop_environment_score()
 		self.trait_tracker.on_sim_removed()
+		familiar_tracker = self.sim_info.familiar_tracker
+		if familiar_tracker is not None:
+			familiar_tracker.on_sim_removed()
 		self.commodity_tracker.stop_regular_simulation()
 		self.commodity_tracker.start_low_level_simulation()
 		self.sim_info.template_affordance_tracker.on_sim_removed()
@@ -2013,7 +2104,7 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 			if self._starting_up:
 				return WorkRequest()
 			return WorkRequest(work_element = elements.GeneratorElement(self._startup_sim_gen), required_sims = (self,))
-		if self.has_work_locks:
+		if self.has_work_locks or not services.posture_graph_service().has_built_for_zone_spin_up:
 			return WorkRequest()
 		_ = self.queue._get_head()
 		next_interaction = self.queue.get_head()
@@ -2141,9 +2232,31 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 			interaction = self.queue.find_sub_interaction(super_id, aop_id)
 		return interaction
 
-	def set_autonomy_preference (self, preference, obj):
+	def set_autonomy_preference (self, preference, obj, context):
 		if preference.is_scoring:
-			self.sim_info.autonomy_scoring_preferences[preference.tag] = obj.id
+			if preference.should_clear:
+				if preference.tag in self.sim_info.autonomy_scoring_preferences:
+					del self.sim_info.autonomy_scoring_preferences[preference.tag]
+			else:
+				self.sim_info.autonomy_scoring_preferences[preference.tag] = obj.id
+		elif preference.use_only:
+			object_preference_tracker = services.object_preference_tracker(require_active_household = True)
+			if object_preference_tracker is None:
+				return
+			target_objects = set()
+			if context is not None and context.pick is not None and not obj.is_part:
+				target_objects = obj.get_closest_parts_to_position(context.pick.location, restrict_autonomy_preference = True)
+			else:
+				target_objects = set()
+			if not target_objects:
+				target_objects.add(obj)
+			if preference.should_clear:
+				object_preference_tracker.clear_restriction(target_objects, preference.tag)
+			else:
+				object_preference_tracker.set_restriction(self.sim_info, target_objects, preference.tag, preference.should_set.should_force)
+		elif preference.should_clear:
+			if preference.tag in self.sim_info.autonomy_use_preferences[preference.tag]:
+				del self.sim_info.autonomy_use_preferences[preference.tag]
 		else:
 			self.sim_info.autonomy_use_preferences[preference.tag] = obj.id
 
@@ -2152,6 +2265,27 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 
 	def is_object_use_preferred (self, preference_tag, obj):
 		return self._check_preference(preference_tag, obj, self.sim_info.autonomy_use_preferences)
+
+	def get_autonomy_preference_type (self, preference_tag, obj, full_object, allow_test = True):
+		preference_type = AutonomyPreferenceType.ALLOWED
+		object_preference_tracker = services.object_preference_tracker()
+		if object_preference_tracker is not None:
+			preference_type = object_preference_tracker.get_restriction(self.sim_info, obj, preference_tag, full_object = full_object, allow_test = allow_test)
+		if preference_type == AutonomyPreferenceType.ALLOWED:
+			if self._check_preference(preference_tag, obj, self.sim_info.autonomy_use_preferences):
+				preference_type = AutonomyPreferenceType.USE_PREFERENCE
+		return preference_type
+
+	def get_use_only_object (self, preference_tag):
+		object_preference_tracker = services.object_preference_tracker()
+		if object_preference_tracker is not None:
+			(object_id, subroot_index) = object_preference_tracker.get_restricted_object(self.sim_info.sim_id, preference_tag)
+			if object_id is not None:
+				obj = services.object_manager().get(object_id)
+				if obj is not None and subroot_index is not None:
+					return obj.get_part_by_index(subroot_index)
+				else:
+					return obj
 
 	@property
 	def autonomy_settings (self):
@@ -2179,7 +2313,7 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 		outfit_category_tuning = OutfitTuning.OUTFIT_CATEGORY_TUNING.get(category_and_index[0], ())
 		for buff in outfit_category_tuning.buffs:
 			self._add_outfit_buff(buff.buff_type, buff.buff_reason)
-		if not outfit_data.part_ids:
+		if outfit_data is None or not outfit_data.part_ids:
 			return
 		buff_manager = services.get_instance_manager(sims4.resources.Types.BUFF)
 		for buff_guid in cas.cas.get_buff_from_part_ids(outfit_data.part_ids):
@@ -2297,6 +2431,71 @@ class Sim(HasSimInfoMixin, LockoutMixin, EnvironmentScoreMixin, GameObject):
 
 	def _create_routing_context (self):
 		pass
+
+	def add_teleport_style_interaction_to_inject (self, interaction):
+		if self._teleport_style_interactions_to_inject is None:
+			self._teleport_style_interactions_to_inject = { }
+		if interaction in self._teleport_style_interactions_to_inject.keys():
+			self._teleport_style_interactions_to_inject[interaction] += 1
+		else:
+			self._teleport_style_interactions_to_inject[interaction] = 1
+
+	def try_remove_teleport_style_interaction_to_inject (self, interaction):
+		if self._teleport_style_interactions_to_inject is None:
+			logger.error('Attempted to remove a teleport style interaction to inject, but the dict is not initialized.  Interaction: {}', interaction, owner = 'brgibson')
+			return
+		if interaction not in self._teleport_style_interactions_to_inject:
+			logger.error('Attempted to remove a teleport style interaction to inject, but the entry for this interaction is not in the dict.  Interaction: {}', interaction, owner = 'brgibson')
+			return
+		current_ref_count = self._teleport_style_interactions_to_inject[interaction]
+		if current_ref_count <= 0:
+			logger.error('Ref count for teleport style interaction to inject was zero or below when trying to remove it.  Interaction: {}, Value: {}', interaction, current_ref_count, owner = 'brgibson')
+		current_ref_count -= 1
+		if current_ref_count <= 0:
+			del self._teleport_style_interactions_to_inject[interaction]
+			if not self._teleport_style_interactions_to_inject:
+				self._teleport_style_interactions_to_inject = None
+		else:
+			self._teleport_style_interactions_to_inject[interaction] = current_ref_count
+
+	def get_teleport_style_affordance_to_inject_list (self):
+		if not self._teleport_style_interactions_to_inject:
+			return ()
+		return list(self._teleport_style_interactions_to_inject.keys())
+
+	def get_teleport_style_interaction_aop (self, interaction, override_pick = None, override_target = None):
+		if interaction is None:
+			return (None, None, None)
+		sim = interaction.sim
+		if sim is None:
+			return (None, None, None)
+		if not TeleportHelper.can_teleport_style_be_injected_before_interaction(sim, interaction):
+			return (None, None, None)
+		teleport_style_affordances = self.get_teleport_style_affordance_to_inject_list()
+		if not teleport_style_affordances:
+			return (None, None, None)
+		selected_pick = override_pick
+		if selected_pick is None:
+			selected_pick = interaction.context.pick
+		selected_target = override_target
+		if selected_target is None:
+			selected_target = interaction.target
+		interaction_context = InteractionContext(self, InteractionContext.SOURCE_SCRIPT, Priority.Critical, insert_strategy = QueueInsertStrategy.FIRST, group_id = interaction.group_id, pick = selected_pick)
+		for teleport_style_affordance in teleport_style_affordances:
+			aop = AffordanceObjectPair(teleport_style_affordance, selected_target, teleport_style_affordance, None, route_fail_on_transition_fail = False, allow_posture_changes = True, depended_on_si = interaction)
+			test_result = aop.test(interaction_context)
+			if test_result:
+				teleport_style_data = TeleportTuning.get_teleport_data(teleport_style_affordance.teleport_style_tuning)
+				return (aop, interaction_context, teleport_style_data)
+		return (None, None, None)
+
+	def can_sim_teleport_using_teleport_style (self):
+		if TeleportHelper.does_routing_slave_prevent_teleport(self):
+			return False
+		for (_, _, carry_object) in get_carried_objects_gen(self):
+			if carry_object.is_sim:
+				return False
+		return True
 
 	@property
 	def object_radius (self):

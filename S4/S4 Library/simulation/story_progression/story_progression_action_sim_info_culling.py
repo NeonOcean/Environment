@@ -55,7 +55,9 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
         try:
             self._pre_cull()
             self._process_full()
+            self._process_interacted()
             self._process_base()
+            self._process_background()
             self._process_minimum()
             self._post_cull(story_progression_flags)
         finally:
@@ -65,7 +67,9 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
         cap_override = services.sim_info_manager().get_sim_info_cap_override_per_lod(sim_info_lod)
         if cap_override is not None:
             return cap_override
-        return self.sim_info_cap_per_lod[sim_info_lod]
+        elif sim_info_lod in self.sim_info_cap_per_lod:
+            return self.sim_info_cap_per_lod[sim_info_lod]
+        return 0
 
     def _pre_cull(self):
         self._played_family_tree_distances = self._get_played_family_tree_distances()
@@ -199,31 +203,80 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
                 gsi_archive.add_sim_info_cullability(sim_info, info='immune -- no pressure to drop')
         num_to_cull = self._get_num_to_cull(len(sim_infos) - len(mandatory_drops), cap)
         sorted_sims = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        culling_service = services.get_culling_service()
         for sim_info in itertools.chain(mandatory_drops, sorted_sims[:num_to_cull]):
-            if sim_info.request_lod(SimInfoLODLevel.BASE):
+            if culling_service.has_sim_interacted_with_active_sim(sim_info.sim_id):
+                new_lod = SimInfoLODLevel.INTERACTED
+            else:
+                new_lod = SimInfoLODLevel.BASE
+            if sim_info.request_lod(new_lod):
                 if gsi_archive is not None:
-                    gsi_archive.add_sim_info_action(sim_info, action='drop to BASE')
+                    gsi_archive.add_sim_info_action(sim_info, action='drop to {}'.format(new_lod))
             elif gsi_archive is not None:
-                gsi_archive.add_sim_info_action(sim_info, action='failed to drop to BASE')
+                gsi_archive.add_sim_info_action(sim_info, action='failed to drop to {}'.format(new_lod))
+        if gsi_archive is not None:
+            gsi_archive.census_after = self._get_gsi_culling_census()
+            gsi_archive.apply()
+
+    def _process_interacted(self):
+        if gsi_handlers.sim_info_culling_handler.is_archive_enabled():
+            gsi_archive = CullingArchive('Interacted Pass')
+            gsi_archive.census_before = self._get_gsi_culling_census()
+        else:
+            gsi_archive = None
+        culling_service = services.get_culling_service()
+        cap = self._get_cap_level(SimInfoLODLevel.INTERACTED)
+        sim_info_manager = services.sim_info_manager()
+        interacted_sim_ids_in_priority_order = culling_service.get_interacted_sim_ids_in_priority_order()
+        interacted_count = 0
+        for sim_id in interacted_sim_ids_in_priority_order:
+            sim_info = sim_info_manager.get(sim_id)
+            if sim_info is None or sim_info.lod != SimInfoLODLevel.INTERACTED:
+                culling_service.remove_sim_from_interacted_sims(sim_id)
+            else:
+                interacted_count += 1
+            if cap < interacted_count:
+                if gsi_archive is not None:
+                    gsi_archive.add_sim_info_cullability(sim_info, score=interacted_sim_ids_in_priority_order.index(sim_id), info='last interaction too old')
+                if sim_info.request_lod(SimInfoLODLevel.BASE):
+                    culling_service.remove_sim_from_interacted_sims(sim_id)
+                    interacted_count -= 1
+                    if gsi_archive is not None:
+                        gsi_archive.add_sim_info_action(sim_info, action='drop to BASE')
+                elif gsi_archive is not None:
+                    gsi_archive.add_sim_info_action(sim_info, action='failed to drop to INTERACTED')
+            elif gsi_archive is not None:
+                gsi_archive.add_sim_info_cullability(sim_info, score=interacted_sim_ids_in_priority_order.index(sim_id), info='no pressure to drop')
         if gsi_archive is not None:
             gsi_archive.census_after = self._get_gsi_culling_census()
             gsi_archive.apply()
 
     def _process_base(self):
+
+        def demote_from_base(sim_info, gsi_archive):
+            if sim_info.request_lod(SimInfoLODLevel.BACKGROUND):
+                if gsi_archive is not None:
+                    gsi_archive.add_sim_info_action(sim_info, action='drop to BACKGROUND')
+            elif gsi_archive is not None:
+                gsi_archive.add_sim_info_action(sim_info, action='failed to drop to BACKGROUND')
+
+        self._process_low(SimInfoLODLevel.BASE, 'Base Pass', demote_from_base)
+
+    def _process_background(self):
         culling_service = services.get_culling_service()
         if gsi_handlers.sim_info_culling_handler.is_archive_enabled():
-            gsi_archive = CullingArchive('Base Pass')
+            gsi_archive = CullingArchive('Background Pass')
             gsi_archive.census_before = self._get_gsi_culling_census()
         else:
             gsi_archive = None
-        base_cap = self._get_cap_level(SimInfoLODLevel.BASE)
+        background_cap = self._get_cap_level(SimInfoLODLevel.BACKGROUND)
         sim_info_manager = services.sim_info_manager()
-        sim_infos = sim_info_manager.get_sim_infos_with_lod(SimInfoLODLevel.BASE)
+        sim_infos = sim_info_manager.get_sim_infos_with_lod(SimInfoLODLevel.BACKGROUND)
         households = frozenset(sim_info.household for sim_info in sim_infos)
-        num_infos_above_base_lod = sim_info_manager.get_num_sim_infos_with_criteria(lambda sim_info: sim_info.lod > SimInfoLODLevel.BASE)
+        num_infos_above_background_lod = sim_info_manager.get_num_sim_infos_with_criteria(lambda sim_info: sim_info.lod > SimInfoLODLevel.BACKGROUND)
         full_and_active_cap = self._get_cap_level(SimInfoLODLevel.FULL) + Household.MAXIMUM_SIZE
-        cap_overage = num_infos_above_base_lod - full_and_active_cap
-        cap = max(base_cap - cap_overage, 0) if cap_overage > 0 else base_cap
+        cap_overage = num_infos_above_background_lod - full_and_active_cap
+        cap = max(background_cap - cap_overage, 0) if cap_overage > 0 else background_cap
         sim_info_immunity_reasons = {}
         sim_info_scores = {}
         for sim_info in sim_infos:
@@ -235,7 +288,7 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
         household_scores = {}
         immune_households = set()
         for household in households:
-            if any(sim_info.lod != SimInfoLODLevel.BASE or sim_info in sim_info_immunity_reasons for sim_info in household):
+            if any(sim_info.lod != SimInfoLODLevel.BACKGROUND or sim_info in sim_info_immunity_reasons for sim_info in household):
                 immune_households.add(household)
             else:
                 score = max(sim_info_scores[sim_info].score for sim_info in household)
@@ -247,8 +300,8 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
                 gsi_archive.add_sim_info_cullability(sim_info, score=score.score, rel_score=score.rel_score, inst_score=score.inst_score, importance_score=score.importance_score)
 
             def get_sim_cullability(sim_info):
-                if sim_info.lod > SimInfoLODLevel.BASE:
-                    return 'LOD is not BASE'
+                if sim_info.lod > SimInfoLODLevel.BACKGROUND:
+                    return 'LOD is not BACKGROUND'
                 if sim_info in sim_info_immunity_reasons:
                     return ', '.join(reason.gsi_reason for reason in sim_info_immunity_reasons[sim_info])
                 elif sim_info in sim_info_scores:
@@ -284,14 +337,23 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
             gsi_archive.apply()
 
     def _process_minimum(self):
+
+        def demote_from_minimum(sim_info, gsi_archive):
+            if gsi_archive is not None:
+                gsi_archive.add_sim_info_action(sim_info, action='cull')
+            sim_info.remove_permanently()
+
+        self._process_low(SimInfoLODLevel.MINIMUM, 'Minimum Pass', demote_from_minimum)
+
+    def _process_low(self, current_lod, debug_pass_name, demote_fn):
         if gsi_handlers.sim_info_culling_handler.is_archive_enabled():
-            gsi_archive = CullingArchive('Minimum Pass')
+            gsi_archive = CullingArchive(debug_pass_name)
             gsi_archive.census_before = self._get_gsi_culling_census()
         else:
             gsi_archive = None
-        cap = self._get_cap_level(SimInfoLODLevel.MINIMUM)
+        cap = self._get_cap_level(current_lod)
         sim_info_manager = services.sim_info_manager()
-        min_lod_sim_infos = sim_info_manager.get_sim_infos_with_lod(SimInfoLODLevel.MINIMUM)
+        min_lod_sim_infos = sim_info_manager.get_sim_infos_with_lod(current_lod)
         num_min_lod_sim_infos = len(min_lod_sim_infos)
         sorted_sim_infos = sorted(min_lod_sim_infos, key=lambda x: self._played_family_tree_distances[x.id], reverse=True)
         if gsi_archive is not None:
@@ -299,9 +361,7 @@ class StoryProgressionActionMaxPopulation(_StoryProgressionAction):
                 gsi_archive.add_sim_info_cullability(sim_info, score=self._played_family_tree_distances[sim_info.id])
         num_to_cull = self._get_num_to_cull(num_min_lod_sim_infos, cap)
         for sim_info in sorted_sim_infos[:num_to_cull]:
-            if gsi_archive is not None:
-                gsi_archive.add_sim_info_action(sim_info, action='cull')
-            sim_info.remove_permanently()
+            demote_fn(sim_info, gsi_archive)
         if gsi_archive is not None:
             gsi_archive.census_after = self._get_gsi_culling_census()
             gsi_archive.apply()

@@ -58,15 +58,20 @@ class _IsBusinessTest(HasTunableSingletonFactory):
 
     def __call__(self, zone_id):
         business_manager = services.business_service().get_business_manager_for_zone(zone_id=zone_id)
-        return business_manager is not None
+        if business_manager is not None:
+            return TestResult.TRUE
+        else:
+            return TestResult(False, 'Zone ID {} is not a business zone.', zone_id)
 
 class _IsBusinessOpenTest(HasTunableSingletonFactory):
 
     def __call__(self, zone_id):
         business_manager = services.business_service().get_business_manager_for_zone(zone_id=zone_id)
-        if business_manager is not None:
-            return business_manager.is_open
-        return False
+        is_open_business = business_manager.is_open if business_manager is not None else False
+        if is_open_business:
+            return TestResult.TRUE
+        else:
+            return TestResult(False, 'Zone ID {} is not an open business zone.', zone_id)
 
 class ZoneTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
     test_events = (TestEvent.SimTravel,)
@@ -77,7 +82,7 @@ class ZoneTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
 
     def __call__(self, *args, **kwargs):
         zone_id = self.zone_source.get_zone_id(**kwargs)
-        if zone_id is None:
+        if not zone_id:
             return TestResult(False, "ZoneTest couldn't find a zone to test.", tooltip=self.tooltip)
         if self.zone_tests.venue_type is not None:
             venue_type_id = build_buy.get_current_venue(zone_id)

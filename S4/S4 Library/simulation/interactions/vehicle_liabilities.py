@@ -2,7 +2,7 @@ from interactions import ParticipantTypeObject, ParticipantType, ParticipantType
 from interactions.aop import AffordanceObjectPair
 from interactions.base.interaction_constants import InteractionQueuePreparationStatus
 from interactions.constraint_variants import TunableGeometricConstraintVariant
-from interactions.constraints import Circle, Position, Nowhere, ANYWHERE
+from interactions.constraints import Circle, Position, ANYWHERE
 from interactions.context import InteractionContext, QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
 from interactions.liability import PreparationLiability
@@ -12,6 +12,8 @@ from interactions.utils.routing import PlanRoute
 from sims4.tuning.tunable import TunableEnumEntry, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, OptionalTunable, HasTunableFactory, Tunable, TunableReference, TunablePackSafeReference, TunableTuple
 from singletons import DEFAULT
 from vehicles.vehicle_constants import VehicleTransitionState
+from vehicles.vehicle_tuning import get_favorite_tags_for_vehicle
+from sims4.math import Transform, Vector3, Quaternion
 import element_utils
 import routing
 import services
@@ -35,22 +37,54 @@ class FindVehicleVariant(TunableVariant):
 
         def __call__(self, resolver):
             sim = resolver.get_participant(ParticipantType.Actor)
+            sim_info = None
             if sim is not None:
                 if sim.is_sim:
-                    sim = sim.sim_info.get_sim_instance()
+                    sim_info = sim.sim_info
+                    sim = sim_info.get_sim_instance()
             if sim is not None:
+                first_vehicle = None
+                favorites_tracker = sim_info.favorites_tracker
                 for vehicle in sim.inventory_component.vehicle_objects_gen():
                     if not self.obj_filter is None:
                         if self.obj_filter.matches(vehicle):
+                            if favorites_tracker is not None:
+                                favorite_tags = get_favorite_tags_for_vehicle(vehicle)
+                                if any(vehicle.id == favorites_tracker.get_favorite_object_id(tag) for tag in favorite_tags):
+                                    return vehicle
+                                else:
+                                    if first_vehicle is None:
+                                        first_vehicle = vehicle
+                                    if first_vehicle:
+                                        return first_vehicle
+                            else:
+                                if first_vehicle is None:
+                                    first_vehicle = vehicle
+                                if first_vehicle:
+                                    return first_vehicle
+                    if favorites_tracker is not None:
+                        favorite_tags = get_favorite_tags_for_vehicle(vehicle)
+                        if any(vehicle.id == favorites_tracker.get_favorite_object_id(tag) for tag in favorite_tags):
                             return vehicle
-                    return vehicle
+                        else:
+                            if first_vehicle is None:
+                                first_vehicle = vehicle
+                            if first_vehicle:
+                                return first_vehicle
+                    else:
+                        if first_vehicle is None:
+                            first_vehicle = vehicle
+                        if first_vehicle:
+                            return first_vehicle
+                if first_vehicle:
+                    return first_vehicle
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, from_participant=FindVehicleVariant.VehicleFromParticipant.TunableFactory(), from_inventory=FindVehicleVariant.VehicleFromInventory.TunableFactory(), **kwargs)
 
 class VehicleLiability(HasTunableFactory, AutoFactoryInit, PreparationLiability):
     LIABILITY_TOKEN = 'VehicleLiability'
-    SOURCE_CONNECTIVITY_HANDLE_RADIUS = 10.0
+    SOURCE_CONNECTIVITY_HANDLE_RADIUS = 2.5
     GET_CLOSE_AFFORDANCE = TunableReference(description='\n        The affordance that Vehicle Liabilities use to get close to the\n        deployment area. Can be overridden on the liability.\n        ', manager=services.affordance_manager())
     FACTORY_TUNABLES = {'vehicle': FindVehicleVariant(), 'transfer_to_continuations': Tunable(description='\n            If enabled, we will transfer this liability to continuations and\n            ensure that the Sim attempts to re-deploy their vehicle.\n            ', tunable_type=bool, default=False), 'get_close_affordance': OptionalTunable(description='\n            If enabled, we will override the default get close affordance for\n            vehicle liabilities. This affordance is pushed to get close to the\n            deployment zone.\n            ', tunable=TunablePackSafeReference(description='\n                The affordance we want to push to get close to the deployment\n                zone. We will be passing constraints to satisfy to this\n                affordance.\n                ', manager=services.affordance_manager()), enabled_name='override', disabled_name='default_affordance'), 'deploy_constraints': OptionalTunable(description="\n            If enabled, we will use this set of constraints to find out where\n            the Sim actually intends on going to use their vehicle. Without\n            this we don't really know where they want to deploy it.\n            \n            We can't use the interaction constraints because that's most likely\n            not where the sim will want to be.\n            ", tunable=TunableTuple(description='\n                An object and constraints to generate relative to it.\n                ', constraints=TunableGeometricConstraintVariant(description='\n                    The constraint we want to use to get close to our deployment zone.\n                    \n                    Note: This is NOT where the Sim will be when they run the\n                    interaction. We need to get them to deploy the vehicle before the\n                    interaction actually runs. This constraint gives us an idea of\n                    where to look.\n                    ', disabled_constraints=('spawn_points',)), target=TunableEnumEntry(description='\n                    The object we want to generate the deploy constraint\n                    relative to.\n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object))), 'max_vehicle_state': TunableEnumEntry(description='\n            The maximum progress we want to make on riding our vehicle.\n            ', tunable_type=VehicleTransitionState, default=VehicleTransitionState.DEPLOYING, invalid_enums=(VehicleTransitionState.NO_STATE,))}
 
@@ -114,25 +148,50 @@ class VehicleLiability(HasTunableFactory, AutoFactoryInit, PreparationLiability)
             return InteractionQueuePreparationStatus.FAILURE
             yield
         source_goal = source_goals[0]
+        if source_goal.position == goals[0].position and source_goal.routing_surface_id == goals[0].routing_surface_id:
+            return InteractionQueuePreparationStatus.SUCCESS
+            yield
         route = routing.Route(source_goal.location, goals, routing_context=sim.routing_context)
-        plan_primitive = PlanRoute(route, sim)
+        plan_primitive = PlanRoute(route, sim, interaction=self._interaction)
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result and not (not plan_primitive.path.nodes and not plan_primitive.path.nodes.plan_success):
             return InteractionQueuePreparationStatus.FAILURE
             yield
         cur_path = plan_primitive.path
-        has_portal = False
-        while cur_path.next_path is not None:
-            has_portal = True
-            cur_path = cur_path.next_path
         if not cur_path.nodes:
             return InteractionQueuePreparationStatus.FAILURE
             yield
-        start_location = cur_path.start_location
-        if not has_portal and (start_location.position - source_goal.location.position).magnitude_squared() < vehicle.vehicle_component.minimum_route_distance:
+
+        def get_start_node_index_for_path(vehicle, path):
+            nodes = list(path.nodes)
+            object_manager = services.object_manager()
+            prev_node = None
+            for node in nodes[::-1]:
+                portal_obj_id = node.portal_object_id
+                portal_obj = object_manager.get(portal_obj_id) if portal_obj_id else None
+                if node.portal_id:
+                    if portal_obj:
+                        if not vehicle.vehicle_component.can_transition_through_portal(portal_obj, node.portal_id):
+                            break
+                prev_node = node
+            else:
+                return 0
+            return prev_node.index
+
+        split_paths = False
+        while cur_path.next_path is not None:
+            split_paths = True
+            cur_path = cur_path.next_path
+            if not cur_path.nodes:
+                return InteractionQueuePreparationStatus.FAILURE
+                yield
+        start_node_index = get_start_node_index_for_path(vehicle, cur_path)
+        start_node = cur_path.nodes[start_node_index]
+        start_location = sims4.math.Location(Transform(Vector3(*start_node.position), Quaternion(*start_node.orientation)), start_node.routing_surface_id)
+        if not split_paths and start_node_index == 0 and (start_location.transform.translation - source_goal.location.position).magnitude_squared() < vehicle.vehicle_component.minimum_route_distance:
             return InteractionQueuePreparationStatus.SUCCESS
             yield
-        deploy_constraint = Position(start_location.position, routing_surface=start_location.routing_surface)
+        deploy_constraint = Position(start_location.transform.translation, routing_surface=start_location.routing_surface)
         depended_on_si = self._interaction
         affordance = self.get_close_affordance if self.get_close_affordance is not None else VehicleLiability.GET_CLOSE_AFFORDANCE
         aop = AffordanceObjectPair(affordance, None, affordance, None, route_fail_on_transition_fail=False, constraint_to_satisfy=deploy_constraint, allow_posture_changes=True, depended_on_si=depended_on_si)

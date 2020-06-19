@@ -30,7 +30,7 @@ class ClubBucksTracker(BucksTrackerBase):
         sim_infos = (sim_info,) if sim_info is not None else self._owner.members
         for sim_info in sim_infos:
             for reward in perk.rewards:
-                reward().open_reward(sim_info, self._owner)
+                reward().open_reward(sim_info)
 
     def _owner_sim_info_gen(self):
         yield from self._owner.members

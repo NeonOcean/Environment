@@ -1,7 +1,8 @@
+import argparse
 import os
 import sys
-import argparse
 import tkinter
+import typing
 from tkinter import filedialog, messagebox
 
 from Decompiler import Decompile
@@ -13,7 +14,7 @@ def Run () -> bool:
 	argumentParser.add_argument("-t", metavar = "target", type = str, help = "The target file's path.")
 	argumentParser.add_argument("-d", metavar = "destination", type = str, help = "The directory the decompiled files will be saved to.")
 	argumentParser.add_argument("-s", action = "store_true", help = "Prevents gui from appearing.")
-	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: argparse.Namespace
+	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: typing.Dict[str, typing.Any]
 
 	if argumentDictionary["t"] is not None:
 		if not os.path.exists(argumentDictionary["t"]):
@@ -65,9 +66,9 @@ def Run () -> bool:
 
 	return Decompile.DecompileFileToDirectory(_targetPath, _destinationPath, os.path.split(_targetPath)[1])
 
-_targetPath = None  # type: str
-_destinationPath = None  # type: str
-_silent = False  # type: str
+_targetPath = None  # type: typing.Optional[str]
+_destinationPath = None  # type: typing.Optional[str]
+_silent = False  # type: bool
 
 if __name__ == "__main__":
 	if not Run():

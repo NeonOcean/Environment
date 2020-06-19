@@ -27,7 +27,9 @@ class DeliveryTracker(HouseholdTracker):
         self._expected_deliveries = {}
 
     def request_delivery(self, sim_id, delivery_tuning_guid, time_span_from_now):
-        logger.assert_raise(self._household.sim_in_household(sim_id), f'Sim {sim_id} not in household {self._household}')
+        if not self._household.sim_in_household(sim_id):
+            logger.warn('Sim {} not in household {}, {} will not be delivered', sim_id, self._household, delivery_tuning_guid)
+            return
         expected_arrival_time = services.time_service().sim_now + time_span_from_now
         delivery = _Delivery(sim_id, delivery_tuning_guid, expected_arrival_time)
         self._expected_deliveries[delivery] = alarms.add_alarm(self, time_span_from_now, _DeliveryAlarmHandler(self, delivery), cross_zone=True)

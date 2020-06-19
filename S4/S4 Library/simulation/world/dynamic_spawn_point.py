@@ -74,7 +74,8 @@ class DynamicInteractionSpawnPoint(SpawnPoint):
             scoring_function = placement.ScoringFunctionRadial(participant.location.transform.translation, self._distance_to_participant, 0, FGLTuning.MAX_FGL_DISTANCE)
             search_flags = placement.FGLSearchFlag.STAY_IN_CONNECTED_CONNECTIVITY_GROUP | placement.FGLSearchFlag.USE_SIM_FOOTPRINT | placement.FGLSearchFlag.CALCULATE_RESULT_TERRAIN_HEIGHTS | placement.FGLSearchFlag.SHOULD_TEST_ROUTING
             starting_location = placement.create_starting_location(position=participant.position, orientation=participant.orientation, routing_surface=self.routing_surface)
-            fgl_context = placement.FindGoodLocationContext(starting_location, max_distance=FGLTuning.MAX_FGL_DISTANCE, additional_avoid_sim_radius=routing.get_default_agent_radius(), max_steps=10, position_increment=self.POSITION_INCREMENT, offset_distance=self._distance_to_participant, scoring_functions=(scoring_function,), search_flags=search_flags)
+            pos_increment_info = placement.PositionIncrementInfo(position_increment=self.POSITION_INCREMENT, from_exception=False)
+            fgl_context = placement.FindGoodLocationContext(starting_location, max_distance=FGLTuning.MAX_FGL_DISTANCE, additional_avoid_sim_radius=routing.get_default_agent_radius(), max_steps=10, position_increment_info=pos_increment_info, offset_distance=self._distance_to_participant, scoring_functions=(scoring_function,), search_flags=search_flags)
             (trans, _) = placement.find_good_location(fgl_context)
         if trans is None:
             fallback_point = services.current_zone().get_spawn_point(lot_id=self.lot_id)

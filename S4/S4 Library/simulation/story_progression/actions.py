@@ -8,7 +8,9 @@ from story_progression.story_progression_action import _StoryProgressionAction
 from story_progression.story_progression_action_fame import StoryProgressionActionFame
 from story_progression.story_progression_action_relationship_culling import StoryProgressionRelationshipCulling
 from story_progression.story_progression_action_sim_info_culling import StoryProgressionActionMaxPopulation
+from story_progression.story_progression_action_university import StoryProgressionActionUniversity
 from tunable_time import TunableTimeOfWeek, Days
+from venues.venue_tuning import VenueTypes
 import services
 import sims4.log
 import sims4.resources
@@ -18,7 +20,7 @@ gameplay_neighborhood_data_constants = GameplaySaveData_pb2.GameplayNeighborhood
 class TunableStoryProgressionActionVariant(TunableVariant):
 
     def __init__(self, **kwargs):
-        super().__init__(initial_population=StoryProgressionInitialPopulation.TunableFactory(locked_args={'_time_of_week': None}), max_population=StoryProgressionActionMaxPopulation.TunableFactory(), populate_action=StoryProgressionPopulateAction.TunableFactory(), rentable_lot_population=StoryProgressionDestinationPopulateAction.TunableFactory(), career_distribution=StoryProgressionActionCareer.TunableFactory(), relationship_culling=StoryProgressionRelationshipCulling.TunableFactory(), fame=StoryProgressionActionFame.TunableFactory())
+        super().__init__(initial_population=StoryProgressionInitialPopulation.TunableFactory(locked_args={'_time_of_week': None}), max_population=StoryProgressionActionMaxPopulation.TunableFactory(), populate_action=StoryProgressionPopulateAction.TunableFactory(), rentable_lot_population=StoryProgressionDestinationPopulateAction.TunableFactory(), career_distribution=StoryProgressionActionCareer.TunableFactory(), relationship_culling=StoryProgressionRelationshipCulling.TunableFactory(), fame=StoryProgressionActionFame.TunableFactory(), university=StoryProgressionActionUniversity.TunableFactory())
 
 class StoryProgressionPopulateAction(_StoryProgressionAction):
     FACTORY_TUNABLES = {'_region_to_population_density': TunableMapping(description='\n        Based on region what percent of available lots will be filled.\n        ', key_name='Region Description', key_type=TunableRegionDescription(pack_safe=True), value_name='Population Density', value_type=TunableTuple(density=TunablePercent(description='\n                Percent of how much of the residential lots will be occupied of\n                all the available lots in that region.  If the current lot\n                density is greater than this value, then no household will be\n                moved in.\n                ', default=40), min_empty=TunableRange(description='\n                Minimum number of empty lots that should stay empty for this neighborhood.\n                ', tunable_type=int, default=2, minimum=0))), '_time_of_week': TunableTuple(description='\n        Only run this action when it is between a certain time of the week.\n        ', start_time=TunableTimeOfWeek(default_day=Days.SUNDAY, default_hour=2), end_time=TunableTimeOfWeek(default_day=Days.SUNDAY, default_hour=6))}
@@ -43,9 +45,9 @@ class StoryProgressionPopulateAction(_StoryProgressionAction):
                     num_zones_filled += 1
                     break
             else:
-                venue_type = venue_manager.get(lot_owner_info.venue_key)
-                if not venue_type is None:
-                    if venue_type.is_residential:
+                venue_type_inst = venue_manager.get(lot_owner_info.venue_key)
+                if not venue_type_inst is None:
+                    if venue_type_inst.venue_type == VenueTypes.RESIDENTIAL:
                         if lot_owner_info.lot_template_id > 0:
                             available_zone_ids.add(lot_owner_info.zone_instance_id)
                 if lot_owner_info.lot_template_id > 0:

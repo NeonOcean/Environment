@@ -1,10 +1,14 @@
-from event_testing.resolver import SingleObjectResolver
+from collections import defaultdict
+from event_testing.resolver import SingleObjectResolver, GlobalResolver
 from event_testing.statistic_tests import StatThresholdTest
+from event_testing.tests import CompoundTestList
 from interactions import ParticipantType
 from objects.components.inventory_elements import InventoryTransferFakePerform, DeliverBillFakePerform
 from objects.components.state import TunableStateValueReference
 from objects.components.types import VEHICLE_COMPONENT
-from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableTuple, AutoFactoryInit, TunableVariant, TunableSingletonFactory, TunableSimMinute, HasTunableSingletonFactory
+from sims4.random import random_chance, weighted_random_item
+from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableTuple, AutoFactoryInit, TunableVariant, TunableSingletonFactory, TunableSimMinute, HasTunableSingletonFactory, TunablePercent, TunableRange
+from zone_tests import ZoneTest
 import event_testing.results
 import event_testing.state_tests
 import event_testing.test_base
@@ -28,12 +32,27 @@ class TimeElapsedZoneTest(HasTunableSingletonFactory, AutoFactoryInit, event_tes
             return event_testing.results.TestResult(False, 'TimeElapsedZoneTest: elapsed time ({}) since last save at this zone is not greater than {}', elapsed_time, self.minutes_passed)
         return event_testing.results.TestResult.TRUE
 
+class TunableObjectModifyGlobalTestVariant(TunableVariant):
+
+    def __init__(self, additional_tests=None, **kwargs):
+        if additional_tests is not None:
+            kwargs.update(additional_tests)
+        super().__init__(season=seasons.season_tests.SeasonTest.TunableFactory(locked_args={'tooltip': None}), elapsed_time=TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None}), zone=ZoneTest.TunableFactory(locked_args={'tooltip': None}), **kwargs)
+
+class TunableObjectModifyGlobalTestList(event_testing.tests.TestListLoadingMixin):
+    DEFAULT_LIST = event_testing.tests.TestList()
+
+    def __init__(self, description=None, additional_tests=None, **kwargs):
+        if description is None:
+            description = 'A list of tests.  All tests must succeed to pass the test.'
+        super().__init__(description=description, tunable=TunableObjectModifyGlobalTestVariant(additional_tests=additional_tests), **kwargs)
+
 class TunableObjectModifyTestVariant(TunableVariant):
 
     def __init__(self, description='A single tunable test.', test_excluded=(), additional_tests=None, **kwargs):
         if additional_tests is not None:
             kwargs.update(additional_tests)
-        super().__init__(description=description, state=event_testing.state_tests.TunableStateTest(locked_args={'who': ParticipantType.Object, 'tooltip': None}), object_definition=TunableObjectMatchesDefinitionOrTagTest(), inventory=objects.object_tests.InventoryTest.TunableFactory(locked_args={'tooltip': None}), custom_name=objects.object_tests.CustomNameTest.TunableFactory(locked_args={'tooltip': None}), consumable_test=objects.object_tests.ConsumableTest.TunableFactory(locked_args={'tooltip': None}), existence=objects.object_tests.ExistenceTest.TunableFactory(locked_args={'tooltip': None, 'require_instantiated': False}), location=world.world_tests.LocationTest.TunableFactory(locked_args={'tooltip': None, 'subject': ParticipantType.Object}), season=seasons.season_tests.SeasonTest.TunableFactory(locked_args={'tooltip': None}), **kwargs)
+        super().__init__(description=description, state=event_testing.state_tests.TunableStateTest(locked_args={'who': ParticipantType.Object, 'tooltip': None}), object_definition=TunableObjectMatchesDefinitionOrTagTest(), inventory=objects.object_tests.InventoryTest.TunableFactory(locked_args={'tooltip': None}), custom_name=objects.object_tests.CustomNameTest.TunableFactory(locked_args={'tooltip': None}), consumable_test=objects.object_tests.ConsumableTest.TunableFactory(locked_args={'tooltip': None}), existence=objects.object_tests.ExistenceTest.TunableFactory(locked_args={'tooltip': None, 'require_instantiated': False}), location=world.world_tests.LocationTest.TunableFactory(locked_args={'tooltip': None, 'subject': ParticipantType.Object}), season=seasons.season_tests.SeasonTest.TunableFactory(locked_args={'tooltip': None}), object_preference=objects.object_tests.ObjectScoringPreferenceTest.TunableFactory(locked_args={'tooltip': None}), **kwargs)
 
 class TunableObjectModifyTestSet(event_testing.tests.CompoundTestListLoadingMixin):
     DEFAULT_LIST = event_testing.tests.CompoundTestList()
@@ -67,11 +86,26 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
     DELIVER_BILLS = 3
     SET_ON_FIRE = 4
     CLEANUP_VEHICLE = 5
-    FACTORY_TUNABLES = {'description': '\n        Tune modifications to apply to all objects on a lot.\n        Can do state changes, destroy certain items, etc.\n        \n        EX: for auto cleaning, tune to have objects with Dirtiness state that\n        equals dirty to be set to the clean state and tune to have dirty dishes\n        and spoiled food to be deleted\n        ', 'modifications': TunableList(description="\n            A list of where the elements define how to modify objects on the\n            lot. Each entry is a triplet of an object modification action\n            (currently either destroy the object or set its state), a list of\n            tests to run on the object to determine if we should actually apply\n            the modification, and a priority in case some modifications should\n            take precedence over other ones when both of their tests pass.\n            \n            EX: test list: object's dirtiness state != dirtiness clean\n            action: set state to Dirtiness_clean\n            \n            So dirty objects will become clean\n            ", tunable=TunableTuple(action=TunableVariant(set_state=TunableTuple(action_value=TunableStateValueReference(description='An object state to set the object to', pack_safe=True), locked_args={'action_type': SET_STATE}), destroy_object=TunableTuple(locked_args={'action_type': DESTROY_OBJECT}), inventory_transfer=TunableTuple(action_value=InventoryTransferFakePerform.TunableFactory(), locked_args={'action_type': INVENTORY_TRANSFER}), deliver_bills=TunableTuple(action_value=DeliverBillFakePerform.TunableFactory(), locked_args={'action_type': DELIVER_BILLS}), set_on_fire=TunableTuple(locked_args={'action_type': SET_ON_FIRE}), cleanup_vehicle=TunableTuple(description='\n                        Cleanup vehicles that are left around.\n                        ', locked_args={'action_type': CLEANUP_VEHICLE})), tests=TunableObjectModifyTestSet(description='\n                    All least one subtest group (AKA one list item) must pass\n                    within this list before the action associated with this\n                    tuning will be run.\n                    ', additional_tests={'elapsed_time': TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None}), 'statistic': StatThresholdTest.TunableFactory(locked_args={'tooltip': None})})))}
+    FACTORY_TUNABLES = {'description': '\n        Tune modifications to apply to all objects on a lot.\n        Can do state changes, destroy certain items, etc.\n        \n        EX: for auto cleaning, tune to have objects with Dirtiness state that\n        equals dirty to be set to the clean state and tune to have dirty dishes\n        and spoiled food to be deleted\n        ', 'modifications': TunableList(description="\n            A list of where the elements define how to modify objects on the\n            lot. Each entry is a triplet of an object modification action\n            (currently either destroy the object or set its state), a list of\n            tests to run on the object to determine if we should actually apply\n            the modification, and a priority in case some modifications should\n            take precedence over other ones when both of their tests pass.\n            \n            EX: test list: object's dirtiness state != dirtiness clean\n            action: set state to Dirtiness_clean\n            \n            So dirty objects will become clean\n            ", tunable=TunableTuple(action=TunableVariant(set_state=TunableTuple(action_value=TunableStateValueReference(description='An object state to set the object to', pack_safe=True), locked_args={'action_type': SET_STATE}), destroy_object=TunableTuple(locked_args={'action_type': DESTROY_OBJECT}), inventory_transfer=TunableTuple(action_value=InventoryTransferFakePerform.TunableFactory(), locked_args={'action_type': INVENTORY_TRANSFER}), deliver_bills=TunableTuple(action_value=DeliverBillFakePerform.TunableFactory(), locked_args={'action_type': DELIVER_BILLS}), set_on_fire=TunableTuple(locked_args={'action_type': SET_ON_FIRE}), cleanup_vehicle=TunableTuple(description='\n                        Cleanup vehicles that are left around.\n                        ', locked_args={'action_type': CLEANUP_VEHICLE})), chance=TunablePercent(description='\n                    Chance this modification will occur.\n                    ', default=100, minimum=1), global_tests=TunableObjectModifyGlobalTestList(description="\n                    Non object-related tests that gate this modification from occurring.  Use this for any global\n                    tests that don't require the object, such as zone/location/time-elapsed tests.  These tests\n                    will run only ONCE for this action, unlike 'Tests', which runs PER OBJECT. \n                    "), tests=TunableObjectModifyTestSet(description='\n                    All least one subtest group (AKA one list item) must pass\n                    within this list before the action associated with this\n                    tuning will be run.\n                    ', additional_tests={'elapsed_time': TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None}), 'statistic': StatThresholdTest.TunableFactory(locked_args={'tooltip': None})}), weighted_tests=TunableList(description='\n                    Weighted tests for the individual object. One is chosen \n                    based on weight, and all objects are run against that chosen\n                    test set.\n                    ', tunable=TunableTuple(tests=TunableObjectModifyTestSet(description='\n                            All least one subtest group (AKA one list item) must pass\n                            within this list before the action associated with this\n                            tuning will be run.\n                            ', additional_tests={'elapsed_time': TimeElapsedZoneTest.TunableFactory(locked_args={'tooltip': None}), 'statistic': StatThresholdTest.TunableFactory(locked_args={'tooltip': None})}), weight=TunableRange(description='\n                            Weight to use.\n                            ', tunable_type=int, default=1, minimum=1)))))}
 
     def modify_objects(self, object_criteria=None):
         objects_to_destroy = []
         num_modified = 0
+        modifications = defaultdict(CompoundTestList)
+        for mod in self.modifications:
+            if not random_chance(mod.chance*100):
+                continue
+            if mod.global_tests and not mod.global_tests.run_tests(GlobalResolver()):
+                continue
+            if mod.tests:
+                modifications[mod.action].extend(mod.tests)
+            if mod.weighted_tests:
+                weighted_tests = []
+                for test_weight_pair in mod.weighted_tests:
+                    weighted_tests.append((test_weight_pair.weight, test_weight_pair.tests))
+                modifications[mod.action].extend(weighted_random_item(weighted_tests))
+        if not modifications:
+            return num_modified
         all_objects = list(services.object_manager().values())
         for obj in all_objects:
             if obj.is_sim:
@@ -80,11 +114,10 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
                 continue
             resolver = SingleObjectResolver(obj)
             modified = False
-            for action_and_test in self.modifications:
-                if not action_and_test.tests.run_tests(resolver):
+            for (action, tests) in modifications.items():
+                if not tests.run_tests(resolver):
                     continue
                 modified = True
-                action = action_and_test.action
                 action_type = action.action_type
                 if action_type == ModifyAllLotItems.DESTROY_OBJECT:
                     objects_to_destroy.append(obj)
@@ -93,6 +126,18 @@ class ModifyAllLotItems(HasTunableFactory, AutoFactoryInit):
                     new_state_value = action.action_value
                     if obj.state_component and obj.has_state(new_state_value.state):
                         obj.set_state(new_state_value.state, new_state_value, immediate=True)
+                        if action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
+                            element = action.action_value()
+                            element._do_behavior()
+                        elif action_type == ModifyAllLotItems.SET_ON_FIRE:
+                            fire_service = services.get_fire_service()
+                            fire_service.spawn_fire_at_object(obj)
+                        elif action_type == ModifyAllLotItems.CLEANUP_VEHICLE:
+                            if self._should_cleanup_vehicle(obj):
+                                objects_to_destroy.append(obj)
+                                raise NotImplementedError
+                        else:
+                            raise NotImplementedError
                 elif action_type in (ModifyAllLotItems.INVENTORY_TRANSFER, ModifyAllLotItems.DELIVER_BILLS):
                     element = action.action_value()
                     element._do_behavior()

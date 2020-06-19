@@ -123,8 +123,8 @@ class TunableGeometryState(TunableStringOrDefault):
     def __init__(self, **kwargs):
         super().__init__(self.DEFAULT_VALUE, **kwargs)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value is self.DEFAULT_VALUE:
             return
         return value
@@ -156,8 +156,8 @@ class TunableModelSuiteStateIndex(Tunable):
         super().__init__(int, 0, **kwargs)
         self.cache_key = '{}_{}'.format('TunableModelSuiteStateIndex', self.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value is None:
             value = 0
         return ModelSuiteStateIndex(value)

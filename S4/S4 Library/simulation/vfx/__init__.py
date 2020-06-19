@@ -72,10 +72,6 @@ class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, 
         else:
             Distributor.instance().add_op_with_no_owner(self)
 
-    def set_state_index(self, state_index):
-        op = SetVFXState(self.target.id, self.actor_id, state_index)
-        distributor.ops.record(self.target, op)
-
     def stop(self, *_, immediate=False, **kwargs):
         if self.target is None or not self.target.valid_for_distribution:
             return
@@ -102,6 +98,8 @@ class PlayEffect(distributor.ops.ElementDistributionOpMixin, HasTunableFactory, 
 
     def detach(self, *objects):
         super().detach(*objects)
+        if services.current_zone().is_zone_shutting_down:
+            return
         op = StopVFX(self.target.id, self.actor_id, stop_type=self._stop_type, immediate=self.immediate)
         distributor.ops.record(self.target, op)
         logger.info('VFX {} on {} STOP'.format(self.effect_name, self.target))

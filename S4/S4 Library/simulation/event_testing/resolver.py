@@ -1,4 +1,5 @@
 import itertools
+import random
 import sys
 import time
 from event_testing.results import TestResult
@@ -81,8 +82,11 @@ class Resolver:
         global test_profile
         try:
             from event_testing.tests import TestSetInstance
+            from event_testing.test_based_score_threshold import TestBasedScoreThresholdTest
             is_test_set = isinstance(test, type) and issubclass(test, TestSetInstance)
             test_name = '[TS]{}'.format(test.__name__) if is_test_set else test.__class__.__name__
+            if isinstance(test, TestBasedScoreThresholdTest):
+                is_test_set = True
             record = test_profile.get(test_name)
             if record is None:
                 record = TestProfileRecord(is_test_set=is_test_set)
@@ -172,6 +176,11 @@ class Resolver:
             if active_household is not None:
                 return tuple(active_household.sim_info_gen())
             return ()
+        elif participant_type == ParticipantType.AllInstancedActiveHouseholdSims:
+            active_household = services.active_household()
+            if active_household is not None:
+                return tuple(active_household.instanced_sims_gen())
+            return ()
         elif participant_type == ParticipantType.CareerEventSim:
             career = services.get_career_service().get_career_in_career_event()
             if career is not None:
@@ -180,12 +189,20 @@ class Resolver:
         elif participant_type == ParticipantType.AllInstancedSims:
             return tuple(services.sim_info_manager().instanced_sims_gen())
         return ()
-        if participant_type == ParticipantType.CareerEventSim:
+        if participant_type == ParticipantType.AllInstancedActiveHouseholdSims:
+            active_household = services.active_household()
+            if active_household is not None:
+                return tuple(active_household.instanced_sims_gen())
+            return ()
+        elif participant_type == ParticipantType.CareerEventSim:
             career = services.get_career_service().get_career_in_career_event()
             if career is not None:
                 return (career.sim_info.get_sim_instance() or career.sim_info,)
             return ()
         elif participant_type == ParticipantType.AllInstancedSims:
+            return tuple(services.sim_info_manager().instanced_sims_gen())
+        return ()
+        if participant_type == ParticipantType.AllInstancedSims:
             return tuple(services.sim_info_manager().instanced_sims_gen())
 
 class GlobalResolver(Resolver):
@@ -391,6 +408,11 @@ class AwayActionResolver(Resolver):
         if participant_type == 0:
             logger.error('Calling get_participants with no flags on {}.', self)
             return ()
+        if participant_type == ParticipantType.Lot:
+            return self.away_action.get_participants(participant_type=participant_type, **self.away_action_parameters)
+        result = self._get_participants_base(participant_type)
+        if result is not None:
+            return result
         if participant_type == event_testing.test_constants.FROM_DATA_OBJECT:
             return ()
         if participant_type == event_testing.test_constants.OBJECTIVE_GUID64:
@@ -464,6 +486,8 @@ class SingleSimResolver(Resolver):
             return ()
         if participant_type == event_testing.test_constants.SIM_INSTANCE:
             return (self.sim_info_to_test,)
+        if participant_type == ParticipantType.Familiar:
+            return self._get_familiar_for_sim_info(self.sim_info_to_test)
         if participant_type in self._additional_participants:
             return self._additional_participants[participant_type]
         if participant_type == ParticipantType.PickedZoneId:
@@ -472,6 +496,17 @@ class SingleSimResolver(Resolver):
         if result is not None:
             return result
         raise ValueError('Trying to use {} with unsupported participant: {}'.format(type(self).__name__, participant_type))
+
+    def _get_familiar_for_sim_info(self, sim_info):
+        familiar_tracker = self.sim_info_to_test.familiar_tracker
+        if familiar_tracker is None:
+            return ()
+        familiar = familiar_tracker.get_active_familiar()
+        if familiar is None:
+            return ()
+        if familiar.is_sim:
+            return (familiar.sim_info,)
+        return (familiar,)
 
     def get_localization_tokens(self, *args, **kwargs):
         return (self.sim_info_to_test,) + self._additional_localization_tokens
@@ -497,6 +532,8 @@ class DoubleSimResolver(SingleSimResolver):
             return (self.target_sim_info,)
         if participant_type == ParticipantType.SignificantOtherTargetSim:
             return (self.target_sim_info.get_significant_other_sim_info(),)
+        if participant_type == ParticipantType.FamiliarOfTarget:
+            return self._get_familiar_for_sim_info(self.target_sim_info)
         return super().get_participants(participant_type, **kwargs)
 
     def get_localization_tokens(self, *args, **kwargs):
@@ -594,6 +631,8 @@ class SingleObjectResolver(Resolver):
     def get_participants(self, participant_type, **kwargs):
         if participant_type == ParticipantType.Object:
             return (self._obj,)
+        if participant_type == ParticipantType.Actor:
+            return (self._obj,)
         if participant_type == ParticipantType.StoredSim:
             stored_sim_info = self._obj.get_stored_sim_info()
             return (stored_sim_info,)
@@ -614,6 +653,8 @@ class SingleObjectResolver(Resolver):
             if self._obj.is_part:
                 return tuple(self._obj.part_owner.children_recursive_gen())
             return tuple(self._obj.children_recursive_gen())
+        if participant_type == ParticipantType.RandomInventoryObject:
+            return (random.choice(tuple(self._obj.inventory_component.visible_storage)),)
         result = self._get_participants_base(participant_type, **kwargs)
         if result is not None:
             return result
@@ -652,6 +693,10 @@ class DoubleObjectResolver(Resolver):
             posture = self._source_obj.posture
             if posture.multi_sim:
                 return (posture.linked_posture.sim.sim_info,)
+        if participant_type == ParticipantType.ObjectParent:
+            if self._target_obj is None or self._target_obj.parent is None:
+                return ()
+            return (self._target_obj.parent,)
         raise ValueError('Trying to use DoubleObjectResolver with something that is not supported: Participant {}, Resolver {}'.format(participant_type, self))
 
     def get_localization_tokens(self, *args, **kwargs):
@@ -691,7 +736,7 @@ class SingleActorAndObjectResolver(Resolver):
             owner_sim_info_id = self._obj.get_sim_owner_id()
             owner_sim_info = services.sim_info_manager().get(owner_sim_info_id)
             return (owner_sim_info,)
-        if participant_type == event_testing.test_constants.FROM_EVENT_DATA:
+        if participant_type == ParticipantType.Affordance or participant_type == ParticipantType.InteractionContext or participant_type == event_testing.test_constants.FROM_EVENT_DATA:
             return ()
         raise ValueError('Trying to use SingleActorAndObjectResolver with something that is not supported: {}'.format(participant_type))
 
@@ -719,7 +764,7 @@ class DoubleSimAndObjectResolver(Resolver):
         if result is not None:
             return result
         if participant_type == ParticipantType.Actor or participant_type == ParticipantType.CustomSim or participant_type == event_testing.test_constants.SIM_INSTANCE:
-            return (self._sim_info,)
+            return (self._actor_sim_info,)
         if participant_type == ParticipantType.TargetSim:
             return (self._target_sim_info,)
         if participant_type == ParticipantType.SignificantOtherTargetSim:
@@ -747,3 +792,17 @@ class DoubleSimAndObjectResolver(Resolver):
 
     def get_localization_tokens(self, *args, **kwargs):
         return (self._sim_info, self._target_sim_info, self._obj)
+
+class PhotoResolver(SingleActorAndObjectResolver):
+
+    def __init__(self, photographer, photo_object, photo_targets, source):
+        super().__init__(photographer, photo_object, source)
+        self._photo_targets = photo_targets
+
+    def __repr__(self):
+        return 'PhotoResolver: photographer: {}, photo_object:{}, photo_targets:{}'.format(self._sim_info, self._obj, self._photo_targets)
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == ParticipantType.PhotographyTargets:
+            return self._photo_targets
+        return super().get_participants(participant_type, **kwargs)

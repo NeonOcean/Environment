@@ -51,6 +51,7 @@ class BouncerExclusivityCategory(enum.IntFlags):
     INFECTED = 4194304
     NEUTRAL_UNPOSSESSABLE = 8388608
     NORMAL_UNPOSSESSABLE = 16777216
+    ROOMMATE = 33554432
 
 class BouncerExclusivityOption(enum.Int):
     NONE = 0

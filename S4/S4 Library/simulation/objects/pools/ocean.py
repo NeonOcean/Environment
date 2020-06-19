@@ -1,4 +1,5 @@
 from _math import Vector3, Quaternion, Transform
+from sims4.common import is_available_pack
 from sims4.math import Location, vector_cross, UP_AXIS, vector_normalize, vector_dot, VECTOR3_ZERO, FORWARD_AXIS, EPSILON
 from singletons import DEFAULT
 import caches
@@ -138,6 +139,9 @@ class Ocean(SwimmingMixin, GameObject):
             return get_water_depth(translation.x, translation.z)
 
         for (species, age_data) in OceanTuning.OCEAN_DATA.items():
+            required_pack = SpeciesExtended.get_required_pack(species)
+            if required_pack is not None and not is_available_pack(required_pack):
+                continue
             for age_ocean_data in age_data:
                 ocean_data = age_ocean_data.ocean_data
                 beach_portal = ocean_data.beach_portal_data
@@ -153,6 +157,7 @@ class Ocean(SwimmingMixin, GameObject):
                         depth = _get_water_depth_at_edge(i)
                         if depth <= max_wading_depth:
                             wading_transforms.append(edge_transforms[i])
+                            wading_transforms.append(transform)
                     else:
                         wading_transforms.append(transform)
                 transforms = adjust_locations_for_target_water_depth(swim_depth, ocean_data.water_depth_error, initial_transforms)

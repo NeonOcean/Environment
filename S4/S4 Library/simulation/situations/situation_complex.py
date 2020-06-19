@@ -6,7 +6,7 @@ from event_testing.test_events import TestEvent
 from objects import components
 from objects.components.object_claim_component import ObjectClaimComponent
 from objects.system import create_object
-from sims4.tuning.tunable import TunableReference, TunableSingletonFactory, TunableSet, TunableEnumEntry, TunableList, AutoFactoryInit, HasTunableFactory, TunableMapping, Tunable, OptionalTunable, TunableSimMinute
+from sims4.tuning.tunable import TunableReference, TunableSingletonFactory, TunableSet, TunableEnumEntry, TunableList, AutoFactoryInit, HasTunableFactory, TunableMapping, Tunable, OptionalTunable, TunableSimMinute, TunableTuple, TunableRange, HasTunableSingletonFactory
 from situations.situation import Situation
 from tag import Tag
 import alarms
@@ -154,7 +154,7 @@ class SituationState:
         return True
 
 class CommonSituationState(SituationState, HasTunableFactory):
-    FACTORY_TUNABLES = {'job_and_role_changes': TunableMapping(description='\n                A mapping between situation jobs and role states that defines\n                what role states we want to switch to for sims on which jobs\n                when this situation state is entered.\n                ', key_type=TunableReference(description="\n                    A reference to a SituationJob that we will use to change\n                    sim's role state.\n                    ", manager=services.situation_job_manager()), key_name='Situation Job', value_type=TunableReference(description='\n                    The role state that we will switch sims of the linked job\n                    into.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.ROLE_STATE)), value_name='Role State'), 'allow_join_situation': Tunable(description='\n                Whether the situation is allowed to join at this state.\n                ', tunable_type=bool, default=True), 'time_out': OptionalTunable(description='\n                How long the pre class session will last.\n                ', tunable=TunableSimMinute(default=15, minimum=1))}
+    FACTORY_TUNABLES = {'job_and_role_changes': TunableMapping(description='\n                A mapping between situation jobs and role states that defines\n                what role states we want to switch to for sims on which jobs\n                when this situation state is entered.\n                ', key_type=TunableReference(description="\n                    A reference to a SituationJob that we will use to change\n                    sim's role state.\n                    ", manager=services.situation_job_manager()), key_name='Situation Job', value_type=TunableReference(description='\n                    The role state that we will switch sims of the linked job\n                    into.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.ROLE_STATE)), value_name='Role State'), 'allow_join_situation': Tunable(description='\n                Whether the situation is allowed to join at this state.\n                ', tunable_type=bool, default=True), 'time_out': OptionalTunable(description='\n                How long this state will last before time expired. Please talk to the GPE who implemented the specific\n                situation to see what the state will do on time expired.\n                ', tunable=TunableSimMinute(default=15, minimum=1))}
 
     def __init__(self, job_and_role_changes, allow_join_situation, time_out):
         super().__init__()
@@ -228,6 +228,42 @@ class CommonInteractionCompletedSituationState(CommonSituationState):
     def _additional_tests(self, sim_info, event, resolver):
         return True
 
+class CommonMultiInteractionCompletedSituationState(CommonSituationState):
+    COMPLETED_INTERACTIONS_TOKEN = 'completed_interactions'
+    FACTORY_TUNABLES = {'interactions_of_interest': TunableList(description='\n            Groups of tags/interactions which must each (each group) be\n            satisfied before GPE defined behavior is triggered. To satisfy a\n            group, either an interaction which matches a tuned tag must be run\n            or an interaction that matches a tuned affordance must be run. To\n            create an AND condition, use multiple groups.\n            ', tunable=TunableInteractionOfInterest())}
+
+    def __init__(self, interactions_of_interest, **kwargs):
+        super().__init__(**kwargs)
+        self._interactions_of_interest = interactions_of_interest
+        self._completed_interactions = set()
+
+    def on_activate(self, reader=None):
+        super().on_activate(reader)
+        for interaction_tuning in self._interactions_of_interest:
+            if interaction_tuning in self._completed_interactions:
+                continue
+            for custom_key in interaction_tuning.custom_keys_gen():
+                self._test_event_register(TestEvent.InteractionComplete, custom_key)
+
+    def handle_event(self, sim_info, event, resolver):
+        if event == TestEvent.InteractionComplete:
+            for interaction_tuning in self._interactions_of_interest:
+                if interaction_tuning in self._completed_interactions:
+                    continue
+                if resolver(interaction_tuning):
+                    if self._additional_tests(sim_info, event, resolver):
+                        self._completed_interactions.add(interaction_tuning)
+                        for custom_key in interaction_tuning.custom_keys_gen():
+                            self._test_event_unregister(TestEvent.InteractionComplete, custom_key)
+                        if len(self._completed_interactions) == len(self._interactions_of_interest):
+                            self._on_interactions_completed()
+
+    def _on_interactions_completed(self):
+        pass
+
+    def _additional_tests(self, sim_info, event, resolver):
+        return True
+
 class CommonInteractionStartedSituationState(CommonSituationState):
     FACTORY_TUNABLES = {'interaction_of_interest': TunableInteractionOfInterest(description='\n                 The interaction that when run will cause GPE defined behavior\n                 to run.\n                 ')}
 
@@ -250,6 +286,9 @@ class CommonInteractionStartedSituationState(CommonSituationState):
     def _additional_tests(self, sim_info, event, resolver):
         return True
 
+class TunableSituationJobAndRoles(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'jobs_and_roles': TunableMapping(description="\n            A mapping between a situation's jobs and default role states.\n            ", key_type=TunableReference(description='\n                A job created for this situation.\n                ', manager=services.situation_job_manager()), key_name='Situation Job', value_type=TunableTuple(number_of_sims_to_find=TunableRange(description='\n                    The number of sims to find for this job.\n                    ', tunable_type=int, default=1, minimum=1), role=TunableReference(description='\n                    The role state that the sim of this job starts the situation with.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.ROLE_STATE))), value_name='Role State Info')}
+
 class SituationJobAndRoleState:
     FACTORY_TUNABLES = {'situation_job': TunableReference(services.situation_job_manager(), description='A reference to a SituationJob that can be performed at this Situation.'), 'role_state': TunableReference(services.get_instance_manager(sims4.resources.Types.ROLE_STATE), description='A role state the sim assigned to the job will perform')}
 
@@ -261,6 +300,8 @@ class SituationJobAndRoleState:
         situation._add_job_type(self.job, self.role_state)
 
 TunableSituationJobAndRoleState = TunableSingletonFactory.create_auto_factory(SituationJobAndRoleState)
+VEHICLE_TOKEN = 'vehicle_id'
+VEHICLE_COUNT_TOKEN = 'vehicle_count_id'
 
 class SituationComplexCommon(SituationComplex):
     SITUATION_STATE_GROUP = 'Situation State'
@@ -275,12 +316,25 @@ class SituationComplexCommon(SituationComplex):
     def __init__(self, *arg, **kwargs):
         super().__init__(*arg, **kwargs)
         self._cur_state = None
+        self._spawned_vehicle_ids = []
+        reader = self._seed.custom_init_params_reader
+        if reader is not None:
+            vehicle_count = reader.read_uint32(VEHICLE_COUNT_TOKEN, 0)
+            for i in range(0, vehicle_count):
+                vehicle_token = VEHICLE_TOKEN + str(i)
+                vehicle_id = self._load_object(reader, vehicle_token, claim=True)
+                self._spawned_vehicle_ids.append(vehicle_id)
 
     def _destroy(self):
         if self._cur_state is not None:
             old_state = self._cur_state
             self._cur_state = None
             old_state.on_deactivate()
+        object_manager = services.object_manager()
+        for vehicle_id in self._spawned_vehicle_ids:
+            vehicle = object_manager.get(vehicle_id)
+            if vehicle is not None:
+                vehicle.make_transient()
         super()._destroy()
 
     @classmethod
@@ -341,18 +395,13 @@ class SituationComplexCommon(SituationComplex):
     @classmethod
     def _claim_object(cls, obj_id):
         obj_man = services.object_manager()
-        inv_man = services.inventory_manager()
         obj = obj_man.get(obj_id)
         if obj is None:
-            obj = obj_man.get(obj_id)
-            if obj is None:
-                obj = inv_man.get(obj_id)
+            obj = services.inventory_manager().get(obj_id)
         if obj is not None:
-            if not obj.has_component(components.types.OBJECT_CLAIM_COMPONENT):
-                obj.add_dynamic_component(components.types.OBJECT_CLAIM_COMPONENT)
-            obj.object_claim_component.claim()
-            obj_man.set_claimed_item(obj.id)
-        inv_man.set_claimed_item(obj_id)
+            obj.claim()
+        else:
+            obj_man.set_claimed_item(obj_id)
 
     def _create_object_for_situation(self, sim, obj_to_create, add_to_inventory=True):
 
@@ -363,10 +412,7 @@ class SituationComplexCommon(SituationComplex):
         try:
             if add_to_inventory:
                 sim.inventory_component.system_add_object(target)
-            if target.object_claim_component is None:
-                target.add_dynamic_component(components.types.OBJECT_CLAIM_COMPONENT)
-            target.object_claim_component.claim()
-            services.object_manager().set_claimed_item(target.id)
+            target.claim()
         except:
             target.destroy(source=sim, cause='Exception during creation of object for situation.')
             raise
@@ -399,8 +445,16 @@ class SituationComplexCommon(SituationComplex):
         self._save_custom_situation(seedling.situation_custom_writer)
         self._save_custom_state(seedling.state_custom_writer)
 
+    def manage_vehicle(self, vehicle):
+        if vehicle is not None:
+            self._spawned_vehicle_ids.append(vehicle.id)
+
     def _save_custom_situation(self, writer):
-        pass
+        if len(self._spawned_vehicle_ids) > 0:
+            writer.write_uint32(VEHICLE_COUNT_TOKEN, len(self._spawned_vehicle_ids))
+            for i in range(0, len(self._spawned_vehicle_ids)):
+                vehicle_id = self._spawned_vehicle_ids[i]
+                writer.write_uint64(VEHICLE_TOKEN + str(i), vehicle_id)
 
     def _save_custom_state(self, writer):
         uid = self._state_to_uid(self._cur_state)

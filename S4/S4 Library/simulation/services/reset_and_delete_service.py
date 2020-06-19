@@ -22,6 +22,9 @@ class _Stage(enum.Int, export=False):
 def can_be_destroyed(obj):
     return obj.id in obj.manager
 
+def has_been_destroyed(obj):
+    return obj.id not in obj.manager
+
 class ResetRecord:
 
     def __init__(self, obj, reset_reason=ResetReason.RESET_EXPECTED, source=None, cause=None, **params):

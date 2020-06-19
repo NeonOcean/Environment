@@ -2,8 +2,9 @@ import random
 from away_actions.away_actions import AwayAction
 from careers.career_enums import CareerCategory
 from careers.career_tuning import Career
+from drama_scheduler.drama_node_ops import ScheduleDramaNodeLoot
 from element_utils import build_critical_section_with_finally
-from event_testing.resolver import SingleSimResolver, DoubleSimResolver
+from event_testing.resolver import SingleSimResolver, DoubleSimResolver, InteractionResolver
 from event_testing.results import TestResult
 from fame.fame_tuning import FameTunables
 from filters.tunable import TunableSimFilter
@@ -15,6 +16,7 @@ from interactions.utils.success_chance import SuccessChance
 from interactions.utils.tunable import TunableContinuation
 from objects.terrain import TerrainSuperInteraction
 from sims.sim_info_interactions import SimInfoInteraction
+from sims.university.degree_tracker import DegreeTracker
 from sims4.tuning.tunable import OptionalTunable, TunableList, Tunable, TunableVariant, TunableEnumSet, HasTunableSingletonFactory, AutoFactoryInit, TunableTuple, TunableRange, TunableReference
 from sims4.tuning.tunable_base import GroupNames
 from sims4.utils import flexmethod
@@ -27,7 +29,7 @@ import event_testing
 import interactions.base.super_interaction
 import interactions.rabbit_hole
 import services
-import sims4.tuning.tunable
+import sims4
 import terrain
 logger = sims4.log.Logger('Careers')
 with sims4.reload.protected(globals()):
@@ -81,6 +83,8 @@ class CareerSuperInteraction(interactions.base.super_interaction.SuperInteractio
         career_level = career.current_level_tuning()
         if career_level.fame_moment is not None and self._should_run_fame_moment(career, career_level):
             self._start_fame_moment(career, career_level.fame_moment)
+        if career.scholarship_info_loot is not None and not career.seen_scholarship_info:
+            self._start_scholarship_info_loot(career, career.scholarship_info_loot)
         sequence = super().build_basic_elements(sequence=sequence)
         sequence = build_critical_section_with_finally(self.interaction_start, sequence, self.interaction_end)
         return sequence
@@ -99,6 +103,10 @@ class CareerSuperInteraction(interactions.base.super_interaction.SuperInteractio
         self.register_for_fame_moment_callback()
         self._fame_moment_active = True
 
+    def _start_scholarship_info_loot(self, career, scholarship_info_loot):
+        scholarship_info_loot.apply_to_resolver(SingleSimResolver(self._sim.sim_info))
+        self.register_for_scholarship_info_loot_callback()
+
     def interaction_start(self, _):
         career = self.get_career()
         if career is not None:
@@ -111,14 +119,25 @@ class CareerSuperInteraction(interactions.base.super_interaction.SuperInteractio
         if career is not None:
             career.leave_work(left_early=not self.is_finishing_naturally)
             self.unregister_for_fame_moment_callback()
+            self.unregister_for_scholarship_info_loot_callback()
 
     def register_for_fame_moment_callback(self):
         services.get_event_manager().register_single_event(self, FameTunables.FAME_MOMENT_EVENT)
+
+    def register_for_scholarship_info_loot_callback(self):
+        services.get_event_manager().register_single_event(self, Career.SCHOLARSHIP_INFO_EVENT)
+
+    def unregister_for_scholarship_info_loot_callback(self):
+        services.get_event_manager().unregister_single_event(self, Career.SCHOLARSHIP_INFO_EVENT)
 
     def unregister_for_fame_moment_callback(self):
         services.get_event_manager().unregister_single_event(self, FameTunables.FAME_MOMENT_EVENT)
 
     def handle_event(self, sim_info, event, resolver):
+        if event == Career.SCHOLARSHIP_INFO_EVENT and self._sim.sim_info is sim_info:
+            career = self.get_career()
+            if career is not None:
+                career.on_scholarship_info_shown()
         if event == FameTunables.FAME_MOMENT_EVENT and self._sim.sim_info is sim_info:
             career = self.get_career()
             if career is not None:
@@ -132,37 +151,52 @@ class CareerPickerSuperInteraction(PickerSingleChoiceSuperInteraction):
 
     class CareerPickerFilter(HasTunableSingletonFactory, AutoFactoryInit):
 
-        def is_valid(self, career):
+        def is_valid(self, inter_cls, inter_inst, target, context, career, **kwargs):
             raise NotImplementedError
 
     class CareerPickerFilterAll(CareerPickerFilter):
 
-        def is_valid(self, career):
+        def is_valid(self, inter_cls, inter_inst, target, context, career, **kwargs):
             return True
 
     class CareerPickerFilterWhitelist(CareerPickerFilter):
         FACTORY_TUNABLES = {'whitelist': TunableEnumSet(description='\n                Only careers of this category are allowed. If this set is\n                empty, then no careers are allowed.\n                ', enum_type=CareerCategory)}
 
-        def is_valid(self, career):
+        def is_valid(self, inter_cls, inter_inst, target, context, career, **kwargs):
             return career.career_category in self.whitelist
 
     class CareerPickerFilterBlacklist(CareerPickerFilter):
         FACTORY_TUNABLES = {'blacklist': TunableEnumSet(description='\n                Careers of this category are not allowed. All others are\n                allowed.\n                ', enum_type=CareerCategory)}
 
-        def is_valid(self, career):
+        def is_valid(self, inter_cls, inter_inst, target, context, career, **kwargs):
             return career.career_category not in self.blacklist
 
-    INSTANCE_TUNABLES = {'continuation': OptionalTunable(description='\n            If enabled, you can tune a continuation to be pushed. PickedItemId\n            will be the id of the selected career.\n            ', tunable=TunableContinuation(description='\n                If specified, a continuation to push with the chosen career.\n                '), tuning_group=GroupNames.PICKERTUNING), 'career_filter': TunableVariant(description='\n            Which career types to show.\n            ', all=CareerPickerFilterAll.TunableFactory(), blacklist=CareerPickerFilterBlacklist.TunableFactory(), whitelist=CareerPickerFilterWhitelist.TunableFactory(), default='all', tuning_group=GroupNames.PICKERTUNING)}
+    class CareerPickerFilterTested(CareerPickerFilter):
+        FACTORY_TUNABLES = {'tests': event_testing.tests.TunableTestSet(description='\n                A set of tests that are run against the prospective careers. At least\n                one test must pass in order for the prospective career to show. All\n                careers will pass if there are no tests. PickedItemId is the \n                participant type for the prospective career.\n                ')}
 
-    @classmethod
-    def _valid_careers_gen(cls, sim):
+        def is_valid(self, inter_cls, inter_inst, target, context, career, **kwargs):
+            if inter_inst:
+                interaction_parameters = inter_inst.interaction_parameters.copy()
+            else:
+                interaction_parameters = kwargs.copy()
+            interaction_parameters['picked_item_ids'] = {career.guid64}
+            resolver = InteractionResolver(inter_cls, inter_inst, target=target, context=context, **interaction_parameters)
+            if not self.tests.run_tests(resolver):
+                return False
+            return True
+
+    INSTANCE_TUNABLES = {'continuation': OptionalTunable(description='\n            If enabled, you can tune a continuation to be pushed. PickedItemId\n            will be the id of the selected career.\n            ', tunable=TunableContinuation(description='\n                If specified, a continuation to push with the chosen career.\n                '), tuning_group=GroupNames.PICKERTUNING), 'career_filter': TunableVariant(description='\n            Which career types to show.\n            ', all=CareerPickerFilterAll.TunableFactory(), blacklist=CareerPickerFilterBlacklist.TunableFactory(), whitelist=CareerPickerFilterWhitelist.TunableFactory(), tested=CareerPickerFilterTested.TunableFactory(), default='all', tuning_group=GroupNames.PICKERTUNING)}
+
+    @flexmethod
+    def _valid_careers_gen(cls, inst, target, context, **kwargs):
+        sim = context.sim
         if sim is None:
             return
-        yield from (career for career in sim.sim_info.careers.values() if cls.career_filter.is_valid(career))
+        yield from (career for career in sim.sim_info.careers.values() if cls.career_filter.is_valid(cls, inst, target, context, career, **kwargs))
 
     @classmethod
     def has_valid_choice(cls, target, context, **kwargs):
-        return any(cls._valid_careers_gen(context.sim))
+        return any(cls._valid_careers_gen(target, context, **kwargs))
 
     def _run_interaction_gen(self, timeline):
         self._show_picker_dialog(self.sim, target_sim=self.target)
@@ -171,9 +205,10 @@ class CareerPickerSuperInteraction(PickerSingleChoiceSuperInteraction):
 
     @flexmethod
     def picker_rows_gen(cls, inst, target, context, **kwargs):
-        for career in cls._valid_careers_gen(context.sim):
+        inst_or_cls = inst if inst is not None else cls
+        for career in inst_or_cls._valid_careers_gen(target, context, **kwargs):
             track = career.current_track_tuning
-            row = ObjectPickerRow(name=track.career_name(context.sim), icon=track.icon, row_description=track.career_description, tag=career)
+            row = ObjectPickerRow(name=track.get_career_name(context.sim), icon=track.icon, row_description=track.get_career_description(context.sim), tag=career)
             yield row
 
     def on_choice_selected(self, choice_tag, **kwargs):

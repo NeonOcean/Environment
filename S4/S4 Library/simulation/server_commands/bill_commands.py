@@ -1,5 +1,6 @@
 from sims.bills_enums import AdditionalBillSource
 from sims.household_utilities.utility_types import Utilities
+from sims4.commands import NO_CONTEXT
 import services
 import sims4.commands
 import sims4.log
@@ -88,7 +89,7 @@ def put_bills_in_hidden_inventory(_connection=None):
         bills_manager.allow_bill_delivery()
 
 @sims4.commands.Command('households.autopay_bills', 'bills.autopay_bills', command_type=sims4.commands.CommandType.Cheat)
-def autopay_bills(enable:bool=None, _connection=None):
+def autopay_bills(enable:bool=None, _connection=NO_CONTEXT):
     household = services.active_household()
     if household is None:
         sims4.commands.output('No active household.', _connection)

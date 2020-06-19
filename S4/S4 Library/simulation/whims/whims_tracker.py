@@ -280,6 +280,9 @@ class WhimsTracker(SimInfoTracker):
             reward_msg.affordable = True if data.cost <= self._sim_info.get_whim_bucks() else False
             reward_msg.available = reward.is_valid(self._sim_info)
             reward_msg.type = data.award_type
+            unavailable_tooltip = reward.get_unavailable_tooltip(self._sim_info)
+            if unavailable_tooltip is not None:
+                reward_msg.unavailable_tooltip = unavailable_tooltip
             msg.rewards.append(reward_msg)
         msg.sim_id = self._sim_info.id
         distributor = Distributor.instance()

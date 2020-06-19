@@ -1,0 +1,1 @@
+Paths can be relative to the environment's automation directory.

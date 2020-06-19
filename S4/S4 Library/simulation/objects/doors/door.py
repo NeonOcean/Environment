@@ -30,6 +30,8 @@ class Door(GameObject):
             portal_back = self.get_portal_by_id(portal_pair.back)
             portal_there.swap_there_and_back()
             for sim in self.get_disallowed_sims():
+                if self.portal_locking_component.has_bidirectional_lock(sim):
+                    continue
                 routing_context = sim.get_routing_context()
                 routing_context.lock_portal(portal_there.there)
                 routing_context.unlock_portal(portal_there.back)

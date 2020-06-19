@@ -4,6 +4,7 @@ from situations.bouncer.bouncer_types import BouncerExclusivityCategory
 from situations.situation_complex import SituationComplexCommon, SituationStateData, TunableSituationJobAndRoleState, CommonInteractionCompletedSituationState, CommonSituationState
 from situations.situation_guest_list import SituationGuestInfo, SituationInvitationPurpose
 from venues.venue_constants import VenueTuning
+import build_buy
 import services
 import sims4
 logger = sims4.log.Logger('Situations')
@@ -38,12 +39,16 @@ class ToddlerPlayDateSituation(SituationComplexCommon):
     @classmethod
     def get_possible_zone_ids_for_situation(cls, host_sim_info=None, guest_ids=None):
         possible_zones = []
+        venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
         venue_service = services.current_zone().venue_service
         for venue_type in cls.venue_types:
             if venue_type is VenueTuning.RESIDENTIAL_VENUE_TYPE:
                 if host_sim_info is not None:
-                    possible_zones.append(host_sim_info.household.home_zone_id)
-                    possible_zones.extend(venue_service.get_zones_for_venue_type_gen(venue_type))
+                    home_zone_id = host_sim_info.household.home_zone_id
+                    home_venue_type = venue_manager.get(build_buy.get_current_venue(home_zone_id))
+                    if home_venue_type is VenueTuning.RESIDENTIAL_VENUE_TYPE:
+                        possible_zones.append(home_zone_id)
+                        possible_zones.extend(venue_service.get_zones_for_venue_type_gen(venue_type))
             else:
                 possible_zones.extend(venue_service.get_zones_for_venue_type_gen(venue_type))
         return possible_zones

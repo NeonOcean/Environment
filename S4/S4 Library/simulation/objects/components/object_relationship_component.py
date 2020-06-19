@@ -31,6 +31,17 @@ class ObjectRelationshipComponent(Component, HasTunableFactory, AutoFactoryInit,
         self._relationship_changed_callbacks = defaultdict(CallableList)
         self._definition_changed_in_buildbuy = False
 
+    @staticmethod
+    def setup_relationship(sim, target_object):
+        if target_object.objectrelationship_component is None:
+            logger.error("Failed to add object relationship because {} doesn't have objectrelationship_component tuned", target_object)
+            return
+        if target_object.objectrelationship_component.has_relationship(sim.id):
+            logger.error('Relationship already exists between {} and {}.', sim, target_object)
+            return
+        if not target_object.objectrelationship_component.add_relationship(sim.id):
+            logger.error('Failed to add new object relationship between {} and {}.', sim, target_object)
+
     @property
     def relationships(self):
         return self._relationships

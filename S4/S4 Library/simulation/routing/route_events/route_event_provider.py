@@ -8,7 +8,7 @@ from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory, TunableList
 import sims4.log
 logger = sims4.log.Logger('RouteEventProviders', default_owner='rmccord')
 
-class RouteEventProviderMixin:
+class   RouteEventProviderMixin:
 
     def on_event_executed(self, route_event, sim):
         pass

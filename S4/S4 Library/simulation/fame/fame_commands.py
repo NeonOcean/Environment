@@ -106,7 +106,7 @@ def award_parent_fame_bonus(child_sim_id:int, _connection=None):
     if child_sim is None:
         logger.error('Calling award_parent_fame_bonus passing in an invalid sim id {}. Sim not found', child_sim_id)
     child_fame = child_sim.commodity_tracker.get_statistic(FameTunables.FAME_RANKED_STATISTIC, add=True)
-    child_fame_rank = child_fame.rank_level
+    child_fame_rank = 0 if child_fame is None else child_fame.rank_level
     max_parent_rank = 0
     genealogy = child_sim.sim_info.genealogy
     for parent_id in genealogy.get_parent_sim_ids_gen():

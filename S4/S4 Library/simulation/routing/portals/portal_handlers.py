@@ -1,6 +1,7 @@
+from objects.components.types import PORTAL_COMPONENT
+from routing.portals.portal_tuning import PortalFlags
 from sims4.gsi.dispatcher import GsiHandler
 from sims4.gsi.schema import GsiGridSchema
-from objects.components.types import PORTAL_COMPONENT
 import services
 portal_schema = GsiGridSchema(label='Portals')
 portal_schema.add_field('object_id', label='Object Id', width=1, unique_field=True)
@@ -11,7 +12,7 @@ portal_schema.add_field('loc_y', label='Y', width=1)
 portal_schema.add_field('loc_z', label='Z', width=1)
 portal_schema.add_field('on_active_lot', label='On Active Lot', width=1)
 portal_schema.add_field('num_sims_cost_override', label='Sim Cost Overrides', width=2)
-with portal_schema.add_view_cheat('objects.focus_camera_on_object', label='Focus On Selected Object') as cheat:
+with portal_schema.add_view_cheat('objects.focus_camera_on_object', label='Focus On Object') as cheat:
     cheat.add_token_param('object_id')
 portal_schema.add_view_cheat('debugvis.portals.start', label='Draw All Portals')
 with portal_schema.add_view_cheat('debugvis.portals.start', label='Draw Object Portals') as cheat:
@@ -20,6 +21,8 @@ with portal_schema.add_view_cheat('debugvis.portals.start', label='Draw Portal P
     cheat.add_token_param('object_id')
     cheat.add_token_param('there_id')
     cheat.add_token_param('back_id')
+with portal_schema.add_view_cheat('camera.focus_on_position', label='Focus On Portal Pair') as cheat:
+    cheat.add_token_param('object_id')
 portal_schema.add_view_cheat('debugvis.portals.stop', label='Remove All Vis')
 with portal_schema.add_view_cheat('debugvis.portals.stop', label='Remove Object Vis') as cheat:
     cheat.add_token_param('object_id')
@@ -62,7 +65,10 @@ def generate_portal_data(zone_id:int=None):
             there_exit_location = format_portal_location(portal_instance.there_exit)
             back_entry_location = format_portal_location(portal_instance.back_entry)
             back_exit_location = format_portal_location(portal_instance.back_exit)
-            instance_data.append({'object_id': str(portal.id), 'portal_tuning': str(portal_instance.portal_template.traversal_type), 'required_flags': str(portal_instance.portal_template.required_flags), 'discouragement_flags': str(portal_instance.portal_template.discouragement_flags), 'cost_override': str(portal_instance._cost_override), 'cost_override_map': str(dict(portal_instance._cost_override_map.items()) if portal_instance._cost_override_map is not None else {}), 'there_id': portal_instance.there, 'there_entry_location': there_entry_location, 'there_exit_location': there_exit_location, 'there_cost': portal_instance.there_cost, 'back_id': portal_instance.back, 'back_entry_location': back_entry_location, 'back_exit_location': back_exit_location, 'back_cost': portal_instance.back_cost})
+            required_flags = portal_instance.portal_template.required_flags or 0
+            required_flags |= portal_instance.portal_template.traversal_type.get_additional_required_portal_flags(portal_instance.there_entry, portal_instance.there_exit)
+            required_flags |= portal_instance.portal_template.traversal_type.get_additional_required_portal_flags(portal_instance.back_entry, portal_instance.back_exit)
+            instance_data.append({'object_id': str(portal.id), 'portal_tuning': str(portal_instance.portal_template.traversal_type), 'required_flags': PortalFlags(required_flags).name if required_flags else 'None', 'discouragement_flags': str(portal_instance.portal_template.discouragement_flags), 'cost_override': str(portal_instance._cost_override), 'cost_override_map': str(dict(portal_instance._cost_override_map.items()) if portal_instance._cost_override_map is not None else {}), 'there_id': portal_instance.there, 'there_entry_location': there_entry_location, 'there_exit_location': there_exit_location, 'there_cost': portal_instance.there_cost, 'back_id': portal_instance.back, 'back_entry_location': back_entry_location, 'back_exit_location': back_exit_location, 'back_cost': portal_instance.back_cost})
             if portal_instance._cost_override_map is not None:
                 num_sims_cost_override += len(portal_instance._cost_override_map)
         portal_pos = portal.position

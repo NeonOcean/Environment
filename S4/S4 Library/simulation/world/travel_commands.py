@@ -1,4 +1,5 @@
 import operator
+import itertools
 from protocolbuffers import UI_pb2, Consts_pb2, FileSerialization_pb2
 from protocolbuffers.DistributorOps_pb2 import Operation
 from distributor import shared_messages
@@ -64,13 +65,20 @@ def get_default_selection_data(actor_sim, filter_list):
         gathering = club_service.sims_to_gatherings_map.get(actor_sim)
     if ensemble_service is not None:
         ensembles = ensemble_service.get_all_ensembles_for_sim(actor_sim)
+    familiar_tracker = actor_sim.sim_info.familiar_tracker
+    active_familiar_sim_id = None
+    if familiar_tracker is not None:
+        active_familiar_sim_id = familiar_tracker.active_familiar_id_pet_id
     for item in filter_list:
         sim_info = item.sim_info
-        sim = sim_info.get_sim_instance()
-        if sim is not None and (gathering and club_service.sims_to_gatherings_map.get(sim) is gathering or ensembles and any(sim in ensemble for ensemble in ensembles)):
+        if sim_info.sim_id == active_familiar_sim_id:
             default_selection_data.append((sim_info, True))
         else:
-            default_selection_data.append((sim_info, False))
+            sim = sim_info.get_sim_instance()
+            if sim is not None and (gathering and club_service.sims_to_gatherings_map.get(sim) is gathering or ensembles and any(sim in ensemble for ensemble in ensembles)):
+                default_selection_data.append((sim_info, True))
+            else:
+                default_selection_data.append((sim_info, False))
     default_selection_data.sort(key=operator.itemgetter(1), reverse=True)
     return default_selection_data
 
@@ -120,6 +128,9 @@ def travel_sims_to_zone(opt_sim_id:OptionalTargetParam, zone_id:int, *traveling_
         guest_list = SituationGuestList(invite_only=True, host_sim_id=sim_or_sim_info.id)
         default_job = situation.default_job()
         sim_info_manager = services.sim_info_manager()
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            traveling_sim_ids = tuple(itertools.chain(traveling_sim_ids, (sim_info.sim_id for sim_info in roommate_service.get_auto_invite_sim_infos(sim_or_sim_info, situation))))
         for sim_id in traveling_sim_ids:
             sim_id = int(sim_id)
             sim_info = sim_info_manager.get(sim_id)

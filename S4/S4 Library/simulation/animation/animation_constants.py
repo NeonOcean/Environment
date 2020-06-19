@@ -12,6 +12,12 @@ ASM_LANDING_SURFACE = 'LandingSurface'
 ASM_THROW_ANGLE = 'ThrowAngle'
 ASM_HIT_ANGLE = 'hitAngle'
 
+class ActorType(enum.Int, export=False):
+    Sim = int(149264255)
+    Object = int(200706046)
+    Door = int(2935391323)
+    Vehicle = int(1022379774)
+
 class InteractionAsmType(enum.IntFlags, export=False):
     Unknown = 0
     Interaction = 1

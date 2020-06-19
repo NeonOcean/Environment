@@ -11,7 +11,10 @@ class AdditionalSituationSource(HasTunableSingletonFactory, AutoFactoryInit):
 class HolidayWalkbys(AdditionalSituationSource):
 
     def get_additional_situations(self, predicate=lambda _: True):
-        return services.active_household().holiday_tracker.get_additional_holiday_walkbys(predicate=predicate)
+        active_household = services.active_household()
+        if active_household is None:
+            return ()
+        return active_household.holiday_tracker.get_additional_holiday_walkbys(predicate=predicate)
 
 class ZoneModifierSituations(AdditionalSituationSource):
     FACTORY_TUNABLES = {'zone_modifier': TunableReference(description='\n            The zone modifier that we want to get the \n            ', manager=services.get_instance_manager(sims4.resources.Types.ZONE_MODIFIER), pack_safe=True)}

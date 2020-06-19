@@ -1,9 +1,11 @@
+from _pythonutils import tupledescriptor
 from _sims4_collections import frozendict
 import collections
 import sims4.log
 from singletons import SingletonType
 logger = sims4.log.Logger('Collections')
 CACHED_IMMUTABLE_SLOTS = {}
+CACHED_TUPLE_DESCRIPTORS = {}
 
 class ListSet(list):
     __slots__ = ()
@@ -99,48 +101,34 @@ class RestrictedFrozenAttributeDict(FrozenAttributeDict):
     def update(self, key, default=None):
         raise TypeError("'RestrictedFrozenAttributeDict' object does not support update.")
 
-class _ImmutableSlotsBase:
-    __slots__ = ('_hash',)
+class _ImmutableSlotsBase(tuple):
+    __slots__ = ()
     _cls_keys = None
     _cls_base_hash = None
 
-    def __init__(self, values):
-        for key in self._cls_keys:
-            object.__setattr__(self, key, values[key])
-        hash_key = (self._cls_base_hash,) + tuple([values[key] for key in self._cls_keys])
-        try:
-            object.__setattr__(self, '_hash', hash(hash_key))
-        except TypeError:
-            object.__setattr__(self, '_hash', None)
+    def __new__(cls, values):
+        return super().__new__(cls, (values[k] for k in cls._cls_keys))
 
     def clone_with_overrides(self, **kwargs):
         values = dict(self, **kwargs)
         return self.__class__(values)
 
     def __hash__(self):
-        if self._hash is None:
-            raise TypeError('Unhashable instance of _ImmutableSlotsBase')
-        return self._hash
+        return hash((self._cls_base_hash,) + self)
 
     def __eq__(self, other):
-        if type(self) is not type(other):
+        if self.__class__ is not other.__class__:
             return False
-        if self._hash != other._hash:
-            return False
-        self_as_list = [getattr(self, key) for key in self._cls_keys]
-        other_as_list = [getattr(other, key) for key in other._cls_keys]
-        return self_as_list == other_as_list
+        return super().__eq__(other)
 
     def __bool__(self):
         return True
 
     def items(self):
-        return ((key, getattr(self, key)) for key in self._cls_keys)
+        return zip(self._cls_keys, self.values())
 
     __iter__ = items
-
-    def values(self):
-        return (getattr(self, key) for key in self._cls_keys)
+    values = tuple.__iter__
 
     def __repr__(self):
         return '{}({})'.format(type(self).__name__, dict(self))
@@ -151,15 +139,8 @@ class _ImmutableSlotsBase:
     def __delattr__(self, attr):
         raise TypeError("'ImmutableSlots' object does not support item deletion.")
 
-    def __len__(self):
-        raise TypeError("'ImmutableSlots' object does not support __len__.")
-
     def __contains__(self, key):
         raise TypeError("'ImmutableSlots' object does not support __contains__.")
-
-    def __getitem__(self, index):
-        logger.warn("'ImmutableSlots' objects shouldn't be be accessed with __getitem__, but this functionality is temporarily enabled to prevent refactor fallout.", owner='tastle')
-        return getattr(self, index)
 
     def __setitem__(self, index, value):
         raise TypeError("'ImmutableSlots' object does not support __setitem__.")
@@ -180,18 +161,21 @@ def make_immutable_slots_class(keys):
     keys = tuple(sorted(keys))
     if keys in CACHED_IMMUTABLE_SLOTS:
         return CACHED_IMMUTABLE_SLOTS[keys]
-    try:
 
-        class ImmutableSlots(_ImmutableSlotsBase):
-            __slots__ = keys
-            _cls_keys = keys
-            _cls_base_hash = hash(keys)
+    class ImmutableSlots(_ImmutableSlotsBase):
+        __slots__ = ()
+        _cls_keys = keys
+        _cls_base_hash = hash(keys)
 
-        CACHED_IMMUTABLE_SLOTS[keys] = ImmutableSlots
-        return ImmutableSlots
-    except TypeError:
-        CACHED_IMMUTABLE_SLOTS[keys] = RestrictedFrozenAttributeDict
-        return RestrictedFrozenAttributeDict
+    for (index, name) in enumerate(keys):
+        try:
+            tuple_descriptor = CACHED_TUPLE_DESCRIPTORS[index]
+        except KeyError:
+            tuple_descriptor = tupledescriptor(index)
+            CACHED_TUPLE_DESCRIPTORS[index] = tuple_descriptor
+        setattr(ImmutableSlots, name, tuple_descriptor)
+    CACHED_IMMUTABLE_SLOTS[keys] = ImmutableSlots
+    return ImmutableSlots
 
 class enumdict(collections.MutableMapping):
     __slots__ = ('_key_type', '_values')

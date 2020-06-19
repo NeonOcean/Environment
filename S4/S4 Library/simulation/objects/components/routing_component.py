@@ -499,6 +499,8 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         if self.owner.is_sim:
             self._initial_carry_targets = self.owner.posture_state.carry_targets
         self._current_path = path
+        if self.pathplan_context.disable_fake_portals:
+            self._current_path.remove_fake_portals()
         self.create_route_interaction()
         self._on_routing_stage_event(RoutingStageEvent.ROUTE_START, path=path)
         walkstyle = self.walkstyle_behavior.apply_walkstyle_to_path(self.owner, self._current_path)

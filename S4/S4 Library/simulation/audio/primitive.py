@@ -71,8 +71,9 @@ class PlaySound(distributor.ops.ElementDistributionOpMixin):
 
     def _stop_sound(self):
         if self._is_distributed:
-            op = distributor.ops.StopSound(self.target.id, self.channel, immediate=self.immediate)
-            distributor.ops.record(self.target, op)
+            if not services.current_zone().is_zone_shutting_down:
+                op = distributor.ops.StopSound(self.target.id, self.channel, immediate=self.immediate)
+                distributor.ops.record(self.target, op)
             self._manually_distributed = False
 
     def detach(self, *objects):

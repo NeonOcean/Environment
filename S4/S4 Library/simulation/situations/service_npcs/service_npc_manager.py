@@ -28,6 +28,9 @@ class ServiceNpcService(Service):
         self._bill_collection_alarms = {}
         self._active_service_sim_infos = collections.defaultdict(set)
 
+    def get_sim_info_ids(self):
+        return set(self._active_service_sim_infos)
+
     def request_service(self, household, service_npc_tuning, from_load=False, user_specified_data_id=None, is_recurring=False):
         if self.is_service_already_in_request_list(household, service_npc_tuning):
             return
@@ -104,6 +107,9 @@ class ServiceNpcService(Service):
     def _generate_situation_guest_list(self, preferred_sim_id, service_npc_type, hiring_household):
         guest_list = SituationGuestList(invite_only=True)
         blacklist_sim_ids = hiring_household.get_all_fired_service_npc_ids()
+        roommate_service = services.get_roommate_service()
+        if roommate_service is not None:
+            blacklist_sim_ids.update(roommate_service.get_roommate_ids())
         if preferred_sim_id is not None:
             guest_info = SituationGuestInfo.construct_from_purpose(preferred_sim_id, service_npc_type.situation.default_job(), SituationInvitationPurpose.PREFERRED)
             guest_info.expectation_preference = True

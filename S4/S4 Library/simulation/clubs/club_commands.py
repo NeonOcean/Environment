@@ -400,7 +400,7 @@ def show_ask_about_clubs_dialog_for_sim(sim:RequiredTargetParam, _connection):
     participant_clubs = club_service.get_clubs_for_sim_info(target_sim_info)
     if not participant_clubs:
         return
-    op = AskAboutClubsDialog(target_sim_info.id, [club.id for club in participant_clubs])
+    op = AskAboutClubsDialog(target_sim_info.id, club_ids=[club.id for club in participant_clubs])
     Distributor.instance().add_op_with_no_owner(op)
 
 @sims4.commands.Command('clubs.set_outfit_setting', command_type=CommandType.Live)

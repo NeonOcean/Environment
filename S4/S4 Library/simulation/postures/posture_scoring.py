@@ -118,6 +118,7 @@ class PostureScoring:
     CARRYING_SIM_BUSY_PENALTY = TunableRange(description='\n        The penalty to apply to Sims running guaranteed SIs. The cost of being\n        carried by a Sim is the product of their number of guaranteed SIs and\n        this value.\n        ', tunable_type=float, default=20, minimum=0)
     CARRYING_SIM_NON_CAREGIVER_PENALTY = TunableRange(description='\n        The penalty to apply to Sims that are not a Sim\'s caregiver when\n        attempting to transition into a "Be Carried" posture targeting them.\n        ', tunable_type=float, default=80, minimum=0)
     CARRYING_SIM_HAS_NOT_MET_PENALTY = TunableRange(description='\n        The penalty to apply to Sims that are not met when attempting to\n        transition into a "Be Carried" posture targeting them.\n        ', tunable_type=float, default=300, minimum=0)
+    PREFERRED_POSTURE_TARGET_BONUS = Tunable(description='\n        Add this bonus if the target of the posture is a preferred target.\n        For example, when calling to meal on a table, all seats of the table\n        should be preferred over any other sit on the house no.\n        ', tunable_type=float, default=10)
     MOBILE_TO_MOBILE_COST = 0
     CANCEL_EXISTING_CARRY_OR_SLOT_COST = 10
     _DISTANCE_MULT = 2
@@ -429,6 +430,11 @@ class PostureScoring:
             cost -= preference_score
             if gsi_handlers.posture_graph_handlers.archiver.enabled:
                 cost_str_list.append('goal_body_target preference bonus: {}'.format(-preference_score))
+        preferred_posture_targets = interaction.interaction_parameters.get('preferred_posture_targets')
+        if goal_body_target is not None and preferred_posture_targets is not None and goal_body_target.id in preferred_posture_targets:
+            cost -= PostureScoring.PREFERRED_POSTURE_TARGET_BONUS
+            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                cost_str_list.append('goal_body_target preference posture target bonus: {}'.format(PostureScoring.PREFERRED_POSTURE_TARGET_BONUS))
         if goal_surface_target is not None:
             if interaction.posture_surface_slotted_object_preference is not None:
                 slot_types = {x for x in interaction.posture_surface_slotted_object_preference.keys()}

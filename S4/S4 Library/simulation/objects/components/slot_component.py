@@ -86,6 +86,7 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
                 flags |= provided_affordance_data.affordance.commodity_flags
             if flags and not child.is_prop:
                 child.add_dynamic_commodity_flags(self, flags)
+        child.on_placed_in_slot(self.owner)
         if child.display_component is not None:
             child.display_component.slotted_to_object(self.owner)
         if child.state_component and child.state_component.overlapping_slot_states:
@@ -106,6 +107,7 @@ class SlotComponent(GetPutComponentMixin, NativeComponent, component_name=types.
                     child.set_state(state_value.state, state_value)
         if not child.is_prop:
             child.remove_dynamic_commodity_flags(self)
+        child.on_removed_from_slot(self.owner)
         if child.display_component is not None:
             child.display_component.unslotted_from_object(self.owner)
         if child.state_component and child.state_component.overlapping_slot_states:

@@ -110,16 +110,17 @@ class EnvironmentScoreMixin:
     def _update_positive_and_negative_commodities(self, negative_score, positive_score):
         negative_stat = self.commodity_tracker.get_statistic(EnvironmentScoreTuning.NEGATIVE_ENVIRONMENT_SCORING, add=True)
         positive_stat = self.commodity_tracker.get_statistic(EnvironmentScoreTuning.POSITIVE_ENVIRONMENT_SCORING, add=True)
-        if negative_stat.get_value() != negative_score:
-            negative_stat.set_value(negative_score)
-        if negative_stat.buff_handle is not None:
-            contribute_positive_scoring = False
-        else:
-            contribute_positive_scoring = True
-        if contribute_positive_scoring and positive_stat.get_value() != positive_score:
-            positive_stat.set_value(positive_score)
-        elif not contribute_positive_scoring:
-            positive_stat.set_value(0)
+        contribute_positive_scoring = True
+        if negative_stat is not None:
+            if negative_stat.get_value() != negative_score:
+                negative_stat.set_value(negative_score)
+            if negative_stat.buff_handle is not None:
+                contribute_positive_scoring = False
+        if positive_stat is not None:
+            if contribute_positive_scoring and positive_stat.get_value() != positive_score:
+                positive_stat.set_value(positive_score)
+            elif not contribute_positive_scoring:
+                positive_stat.set_value(0)
 
     def _update_environment_score(self):
         try:

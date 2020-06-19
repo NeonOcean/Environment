@@ -42,6 +42,14 @@ class _dialog_ok_and_loot(_dialog_and_loot):
 
         dialog.show_dialog(on_response=response)
 
+class _loot_only(_dialog_and_loot):
+    FACTORY_TUNABLES = {'on_drama_node_run_loot': TunableList(description='\n            A list of loot operations to apply when the drama node runs.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True))}
+
+    def on_node_run(self, drama_node):
+        resolver = drama_node._get_resolver()
+        for loot_action in self.on_drama_node_run_loot:
+            loot_action.apply_to_resolver(resolver)
+
 class _dialog_ok_cancel_and_loot(_dialog_and_loot):
     FACTORY_TUNABLES = {'dialog': UiDialogOkCancel.TunableFactory(description='\n            The ok cancel dialog that will display to the user.\n            '), 'on_dialog_complete_loot_list': TunableList(description='\n            A list of loot that will be applied when the player responds to the\n            dialog or, if the dialog is a phone ring or text message, when the\n            dialog times out due to the player ignoring it for too long.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True)), 'on_dialog_accetped_loot_list': TunableList(description='\n            A list of loot operations to apply when the player chooses ok.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True)), 'on_dialog_canceled_loot_list': TunableList(description='\n            A list of loot operations to apply when the player chooses cancel.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',), pack_safe=True))}
 
@@ -65,7 +73,7 @@ class _dialog_ok_cancel_and_loot(_dialog_and_loot):
         dialog.show_dialog(on_response=response)
 
 class DialogDramaNode(BaseDramaNode):
-    INSTANCE_TUNABLES = {'dialog_and_loot': TunableVariant(description='\n            The type of dialog and loot that will be applied.\n            ', notification=_notification_and_loot.TunableFactory(), dialog_ok=_dialog_ok_and_loot.TunableFactory(), dialog_ok_cancel=_dialog_ok_cancel_and_loot.TunableFactory(), default='notification')}
+    INSTANCE_TUNABLES = {'dialog_and_loot': TunableVariant(description='\n            The type of dialog and loot that will be applied.\n            ', notification=_notification_and_loot.TunableFactory(), dialog_ok=_dialog_ok_and_loot.TunableFactory(), dialog_ok_cancel=_dialog_ok_cancel_and_loot.TunableFactory(), loot_only=_loot_only.TunableFactory(), default='notification')}
 
     @classproperty
     def drama_node_type(cls):

@@ -10,8 +10,10 @@ from sims4.utils import flexmethod
 import services
 
 def _common_away_action_tests(away_action_sim_info, away_action=None):
-    if away_action_sim_info.is_baby:
-        return TestResult(False, 'Away actions cannot be applied on babies.')
+    if away_action_sim_info.away_action_tracker is None:
+        return TestResult(False, 'Cannot apply away action on sim without tracker (lod).')
+    if not away_action_sim_info.away_action_tracker.is_sim_info_valid_to_run_away_actions():
+        return TestResult(False, 'Cannot apply away action on sim that cannot run away actions (baby or npc).')
     if away_action is not None and away_action.available_when_instanced:
         return TestResult.TRUE
     if away_action_sim_info.is_instanced(allow_hidden_flags=ALL_HIDDEN_REASONS):

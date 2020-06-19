@@ -43,31 +43,35 @@ class ObjectDefinitionPickerInteraction(ObjectPickerInteraction):
                 id_loot_test.loot_to_apply.apply_to_resolver(resolver)
         super().on_choice_selected(choice_tag, **kwargs)
 
-class CreateObjectDefinitionPickerInteraction(ObjectCreationMixin, ObjectDefinitionPickerInteraction):
+class _DefinitionPickerCreationData(CreationDataBase):
 
-    class _DefinitionPickerCreationData(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
-
-        def get_definition(self, *args, **kwargs):
-            pass
-
-    INSTANCE_TUNABLES = {'creation_data': _DefinitionPickerCreationData.TunableFactory()}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self):
         self._definition = None
+
+    def set_definition(self, definition):
+        self._definition = definition
 
     @property
     def definition(self):
         return self._definition
 
+    def get_definition(self, *_, **__):
+        return self._definition
+
+class CreateObjectDefinitionPickerInteraction(ObjectCreationMixin, ObjectDefinitionPickerInteraction):
+    REMOVE_INSTANCE_TUNABLES = ('creation_data',)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.creation_data = _DefinitionPickerCreationData()
+
     def on_choice_selected(self, choice_tag, **kwargs):
         if choice_tag is None:
             return
-        self._definition = choice_tag
-        self.resolver = self.get_resolver()
-        created_object = self.create_object()
+        self.creation_data.set_definition(choice_tag)
+        created_object = self.create_object(self.get_resolver())
         if created_object is None:
-            logger.error('{} failed to create object from picked definition {}.', self, self.definition)
+            logger.error('{} failed to create object from picked definition {}.', self, self.creation_data.definition)
         self.context.create_target_override = created_object
         for id_loot_test in self.definition_to_loot:
             if id_loot_test.definition_id_test(choice_tag):

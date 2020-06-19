@@ -6,36 +6,25 @@ import collections
 from adaptive_clock_speed import AdaptiveClockSpeed
 from clock import ClockSpeedMultiplierType, ClockSpeedMode
 from gsi_handlers.performance_handlers import generate_statistics
-from indexed_manager import object_load_times
 from interactions.utils.death import DeathType
-from objects.components.types import STATE_COMPONENT
 from relationships.relationship_enums import RelationshipBitCullingPrevention, RelationshipDecayMetricKeys, RelationshipDirection
 from server_commands.autonomy_commands import show_queue, autonomy_distance_estimates_enable, autonomy_distance_estimates_dump
 from server_commands.cache_commands import cache_status
 from sims.household_telemetry import HouseholdRegionTelemetryData
 from sims.occult.occult_enums import OccultType
+from sims.sim_info import SimInfo
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.commands import CommandType
 from sims4.profiler_utils import create_custom_named_profiler_function
-from sims4.tuning.tunable import Tunable
 from sims4.utils import create_csv
-from singletons import UNSET
+from statistics.base_statistic import BaseStatistic
 from story_progression.story_progression_action_relationship_culling import StoryProgressionRelationshipCulling
 import autonomy.autonomy_util
 import enum
 import event_testing
-import indexed_manager
 import performance.performance_constants as consts
 import services
 import sims4.commands
-POINTS_PER_INTERACTION = -0.00513
-POINTS_PER_AUTONOMOUS_INTERACTION = 0.007287
-POINTS_PER_PROVIDED_POSTURE_INTERACTION = 0.079084
-POINTS_PER_CLIENT_STATE_TUNING = 0.02182
-POINTS_PER_CLIENT_STATE_CHANGE_TUNING = -0.01336
-POINTS_PER_OBJECT_PART = -0.04883
-POINTS_PER_STATISTIC = 0
-POINTS_PER_COMMODITY = 0
 CLIENT_STATE_OPS_TO_IGNORE = ['autonomy_modifiers']
 RelationshipMetrics = namedtuple('RelationshipMetrics', ('rels', 'rels_active', 'rels_played', 'rels_unplayed', 'rel_bits_one_way', 'rel_bits_bi', 'rel_tracks'))
 
@@ -597,27 +586,113 @@ def send_region_sim_info_telemetry(_connection=None):
 def print_commodity_census(predicate=lambda x: x, most_common=10, _connection=None):
     counter = collections.Counter()
     initial_counter = collections.Counter()
+    commodity_counter = collections.Counter()
+    commodity_initial_counter = collections.Counter()
+    core_commodity_counter = collections.Counter()
+    nonsim_stat_counter = collections.Counter()
+
+    def compile_tracker(tracker, non_sim):
+        try:
+            for t in tracker:
+                if not predicate(t):
+                    continue
+                stat_type = t.stat_type if hasattr(t, 'stat_type') else t
+                counter[stat_type] += 1
+                if hasattr(t, 'initial_value'):
+                    if t.get_value() == t.initial_value:
+                        initial_counter[stat_type] += 1
+                if non_sim:
+                    nonsim_stat_counter[stat_type] += 1
+        except TypeError:
+            pass
+
+    def compile_obj_state_trackers(obj):
+        if hasattr(obj, 'commodity_tracker'):
+            if obj.commodity_tracker is not None:
+                compile_tracker(obj.commodity_tracker, not obj.is_sim)
+                for commodity in obj.commodity_tracker:
+                    if not predicate(commodity):
+                        continue
+                    commodity_counter[commodity.stat_type] += 1
+                    if hasattr(commodity, 'initial_value'):
+                        if commodity.get_value() == commodity.initial_value:
+                            commodity_initial_counter[commodity.stat_type] += 1
+                    if commodity.core:
+                        core_commodity_counter[commodity.stat_type] += 1
+        if hasattr(obj, 'statistic_tracker') and obj.statistic_tracker is not None:
+            compile_tracker(obj.statistic_tracker, not obj.is_sim)
+
     for sim_info in services.sim_info_manager().values():
-        if sim_info.commodity_tracker is None:
-            continue
-        for commodity in sim_info.commodity_tracker:
-            if not predicate(commodity):
+        for tracker_name in SimInfo.SIM_INFO_TRACKERS:
+            tracker = getattr(sim_info, tracker_name)
+            if tracker is None:
                 continue
-            counter[commodity.stat_type] += 1
-            if commodity.get_value() == commodity.initial_value:
-                initial_counter[commodity.stat_type] += 1
+            compile_tracker(tracker, False)
+        compile_obj_state_trackers(sim_info)
+    for mgr in services.client_object_managers():
+        for obj in mgr.get_all():
+            if hasattr(obj, 'is_sim') and not obj.is_sim:
+                compile_obj_state_trackers(obj)
     dump = []
-    num_commodities = sum(counter.values())
-    num_commodities_initial = sum(initial_counter.values())
-    dump.append(('Total count', num_commodities))
-    dump.append(('Initial count', num_commodities_initial))
-    dump.append(('Non-initial count', num_commodities - num_commodities_initial))
+    num_statistics = sum(counter.values())
+    num_statistics_initial = sum(initial_counter.values())
+    dump.append(('Total count', num_statistics))
+    dump.append(('Initial count', num_statistics_initial))
+    dump.append(('Non-initial count', num_statistics - num_statistics_initial))
+    num_commodities = sum(commodity_counter.values())
+    num_commodities_initial = sum(commodity_initial_counter.values())
+    dump.append(('Total commodities count', num_commodities))
+    dump.append(('Initial commodities count', num_commodities_initial))
+    dump.append(('Non-initial commodities count', num_commodities - num_commodities_initial))
+    num_non_sim_commodities = sum(nonsim_stat_counter.values())
+    dump.append(('Total non-sim commodities count', num_non_sim_commodities))
+    num_core_commodities = sum(core_commodity_counter.values())
+    dump.append(('Total core commodities count', num_core_commodities))
     output = sims4.commands.CheatOutput(_connection)
     for (name, value) in dump:
         output('{:20} : {}'.format(name, value))
+    output('Most common:')
+    for (commodity, num) in counter.most_common(most_common):
+        name = commodity.__name__ if hasattr(commodity, '__name__') else str(commodity)
+        output('{:40} : {}'.format(name, num))
+    output('Most common core:')
+    for (commodity, num) in core_commodity_counter.most_common(most_common):
+        name = commodity.__name__ if hasattr(commodity, '__name__') else str(commodity)
+        output('{:40} : {}'.format(name, num))
     output('Most common at initial value:')
-    for (commodity, num_initial) in initial_counter.most_common(most_common):
-        output('{:40} : {}'.format(commodity.__name__, num_initial))
+    for (commodity, num) in initial_counter.most_common(most_common):
+        name = commodity.__name__ if hasattr(commodity, '__name__') else str(commodity)
+        output('{:40} : {}'.format(name, num))
+
+def print_base_statistic_tuning(skill, _connection=None):
+    lod_to_set_map = {}
+    lod_to_persisted_count = {}
+    for stat_type in services.get_instance_manager(sims4.resources.Types.STATISTIC).types.values():
+        if not issubclass(stat_type, BaseStatistic):
+            continue
+        if stat_type.is_skill != skill:
+            continue
+        if hasattr(stat_type, 'remove_on_convergence') and stat_type.remove_on_convergence:
+            continue
+        min_lod_value = stat_type.min_lod_value if hasattr(stat_type, 'min_lod_value') else None
+        if min_lod_value not in lod_to_set_map:
+            lod_to_set_map[min_lod_value] = set()
+            lod_to_persisted_count[min_lod_value] = 0
+        try:
+            if stat_type.persisted:
+                name = '{} (p)'.format(stat_type.__name__)
+                lod_to_persisted_count[min_lod_value] += 1
+            else:
+                name = stat_type.__name__
+        except:
+            name = stat_type.__name__
+        lod_to_set_map[min_lod_value].add(name)
+    output = sims4.commands.CheatOutput(_connection)
+    output('Tuned {} Base Statistics'.format('Skill' if skill else 'Non-Skill'))
+    for (key, val) in lod_to_set_map.items():
+        output('{} : {} ({} persisted)'.format(key, len(val), lod_to_persisted_count[key]))
+        for entry in sorted(list(val)):
+            output('    {}'.format(entry))
 
 @sims4.commands.Command('performance.analyze.global', command_type=CommandType.Automation)
 def analyze_global(_connection=None):
@@ -631,6 +706,7 @@ def analyze_global(_connection=None):
     output('==Environment==')
     log_object_statistics_summary(_connection=_connection)
     output('-==Object Score==-')
+    from performance.object_score_commands import score_objects_in_world
     score_objects_in_world(verbose=False, _connection=_connection)
 
 @sims4.commands.Command('performance.analyze.runtime.enable', command_type=CommandType.Automation)
@@ -645,162 +721,21 @@ def analyze_dump(_connection=None):
     autonomy_distance_estimates_dump(_connection=_connection)
 
 @sims4.commands.Command('performance.commodity_status', command_type=CommandType.Automation)
-def commodity_status(most_common=10, _connection=None):
+def commodity_status(most_common:int=10, include_tuning:bool=False, _connection=None):
 
     def predicate(commodity):
-        return not commodity.is_skill
+        return not (hasattr(commodity, 'is_skill') and commodity.is_skill)
 
     print_commodity_census(predicate=predicate, most_common=most_common, _connection=_connection)
+    if include_tuning:
+        print_base_statistic_tuning(skill=False, _connection=_connection)
 
 @sims4.commands.Command('performance.skill_status', command_type=CommandType.Automation)
-def skill_status(most_common:int=10, _connection=None):
+def skill_status(most_common:int=10, include_tuning:bool=False, _connection=None):
 
     def predicate(commodity):
-        return commodity.is_skill
+        return hasattr(commodity, 'is_skill') and commodity.is_skill
 
     print_commodity_census(predicate=predicate, most_common=most_common, _connection=_connection)
-
-@sims4.commands.Command('performance.score_objects_in_world', command_type=CommandType.Automation)
-def score_objects_in_world(verbose:bool=False, _connection=None):
-    cheat_output = sims4.commands.Output(_connection)
-    object_scores = defaultdict(Counter)
-    (on_lot_objects, off_lot_objects) = _score_all_objects(object_scores)
-    overall_score = 0
-    if verbose:
-        cheat_output('Objects On Lot:')
-        overall_score += _get_total_object_score(on_lot_objects, object_scores, cheat_output, verbose)
-        cheat_output('Objects Off Lot:')
-        overall_score += _get_total_object_score(off_lot_objects, object_scores, cheat_output, verbose)
-    else:
-        on_lot_objects_value = _get_total_object_score(on_lot_objects, object_scores, cheat_output, verbose)
-        cheat_output('On Lot Objects Score:  {}'.format(on_lot_objects_value))
-        off_lot_objects_value = _get_total_object_score(off_lot_objects, object_scores, cheat_output, verbose)
-        cheat_output('Off Lot Objects Score: {}'.format(off_lot_objects_value))
-        overall_score = on_lot_objects_value + off_lot_objects_value
-    cheat_output('Total Lot Score:       {}'.format(overall_score))
-    cheat_output('Number of On Lot Objects :  {}'.format(sum(on_lot_objects.values())))
-    cheat_output('Number of Off Lot Objects : {}'.format(sum(off_lot_objects.values())))
-
-def _score_all_objects(object_score_counter):
-    on_lot_objects = Counter()
-    off_lot_objects = Counter()
-    all_objects = list(services.object_manager().objects)
-    for obj in all_objects:
-        if obj.is_sim:
-            continue
-        obj_type = obj.definition
-        if obj.is_on_active_lot():
-            on_lot_objects[obj_type] += 1
-        else:
-            off_lot_objects[obj_type] += 1
-        if obj_type in object_score_counter:
-            continue
-        for super_affordance in obj.super_affordances():
-            object_score_counter[obj_type]['interaction'] += POINTS_PER_INTERACTION
-            if super_affordance.allow_autonomous:
-                object_score_counter[obj_type]['autonomous'] += POINTS_PER_AUTONOMOUS_INTERACTION
-            if super_affordance.provided_posture_type is not None:
-                object_score_counter[obj_type]['provided_posture'] += POINTS_PER_PROVIDED_POSTURE_INTERACTION
-        if obj.has_component(STATE_COMPONENT):
-            object_score_counter[obj_type]['state_component'] += 1
-            for (_, client_state_values) in obj.get_component(STATE_COMPONENT)._client_states.items():
-                object_score_counter[obj_type]['state_component'] += 1*POINTS_PER_CLIENT_STATE_TUNING
-                client_change_op_count = _num_client_state_ops_changing_client(client_state_values)
-                object_score_counter[obj_type]['client_change_tuning'] += client_change_op_count*POINTS_PER_CLIENT_STATE_CHANGE_TUNING
-        if obj.parts:
-            object_score_counter[obj_type]['parts'] += len(obj.parts)*POINTS_PER_OBJECT_PART
-        if obj.statistic_tracker is not None:
-            object_score_counter[obj_type]['statistics'] += len(obj.statistic_tracker)*POINTS_PER_STATISTIC
-        if obj.commodity_tracker is not None:
-            object_score_counter[obj_type]['commodities'] += len(obj.commodity_tracker)*POINTS_PER_COMMODITY
-    return (on_lot_objects, off_lot_objects)
-
-def _num_client_state_ops_changing_client(client_state_values):
-    count = 0
-    for client_state_value in client_state_values:
-        count += _get_num_client_changing_ops(client_state_value.new_client_state.ops)
-    for target_client_state_value in client_state_values.values():
-        count += _get_num_client_changing_ops(target_client_state_value.ops)
-    return count
-
-def _get_num_client_changing_ops(ops):
-    count = 0
-    for (op, value) in ops.items():
-        if _client_state_op_has_client_change(op, value):
-            count += 1
-    return count
-
-def _client_state_op_has_client_change(op, value):
-    if op in CLIENT_STATE_OPS_TO_IGNORE:
-        return False
-    elif value is UNSET or value is None:
-        return False
-    return True
-
-def _get_total_object_score(counter, scores, output, verbose):
-    overall_score = 0
-    for obj_type in counter:
-        occurrences = counter[obj_type]
-        object_data = scores[obj_type]
-        object_score = sum(object_data.values())
-        overall_score += occurrences*object_score
-        if verbose:
-            output('\tObject {} appears {} times at a score of {} for a total contribution of ({})'.format(obj_type.__name__, occurrences, object_score, occurrences*object_score))
-    if verbose:
-        output('Total Score is {}'.format(overall_score))
-    return overall_score
-
-@sims4.commands.Command('performance.dump_object_scores', command_type=CommandType.Automation)
-def dump_object_scores(_connection=None):
-    object_scores = defaultdict(Counter)
-    (on_lot_objects, off_lot_objects) = _score_all_objects(object_scores)
-
-    def _score_objects_callback(file):
-        file.write('Object,total,On Lot,Off Lot,Interaction,Autonomous,provided posture,state component,client change tuning,parts,stats,commodities\n')
-        for object_type in object_scores:
-            _dump_object_to_file(object_type, object_scores, on_lot_objects, off_lot_objects, file)
-
-    create_csv('object_scores', _score_objects_callback, _connection)
-
-def _dump_object_to_file(object_type, object_scores, on_lot_objects, off_lot_objects, file):
-    object_counter = object_scores[object_type]
-    file.write('{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(object_type, sum(object_counter.values()), on_lot_objects[object_type], off_lot_objects[object_type], object_counter['interaction'], object_counter['autonomous'], object_counter['provided_posture'], object_counter['state_component'], object_counter['client_change_tuning'], object_counter['parts'], object_counter['statistics'], object_counter['commodities']))
-
-@sims4.commands.Command('performance.display_object_load_times', command_type=CommandType.Automation)
-def display_object_load_times(_connection=None):
-    if not indexed_manager.capture_load_times:
-        return False
-    cheat_output = sims4.commands.Output(_connection)
-    for (object_class, object_load_data) in object_load_times.items():
-        if not isinstance(object_class, str):
-            cheat_output('{}: Object Manager Add Time {} : Component Load Time {} : Number of times added {} : number of times loaded {}'.format(object_class, object_load_data.time_spent_adding, object_load_data.time_spent_loading, object_load_data.adds, object_load_data.loads))
-    time_adding = sum([y.time_spent_adding for (x, y) in object_load_times.items() if not isinstance(x, str)])
-    time_loading = sum([y.time_spent_loading for (x, y) in object_load_times.items() if not isinstance(x, str)])
-    cheat_output('Total time spent adding objects : {}'.format(time_adding))
-    cheat_output('Total time spent loading components : {}'.format(time_loading))
-    cheat_output('Time spent loading households : {}'.format(object_load_times['household']))
-    cheat_output('Time spent building posture graph: {}'.format(object_load_times['posture_graph']))
-    cheat_output('Time spent loading into the zone: {}'.format(object_load_times['lot_load']))
-
-@sims4.commands.Command('performance.dump_object_load_times', command_type=CommandType.Automation)
-def dump_object_load_times(_connection=None):
-    if not indexed_manager.capture_load_times:
-        return False
-
-    def _object_load_time_callback(file):
-        file.write('Object,AddTime,LoadTime,Adds,Loads\n')
-        for (object_class, object_load_data) in object_load_times.items():
-            if not isinstance(object_class, str):
-                file.write('{},{},{},{},{}\n'.format(object_class, object_load_data.time_spent_adding, object_load_data.time_spent_loading, object_load_data.adds, object_load_data.loads))
-        time_adding = sum([y.time_spent_adding for (x, y) in object_load_times.items() if not isinstance(x, str)])
-        time_loading = sum([y.time_spent_loading for (x, y) in object_load_times.items() if not isinstance(x, str)])
-        file.write(',{},{}\n'.format(time_adding, time_loading))
-        file.write('Household,{}\n'.format(object_load_times['household']))
-        file.write('Posture Graph,{}\n'.format(object_load_times['posture_graph']))
-        file.write('Lot Load,{}\n'.format(object_load_times['lot_load']))
-
-    create_csv('object_load_times', _object_load_time_callback, _connection)
-
-@sims4.commands.Command('performance.toggle_object_load_capture', command_type=CommandType.Automation)
-def _toggle_object_load_capture(_connection=None):
-    indexed_manager.capture_load_times = not indexed_manager.capture_load_times
+    if include_tuning:
+        print_base_statistic_tuning(skill=True, _connection=_connection)

@@ -16,8 +16,13 @@ class AgingTransition(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'dialog': SimPersonalityAssignmentDialog.TunableFactory(locked_args={'phone_ring_type': PhoneRingType.NO_RING})}
 
         def __call__(self, sim_info, **kwargs):
+
+            def on_response(dlg):
+                if dlg.accepted:
+                    sim_info.resend_trait_ids()
+
             dialog = self.dialog(sim_info, assignment_sim_info=sim_info, resolver=SingleSimResolver(sim_info))
-            dialog.show_dialog(**kwargs)
+            dialog.show_dialog(on_response=on_response, **kwargs)
 
     class _AgeTransitionShowNotification(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'dialog': UiDialogNotification.TunableFactory()}

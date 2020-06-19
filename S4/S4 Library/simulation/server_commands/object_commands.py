@@ -16,8 +16,7 @@ from objects.gallery_tuning import GalleryGameplayTuning
 from objects.persistence_groups import PersistenceGroups
 from objects.prop_object import PropObject
 from postures.posture_graph import supress_posture_graph_build
-from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam
-from sims4.commands import NoneIntegerOrString
+from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam, NoneIntegerOrString
 from sims4.tuning.tunable import TunableReference
 import build_buy
 import camera
@@ -165,8 +164,9 @@ def qa_create_object(def_id:int, x_pos:float=None, y_pos:float=None, z_pos:float
     if max_search_distance is None:
         max_search_distance = 100
     if obj is not None:
+        pos_increment_info = placement.PositionIncrementInfo(position_increment=pos_increment, from_exception=False)
         starting_location = placement.create_starting_location(position=start_pos)
-        fgl_context = placement.create_fgl_context_for_object(starting_location, obj, max_distance=max_search_distance, position_increment=pos_increment)
+        fgl_context = placement.create_fgl_context_for_object(starting_location, obj, max_distance=max_search_distance, position_increment_info=pos_increment_info)
         (position, orientation) = placement.find_good_location(fgl_context)
         if position is None:
             sim = get_optional_target(None, _connection)

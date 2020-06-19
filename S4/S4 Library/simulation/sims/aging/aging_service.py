@@ -3,6 +3,7 @@ from sims.aging.aging_tuning import AgeSpeeds, AgingTuning
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.service_manager import Service
 import enum
+import game_services
 import services
 game_play_options_enums = GameplaySaveData_pb2.GameplayOptions
 
@@ -72,8 +73,10 @@ class AgingService(Service):
         options_proto.unplayed_aging_enabled = self._unplayed_aging_enabled
 
     def load_options(self, options_proto):
+        if game_services.service_manager.is_traveling:
+            return
         self._aging_speed = AgeSpeeds(options_proto.sim_life_span)
         self._played_household_aging_option = PlayedHouseholdSimAgingOptions.convert_protocol_option_to_aging_option(options_proto.allow_aging)
         self._unplayed_aging_enabled = options_proto.unplayed_aging_enabled
-        services.sim_info_manager().set_aging_enabled_on_all_sims(self.is_aging_enabled_for_sim_info)
+        services.sim_info_manager().set_aging_enabled_on_all_sims(self.is_aging_enabled_for_sim_info, update_callbacks=False)
         services.sim_info_manager().set_aging_speed_on_all_sims(self._aging_speed)

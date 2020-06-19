@@ -329,6 +329,10 @@ TEXT_INPUT_SONG_NAME = 'song_name'
 class UnluckMusicTrackSuperInteraction(CraftingPhaseSuperInteractionMixin, SuperInteraction):
     INSTANCE_TUNABLES = {'dialog': UiDialogTextInputOk.TunableFactory(description='\n            Text entry dialog to name the song the Sim wrote.\n            ', text_inputs=(TEXT_INPUT_SONG_NAME,))}
 
+    @classproperty
+    def tuning_tags(cls):
+        return cls.get_category_tags()
+
     def _run_interaction_gen(self, timeline):
 
         def on_response(dialog):

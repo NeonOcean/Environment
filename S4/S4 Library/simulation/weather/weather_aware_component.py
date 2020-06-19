@@ -26,8 +26,8 @@ class WeatherAwareComponent(RouteEventProviderMixin, Component, HasTunableFactor
             super().__init__(key_type=TunableEnumEntry(description='\n                    The weather type we are interested in.\n                    ', tunable_type=WeatherType, default=WeatherType.UNDEFINED), value_type=TunableTuple(start_loot=TunableList(description=start_description, tunable=LootActions.TunableReference(description='\n                            The loot action applied.\n                            ', pack_safe=True)), end_loot=TunableList(description=end_description, tunable=LootActions.TunableReference(description='\n                            The loot action applied.\n                            ', pack_safe=True))), **kwargs)
             self.cache_key = 'TunableWeatherAwareMapping'
 
-        def load_etree_node(self, node=None, source=None, **kwargs):
-            value = super().load_etree_node(node=node, source=source, **kwargs)
+        def load_etree_node(self, node, source, expect_error):
+            value = super().load_etree_node(node, source, expect_error)
             modified_dict = {}
             for (weather_type, loots) in value.items():
                 if not loots.start_loot:

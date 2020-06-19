@@ -7,6 +7,9 @@ class SwimmingMixin:
         self._provided_routing_surface = None
         self._world_routing_surface = None
 
+    def is_routing_surface_overlapped_at_position(self, _):
+        return False
+
     @property
     def provided_routing_surface(self):
         return self._provided_routing_surface

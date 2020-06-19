@@ -72,11 +72,14 @@ class ReactionMixer(AutoFactoryInit):
                 logger.error('{} in posture {} does not have a source interaction', sim, sim.posture)
                 return TestResult(False, '{} in posture {} does not have a source interaction', sim, sim.posture)
             source_affordance = source_interaction.super_affordance
+        for social_group in sim.get_groups_for_sim_gen():
+            if social_group.disallow_reaction_mixers:
+                return TestResult(False, 'Could not push reaction mixer {} on {}. Disallowed by social group {}', self.affordance, sim, social_group)
         sim_specific_lockout = self.affordance.lock_out_time.target_based_lock_out if self.affordance.lock_out_time is not None else False
         if sim_specific_lockout and sim.is_sub_action_locked_out(self.affordance):
             return TestResult(False, 'Reaction Mixer Affordance {} is currently locked out.', self.affordance)
         if self.affordance_target is not None:
-            targets = [affordance_target.get_sim_instance() for affordance_target in resolver.get_participants(self.affordance_target) if affordance_target is not None if affordance_target.is_sim]
+            targets = [target.get_sim_instance() if target.is_sim else target for target in resolver.get_participants(self.affordance_target) if target is not None]
         else:
             targets = [None]
             if source_interaction is not None:

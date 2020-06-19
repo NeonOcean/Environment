@@ -27,6 +27,7 @@ class PickType(enum.Int):
 PICK_TRAVEL = frozenset([PickType.PICK_TERRAIN, PickType.PICK_FLOOR, PickType.PICK_UNKNOWN, PickType.PICK_STAIRS, PickType.PICK_FOUNDATION, PickType.PICK_POOL_SURFACE, PickType.PICK_POOL_TRIM, PickType.PICK_POOL_EDGE, PickType.PICK_FOUNTAIN])
 PICK_UNGREETED = frozenset([PickType.PICK_ROOF, PickType.PICK_WALL, PickType.PICK_FLOOR, PickType.PICK_STAIRS, PickType.PICK_FOUNDATION])
 PICK_USE_TERRAIN_OBJECT = frozenset(PICK_TRAVEL | PICK_UNGREETED)
+PICK_NEVER_USE_POOL = frozenset([PickType.PICK_STAIRS, PickType.PICK_POOL_EDGE])
 
 class PickTerrainType(enum.Int):
     ANYWHERE = 0
@@ -39,7 +40,7 @@ class PickTerrainType(enum.Int):
     IS_OUTSIDE = 7
 
 class PickInfo:
-    __slots__ = ('_location', '_lot_id', '_level', '_routing_surface', '_type', '_target', 'modifiers', '_ignore_neighborhood_id')
+    __slots__ = ('_location', '_lot_id', '_level', '_routing_surface', '_type', '_target', '_modifiers', '_ignore_neighborhood_id')
 
     class PickModifiers:
         __slots__ = ('_alt', '_control', '_shift')
@@ -68,8 +69,17 @@ class PickInfo:
         self._routing_surface = routing_surface
         self._lot_id = lot_id
         self._level = level
-        self.modifiers = PickInfo.PickModifiers(alt, control, shift)
+        self._modifiers = PickInfo.PickModifiers(alt, control, shift)
         self._ignore_neighborhood_id = ignore_neighborhood_id
+
+    @property
+    def pick_type(self):
+        return self._type
+
+    @property
+    def target(self):
+        if self._target is not None:
+            return self._target()
 
     @property
     def location(self):
@@ -88,13 +98,12 @@ class PickInfo:
         return self._level
 
     @property
-    def pick_type(self):
-        return self._type
+    def modifiers(self):
+        return self._modifiers
 
     @property
-    def target(self):
-        if self._target is not None:
-            return self._target()
+    def ignore_neighborhood_id(self):
+        return self._ignore_neighborhood_id
 
     def get_zone_id_from_pick_location(self):
         lot_id = self.lot_id

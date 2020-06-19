@@ -31,9 +31,11 @@ class Region(HasTunableReference, metaclass=HashedTunedInstanceMetaclass, manage
         return "Region: <class '{}.{}'>".format(cls.__module__, cls.__name__)
 
     @classmethod
-    def is_region_compatible(cls, region_instance):
+    def is_region_compatible(cls, region_instance, ignore_tags=False):
         if region_instance is cls or region_instance is None:
             return True
+        if ignore_tags:
+            return False
         for tag in cls.tags:
             if tag in region_instance.tags:
                 return True

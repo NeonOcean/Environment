@@ -1,24 +1,3 @@
-from collections import namedtuple
-import random
-from animation import AnimationContext, get_throwaway_animation_context
-from animation.animation_constants import InteractionAsmType, AUTO_EXIT_REF_TAG, MAX_ZERO_LENGTH_ASM_CALLS_FOR_RESET
-from animation.animation_utils import get_actors_for_arb_sequence, create_run_animation, get_auto_exit, mark_auto_exit, flush_all_animations, AnimationOverrides
-from animation.awareness.awareness_elements import with_audio_awareness
-from animation.posture_manifest import PostureManifestOverrideValue, PostureManifestOverrideKey, PostureManifest, MATCH_ANY, MATCH_NONE, AnimationParticipant
-from balloon.tunable_balloon import TunableBalloon
-from element_utils import build_critical_section, build_critical_section_with_finally, build_element, do_all
-from event_testing.results import TestResult
-from interactions import ParticipantTypeReactionlet, ParticipantType
-from interactions.utils.animation_selector import TunableAnimationSelector
-from objects.props.prop_share_override import PropShareOverride
-from sims4.collections import frozendict
-from sims4.tuning.instances import TunedInstanceMetaclass
-from sims4.tuning.tunable import TunableFactory, Tunable, TunableList, TunableTuple, TunableReference, TunableResourceKey, TunableVariant, OptionalTunable, TunableMapping, TunableSingletonFactory, HasTunableReference, TunableInteractionAsmResourceKey
-from sims4.tuning.tunable_base import SourceQueries, SourceSubQueries, FilterTag
-from sims4.tuning.tunable_hash import TunableStringHash32
-from sims4.utils import classproperty, flexmethod
-from singletons import DEFAULT, UNSET
-from tunable_utils.tunable_offset import TunableOffset
 import animation
 import animation.arb
 import animation.asm
@@ -26,116 +5,28 @@ import animation.posture_manifest
 import element_utils
 import elements
 import gsi_handlers.interaction_archive_handlers
+import random
 import services
 import sims4.log
+from animation import get_throwaway_animation_context
+from animation.animation_constants import AUTO_EXIT_REF_TAG, MAX_ZERO_LENGTH_ASM_CALLS_FOR_RESET
+from animation.animation_overrides_tuning import TunableParameterMapping
+from animation.animation_utils import get_actors_for_arb_sequence, create_run_animation, get_auto_exit, mark_auto_exit, flush_all_animations
+from animation.awareness.awareness_elements import with_audio_awareness
+from animation.posture_manifest import PostureManifest, MATCH_ANY, MATCH_NONE, AnimationParticipant
+from animation.tunable_animation_overrides import TunableAnimationOverrides
+from balloon.tunable_balloon import TunableBalloon
+from element_utils import build_critical_section, build_critical_section_with_finally, build_element, do_all
+from event_testing.results import TestResult
+from interactions import ParticipantType
+from sims.favorites import favorites_utils
+from sims4.tuning.instances import TunedInstanceMetaclass
+from sims4.tuning.tunable import Tunable, TunableList, TunableTuple, OptionalTunable, HasTunableReference, TunableInteractionAsmResourceKey
+from sims4.tuning.tunable_base import SourceQueries, FilterTag
+from sims4.utils import classproperty, flexmethod
+from singletons import DEFAULT, UNSET
 logger = sims4.log.Logger('Animation')
 dump_logger = sims4.log.LoggerClass('Animation')
-
-class TunableParameterMapping(TunableMapping):
-
-    def __init__(self, **kwargs):
-        super().__init__(key_name='name', value_type=TunableVariant(default='string', boolean=Tunable(bool, False), string=Tunable(str, 'value'), integral=Tunable(int, 0)), **kwargs)
-
-class TunablePostureManifestCellValue(TunableVariant):
-    __slots__ = ()
-
-    def __init__(self, allow_none, string_name, string_default=None, asm_source=None, source_query=None):
-        if asm_source is not None:
-            asm_source = '../' + asm_source
-        else:
-            source_query = None
-        locked_args = {'match_none': animation.posture_manifest.MATCH_NONE, 'match_any': animation.posture_manifest.MATCH_ANY}
-        default = 'match_any'
-        kwargs = {string_name: Tunable(str, string_default, source_location=asm_source, source_query=source_query)}
-        if allow_none:
-            locked_args['leave_unchanged'] = None
-            default = 'leave_unchanged'
-        super().__init__(default=default, locked_args=locked_args, **kwargs)
-
-class TunablePostureManifestOverrideKey(TunableSingletonFactory):
-    FACTORY_TYPE = PostureManifestOverrideKey
-
-    def __init__(self, asm_source=None):
-        if asm_source is not None:
-            asm_source = '../' + asm_source
-            source_query = SourceQueries.ASMActorSim
-        else:
-            source_query = None
-        super().__init__(actor=TunablePostureManifestCellValue(False, 'actor_name', asm_source=asm_source, source_query=source_query), specific=TunablePostureManifestCellValue(False, 'posture_name', 'stand'), family=TunablePostureManifestCellValue(False, 'posture_name', 'stand'), level=TunablePostureManifestCellValue(False, 'overlay_level', 'FullBody'))
-
-class TunablePostureManifestOverrideValue(TunableSingletonFactory):
-    FACTORY_TYPE = PostureManifestOverrideValue
-
-    def __init__(self, asm_source=None):
-        if asm_source is not None:
-            asm_source = '../' + asm_source
-            source_query = SourceQueries.ASMActorObject
-        else:
-            source_query = None
-        super().__init__(left=TunablePostureManifestCellValue(True, 'actor_name', asm_source=asm_source, source_query=source_query), right=TunablePostureManifestCellValue(True, 'actor_name', asm_source=asm_source, source_query=source_query), surface=TunablePostureManifestCellValue(True, 'actor_name', 'surface', asm_source=asm_source, source_query=source_query))
-
-RequiredSlotOverride = namedtuple('RequiredSlotOverride', ('actor_name', 'parent_name', 'slot_type'))
-
-class TunableRequiredSlotOverride(TunableSingletonFactory):
-    __slots__ = ()
-    FACTORY_TYPE = RequiredSlotOverride
-
-    def __init__(self, asm_source=None):
-        if asm_source is not None:
-            source_query = SourceQueries.ASMActorObject
-        else:
-            source_query = None
-        super().__init__(actor_name=Tunable(str, None, source_location=asm_source, source_query=source_query), parent_name=Tunable(str, 'surface', source_location=asm_source, source_query=source_query), slot_type=TunableReference(services.get_instance_manager(sims4.resources.Types.SLOT_TYPE)))
-
-class TunableAnimationOverrides(TunableFactory):
-
-    @staticmethod
-    def _factory(*args, manifests, **kwargs):
-        if manifests is not None:
-            key_name = 'key'
-            value_name = 'value'
-            manifests_dict = {}
-            for item in manifests:
-                key = getattr(item, key_name)
-                if key in manifests_dict:
-                    import sims4.tuning.tunable
-                    sims4.tuning.tunable.logger.error('Multiple values specified for {} in manifests in an animation overrides block.', key)
-                else:
-                    manifests_dict[key] = getattr(item, value_name)
-        else:
-            manifests_dict = None
-        return AnimationOverrides(*args, manifests=manifests_dict, **kwargs)
-
-    FACTORY_TYPE = _factory
-
-    def __init__(self, asm_source=None, state_source=None, allow_reactionlets=True, override_animation_context=False, participant_enum_override=DEFAULT, description='Overrides to apply to the animation request.', **kwargs):
-        if asm_source is not None:
-            asm_source = '../../../' + asm_source
-            clip_actor_asm_source = asm_source
-            vfx_sub_query = SourceSubQueries.ClipEffectName
-            sound_sub_query = SourceSubQueries.ClipSoundName
-            if state_source is not None:
-                last_slash_index = clip_actor_asm_source.rfind('/')
-                clip_actor_state_source = clip_actor_asm_source[:last_slash_index + 1] + state_source
-                clip_actor_state_source = '../' + clip_actor_state_source
-                clip_actor_state_source = SourceQueries.ASMClip.format(clip_actor_state_source)
-        else:
-            clip_actor_asm_source = None
-            clip_actor_state_source = None
-            vfx_sub_query = None
-            sound_sub_query = None
-        if participant_enum_override is DEFAULT:
-            participant_enum_override = (ParticipantTypeReactionlet, ParticipantTypeReactionlet.Invalid)
-        if allow_reactionlets:
-            kwargs['reactionlet'] = OptionalTunable(TunableAnimationSelector(description='\n                Reactionlets are short, one-shot animations that are triggered \n                via x-event.\n                X-events are markers in clips that can trigger an in-game \n                effect that is timed perfectly with the clip. Ex: This is how \n                we trigger laughter at the exact moment of the punchline of a \n                Joke\n                It is EXTREMELY important that only content authored and \n                configured by animators to be used as a Reactionlet gets \n                hooked up as Reactionlet content. If this rule is violated, \n                crazy things will happen including the client and server losing \n                time sync. \n                ', interaction_asm_type=InteractionAsmType.Reactionlet, override_animation_context=True, participant_enum_override=participant_enum_override))
-        super().__init__(params=TunableParameterMapping(description='\n                This tuning is used for overriding parameters on the ASM to \n                specific values.\n                These will take precedence over those same settings coming from \n                runtime so be careful!\n                You can enter a number of overrides as key/value pairs:\n                Name is the name of the parameter as it appears in the ASM.\n                Value is the value to set on the ASM.\n                Make sure to get the type right. Parameters are either \n                booleans, enums, or strings.\n                Ex: The most common usage of this field is when tuning the \n                custom parameters on specific objects, such as the objectName \n                parameter. \n                '), vfx=TunableMapping(description="\n                VFX overrides for this animation. The key is the effect's actor\n                name. Please note, this is not the name of the vfx that would\n                normally play. This is the name of the actor in the ASM that is\n                associated to a specific effect.\n                ", key_name='original_effect', value_name='replacement_effect', value_type=TunableTuple(description='\n                    Override data for the specified effect actor.\n                    ', effect=OptionalTunable(description='\n                        Override the actual effect that is meant to be played.\n                        It can be left None to stop the effect from playing\n                        ', disabled_name='no_effect', enabled_name='play_effect', tunable=Tunable(tunable_type=str, default='')), mirrored_effect=OptionalTunable(description="\n                        If enabled and the is_mirrored parameter comes through\n                        as True, we will play this effect instead of the tuned\n                        override. NOTE: if you tune this, the non-mirrored\n                        version must also be tuned in the regular effect\n                        override for it to play. For example, the Bubble Bottle\n                        needs to play mirrored effects for left handed Sims,\n                        but if we don't override the effect and still want to\n                        play a mirrored version, we need to specify the\n                        original effect so we don't play nothing.\n                        ", tunable=Tunable(description='\n                            The name of the mirrored effect.\n                            ', tunable_type=str, default='')), effect_joint=OptionalTunable(description='\n                        Overrides the effect joint of the VFX.  Use this\n                        specify a different joint name to attach the effect to.\n                        ', disabled_name='no_override', enabled_name='override_joint', tunable=TunableStringHash32()), target_joint=OptionalTunable(description='\n                        Overrides the target joint of the VFX.  This is used in\n                        case of attractors where we want the effect to target a\n                        different place per object on the same animation\n                        ', disabled_name='no_override', enabled_name='override_joint', tunable=TunableStringHash32()), target_joint_offset=OptionalTunable(description='\n                        Overrides the target joint offset of the VFX.  \n                        This is used in case of point to point VFX where\n                        we want the effect to reach a destination\n                        offset from the target joint.\n                        ', disabled_name='no_override', enabled_name='override_offset', tunable=TunableOffset()), callback_event_id=OptionalTunable(description='\n                        Specifies a callback xevt id we want the vfx to trigger\n                        when it fulfills a contracted duty.\n                        \n                        For example, it can call this xevt on point-to-point vfx\n                        if the effect reaches the target event.\n                        ', tunable=Tunable(int, 0))), key_type=Tunable(str, None, source_location=clip_actor_asm_source, source_query=clip_actor_state_source, source_sub_query=vfx_sub_query), allow_none=True), sounds=TunableMapping(description='The sound overrides.', key_name='original_sound', value_name='replacement_sound', value_type=OptionalTunable(disabled_name='no_sound', enabled_name='play_sound', disabled_value=UNSET, tunable=TunableResourceKey(None, (sims4.resources.Types.PROPX,), description='The sound to play.')), key_type=Tunable(str, None, source_location=clip_actor_asm_source, source_query=clip_actor_state_source, source_sub_query=sound_sub_query)), props=TunableMapping(description='\n                The props overrides.\n                ', value_type=TunableTuple(definition=TunableReference(description='\n                        The object to create to replace the prop\n                        ', manager=services.definition_manager(), pack_safe=True), from_actor=Tunable(description='\n                        The actor name inside the asm to copy the state over.\n                        ', tunable_type=str, default=None), states_to_override=TunableList(description='\n                        A list of states that will be transferred from\n                        the specified actor to the overridden prop.\n                        ', tunable=TunableReference(description='\n                            The state to apply on the props from the actor listed above.\n                            ', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectState', pack_safe=True)), sharing=OptionalTunable(description='\n                        If enabled, this prop may be shared across ASMs.\n                        ', tunable=PropShareOverride.TunableFactory()), set_as_actor=OptionalTunable(description='\n                        If enabled the prop defined by override will be set\n                        as an actor of the ASM.\n                        This is used in cases like setting the chopsticks prop\n                        on the eat ASM.  In this ASM the chopsticks are set as \n                        an Object actor so they can animate. Currently we do\n                        not support props playing their own animations.  \n                        ', tunable=Tunable(description='\n                            Actor name that will be used on the ASM for the \n                            prop animation.\n                            ', tunable_type=str, default=None), enabled_name='actor_name'))), prop_state_values=TunableMapping(description='\n                Tunable mapping from a prop actor name to a list of state\n                values to set. If conflicting data is tuned both here and in\n                the "props" field, the data inside "props" will override the\n                data tuned here.\n                ', value_type=TunableList(description='\n                    A list of state values that will be set on the specified\n                    actor.\n                    ', tunable=TunableReference(description='\n                        A new state value to apply to prop_actor.\n                        ', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions='ObjectStateValue'))), manifests=TunableList(description='\n                Manifests is a complex and seldom used override that lets you \n                change entries in the posture manifest from the ASM.\n                You can see how the fields, Actor, Family, Level, Specific, \n                Left, Right, and Surface, match the manifest entries in the \n                ASM. \n                ', tunable=TunableTuple(key=TunablePostureManifestOverrideKey(asm_source=asm_source), value=TunablePostureManifestOverrideValue(asm_source=asm_source))), required_slots=TunableList(TunableRequiredSlotOverride(asm_source=asm_source), description='Required slot overrides'), balloons=OptionalTunable(TunableList(description='\n                Balloons lets you add thought and talk balloons to animations. \n                This is a great way to put extra flavor into animations and \n                helps us stretch our content by creating combinations.\n                Balloon Animation Target is the participant who should display \n                the balloon.\n                Balloon Choices is a reference to the balloon to display, which \n                is its own tunable type.\n                Balloon Delay (and Random Offset) is how long, in real seconds, \n                to delay this balloon after the animation starts.  Note: for \n                looping animations, the balloon will always play immediately \n                due to a code limitation.\n                Balloon Target is for showing a balloon of a Sim or Object. \n                Set this to the participant type to show. This setting \n                overrides Balloon Choices. \n                ', tunable=TunableBalloon())), animation_context=Tunable(description="\n                Animation Context - If checked, this animation will get a fresh \n                animation context instead of reusing the animation context of \n                its Interaction.\n                Normally, animation contexts are shared across an entire Super \n                Interaction. This allows mixers to use a fresh animation \n                context.\n                Ex: If a mixer creates a prop, using a fresh animation context \n                will cause that prop to be destroyed when the mixer finishes, \n                whereas re-using an existing animation context will cause the \n                prop to stick around until the mixer's SI is done. \n                ", tunable_type=bool, default=override_animation_context), description=description, **kwargs)
-
-class TunableAnimationObjectOverrides(TunableAnimationOverrides):
-    LOCKED_ARGS = {'manifests': None, 'required_slots': None, 'balloons': None, 'reactionlet': None}
-
-    def __init__(self, description='Animation overrides to apply to every ASM to which this object is added.', **kwargs):
-        super().__init__(locked_args=TunableAnimationObjectOverrides.LOCKED_ARGS, **kwargs)
-
 logged_missing_interaction_callstack = False
 
 def _create_balloon_request_callback(balloon_request=None):
@@ -401,7 +292,8 @@ class AnimationElement(HasTunableReference, elements.ParentElement, metaclass=Tu
 
     @flexmethod
     def append_to_arb(cls, inst, asm, arb):
-        if inst is not None:
+        if inst is not None and inst.overrides:
+            inst.overrides.override_asm(asm)
             balloon_requests = TunableBalloon.get_balloon_requests(inst.interaction, inst.overrides)
             _register_balloon_requests(asm, inst.interaction, inst.overrides, balloon_requests)
         for state_name in cls.begin_states:
@@ -437,6 +329,29 @@ class AnimationElement(HasTunableReference, elements.ParentElement, metaclass=Tu
     def animation_element_gen(cls):
         yield cls
 
+    def _set_alternative_prop_overrides(self, asm):
+        if self.interaction is None or self.interaction is UNSET:
+            return
+        sim = self.interaction.sim
+        if sim is None:
+            return
+        for (prop, prop_override) in self.overrides.props.items():
+            if not prop_override.alternative_prop_definitions:
+                continue
+            favorite_data = prop_override.alternative_prop_definitions.favorite_object_in_inventory
+            if favorite_data is None:
+                continue
+            (sim, _) = asm.get_actor_and_suffix(favorite_data.actor_asm_name)
+            if sim is None:
+                continue
+            favorite_def = favorites_utils.get_favorite_in_sim_inventory(sim, favorite_data.favorite_tag)
+            if favorite_def is None:
+                continue
+            self.overrides.alternative_props[prop] = favorite_def
+            anim_overrides = favorites_utils.get_animation_override_for_prop_def(favorite_def)
+            if anim_overrides:
+                self.overrides = anim_overrides(overrides=self.overrides)
+
     def _run(self, timeline):
         global logged_missing_interaction_callstack
         if self.interaction is None:
@@ -449,6 +364,7 @@ class AnimationElement(HasTunableReference, elements.ParentElement, metaclass=Tu
         asm = self.get_asm()
         if asm is None:
             return False
+        self._set_alternative_prop_overrides(asm)
         if self.overrides.balloons:
             balloon_requests = TunableBalloon.get_balloon_requests(self.interaction, self.overrides)
         else:

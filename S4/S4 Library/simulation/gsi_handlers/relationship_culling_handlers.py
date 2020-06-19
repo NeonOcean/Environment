@@ -26,7 +26,7 @@ with relationship_culling_archive_schema.add_has_many('culled_relationships', Gs
     sub_schema.add_field('target_sim_info', label='Sim B')
     sub_schema.add_field('total_depth', label='Total Depth', type=GsiFieldVisualizers.INT, width=0.2)
     sub_schema.add_field('rel_bits', label='Relationship Bits')
-archiver = GameplayArchiver('relationship_culling', relationship_culling_archive_schema, add_to_archive_enable_functions=True, enable_archive_by_default=True)
+archiver = GameplayArchiver('relationship_culling', relationship_culling_archive_schema, add_to_archive_enable_functions=True)
 
 def is_archive_enabled():
     return archiver.enabled

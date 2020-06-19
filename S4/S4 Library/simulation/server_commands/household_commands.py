@@ -1,9 +1,16 @@
-from protocolbuffers import Consts_pb2, UI_pb2
+from protocolbuffers import Consts_pb2, UI_pb2, InteractionOps_pb2, MoveInMoveOut_pb2
 from distributor import shared_messages
+from distributor.ops import SplitHouseholdDialog, SendUIMessage
 from distributor.system import Distributor
+from google.protobuf import text_format
 from objects import ALL_HIDDEN_REASONS
+from objects.object_enums import ResetReason
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target
+from services.persistence_service import SaveGameData
+from sims.sim_spawner import SimSpawner
+from sims4.commands import CommandType
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
+import distributor
 import services
 import sims4.commands
 import sims4.log
@@ -116,18 +123,18 @@ def merge_with_neighbor(zone_id:int, merge:bool, household_id:int, _connection=N
     dialog.show_dialog(additional_tokens=(notification_household.name, zone_name))
 
 @sims4.commands.Command('households.fill_visible_commodities_world', command_type=sims4.commands.CommandType.Cheat)
-def fill_visible_commodities_world(opt_object:OptionalTargetParam=None, _connection=True):
+def set_visible_commodities_to_best_value_for_world(opt_object:OptionalTargetParam=None, _connection=True):
     for sim_info in services.sim_info_manager().objects:
         if sim_info.commodity_tracker is not None:
-            sim_info.commodity_tracker.set_all_commodities_to_max(visible_only=True)
+            sim_info.commodity_tracker.set_all_commodities_to_best_value(visible_only=True)
 
 @sims4.commands.Command('households.fill_visible_commodities_household', command_type=sims4.commands.CommandType.Cheat)
-def fill_visible_commodities_household(opt_object:OptionalTargetParam=None, _connection=None):
+def set_visible_commodities_to_best_value_for_household(opt_object:OptionalTargetParam=None, _connection=None):
     active_sim_info = services.client_manager().get(_connection).active_sim
     household = active_sim_info.household
     for sim_info in household.sim_info_gen():
         if sim_info.commodity_tracker is not None:
-            sim_info.commodity_tracker.set_all_commodities_to_max(visible_only=True)
+            sim_info.commodity_tracker.set_all_commodities_to_best_value(visible_only=True)
 
 def _set_motive_decay(sim_infos, enable=True):
     for sim_info in sim_infos:
@@ -169,3 +176,202 @@ def disable_world_motive_decay(opt_object:OptionalTargetParam=None, _connection=
 def collection_view_update(collection_id:int=0, _connection=None):
     active_sim_info = services.client_manager().get(_connection).active_sim_info
     active_sim_info.household.collection_tracker.mark_as_viewed(collection_id)
+
+@sims4.commands.Command('household.split', command_type=CommandType.Live)
+def household_split(sourceHouseholdId:int, targetHouseholdId:int=0, cancelable:bool=True, allow_sim_transfer:bool=True, selected_sim_ids=[], destination_zone_id:int=0, callback_command_name=None, lock_preselected_sims=True):
+    if destination_zone_id and not targetHouseholdId:
+        logger.error('HouseholdSplit: Target household required when specifying a destination zone.', owner='bnguyen')
+    op = SplitHouseholdDialog(sourceHouseholdId, targetHouseholdId, cancelable=cancelable, allow_sim_transfer=allow_sim_transfer, selected_sim_ids=selected_sim_ids, destination_zone_id=destination_zone_id, callback_command_name=callback_command_name, lock_preselected_sims=lock_preselected_sims)
+    Distributor.instance().add_op_with_no_owner(op)
+
+@sims4.commands.Command('household.split_do_command', command_type=CommandType.Live)
+def household_split_do_command(sourceHouseholdId:int, selected_sim_id:int, lock_preselected_sims:bool=True):
+    household_split(sourceHouseholdId, selected_sim_ids=(selected_sim_id,), lock_preselected_sims=lock_preselected_sims)
+
+@sims4.commands.Command('household.transfer_sims', command_type=CommandType.Live)
+def household_transfer_sims_live_mode(transfer_sims_data:str, _connection=None):
+    proto = UI_pb2.SplitHousehold()
+    text_format.Merge(transfer_sims_data, proto)
+    household_manager = services.household_manager()
+    if proto.source_household_id == 0:
+        tgt_client = services.client_manager().get(_connection)
+        if tgt_client is None:
+            return False
+        account = tgt_client.account
+        source_household = household_manager.create_household(account, starting_funds=0)
+        _name_new_family(source_household, proto.to_source_sims)
+        source_household.save_data()
+        proto.source_household_id = source_household.id
+    else:
+        source_household = household_manager.get(proto.source_household_id)
+        if source_household.name == '':
+            _name_new_family(source_household, proto.to_source_sims)
+    if source_household is None:
+        sims4.commands.output('Source Household is not found. ID = {}'.format(proto.source_household_id), _connection)
+        return
+    if proto.target_household_id == 0:
+        tgt_client = services.client_manager().get(_connection)
+        if tgt_client is None:
+            return False
+        account = tgt_client.account
+        target_household = household_manager.create_household(account, starting_funds=0)
+        _name_new_family(target_household, proto.to_target_sims)
+        target_household.save_data()
+        proto.target_household_id = target_household.id
+    else:
+        target_household = household_manager.get(proto.target_household_id)
+        if target_household.name == '':
+            _name_new_family(target_household, proto.to_target_sims)
+    if target_household is None:
+        sims4.commands.output('Target Household is not found. ID = {}'.format(proto.target_household_id), _connection)
+    if _is_complete_transfer(source_household, proto.to_target_sims) and source_household.home_zone_id != 0:
+        household_manager.add_pending_transfer(source_household.id, proto)
+        save_data_msg = services.get_persistence_service().get_save_slot_proto_buff()
+        services.current_zone().save_zone(save_data_msg)
+        if proto.bSellFurniture:
+            if services.current_zone_id() == source_household.home_zone_id:
+                proto.target_funds_difference += _get_household_home_lot_furnishings_value(source_household)
+        _move_household_out_of_lot(source_household, proto)
+        return
+    if _is_complete_transfer(target_household, proto.to_source_sims) and target_household.home_zone_id != 0:
+        household_manager.add_pending_transfer(target_household.id, proto)
+        save_data_msg = services.get_persistence_service().get_save_slot_proto_buff()
+        services.current_zone().save_zone(save_data_msg)
+        if proto.bSellFurniture:
+            if services.current_zone_id() == target_household.home_zone_id:
+                proto.source_funds_difference += _get_household_home_lot_furnishings_value(target_household)
+        _move_household_out_of_lot(target_household, proto)
+        return
+    _transfer_sims_main(proto, source_household, target_household)
+
+def _transfer_sims_main(proto, source_household, target_household):
+    _switch_sims(source_household, target_household, proto.to_target_sims)
+    _switch_sims(target_household, source_household, proto.to_source_sims)
+    household_manager = services.household_manager()
+    if not source_household:
+        household_manager.transfer_household_inventory(source_household, target_household)
+        _reset_active_lot_object_owner_ids(source_household)
+    elif not target_household:
+        household_manager.transfer_household_inventory(target_household, source_household)
+    if source_household.is_player_household is not target_household.is_player_household:
+        if not source_household.is_player_household and proto.to_source_sims:
+            source_household.set_played_household(True)
+        elif not target_household.is_player_household and proto.to_target_sims:
+            target_household.set_played_household(True)
+    modify_household_funds(proto.target_funds_difference, target_household.id, Consts_pb2.FUNDS_SPLIT_HOUSEHOLD)
+    modify_household_funds(proto.source_funds_difference, source_household.id, Consts_pb2.FUNDS_SPLIT_HOUSEHOLD)
+    if proto.funds > 0:
+        if not source_household:
+            modify_household_funds(proto.funds, target_household.id, Consts_pb2.FUNDS_LOT_SELL)
+        elif not target_household:
+            modify_household_funds(proto.funds, source_household.id, Consts_pb2.FUNDS_LOT_SELL)
+    if not target_household.destroy_household_if_empty():
+        sim_info_manager = services.sim_info_manager()
+        for sim_id in proto.to_target_sims:
+            sim_info = sim_info_manager.get(sim_id)
+            if sim_info is not None:
+                if proto.destination_zone_id > 0:
+                    if sim_info.is_instanced():
+                        sim_info.inject_into_inactive_zone(proto.destination_zone_id, start_away_actions=False, skip_instanced_check=True, skip_daycare=True)
+                        sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+                        sim.reset(ResetReason.RESET_EXPECTED, cause='Sim split into new family and injected into that zone.')
+                    else:
+                        sim_info.inject_into_inactive_zone(proto.destination_zone_id)
+        if target_household.home_zone_id == 0:
+            if proto.destination_zone_id != 0:
+                target_household.move_into_zone(proto.destination_zone_id)
+                sim_id = proto.to_target_sims[0]
+                _activate_sims_family(sim_id, target_household.id)
+            else:
+                _enter_move_out_mode(target_household.id, is_in_game_evict=True)
+        elif proto.to_target_sims:
+            sim_id = proto.to_target_sims[0]
+            _activate_sims_family(sim_id, target_household.id)
+    op = SendUIMessage('LiveModeSplitDone')
+    Distributor.instance().add_op_with_no_owner(op)
+
+def _switch_sims(source_household, target_household, sim_list):
+    household_manager = services.household_manager()
+    sim_info_manager = services.sim_info_manager()
+    active_household = services.active_household()
+    for sim_id in sim_list:
+        sim_info = sim_info_manager.get(sim_id)
+        if sim_info is None:
+            continue
+        household_manager.switch_sim_from_household_to_target_household(sim_info, source_household, target_household, destroy_if_empty_household=False)
+        if target_household is active_household:
+            if not sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS):
+                SimSpawner.spawn_sim(sim_info)
+
+@sims4.commands.Command('household.move_in_move_out', command_type=CommandType.Live)
+def trigger_move_in_move_out(_connection=None, is_in_game_evict=None):
+    _enter_move_out_mode(is_in_game_evict=is_in_game_evict)
+
+def _enter_move_out_mode(moving_household_id=None, is_in_game_evict=None):
+    msg = InteractionOps_pb2.MoveInMoveOutInfo()
+    if moving_household_id is not None:
+        msg.moving_family_id = moving_household_id
+    if is_in_game_evict is not None:
+        msg.is_in_game_evict = is_in_game_evict
+    distributor.system.Distributor.instance().add_event(Consts_pb2.MSG_MOVE_IN_MOVE_OUT, msg)
+
+def _activate_sims_family(sim_id, household_id):
+    sim_info_manager = services.sim_info_manager()
+    sim_info = sim_info_manager.get(sim_id)
+    if sim_info is not None:
+        sim_info.send_travel_live_to_nhd_to_live_op(household_id)
+
+def _move_household_out_of_lot(household, transfer_sims_data):
+    zone_id = household.home_zone_id
+    msg = MoveInMoveOut_pb2.MoveInMoveOutData()
+    msg.zone_src = zone_id
+    msg.zone_dst = 0
+    msg.move_out_data_src.sell_furniture = transfer_sims_data.bSellFurniture
+    msg.move_out_data_src.delta_funds = transfer_sims_data.funds
+    msg.notify_gameplay = True
+    distributor.system.Distributor.instance().add_event(Consts_pb2.MSG_MOVE_FAMILY_OUT, msg)
+
+def _is_complete_transfer(household, transfer_sims):
+    remaining_sims = [x for x in household if x.id not in transfer_sims]
+    if not household or remaining_sims:
+        return False
+    return True
+
+@sims4.commands.Command('household.handle_updated_family', command_type=CommandType.Live)
+def handle_family_updated(household_id:int):
+    household_manager = services.household_manager()
+    pending_removal_data = household_manager.get_pending_transfer(household_id)
+    if pending_removal_data is None:
+        return
+    source_household = household_manager.get(pending_removal_data.source_household_id)
+    if source_household is None:
+        logger.error('Pending removal data is missing a valid source_household_id. Something went wrong and so we are aborting')
+        return
+    target_household = household_manager.get(pending_removal_data.target_household_id)
+    if target_household is None:
+        logger.error('Pending removal data is missing a valid target_household_id. Something went wrong and so we are aborting')
+        return
+    _transfer_sims_main(pending_removal_data, source_household, target_household)
+
+def _name_new_family(household, sims_to_transfer):
+    sim_info_manager = services.sim_info_manager()
+    if len(sims_to_transfer) == 0:
+        logger.error("Creating a new household during a split without any Sims to move into that household. This shouldn't happen.")
+        return
+    sim_info = sim_info_manager.get(sims_to_transfer[0])
+    household.name = sim_info.last_name
+
+def _reset_active_lot_object_owner_ids(household):
+    object_manager = services.object_manager()
+    for obj in object_manager.valid_objects():
+        if obj.household_owner_id == household.id:
+            obj.set_household_owner_id(0)
+
+def _get_household_home_lot_furnishings_value(household):
+    zone = services.get_zone(household.home_zone_id, allow_uninstantiated_zones=True)
+    lot_data = zone.lot
+    return lot_data.furnished_lot_value - lot_data.unfurnished_lot_value
+
+def is_zone_occupied(zone_id):
+    target_household_id = services.get_persistence_service().get_household_id_from_zone_id(zone_id)
+    return target_household_id is not None and target_household_id != 0

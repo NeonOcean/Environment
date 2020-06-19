@@ -76,7 +76,7 @@ class Retirement(CareerKnowledgeMixin):
     def get_career_text_tokens(self):
         career_level = self._get_career_level_tuning()
         career_track = self._get_career_track_tuning()
-        return (career_level.title(self._sim_info), career_track.career_name(self._sim_info), None)
+        return (career_level.get_title(self._sim_info), career_track.get_career_name(self._sim_info), None)
 
     def _get_career_history(self):
         return self._sim_info.career_tracker.career_history[self._career_uid]
@@ -105,8 +105,8 @@ class Retirement(CareerKnowledgeMixin):
         if dialog is not None:
             track = self._get_career_track_tuning()
             level = self._get_career_level_tuning()
-            job = level.title(self._sim_info)
-            career = track.career_name(self._sim_info)
+            job = level.get_title(self._sim_info)
+            career = track.get_career_name(self._sim_info)
             tokens = (job, career) + additional_tokens
             icon_override = IconInfoData(icon_resource=track.icon) if icon_override is None else icon_override
             dialog.show_dialog(additional_tokens=tokens, icon_override=icon_override, secondary_icon_override=IconInfoData(obj_instance=self._sim_info), on_response=on_response)

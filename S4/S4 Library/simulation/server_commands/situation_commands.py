@@ -1,11 +1,10 @@
 from contextlib import contextmanager
 import collections
 from protocolbuffers import Consts_pb2, Situations_pb2, Lot_pb2, Localization_pb2
-from date_and_time import DateAndTime, TimeSpan
+from date_and_time import DateAndTime
 from distributor import shared_messages
 from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import IconInfoData
-from event_testing.resolver import SingleSimResolver
 from event_testing.results import TestResult
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, get_tunable_instance
 from situations import situation
@@ -710,6 +709,19 @@ def reset(_connection=None):
         except Exception:
             logger.error('Error while resetting role tracker for sim {}', sim)
 
+@sims4.commands.Command('situations.pre_destroy_user_facing_situation', command_type=sims4.commands.CommandType.Live)
+def pre_destroy_user_facing_situation(situation_id:int=None, _connection=None):
+    sit_man = services.get_zone_situation_manager()
+    if situation_id is None:
+        for situation in tuple(sit_man.get_user_facing_situations_gen()):
+            sit_man.pre_destroy_situation_by_id(situation.id)
+        return
+    situation = sit_man.get(situation_id)
+    if situation is None or not situation.is_user_facing:
+        sims4.commands.output('Invalid player facing situation id.', _connection)
+        return
+    sit_man.pre_destroy_situation_by_id(situation.id)
+
 @sims4.commands.Command('situations.destroy_user_facing_situation', command_type=sims4.commands.CommandType.Live)
 def destroy_user_facing_situation(situation_id:int=None, _connection=None):
     sit_man = services.get_zone_situation_manager()
@@ -788,6 +800,15 @@ def start_situation_creation(opt_sim:OptionalTargetParam=None, creation_time:int
         return
     situation_manager = services.get_zone_situation_manager()
     situation_manager.send_situation_start_ui(sim, creation_time=creation_time)
+
+@sims4.commands.Command('situations.push_make_sim_leave_now_situation', command_type=sims4.commands.CommandType.DebugOnly)
+def push_make_sim_leave_now_situation(opt_sim:OptionalTargetParam=None, _connection=None):
+    sim = get_optional_target(opt_sim, _connection)
+    if sim is None:
+        sims4.commands.output('Invalid sim: {} provided.'.format(opt_sim), _connection)
+        return
+    situation_manager = services.get_zone_situation_manager()
+    situation_manager.make_sim_leave_now_must_run(sim)
 
 @sims4.commands.Command('situations.enable_welcome_wagon', command_type=sims4.commands.CommandType.Automation)
 def enable_welcome_wagon(enable:bool=True, _connection=None):

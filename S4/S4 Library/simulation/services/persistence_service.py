@@ -99,6 +99,9 @@ class PersistenceService(Service):
             return False
         return True
 
+    def is_save_locked_exclusively_by_holder(self, lock_holder):
+        return self.is_save_locked() and (len(self._save_locks) == 1 and lock_holder in self._save_locks)
+
     def get_save_lock_tooltip(self):
         if self._read_write_locked:
             return PersistenceTuning.SAVE_FAILED_REASONS.generic
@@ -343,6 +346,12 @@ class PersistenceService(Service):
     def add_open_street_proto_buff(self, open_street_proto):
         if self._save_game_data_proto is not None:
             self._save_game_data_proto.streets.append(open_street_proto)
+
+    def get_lot_id_from_zone_id(self, zone_id):
+        for zone in self._save_game_data_proto.zones:
+            if zone.zone_id == zone_id:
+                return zone.lot_id
+        logger.error('lot id does not exist for zone with id ({}).', zone_id)
 
     def get_household_id_from_lot_id(self, lot_id):
         lot_owner_info = self.get_lot_proto_buff(lot_id)

@@ -7,6 +7,9 @@ from sims4.tuning.tunable import TunableList, TunableTuple, TunableRange
 class _PortalTypeDataDynamicStairs(_PortalTypeDataStairs):
     FACTORY_TUNABLES = {'lanes': TunableList(description='\n            The bones that describe each set of lanes (up and down).\n            ', tunable=TunableTuple(description='\n                Groups of bones that represent the up and down routes for this\n                lane.\n                ', up_begin=portal_location._PortalBoneLocation.TunableFactory(description='\n                    The bone for the beginning of the path up the stairs.\n                    '), up_end=portal_location._PortalBoneLocation.TunableFactory(description='\n                    The bone for the end of the path up the stairs.\n                    '), down_begin=portal_location._PortalBoneLocation.TunableFactory(description='\n                    The bone for the beginning of the path down the stairs.\n                    '), down_end=portal_location._PortalBoneLocation.TunableFactory(description='\n                    The bone for the end of the path down the stairs.\n                    '))), 'stair_count': TunableRange(description='\n            The number of stairs the Sim will traverse for this portal.\n            ', tunable_type=int, default=8, minimum=1)}
 
+    def get_additional_required_portal_flags(self, entry_location, exit_location):
+        return PortalFlags.STAIRS_PORTAL_LONG
+
     def get_stair_count(self, _):
         return self.stair_count
 

@@ -231,6 +231,9 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
     def get_household(self):
         return services.household_manager().get(self.owner_household_id)
 
+    def has_owner(self):
+        return self.get_household() is not None
+
     def _should_track_premade_status(self):
         lot_tuning = LotTuningMaps.get_lot_tuning()
         if lot_tuning is None:

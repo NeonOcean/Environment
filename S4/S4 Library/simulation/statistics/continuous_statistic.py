@@ -9,6 +9,7 @@ from sims4.utils import classproperty, flexmethod
 from singletons import UNSET, DEFAULT
 from statistics.base_statistic import BaseStatistic
 from statistics.base_statistic_listener import BaseStatisticCallbackListener
+from statistics.statistic_enums import StatisticLockAction
 import alarms
 import clock
 import date_and_time
@@ -28,9 +29,12 @@ logger = sims4.log.Logger('SimStatistics')
 class _ContinuousStatisticCallbackData(BaseStatisticCallbackListener):
     __slots__ = '_trigger_time'
 
-    def __init__(self, stat, callback, threshold, on_callback_alarm_reset=None):
-        super().__init__(stat, threshold, callback, on_callback_alarm_reset)
+    def __init__(self, stat, stat_type, threshold, callback, on_callback_alarm_reset=None, should_seed=True):
+        super().__init__(stat, stat_type, threshold, callback, on_callback_alarm_reset, should_seed=should_seed)
         self._trigger_time = UNSET
+
+    def __eq__(self, other):
+        return super().__eq__(other) and self._trigger_time == other._trigger_time
 
     def reset_trigger_time(self, new_trigger_interval:float):
         if new_trigger_interval is not None and new_trigger_interval > 0:
@@ -134,6 +138,11 @@ class ContinuousStatistic(BaseStatistic):
     def continuous(self):
         return True
 
+    def on_add(self):
+        super().on_add()
+        if self._use_delayed_decay():
+            self.restart_delayed_decay_timer()
+
     @flexmethod
     def get_value(cls, inst):
         if inst is not None:
@@ -144,10 +153,7 @@ class ContinuousStatistic(BaseStatistic):
         self._update_value()
         super().set_value(value, **kwargs)
         if self._use_delayed_decay():
-            self._update_value()
-            self._time_of_last_value_change = services.time_service().sim_now
-            self._delayed_decay_active = False
-            self._start_delayed_decay_timer()
+            self.restart_delayed_decay_timer()
 
     def _get_minimum_decay_level(self):
         return self.min_value
@@ -157,14 +163,17 @@ class ContinuousStatistic(BaseStatistic):
         self._destroy_alarm()
         self._active_callback = None
 
-    def create_callback_listener(self, threshold, callback, on_callback_alarm_reset=None):
+    def create_callback_listener(self, threshold, callback, on_callback_alarm_reset=None, should_seed=True):
         self._update_value()
-        callback_data = _ContinuousStatisticCallbackData(self, callback, threshold, on_callback_alarm_reset=on_callback_alarm_reset)
+        callback_data = _ContinuousStatisticCallbackData(self, self.stat_type, threshold, callback, on_callback_alarm_reset, should_seed=should_seed)
         return callback_data
 
-    def add_callback_listener(self, callback_data:_ContinuousStatisticCallbackData, update_active_callback=True) -> type(None):
-        super().add_callback_listener(callback_data)
-        if update_active_callback and callback_data is self._callback_queue_head:
+    def create_callback_listener_seed(stat_type, threshold, callback, on_callback_alarm_reset=None):
+        return _ContinuousStatisticCallbackData(None, stat_type, threshold, callback, on_callback_alarm_reset)
+
+    def add_callback_listener(self, callback_listener:_ContinuousStatisticCallbackData, update_active_callback=True) -> type(None):
+        super().add_callback_listener(callback_listener)
+        if update_active_callback and callback_listener is self._callback_queue_head:
             self._update_active_callback()
 
     def remove_callback_listener(self, callback_listener:_ContinuousStatisticCallbackData):
@@ -270,9 +279,7 @@ class ContinuousStatistic(BaseStatistic):
         self._update_callback_listeners()
 
     def is_at_convergence(self):
-        if self.get_value() == self.convergence_value:
-            return True
-        return False
+        return self.get_value() == self.convergence_value
 
     def get_decay_time(self, threshold, use_decay_modifier=True):
         self._update_value()
@@ -538,14 +545,14 @@ class ContinuousStatistic(BaseStatistic):
     def can_decay(self):
         return True
 
-    def on_lock(self, max_out=True, zero_out=False):
+    def on_lock(self, action_on_lock):
         self.decay_enabled = False
-        if max_out:
-            if zero_out:
-                logger.error('on_lock was called with both max_out and zero_out for {}', self)
+        if action_on_lock == StatisticLockAction.USE_MAX_VALUE_TUNING:
             self.set_value(self.max_value)
-        elif zero_out:
+        elif action_on_lock == StatisticLockAction.USE_MIN_VALUE_TUNING:
             self.set_value(self.min_value)
+        elif action_on_lock == StatisticLockAction.USE_BEST_VALUE_TUNING:
+            self.set_value(self.best_value)
         self.send_commodity_progress_msg()
 
     def on_unlock(self, auto_satisfy=True):
@@ -651,6 +658,14 @@ class ContinuousStatistic(BaseStatistic):
             return DelayedDecayStatus.ACTIVE
         return time_remaining.in_minutes()
 
+    @property
+    def instance_required(self):
+        if super().instance_required:
+            return True
+        change_rate = self._get_change_rate_without_decay()
+        decay_rate = self.get_decay_rate()
+        return change_rate != 0 or decay_rate != 0
+
     def refresh_threshold_callback(self):
         pass
 
@@ -672,3 +687,9 @@ class ContinuousStatistic(BaseStatistic):
             self._start_delayed_decay_timer()
             return
         self._time_of_last_value_change = DateAndTime(data.time_of_last_value_change)
+
+    def restart_delayed_decay_timer(self):
+        self._update_value()
+        self._time_of_last_value_change = services.time_service().sim_now
+        self._delayed_decay_active = False
+        self._start_delayed_decay_timer()

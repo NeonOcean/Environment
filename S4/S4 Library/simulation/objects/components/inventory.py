@@ -190,6 +190,17 @@ class InventoryComponent(Component):
         storage.insert(obj, inventory_object=self._get_inventory_object(), compact=compact)
         return True
 
+    def update_object_stack_by_id(self, obj_id, new_stack_id):
+        storage = None
+        if obj_id in self._storage:
+            storage = self._storage
+        elif obj_id in self._hidden_storage:
+            storage = self._hidden_storage
+        if storage is None:
+            return False
+        storage.update_object_stack_by_id(obj_id, new_stack_id)
+        return True
+
     def try_remove_object_by_id(self, obj_id, count=1, on_manager_remove=False):
         storage = None
         if obj_id in self._storage:
@@ -297,6 +308,9 @@ class InventoryComponent(Component):
     def get_count_by_tag(self, obj_tag):
         return sum(obj.stack_count() for obj in self if obj.has_tag(obj_tag))
 
+    def get_objects_by_tag(self, obj_tag):
+        return [obj for obj in self if obj.has_tag(obj_tag)]
+
     def get_item_quantity_by_definition(self, obj_def):
         return sum(obj.stack_count() for obj in self.get_items_with_definition_gen(obj_def))
 
@@ -380,7 +394,7 @@ class InventoryComponent(Component):
             if obj not in self:
                 if self.can_add(obj):
                     self.add_from_load(obj)
-                else:
+                elif not services.reset_and_delete_service.has_been_destroyed(obj):
                     logger.error("{} can't go into {}'s inventory. Destroying it.", obj, self.owner)
                     obj.destroy(source=self.owner, cause='Inventory load failed')
         except:

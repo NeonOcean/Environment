@@ -47,6 +47,8 @@ class BusinessCustomerData:
             return
         sim_info = services.sim_info_manager().get(self._sim_id)
         stat_instance = sim_info.get_statistic(self._business_manager.tuning_data.customer_star_rating_statistic, add=True)
+        if stat_instance is None:
+            return self._business_manager.tuning_data.customer_star_rating_statistic.default_value()
         return stat_instance.get_value()
 
     def set_star_rating_stat_value(self, value):

@@ -9,8 +9,12 @@ TEXT_INPUT_LAST_NAME = 'last_name'
 class UiDialogTextInput(UiDialog):
     FACTORY_TUNABLES = {'text_inputs': lambda *names: TunableTuple(**{name: UiTextInput.TunableFactory(locked_args={'sort_order': index}) for (index, name) in enumerate(names)})}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, max_value=None, invalid_max_tooltip=None, min_value=None, invalid_min_tooltip=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._max_value = max_value
+        self._invalid_max_tooltip = invalid_max_tooltip
+        self._min_value = min_value
+        self._invalid_min_tooltip = invalid_min_tooltip
         self.text_input_responses = {}
 
     def get_text_input_reference_sim(self):
@@ -25,7 +29,7 @@ class UiDialogTextInput(UiDialog):
     def build_msg(self, text_input_overrides=None, additional_tokens=(), **kwargs):
         msg = super().build_msg(additional_tokens=additional_tokens, **kwargs)
         for (name, tuning) in sorted(self.text_inputs.items(), key=lambda t: t[1].sort_order):
-            tuning.build_msg(self, msg, name, text_input_overrides=text_input_overrides, additional_tokens=additional_tokens)
+            tuning.build_msg(self, msg, name, text_input_overrides=text_input_overrides, additional_tokens=additional_tokens, max_value=self._max_value, invalid_max_tooltip=self._invalid_max_tooltip, min_value=self._min_value, invalid_min_tooltip=self._invalid_min_tooltip)
         return msg
 
     def do_auto_respond(self, auto_response=DEFAULT):

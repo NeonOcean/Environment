@@ -1,5 +1,6 @@
 from _weakrefset import WeakSet
 from builtins import property
+from collections import defaultdict
 from protocolbuffers import UI_pb2
 from protocolbuffers.DistributorOps_pb2 import Operation
 from distributor.ops import GenericProtocolBufferOp
@@ -23,6 +24,7 @@ class InventoryStorage:
         self._allow_compaction = allow_compaction
         self._allow_ui = allow_ui
         self._hidden_storage = hidden_storage
+        self._stacks_with_options_counter = None
 
     def __len__(self):
         return len(self._objects)
@@ -102,6 +104,14 @@ class InventoryStorage:
                 except:
                     logger.exception('Exception invoking on_object_inserted. obj: {}, owner: {}', obj, owner)
             self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_ADD, obj)
+            if obj.inventoryitem_component.has_stack_option:
+                if self._stacks_with_options_counter is None:
+                    self._stacks_with_options_counter = defaultdict(int)
+                stack_id = obj.inventoryitem_component.get_stack_id()
+                stack_objects = self._stacks_with_options_counter[stack_id]
+                if stack_objects == 0:
+                    self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_SET_STACK_OPTION, obj)
+                self._stacks_with_options_counter[stack_id] += 1
         else:
             for owner in self._owners:
                 try:
@@ -110,6 +120,14 @@ class InventoryStorage:
                     logger.exception('Exception invoking on_object_id_changed. obj: {}, owner: {}', obj, owner)
             self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_UPDATE, obj, obj_id=compacted_obj_id)
         return True
+
+    def update_object_stack_by_id(self, obj_id, new_stack_id):
+        if obj_id not in self._objects:
+            return
+        obj = self._objects[obj_id]
+        self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_REMOVE, obj)
+        obj.set_stack_id(new_stack_id)
+        self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_ADD, obj)
 
     def remove(self, obj, count=1, move_to_object_manager=True):
         if obj.id not in self._objects:
@@ -132,6 +150,13 @@ class InventoryStorage:
                 except:
                     logger.exception('Exception invoking on_object_removed. obj: {}, owner: {}', obj, owner)
             self._distribute_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_REMOVE, obj)
+            if obj.inventoryitem_component.has_stack_option and self._stacks_with_options_counter is not None:
+                stack_id = obj.inventoryitem_component.get_stack_id()
+                self._stacks_with_options_counter[stack_id] -= 1
+                if stack_id in self._stacks_with_options_counter <= 0:
+                    if self._stacks_with_options_counter[stack_id] < 0:
+                        logger.error('Counter went negative for stack_id {} with scheme {}', stack_id, obj.inventoryitem_component.stack_scheme, owner='jdimailig')
+                    del self._stacks_with_options_counter[stack_id]
         else:
             for owner in self._owners:
                 try:
@@ -215,7 +240,7 @@ class InventoryStorage:
             return int(self._inventory_type)
         if self._owners:
             return next(iter(self._owners)).owner.id
-        logger.error("Non-shared storage that's missing an owner: {}", self)
+        logger.error("Non-shared storage that's missing an owner: InventoryStorage<{},{}>", self._inventory_type, 0)
         return 0
 
     def _get_inventory_ui_type(self):
@@ -256,6 +281,10 @@ class InventoryStorage:
                 msg.add_data.dynamic_data = dynamic_data
             else:
                 msg.update_data = dynamic_data
+        if update_type == UI_pb2.InventoryItemUpdate.TYPE_SET_STACK_OPTION:
+            dynamic_data = UI_pb2.DynamicInventoryItemData()
+            obj.inventoryitem_component.populate_stack_icon_info_data(dynamic_data.icon_info)
+            msg.update_data = dynamic_data
         return msg
 
     def _distribute_inventory_update_message(self, update_type, obj, obj_id=None):
@@ -281,11 +310,21 @@ class InventoryStorage:
             Distributor.instance().add_op(owner, op)
 
     def get_item_update_ops_gen(self):
+        stack_options_set = set()
         for obj in self._objects.values():
             message = self._get_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_ADD, obj, allow_while_zone_not_running=True)
-            if message is not None:
-                op = GenericProtocolBufferOp(Operation.INVENTORY_ITEM_UPDATE, message)
-                yield (obj, op)
+            if message is None:
+                continue
+            yield (obj, GenericProtocolBufferOp(Operation.INVENTORY_ITEM_UPDATE, message))
+            if not obj.inventoryitem_component.has_stack_option:
+                continue
+            stack_id = obj.inventoryitem_component.get_stack_id()
+            if stack_id in stack_options_set:
+                continue
+            option_msg = self._get_inventory_update_message(UI_pb2.InventoryItemUpdate.TYPE_SET_STACK_OPTION, obj, allow_while_zone_not_running=True)
+            if option_msg is not None:
+                stack_options_set.add(stack_id)
+                yield (obj, GenericProtocolBufferOp(Operation.INVENTORY_ITEM_UPDATE, option_msg))
 
     def open_ui_panel(self, obj):
         if not self._allow_ui:

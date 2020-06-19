@@ -79,6 +79,7 @@ def global_autonomy_state(state, settings_group:AutonomySettingsGroup=AutonomySe
     if true_state is None:
         return
     autonomy_service.global_autonomy_settings.set_setting(true_state, settings_group)
+    sims4.commands.output('Setting Global autonomy state to {} '.format(true_state), _connection)
 
 @sims4.commands.Command('autonomy.global_randomization', command_type=sims4.commands.CommandType.Automation)
 def global_autonomy_randomization(randomization, settings_group:AutonomySettingsGroup=AutonomySettingsGroup.DEFAULT, _connection=None):

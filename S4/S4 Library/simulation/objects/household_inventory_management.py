@@ -44,16 +44,16 @@ class SendToInventory(XevtTriggeredElement, HasTunableFactory):
                             interaction.cancel(FinishingType.OBJECT_CHANGED, cancel_reason_msg='Object moved to inventory')
         if self.inventory.inventory_type == SendToInventory.MAILBOX_INVENTORY:
             if not inventory_participant.is_sim:
-                logger.error('Trying to add an item [{}] to a mailbox but the participant [{}] is not a sim', target._definition, inventory_participant)
+                logger.error('Trying to add an item [{}] to a mailbox but the participant [{}] is not a sim', target.definition, inventory_participant)
                 return False
             target.set_household_owner_id(inventory_participant.household_id)
             zone = services.get_zone(inventory_participant.household.home_zone_id)
             if zone is None:
-                logger.error('Trying to add an item [{}] to a mailbox but the provided sim [{}] has no home zone.', target._definition, inventory_participant)
+                logger.error('Trying to add an item [{}] to a mailbox but the provided sim [{}] has no home zone.', target.definition, inventory_participant)
                 return False
             lot_hidden_inventory = zone.lot.get_hidden_inventory()
             if lot_hidden_inventory is None:
-                logger.error("Trying to add an item [{}] to the lot's hidden inventory but the provided sim [{}] has no hidden inventory for their lot.", target._definition, inventory_participant)
+                logger.error("Trying to add an item [{}] to the lot's hidden inventory but the provided sim [{}] has no hidden inventory for their lot.", target.definition, inventory_participant)
                 return False
             lot_hidden_inventory.system_add_object(target)
             for interaction in tuple(target.interaction_refs):

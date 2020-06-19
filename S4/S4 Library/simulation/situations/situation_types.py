@@ -99,3 +99,4 @@ class SituationUserFacingType(enum.Int):
     HOLIDAY_EVENT = 3
     ACTING_CAREER_EVENT = 4
     MOTHER_PLANT_EVENT = 5
+    UNIVERSITY_HOUSING_KICK_OUT_EVENT = 6

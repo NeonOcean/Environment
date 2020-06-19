@@ -57,6 +57,7 @@ class GroupNames:
     DECAY = 'Decay'
     DEPRECATED = 'XXX Deprecated'
     EMPLOYEES = 'Employees'
+    FESTIVAL_CONTEST = 'Festival Contest'
     FISHING = 'Fishing'
     GHOSTS = 'Ghosts'
     GOALS = 'Goals'
@@ -74,6 +75,7 @@ class GroupNames:
     PUDDLES = 'Puddles'
     RELATIONSHIP = 'Relationship'
     REWARDS = 'Rewards'
+    ROBOTS = 'Robots'
     ROLES = 'Roles'
     ROUTING = 'Routing'
     SCORING = 'Scoring'
@@ -356,7 +358,7 @@ class TunableBase(metaclass=TdescFragMetaClass):
     def _export_default(self, value):
         return str(value)
 
-    def load_etree_node(self, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         raise NotImplementedError('load method for a tunable is undefined.')
 
     def invoke_callback(self, instance_class, tunable_name, source, value):

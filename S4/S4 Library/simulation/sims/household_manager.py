@@ -1,7 +1,15 @@
 import collections
 import time
+from protocolbuffers import FileSerialization_pb2
+from build_buy import _buildbuy
+from objects.gallery_tuning import ContentSource
+from objects.object_enums import ItemLocation
 from relationships import global_relationship_tuning
+from sims.fixup.sim_info_fixup_action import SimInfoFixupActionTiming
 from sims4.utils import classproperty
+from singletons import DEFAULT
+import build_buy
+import id_generator
 import indexed_manager
 import objects.object_manager
 import persistence_error_types
@@ -31,13 +39,14 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
         self._loaded = False
         self._save_slot_data = None
         self._pending_household_funds = collections.defaultdict(list)
+        self._pending_transfers = {}
 
     @classproperty
     def save_error_code(cls):
         return persistence_error_types.ErrorCodes.SERVICE_SAVE_FAILED_HOUSEHOLD_MANAGER
 
-    def create_household(self, account):
-        new_household = sims.household.Household(account)
+    def create_household(self, account, starting_funds=DEFAULT):
+        new_household = sims.household.Household(account, starting_funds)
         self.add(new_household)
         return new_household
 
@@ -129,6 +138,10 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
         active_household = services.active_household()
         starting_household = sim_info.household
         destination_household = active_household if target_sim_info is None else target_sim_info.household
+        self.switch_sim_from_household_to_target_household(sim_info, starting_household, destination_household)
+
+    def switch_sim_from_household_to_target_household(self, sim_info, starting_household, destination_household, destroy_if_empty_household=True):
+        active_household = services.active_household()
         if services.hidden_sim_service().is_hidden(sim_info.id):
             services.hidden_sim_service().unhide(sim_info.id)
         if starting_household is destination_household:
@@ -137,11 +150,12 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
         if not destination_household.can_add_sim_info(sim_info):
             logger.error('Trying to run AddToHousehold basic extra when there is no room in the destination household.')
             return False
-        starting_household.remove_sim_info(sim_info, destroy_if_empty_household=True)
+        starting_household.remove_sim_info(sim_info, destroy_if_empty_household=destroy_if_empty_household, assign_to_none=False)
         destination_household.add_sim_info_to_household(sim_info)
         client = services.client_manager().get_first_client()
         if destination_household is active_household:
             client.add_selectable_sim_info(sim_info)
+            sim_info.apply_fixup_actions(SimInfoFixupActionTiming.ON_ADDED_TO_ACTIVE_HOUSEHOLD)
         else:
             client.remove_selectable_sim_info(sim_info)
         if sim_info.career_tracker is not None:
@@ -204,3 +218,85 @@ class HouseholdManager(objects.object_manager.DistributableObjectManager):
             return False
         self._pending_household_funds[household_id].append((funds, reason))
         return True
+
+    def add_pending_transfer(self, household_id, transfer_proto):
+        self._pending_transfers[household_id] = transfer_proto
+
+    def get_pending_transfer(self, household_id):
+        pending_transfer_data = self._pending_transfers.get(household_id, None)
+        return pending_transfer_data
+
+    def remove_pending_transfer(self, household_id):
+        if household_id in self._pending_transfers:
+            del self._pending_transfers[household_id]
+
+    def transfer_household_inventory(self, source_household, target_household):
+        active_household = services.active_household()
+        target_household.copy_rewards_inventory_from_household(source_household)
+        if source_household is active_household:
+            self.transfer_active_household_inventory(source_household, target_household)
+        elif target_household is active_household:
+            self.transfer_inactive_household_inventory(source_household, target_household)
+        else:
+            logger.error("Trying to transfer household inventory from one inactive household to another, we currently don't support that. Feel free to add if we come up with a use case. S={}, T={}", source_household, target_household)
+
+    def transfer_active_household_inventory(self, source_household, target_household):
+        inventory_available = build_buy.is_household_inventory_available(target_household.id)
+        source_household_msg = services.get_persistence_service().get_household_proto_buff(source_household.id)
+        target_household_msg = services.get_persistence_service().get_household_proto_buff(target_household.id)
+        object_manager = services.object_manager()
+        object_ids = build_buy.get_object_ids_in_household_inventory(source_household.id)
+        for object_id in object_ids:
+            object_data_raw = _buildbuy.get_object_data_in_household_inventory(object_id, source_household.id)
+            if object_data_raw is None:
+                continue
+            obj = self._create_object_from_raw_inv_data(object_id, object_data_raw)
+            self._transfer_object(target_household, obj, inventory_available, target_household_msg)
+        for object_data in source_household_msg.inventory.objects:
+            if object_data.object_id in object_ids:
+                continue
+            obj = object_manager.get(object_data.object_id)
+            if obj is None:
+                obj = self._create_object_from_object_data(object_data.object_id, object_data)
+            if obj is not None:
+                self._transfer_object(target_household, obj, inventory_available, target_household_msg)
+
+    def _transfer_object(self, target_household, obj, inventory_available, target_household_msg):
+        obj.set_household_owner_id(target_household.id)
+        if inventory_available:
+            build_buy.move_object_to_household_inventory(obj)
+        else:
+            if target_household_msg is not None:
+                object_data = obj.save_object(target_household_msg.inventory.objects)
+                if object_data is not None:
+                    object_data.object_id = id_generator.generate_object_id()
+            obj.destroy(cause='Merge/Transfer to New Household Inventory')
+
+    def transfer_inactive_household_inventory(self, source_household, target_household):
+        if build_buy.is_household_inventory_available(source_household.id):
+            object_ids = build_buy.get_object_ids_in_household_inventory(source_household.id)
+            for object_id in object_ids:
+                object_data_raw = _buildbuy.get_object_data_in_household_inventory(object_id, source_household.id)
+                obj = self._create_object_from_raw_inv_data(object_id, object_data_raw)
+                build_buy.remove_object_from_household_inventory(object_id, source_household)
+                obj.set_household_owner_id(target_household.id)
+                build_buy.move_object_to_household_inventory(obj)
+            else:
+                del household_msg.inventory.objects[:]
+        else:
+            household_msg = services.get_persistence_service().get_household_proto_buff(source_household.id)
+            if household_msg is not None:
+                for object_msg in household_msg.inventory.objects:
+                    obj = self._create_object_from_object_data(object_msg.object_id, object_msg)
+                    obj.set_household_owner_id(target_household.id)
+                    build_buy.move_object_to_household_inventory(obj)
+                del household_msg.inventory.objects[:]
+
+    def _create_object_from_raw_inv_data(self, object_id, raw_inv_data):
+        object_data = FileSerialization_pb2.ObjectData()
+        object_data.ParseFromString(raw_inv_data)
+        return self._create_object_from_object_data(object_id, object_data)
+
+    def _create_object_from_object_data(self, object_id, object_data):
+        obj = objects.system.create_object(object_data.guid, obj_id=object_id, obj_state=object_data.state_index)
+        return obj

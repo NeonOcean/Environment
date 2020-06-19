@@ -34,6 +34,7 @@ class MissingPetsTracker(HouseholdTracker):
     MOTIVE_TESTS_NUM_RESULTS_STORE = Tunable(description='\n        The number of motive test results to store.\n        ', tunable_type=int, default=10)
     MOTIVE_TESTS_NUM_RESULTS_PASS = Tunable(description='\n        The number of motive tests that need to be pass results to make the pet run away .\n        ', tunable_type=int, default=5)
     RELATIONSHIP_TESTS = TunableTestSet(description='\n        A set of relationship tests that must pass for a pet to run away\n        ')
+    ADDITIONAL_RUNAWAY_TESTS = TunableTestSet(description='\n        An additional set of tests that must pass in order for the pet to run away.\n        ')
     RETURN_INTERVAL = TunableSimMinute(description='\n        The number of sim minutes until the pet must return.\n        ', default=1000, minimum=1)
     RETURN_INTERACTION = TunablePackSafeReference(description='\n        Affordance to push on pet when it returns.\n        ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))
     COOLDOWN_INTERVAL = TunableSimMinute(description='\n        The number of sim minutes after a pet returns during which pets from \n        the same household cannot run away.\n        ', default=1000, minimum=1)
@@ -114,6 +115,9 @@ class MissingPetsTracker(HouseholdTracker):
             if pet.sim_info.age < Age.ADULT:
                 continue
             if random.random() <= self.RUN_AWAY_CHANCE:
+                resolver = SingleSimResolver(pet.sim_info)
+                if not self.ADDITIONAL_RUNAWAY_TESTS.run_tests(resolver):
+                    continue
                 should_run_away = self._run_relationship_tests(pet.sim_info)
                 if not should_run_away:
                     if pet.id not in self._motive_test_results:

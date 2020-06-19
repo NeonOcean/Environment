@@ -105,6 +105,17 @@ class ParticipantType(enum.LongFlags):
     LotOwnersOrRenters = 604462909807314587353088
     ActorFiance = 1208925819614629174706176
     TargetFiance = 2417851639229258349412352
+    RandomInventoryObject = 4835703278458516698824704
+    SituationParticipants3 = 9671406556917033397649408
+    Familiar = 19342813113834066795298816
+    ObjectProvidingTargetAffordance = 38685626227668133590597632
+    StoredSimOnObjectProvidingTargetAffordance = 77371252455336267181195264
+    PhotographyTargets = 154742504910672534362390528
+    FamiliarOfTarget = 309485009821345068724781056
+    PickedStatistic = 618970019642690137449562112
+    ActorHousehold = 1237940039285380274899124224
+    TargetHousehold = 2475880078570760549798248448
+    AllInstancedActiveHouseholdSims = 4951760157141521099596496896
 
 class ParticipantTypeSavedActor(enum.IntFlags):
     SavedActor1 = ParticipantType.SavedActor1
@@ -115,6 +126,7 @@ class ParticipantTypeSavedActor(enum.IntFlags):
 class ParticipantTypeSituationSims(enum.LongFlags):
     SituationParticipants1 = ParticipantType.SituationParticipants1
     SituationParticipants2 = ParticipantType.SituationParticipants2
+    SituationParticipants3 = ParticipantType.SituationParticipants3
 
 class ParticipantTypeAnimation(enum.IntFlags):
     Invalid = ParticipantType.Invalid
@@ -137,6 +149,7 @@ class ParticipantTypeSingle(enum.LongFlags):
     PregnancyPartnerTargetSim = ParticipantType.PregnancyPartnerTargetSim
     Object = ParticipantType.Object
     SocialGroupAnchor = ParticipantType.SocialGroupAnchor
+    ActiveHousehold = ParticipantType.ActiveHousehold
     ActorPostureTarget = ParticipantType.ActorPostureTarget
     PickedSim = ParticipantType.PickedSim
     PickedObject = ParticipantType.PickedObject
@@ -152,6 +165,14 @@ class ParticipantTypeSingle(enum.LongFlags):
     ActorFiance = ParticipantType.ActorFiance
     TargetFiance = ParticipantType.TargetFiance
     CreatedObject = ParticipantType.CreatedObject
+    RandomInventoryObject = ParticipantType.RandomInventoryObject
+    Familiar = ParticipantType.Familiar
+    FamiliarOfTarget = ParticipantType.FamiliarOfTarget
+    ObjectProvidingTargetAffordance = ParticipantType.ObjectProvidingTargetAffordance
+    StoredSimOnObjectProvidingTargetAffordance = ParticipantType.StoredSimOnObjectProvidingTargetAffordance
+    PickedStatistic = ParticipantType.PickedStatistic
+    ActorHousehold = ParticipantType.ActorHousehold
+    TargetHousehold = ParticipantType.TargetHousehold
 
 class ParticipantTypeReactionlet(enum.IntFlags):
     Invalid = ParticipantType.Invalid
@@ -179,6 +200,10 @@ class ParticipantTypeSingleSim(enum.LongFlags):
     RoutingMaster = ParticipantType.RoutingMaster
     ObjectCrafter = ParticipantType.ObjectCrafter
     LotOwnerSingleAndInstanced = ParticipantType.LotOwnerSingleAndInstanced
+    SavedActor1 = ParticipantType.SavedActor1
+    SavedActor2 = ParticipantType.SavedActor2
+    SavedActor3 = ParticipantType.SavedActor3
+    SavedActor4 = ParticipantType.SavedActor4
 
 class ParticipantTypeResponsePaired(enum.IntFlags):
     TargetSim = ParticipantType.TargetSim
@@ -196,6 +221,7 @@ class ParticipantTypeObject(enum.LongFlags):
     PickedObject = ParticipantType.PickedObject
     SocialGroupAnchor = ParticipantType.SocialGroupAnchor
     ObjectInventoryOwner = ParticipantType.ObjectInventoryOwner
+    RandomInventoryObject = ParticipantType.RandomInventoryObject
 
 class ParticipantTypeSim(enum.LongFlags):
     Actor = ParticipantType.Actor
@@ -243,6 +269,8 @@ class ParticipantTypeSim(enum.LongFlags):
     LotOwnersOrRenters = ParticipantType.LotOwnersOrRenters
     ActorFiance = ParticipantType.ActorFiance
     TargetFiance = ParticipantType.TargetFiance
+    AllInstancedActiveHouseholdSims = ParticipantType.AllInstancedActiveHouseholdSims
+    ActiveHousehold = ParticipantType.ActiveHousehold
 
 class MixerInteractionGroup(DynamicEnum):
     DEFAULT = 0

@@ -131,7 +131,7 @@ class TunableAnimationReference(TunableReferenceFactory):
             callback = self.get_default_callback(interaction_asm_type)
         if class_restrictions is DEFAULT:
             class_restrictions = ('AnimationElement', 'AnimationElementSet')
-        from animation.animation_element import TunableAnimationOverrides
+        from animation.tunable_animation_overrides import TunableAnimationOverrides
         super().__init__(callback=callback, manager=services.animation_manager(), class_restrictions=class_restrictions, overrides=TunableAnimationOverrides(allow_reactionlets=allow_reactionlets, override_animation_context=override_animation_context, participant_enum_override=participant_enum_override, description='The overrides for interaction to replace the tunings on the animation elements'), **kwargs)
 
 class TunedAnimationConstraint:

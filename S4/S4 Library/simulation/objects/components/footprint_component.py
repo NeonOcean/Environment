@@ -5,6 +5,7 @@ from objects.components.types import NativeComponent, FOOTPRINT_COMPONENT
 from sims.sim_info_types import Species
 from sims4.tuning.tunable import TunableFactory, TunableList, TunableTuple, Tunable
 from sims4.tuning.tunable_hash import TunableStringHash32
+import build_buy
 import caches
 import distributor.fields
 import distributor.ops
@@ -14,6 +15,7 @@ import services
 import sims4.geometry
 import sims4.log
 import sims4.math
+import weakref
 logger = sims4.log.Logger(FOOTPRINT_COMPONENT.class_attr)
 
 class HasFootprintComponent:
@@ -151,6 +153,7 @@ class FootprintComponent(NativeComponent, component_name=FOOTPRINT_COMPONENT, ke
     _DISABLED_COUNT_INDEX = 2
     _enabled_dict = None
     _delayed_toggle_contour = None
+    _registered_on_build_buy_exit_callback = None
 
     @distributor.fields.ComponentField(op=distributor.ops.SetFootprint, priority=distributor.fields.Field.Priority.HIGH)
     def footprint(self):
@@ -193,8 +196,11 @@ class FootprintComponent(NativeComponent, component_name=FOOTPRINT_COMPONENT, ke
         self.footprints_enabled = True
 
     def on_location_changed(self, *_, **__):
-        if self.owner.routing_component is not None and self.owner.routing_component.is_moving:
-            return
+        if self.owner.routing_component is not None:
+            if self.owner.routing_component.is_moving:
+                return
+            if self.owner.routing_component.routing_master is not None and self.owner.routing_component.routing_master.is_moving:
+                return
         if self.owner.id:
             self.update_footprint()
 
@@ -280,15 +286,22 @@ class FootprintComponent(NativeComponent, component_name=FOOTPRINT_COMPONENT, ke
         for (hash_name, enable) in self._delayed_toggle_contour.items():
             self.toggle_contour(hash_name, enable)
         self._delayed_toggle_contour = None
+        if self._registered_on_build_buy_exit_callback is not None:
+            build_buy.unregister_build_buy_exit_callback(self._registered_on_build_buy_exit_callback)
+            self._registered_on_build_buy_exit_callback = None
 
     def toggle_contour_lazy(self, hash_name, enable):
         zone = services.current_zone()
-        if not zone.is_zone_loading:
+        if not zone.is_zone_loading and not zone.is_in_build_buy:
             self.toggle_contour(hash_name, enable)
             return
         if self._delayed_toggle_contour is None:
             self._delayed_toggle_contour = dict()
         self._delayed_toggle_contour[hash_name] = enable
+        if zone.is_in_build_buy and self._registered_on_build_buy_exit_callback is None:
+            weak_callback = weakref.WeakMethod(self._execute_delayed_toggle_contour)
+            self._registered_on_build_buy_exit_callback = lambda : weak_callback() is None or weak_callback()()
+            build_buy.register_build_buy_exit_callback(self._registered_on_build_buy_exit_callback)
 
     def toggle_contour(self, hash_name, enable):
         footprint_id = self.get_footprint_id()

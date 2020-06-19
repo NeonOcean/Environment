@@ -17,7 +17,7 @@ with zone_director_schema.add_has_many('spawn objects', GsiGridSchema) as sub_sc
     sub_schema.add_field('parent_id', label='Parent Id')
     sub_schema.add_field('position', label='Position')
     sub_schema.add_field('states', label='States')
-archiver = GameplayArchiver('zone_director', zone_director_schema, enable_archive_by_default=True, max_records=200, add_to_archive_enable_functions=True)
+archiver = GameplayArchiver('zone_director', zone_director_schema, max_records=100, add_to_archive_enable_functions=True)
 
 def log_zone_director_event(zone_director, zone, op, venue):
     (_, _, _, neighborhood_data) = services.current_zone_info()

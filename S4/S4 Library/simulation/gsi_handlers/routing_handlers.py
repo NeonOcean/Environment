@@ -1,8 +1,9 @@
 import traceback
 from gsi_handlers.gameplay_archiver import GameplayArchiver
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
-import routing
 import objects.system
+import routing
+import services
 planner_archive_schema = GsiGridSchema(label='Path Planner Log')
 planner_archive_schema.add_field('result', label='Result', width=2)
 planner_archive_schema.add_field('planner_name', label='Source', width=2)
@@ -130,7 +131,7 @@ build_archive_schema.add_field('total_time_ms', label='Total Time ms', type=GsiF
 with build_archive_schema.add_has_many('Details', GsiGridSchema) as sub_schema:
     sub_schema.add_field('name', label='Name', type=GsiFieldVisualizers.STRING, width=2)
     sub_schema.add_field('value', label='Value', type=GsiFieldVisualizers.FLOAT, width=2)
-build_archiver = GameplayArchiver('Build', build_archive_schema, enable_archive_by_default=True)
+build_archiver = GameplayArchiver('Build', build_archive_schema, add_to_archive_enable_functions=True)
 
 def archive_build(build_id):
     entry = {}
@@ -156,7 +157,7 @@ with FGL_archive_schema.add_has_many('Callstack', GsiGridSchema) as sub_schema:
     sub_schema.add_field('callstack', label='Callstack', width=2)
 with FGL_archive_schema.add_has_many('Results', GsiGridSchema) as sub_schema:
     sub_schema.add_field('loc', label='Loc', type=GsiFieldVisualizers.STRING, width=2)
-FGL_archiver = GameplayArchiver('FGL', FGL_archive_schema, enable_archive_by_default=True)
+FGL_archiver = GameplayArchiver('FGL', FGL_archive_schema, add_to_archive_enable_functions=True)
 
 def archive_FGL(fgl_id, context, result, time_s):
     obj = None
@@ -181,3 +182,40 @@ def archive_FGL(fgl_id, context, result, time_s):
         results.append({'loc': str(loc)})
     entry['Results'] = results
     FGL_archiver.archive(data=entry)
+
+sim_route_archive_schema = GsiGridSchema(label='Sim Route Archive', sim_specific=True)
+sim_route_archive_schema.add_field('path_id', label='Path Id', width=2)
+sim_route_archive_schema.add_field('interaction', label='Interaction', type=GsiFieldVisualizers.STRING, width=2)
+sim_route_archive_schema.add_field('duration', label='Duration', type=GsiFieldVisualizers.FLOAT, width=2)
+sim_route_archive_schema.add_field('length', label='Length', type=GsiFieldVisualizers.FLOAT, width=2)
+sim_route_archive_schema.add_field('route_string', label='Nodes to Draw', type=GsiFieldVisualizers.STRING, width=5, hidden=True)
+with sim_route_archive_schema.add_view_cheat('debugvis.sim_route.draw_path', label='Draw Path') as cheat:
+    cheat.add_token_param('path_id')
+    cheat.add_token_param('route_string')
+with sim_route_archive_schema.add_view_cheat('debugvis.sim_route.draw_additional_path', label='Draw Additional Path') as cheat:
+    cheat.add_token_param('path_id')
+    cheat.add_token_param('route_string')
+sim_route_archive_schema.add_view_cheat('debugvis.sim_route.erase_all_paths', label='Erase All Paths')
+with sim_route_archive_schema.add_has_many('Nodes', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('segment_duration', label='Segment Duration', type=GsiFieldVisualizers.FLOAT, width=2)
+    sub_schema.add_field('x', label='X', type=GsiFieldVisualizers.FLOAT, width=2)
+    sub_schema.add_field('y', label='Y', type=GsiFieldVisualizers.FLOAT, width=2)
+    sub_schema.add_field('z', label='Z', type=GsiFieldVisualizers.FLOAT, width=2)
+    sub_schema.add_field('routing_surface', label='Routing Surface', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_id', label='Portal ID', width=0.5)
+    sub_schema.add_field('portal_object', label='Portal Object', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('portal_object_id', label='Portal Object ID', type=GsiFieldVisualizers.STRING, width=2)
+sim_route_archiver = GameplayArchiver('sim_route', sim_route_archive_schema, enable_archive_by_default=True)
+sim_route_to_nodes = {}
+
+def archive_sim_route(sim_info, interaction, path):
+    nodes_entry = []
+    path_nodes = path.nodes
+    entry = {'path_id': id(path), 'interaction': repr(interaction), 'duration': path.duration() if path is not None else None, 'length': path.length() if path is not None else None, 'route_string': path.get_contents_as_string(path_nodes)}
+    for index in range(len(path_nodes) - 1, 0, -1):
+        cur_node = path_nodes[index]
+        prev_node = path_nodes[index - 1]
+        portal_object = services.object_manager().get(cur_node.portal_object_id)
+        nodes_entry.append({'segment_duration': cur_node.time - prev_node.time, 'x': cur_node.position[0], 'y': cur_node.position[1], 'z': cur_node.position[2], 'routing_surface': surface_string(cur_node.routing_surface_id), 'portal_id': cur_node.portal_id, 'portal_object': str(portal_object), 'portal_object_id': str(cur_node.portal_object_id)})
+    entry['Nodes'] = nodes_entry
+    sim_route_archiver.archive(data=entry, object_id=sim_info.id)

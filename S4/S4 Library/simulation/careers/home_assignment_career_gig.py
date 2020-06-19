@@ -27,8 +27,8 @@ class HomeAssignmentGig(Gig):
             self.bonus_gig_aspiration_tuning.bonus_gig_aspiration.register_callbacks()
             aspiration_tracker.process_test_events_for_aspiration(self.bonus_gig_aspiration_tuning.bonus_gig_aspiration)
 
-    def load_gig(self, gig_proto_buff):
-        super().load_gig(gig_proto_buff)
+    def refresh_on_load(self):
+        super().refresh_on_load()
         self.gig_assignment_aspiration.register_callbacks()
 
     def _determine_gig_outcome(self):

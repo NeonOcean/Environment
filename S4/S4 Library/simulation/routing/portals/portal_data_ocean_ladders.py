@@ -44,6 +44,9 @@ class _PortalTypeDataOceanLadders(RouteEventProviderMixin, _PortalTypeDataBase):
     def lock_portal_on_use(self):
         return False
 
+    def get_additional_required_portal_flags(self, entry_location, exit_location):
+        return PortalFlags.STAIRS_PORTAL_LONG
+
     def split_path_on_portal(self):
         return PathSplitType.PathSplitType_LadderSplit
 

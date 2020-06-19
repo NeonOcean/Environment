@@ -40,7 +40,7 @@ class RouteToLocationElement(elements.ParentElement, HasTunableFactory, AutoFact
             return False
             yield
         route = routing.Route(sim.routing_location, goals, routing_context=sim.routing_context)
-        plan_primitive = PlanRoute(route, sim)
+        plan_primitive = PlanRoute(route, sim, interaction=self.interaction)
         result = yield from element_utils.run_child(timeline, plan_primitive)
         if not result:
             return False

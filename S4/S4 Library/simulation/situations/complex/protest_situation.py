@@ -78,7 +78,7 @@ class ProtestSituation(SituationComplexCommon):
     def get_predefined_guest_list(cls):
         weighted_causes = tuple((item.weight, item.cause) for item in cls.weighted_causes)
         cause = sims4.random.weighted_random_item(weighted_causes)
-        protester_filter = cls.protester_search_filter(filter_terms=(TraitFilterTerm(invert_score=False, minimum_filter_score=0, trait=cause),))
+        protester_filter = cls.protester_search_filter(filter_terms=(TraitFilterTerm(invert_score=False, minimum_filter_score=0, trait=cause, ignore_if_wrong_pack=False),))
         num_protesters_to_request = cls.number_of_protesters.random_int()
         instanced_sim_ids = [sim.sim_info.id for sim in services.sim_info_manager().instanced_sims_gen()]
         household_sim_ids = [sim_info.id for sim_info in services.active_household().sim_info_gen()]

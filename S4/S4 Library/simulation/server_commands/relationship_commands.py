@@ -4,7 +4,7 @@ import random
 from filters.tunable import TunableSimFilter
 from interactions.cheats.force_marriage_interaction import ForceMarriageInteraction
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
-from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam
+from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam, SimInfoParam
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_spawner import SimSpawner
 from sims4.commands import CommandType
@@ -158,6 +158,10 @@ def set_object_relationship(sim_id:int, obj_def_id:int, value:int, _connection=N
         sims4.commands.output('The object definition ID is invalid', _connection)
         return False
     obj_relationship = services.relationship_service()._find_object_relationship(sim_id, obj_tag_set, obj_def_id, create=True)
+    if obj_relationship is None:
+        logger.error('Relationship creation failed.')
+        sims4.commands.output('Object relationship creation failed', _connection)
+        return False
     stat_type = services.relationship_service().get_mapped_track_of_tag_set(obj_tag_set)
     obj_relationship.relationship_track_tracker.set_value(stat_type, value)
 
@@ -170,6 +174,7 @@ def print_object_relationship(sim_id:int, obj_def_id:int, _connection=None):
     obj_relationship = services.relationship_service()._find_object_relationship(sim_id, obj_tag_set, obj_def_id, create=False).relationship_track_tracker
     if obj_relationship is None:
         sims4.commands.output('No rel exists', _connection)
+        return False
     stat_type = services.relationship_service().get_mapped_track_of_tag_set(obj_tag_set)
     sims4.commands.output('{} : Object Relationship Type Value between sim with sim id {} and object of def id {}.'.format(obj_relationship._rel_data.relationship_track_tracker.get_value(stat_type), sim_id, obj_def_id), _connection)
 
@@ -207,9 +212,7 @@ def set_score(source_sim_id:int, target_sim_id:int, score:float, track_type:Tuna
     return True
 
 @sims4.commands.Command('modifyrelationship', command_type=sims4.commands.CommandType.Cheat)
-def modify_relationship(first_name1='', last_name1='', first_name2='', last_name2='', amount:float=0, track_type:TunableInstanceParam(sims4.resources.Types.STATISTIC)=None, _connection=None):
-    info1 = services.sim_info_manager().get_sim_info_by_name(first_name1, last_name1)
-    info2 = services.sim_info_manager().get_sim_info_by_name(first_name2, last_name2)
+def modify_relationship(info1:SimInfoParam, info2:SimInfoParam, amount:float=0, track_type:TunableInstanceParam(sims4.resources.Types.STATISTIC)=None, _connection=None):
     if info1 is not None and info2 is not None:
         info1.relationship_tracker.add_relationship_score(info2.id, amount, track_type)
         return True

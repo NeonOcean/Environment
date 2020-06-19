@@ -44,6 +44,12 @@ class OpenStreetDirectorRequest:
     def priority(self):
         return self._priority
 
+    def __repr__(self):
+        if self._open_street_director is None:
+            return '<none>'
+        else:
+            return f'{self._open_street_director}'
+
     def validate_request(self):
         if self._open_street_director is None:
             logger.error('{} failed to be a valid open street director request because its open street director is None.', self)

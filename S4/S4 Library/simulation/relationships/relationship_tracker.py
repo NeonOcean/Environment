@@ -152,6 +152,12 @@ class RelationshipTracker(SimInfoTracker):
     def remove_knows_career(self, target_sim_id:int, notify_client=True):
         services.relationship_service().remove_knows_career(self._sim_info.sim_id, target_sim_id, notify_client=notify_client)
 
+    def add_knows_major(self, target_sim_id:int, notify_client=True):
+        services.relationship_service().add_knows_major(self._sim_info.sim_id, target_sim_id, notify_client=notify_client)
+
+    def remove_knows_major(self, target_sim_id:int, notify_client=True):
+        services.relationship_service().remove_knows_major(self._sim_info.sim_id, target_sim_id, notify_client=notify_client)
+
     def print_relationship_info(self, target_sim_id:int, _connection):
         services.relationship_service().print_relationship_info(self._sim_info.sim_id, target_sim_id, _connection)
 

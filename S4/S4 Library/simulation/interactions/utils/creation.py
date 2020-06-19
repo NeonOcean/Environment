@@ -1,9 +1,10 @@
 from animation.animation_utils import flush_all_animations
 from carry.carry_elements import enter_carry_while_holding
 from element_utils import build_critical_section
+from event_testing.resolver import SingleSimResolver
 from filters.sim_template import TunableSimTemplate
 from filters.tunable import TunableSimFilter
-from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingleSim
+from interactions import ParticipantType, ParticipantTypeActorTargetSim, ParticipantTypeSingleSim, ParticipantTypeSingle
 from interactions.interaction_finisher import FinishingType
 from interactions.utils.interaction_elements import XevtTriggeredElement
 from objects import VisibilityState
@@ -11,6 +12,7 @@ from objects.object_creation import ObjectCreationMixin
 from objects.slots import RuntimeSlot
 from sims.genealogy_tracker import genealogy_caching, FamilyRelationshipIndex
 from sims.pregnancy.pregnancy_tracker import PregnancyTracker
+from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_spawner import SimSpawner, SimCreator
 from sims4.tuning.geometric import TunableDistanceSquared
 from sims4.tuning.tunable import TunableList, OptionalTunable, Tunable, TunableEnumEntry, TunableVariant, TunableFactory, TunableReference, HasTunableSingletonFactory, AutoFactoryInit
@@ -42,6 +44,8 @@ class ObjectCreationElement(XevtTriggeredElement, ObjectCreationMixin):
         self._definition_cache = None
         self._placement_failed = False
         self.initialize_helper(interaction.get_resolver())
+        if self.transient:
+            self.require_claim = True
 
     @property
     def definition(self):
@@ -132,6 +136,16 @@ class SimCreationElement(XevtTriggeredElement):
 
         FACTORY_TYPE = factory
 
+    class _HiddenHouseholdFactory(TunableFactory):
+
+        @staticmethod
+        def factory(_):
+            household = services.household_manager().create_household(services.get_first_client().account)
+            household.set_to_hidden(family_funds=0)
+            return household
+
+        FACTORY_TYPE = factory
+
     class _BaseSimInfoSource(HasTunableSingletonFactory, AutoFactoryInit):
 
         def get_sim_infos_and_positions(self, resolver):
@@ -210,7 +224,7 @@ class SimCreationElement(XevtTriggeredElement):
             def get_slot_type_and_hash(self):
                 return (self.slot_type, None)
 
-        FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n                The participant that is a sim that will be cloned\n                Note: MUST be a sim. Use create object - clone object for non-sim objects.\n                ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'sim_spawn_slot': TunableVariant(description='\n                The slot on the parent object where the sim should spawn. This\n                may be either the exact name of a bone on the parent object or a\n                slot type, in which case the first empty slot of the specified type\n                will be used. If None is chosen, then the sim will spawn on the\n                landing strip.\n                ', by_name=_SlotByName.TunableFactory(), by_type=_SlotByType.TunableFactory())}
+        FACTORY_TUNABLES = {'participant': TunableEnumEntry(description='\n                The participant that is a sim that will be cloned\n                Note: MUST be a sim. Use create object - clone object for non-sim objects.\n                ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'sim_spawn_slot': TunableVariant(description="\n                The slot on the parent object where the sim should spawn. This\n                may be either the exact name of a bone on the parent object or a\n                slot type, in which case the first empty slot of the specified type\n                will be used. If None is chosen, then the sim will at or near\n                the interaction target's location.\n                ", by_name=_SlotByName.TunableFactory(), by_type=_SlotByType.TunableFactory()), 'spawn_location_participant': TunableEnumEntry(description='\n                The participant used for finding where to spawn the Sim.  Typically you want to leave this as object.\n                \n                Special cases include:\n                - For self-interactions, Object will resolve to None.  This can be set to Actor if you want to spawn\n                near the Sim running the interaction.\n                ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object)}
 
         def __init__(self, sim_spawn_slot=None, **kwargs):
             super().__init__(sim_spawn_slot=sim_spawn_slot, **kwargs)
@@ -219,7 +233,7 @@ class SimCreationElement(XevtTriggeredElement):
             if sim_spawn_slot is not None:
                 (self._slot_type, self._bone_name_hash) = sim_spawn_slot.get_slot_type_and_hash()
 
-        def _get_position_and_location(self, spawning_object):
+        def _get_position_and_location(self, spawning_object, resolver):
             (position, location) = (None, None)
             if self._slot_type is not None:
                 for runtime_slot in spawning_object.get_runtime_slots_gen(slot_types={self._slot_type}, bone_name_hash=self._bone_name_hash):
@@ -228,12 +242,21 @@ class SimCreationElement(XevtTriggeredElement):
                 runtime_slot = RuntimeSlot(spawning_object, self._bone_name_hash, EMPTY_SET)
                 if runtime_slot is not None:
                     location = runtime_slot.location
+            else:
+                location = spawning_object.location
             if location is not None:
                 location = sims4.math.Location(location.world_transform, spawning_object.routing_surface, slot_hash=location.slot_hash)
                 position = location.transform.translation
             return (position, location)
 
+        def _get_spawning_object(self, resolver):
+            spawning_object = resolver.get_participant(self.spawn_location_participant)
+            if spawning_object.is_sim:
+                spawning_object = spawning_object.get_sim_instance()
+            return spawning_object
+
     class _CloneSimInfoSource(_SlotSpawningSimInfoSource):
+        FACTORY_TUNABLES = {'force_fgl': Tunable(description="\n                Normally, FGL will only be invoked if no spawning position is found.  Use this tunable to force\n                FGL to run. e.g. Cloning spell uses caster Sim's position as a spawning position.  In that case,\n                we still want to force FGL so the clone spawns near that Sim rather than directly on top of the Sim. \n                ", tunable_type=bool, default=False)}
 
         def _ensure_parental_lineage_exists(self, source_sim_info, clone_sim_info):
             with genealogy_caching():
@@ -262,7 +285,7 @@ class SimCreationElement(XevtTriggeredElement):
             clone_last_name_key = clone_sim_info._base.last_name_key
             clone_full_name_key = clone_sim_info._base.full_name_key
             clone_breed_name_key = clone_sim_info._base.breed_name_key
-            clone_sim_info.load_sim_info(source_sim_proto, is_clone=True)
+            clone_sim_info.load_sim_info(source_sim_proto, is_clone=True, default_lod=SimInfoLODLevel.FULL)
             clone_sim_info.sim_id = clone_sim_id
             clone_sim_info._base.first_name = clone_first_name
             clone_sim_info._base.last_name = clone_last_name
@@ -293,6 +316,8 @@ class SimCreationElement(XevtTriggeredElement):
             clone_sim_info.set_default_data()
             clone_sim_info.save_sim()
             household.save_data()
+            if not household.is_active_household:
+                clone_sim_info.request_lod(SimInfoLODLevel.BASE)
             clone_sim_info.resend_physical_attributes()
             clone_sim_info.relationship_tracker.clean_and_send_remaining_relationship_info()
             return clone_sim_info
@@ -307,15 +332,15 @@ class SimCreationElement(XevtTriggeredElement):
             if clone_sim_info is None:
                 return ()
             (position, location) = (None, None)
-            spawning_object = resolver.get_participant(interactions.ParticipantType.Object)
+            spawning_object = self._get_spawning_object(resolver)
             if spawning_object is not None:
-                (position, location) = self._get_position_and_location(spawning_object)
-                use_fgl = position is None
+                (position, location) = self._get_position_and_location(spawning_object, resolver)
+                use_fgl = self.force_fgl or position is None
             return ((clone_sim_info, position, location, use_fgl),)
 
         def do_post_spawn_behavior(self, sim_info, resolver, client_manager):
             super().do_post_spawn_behavior(sim_info, resolver, client_manager)
-            sim_info.commodity_tracker.set_all_commodities_to_max(visible_only=True)
+            sim_info.commodity_tracker.set_all_commodities_to_best_value(visible_only=True)
 
     class _SimFilterSimInfoSource(_SlotSpawningSimInfoSource):
         FACTORY_TUNABLES = {'filter': TunableSimFilter.TunableReference(description='\n                Sim filter that is used to create or find a Sim that matches\n                this filter request.\n                ')}
@@ -330,9 +355,9 @@ class SimCreationElement(XevtTriggeredElement):
             if not filter_result:
                 return ()
             (position, location) = (None, None)
-            spawning_object = resolver.get_participant(interactions.ParticipantType.Object)
+            spawning_object = self._get_spawning_object(resolver)
             if spawning_object is not None:
-                (position, location) = self._get_position_and_location(spawning_object)
+                (position, location) = self._get_position_and_location(spawning_object, resolver)
                 use_fgl = position is None
             return ((filter_result[0].sim_info, position, location, use_fgl),)
 
@@ -341,12 +366,12 @@ class SimCreationElement(XevtTriggeredElement):
 
         def get_sim_infos_and_positions(self, resolver, household):
             sim_creator = self.template.sim_creator
-            (sim_info_list, _) = SimSpawner.create_sim_infos((sim_creator,), household=household)
+            (sim_info_list, _) = SimSpawner.create_sim_infos((sim_creator,), sim_name_type=sim_creator.sim_name_type, household=household)
             self.template.add_template_data_to_sim(sim_info_list[0], sim_creator=sim_creator)
             (position, location) = (None, None)
-            spawning_object = resolver.get_participant(interactions.ParticipantType.Object)
+            spawning_object = self._get_spawning_object(resolver)
             if spawning_object is not None:
-                (position, location) = self._get_position_and_location(spawning_object)
+                (position, location) = self._get_position_and_location(spawning_object, resolver)
                 use_fgl = position is None
             return ((sim_info_list[0], position, location, use_fgl),)
 
@@ -368,7 +393,7 @@ class SimCreationElement(XevtTriggeredElement):
                 created_sim_info.genealogy.clear_family_relation(relation)
             PregnancyTracker.initialize_sim_info(created_sim_info, parent_a, parent_b)
 
-    FACTORY_TUNABLES = {'sim_info_source': TunableVariant(description='\n            The source of the sim_info and position data for the sims to be\n            created.\n            ', targeted=_TargetedObjectResurrection.TunableFactory(), mass_object=_MassObjectResurrection.TunableFactory(), clone_a_sim=_CloneSimInfoSource.TunableFactory(), sim_filter=_SimFilterSimInfoSource.TunableFactory(), sim_template=_SimTemplateSimInfoSource.TunableFactory(), default='targeted'), 'household_option': TunableVariant(description='\n            The household that the created sim should be put into.\n            ', active_household=_ActiveHouseholdFactory(), participant_household=_ParticipantHouseholdFactory(), no_household=_NoHousheoldFactory(), default='participant_household'), 'spawn_action': TunableSpawnActionVariant(description='\n            Define the methods to show the Sim after spawning on the lot. This\n            defaults to fading the Sim in, but can be a specific interaction or\n            an animation.\n            '), 'relationship_bits_to_add': TunableList(description='\n            A list of relationship bits to add between the source sim\n            and the created sim.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT))), 'set_summoning_purpose': OptionalTunable(description="\n            If enabled this will trigger the summon NPC situation depending\n            on the summoning purpose type set.  This should be tuned when\n            we create Sims and don't add them into the active household.\n            ", tunable=TunableEnumEntry(description='\n                The purpose that is used to summon the sim to the lot.  \n                Defined in venue tuning.\n                ', tunable_type=NPCSummoningPurpose, default=NPCSummoningPurpose.DEFAULT)), 'set_genealogy': TunableVariant(description='\n            Genealogy option to set on the created Sim.   \n            Example: Setting a child of a family.\n            ', set_as_child=_GenalogySetAsChild.TunableFactory(), locked_args={'no_action': None}, default='no_action')}
+    FACTORY_TUNABLES = {'sim_info_source': TunableVariant(description='\n            The source of the sim_info and position data for the sims to be\n            created.\n            ', targeted=_TargetedObjectResurrection.TunableFactory(), mass_object=_MassObjectResurrection.TunableFactory(), clone_a_sim=_CloneSimInfoSource.TunableFactory(), sim_filter=_SimFilterSimInfoSource.TunableFactory(), sim_template=_SimTemplateSimInfoSource.TunableFactory(), default='targeted'), 'household_option': TunableVariant(description='\n            The household that the created sim should be put into.\n            ', active_household=_ActiveHouseholdFactory(), participant_household=_ParticipantHouseholdFactory(), no_household=_NoHousheoldFactory(), hidden_household=_HiddenHouseholdFactory(), default='participant_household'), 'spawn_action': TunableSpawnActionVariant(description='\n            Define the methods to show the Sim after spawning on the lot. This\n            defaults to fading the Sim in, but can be a specific interaction or\n            an animation.\n            '), 'relationship_bits_to_add': TunableList(description='\n            A list of relationship bits to add between the source sim\n            and the created sim.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT))), 'set_summoning_purpose': OptionalTunable(description="\n            If enabled this will trigger the summon NPC situation depending\n            on the summoning purpose type set.  This should be tuned when\n            we create Sims and don't add them into the active household.\n            ", tunable=TunableEnumEntry(description='\n                The purpose that is used to summon the sim to the lot.  \n                Defined in venue tuning.\n                ', tunable_type=NPCSummoningPurpose, default=NPCSummoningPurpose.DEFAULT)), 'set_genealogy': TunableVariant(description='\n            Genealogy option to set on the created Sim.   \n            Example: Setting a child of a family.\n            ', set_as_child=_GenalogySetAsChild.TunableFactory(), locked_args={'no_action': None}, default='no_action'), 'pre_spawn_loot': TunableList(description='\n            List of loot actions to apply to the created sim info before it is\n            spawned.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), class_restrictions=('LootActions',)))}
 
     def _apply_relationship_bits(self, actor_sim_info, created_sim_info):
         for rel_bit in self.relationship_bits_to_add:
@@ -382,6 +407,9 @@ class SimCreationElement(XevtTriggeredElement):
         for (sim_info, position, location, use_fgl) in self.sim_info_source.get_sim_infos_and_positions(resolver, household):
             if target_participant is not None:
                 self._apply_relationship_bits(target_participant, sim_info)
+            single_sim_resolver = SingleSimResolver(sim_info)
+            for loot in self.pre_spawn_loot:
+                loot.apply_to_resolver(single_sim_resolver)
             self.sim_info_source.do_pre_spawn_behavior(sim_info, resolver, household)
             SimSpawner.spawn_sim(sim_info, position, spawn_action=self.spawn_action, sim_location=location, use_fgl=use_fgl)
             if self.set_summoning_purpose is not None:

@@ -61,8 +61,8 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
                 self._check_and_complete_aspiration_track(aspiration_track, aspiration.guid64, self.owner_sim_info)
         return True
 
-    def _activate_aspiration(self, aspiration):
-        if self._active_aspiration is aspiration:
+    def _activate_aspiration(self, aspiration, from_load=False):
+        if not from_load and self._active_aspiration is aspiration:
             return
         self._active_aspiration = aspiration
         aspiration.register_callbacks()
@@ -71,13 +71,13 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
         self._send_objectives_update_to_client()
         self._send_tracker_to_client()
 
-    def initialize_aspiration(self):
+    def initialize_aspiration(self, from_load=False):
         if self.owner_sim_info is not None and not self.owner_sim_info.is_baby:
             track = self.active_track
             if track is not None:
                 for (_, track_aspriation) in track.get_aspirations():
                     if not self.validate_and_return_completed_status(track_aspriation, track):
-                        self._activate_aspiration(track_aspriation)
+                        self._activate_aspiration(track_aspriation, from_load=from_load)
                         break
                 services.get_event_manager().process_event(test_events.TestEvent.AspirationTrackSelected, sim_info=self.owner_sim_info)
 
@@ -310,7 +310,7 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
                 aspiration = aspiration_manager.get(timed_aspiration_msg.aspiration)
                 if aspiration is None:
                     continue
-                timed_aspiration_data = TimedAspirationData(self, aspiration)
+                timed_aspiration_data = aspiration.generate_aspiration_data(self, aspiration)
                 if timed_aspiration_data.load(timed_aspiration_msg):
                     self._timed_aspirations[aspiration] = timed_aspiration_data
         super().load(blob=blob)
@@ -368,22 +368,37 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
     def deactivate_aspiration(self, aspiration):
         aspiration.cleanup_aspiration(self)
 
-    def activate_timed_aspiration(self, aspiration):
+    def get_timed_aspiration_data(self, aspiration):
+        return self._timed_aspirations.get(aspiration)
+
+    def update_org_id_timed_aspiration(self, aspiration, org_id):
+        if aspiration not in self._timed_aspirations:
+            timed_aspiration_data = self._timed_aspirations.get(aspiration)
+            timed_aspiration_data.set_org_id(org_id)
+
+    def activate_timed_aspiration(self, aspiration, **kwargs):
         if aspiration.aspiration_type != AspriationType.TIMED_ASPIRATION:
-            logger.error('Attempting to activate aspiration {} as a timed aspiration, which it is not', aspiration)
+            logger.error('Attempting to activate aspiration {} as a timed aspiration, which it is not.', aspiration)
             return
         if aspiration in self._timed_aspirations:
             logger.error('Attempting to activate aspiration {} when a timed aspiration of that type is already scheduled.', aspiration)
             return
-        timed_aspiration_data = TimedAspirationData(self, aspiration)
+        timed_aspiration_data = aspiration.generate_aspiration_data(self, aspiration, **kwargs)
         self._timed_aspirations[aspiration] = timed_aspiration_data
         timed_aspiration_data.schedule()
 
-    def deactivate_timed_aspiration(self, aspiration):
+    def activate_timed_aspirations_from_load(self):
+        for aspiration in self._timed_aspirations:
+            self.activate_aspiration(aspiration, from_load=True)
+
+    def aspiration_in_timed_aspirations(self, aspiration):
+        return aspiration in self._timed_aspirations
+
+    def deactivate_timed_aspiration(self, aspiration, from_complete=False, **kwargs):
         if aspiration not in self._timed_aspirations:
             logger.error("Attempting to deactivate timed aspiration {} when it isn't active.")
             return
-        self._timed_aspirations[aspiration].clear()
+        self._timed_aspirations[aspiration].clear(from_complete=from_complete)
         del self._timed_aspirations[aspiration]
 
     def remove_invalid_aspirations(self):

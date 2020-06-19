@@ -1,9 +1,10 @@
-from business.business_enums import BusinessType, BusinessEmployeeType
-from rewards.reward_enums import RewardDestination
-from rewards.tunable_reward_base import TunableRewardBase
-from sims4.tuning.tunable import TunableEnumEntry, Tunable
 import services
 import sims4.log
+from business.business_enums import BusinessType, BusinessEmployeeType
+from rewards.reward_enums import RewardDestination, RewardType
+from rewards.tunable_reward_base import TunableRewardBase
+from sims4.tuning.tunable import TunableEnumEntry, Tunable
+from sims4.utils import constproperty
 logger = sims4.log.Logger('Business', default_owner='trevor')
 
 class TunableRewardAdditionalEmployeeSlot(TunableRewardBase):
@@ -14,10 +15,14 @@ class TunableRewardAdditionalEmployeeSlot(TunableRewardBase):
         self.business_type = business_type
         self.employee_type = employee_type
 
+    @constproperty
+    def reward_type():
+        return RewardType.ADDITIONAL_EMPLOYEE_SLOT
+
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, _):
+    def open_reward(self, sim_info, **kwargs):
         household = sim_info.household
         if household is None:
             logger.error('SimInfo {} has no associated household.', sim_info)
@@ -32,10 +37,14 @@ class TunableRewardAdditionalMarkup(TunableRewardBase):
         self.business_type = business_type
         self.markup_increment = markup_increment
 
+    @constproperty
+    def reward_type():
+        return RewardType.ADDITIONAL_BUSINESS_MARKUP
+
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, _):
+    def open_reward(self, sim_info, **kwargs):
         household = sim_info.household
         if household is None:
             logger.error('SimInfo {} has no associated household.', sim_info)
@@ -50,10 +59,14 @@ class TunableRewardAdditionalCustomerCount(TunableRewardBase):
         self.business_type = business_type
         self.customer_count_increment = customer_count_increment
 
+    @constproperty
+    def reward_type():
+        return RewardType.ADDITIONAL_BUSINESS_CUSTOMER_COUNT
+
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, _):
+    def open_reward(self, sim_info, **kwargs):
         household = sim_info.household
         if household is None:
             logger.error('SimInfo {} has no associated household.', sim_info)

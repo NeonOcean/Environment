@@ -1,4 +1,5 @@
 import enum
+from sims4.tuning.dynamic_enum import DynamicEnum
 
 class ResetReason(enum.Int, export=False):
     NONE = ...
@@ -24,3 +25,7 @@ class PersistenceType(enum.Int):
 class ObjectClaimStatus(enum.Int, export=False):
     UNCLAIMED = 0
     CLAIMED = 1
+
+class ObjectRoutingBehaviorTrackingCategory(DynamicEnum):
+    NONE = 0
+    BOT = 1

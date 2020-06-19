@@ -239,3 +239,4 @@ class Baby(GameObject, HasSimInfoBasicMixin):
             if self._pending_removal_moment is not None:
                 self._pending_removal_moment.execute_removal_moment(self)
                 self._pending_removal_moment = None
+        super().on_finalize_load()

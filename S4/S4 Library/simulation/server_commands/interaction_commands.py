@@ -16,13 +16,14 @@ from objects import ALL_HIDDEN_REASONS
 from objects.pools import pool_utils
 from postures import posture_graph
 from server.config_service import ContentModes
-from server.pick_info import PickInfo, PickType, PICK_USE_TERRAIN_OBJECT
+from server.pick_info import PickInfo, PickType, PICK_USE_TERRAIN_OBJECT, PICK_NEVER_USE_POOL
 from server_commands.argument_helpers import get_optional_target, OptionalTargetParam, RequiredTargetParam, TunableInstanceParam
 from sims.phone_tuning import PhoneTuning
 from sims4.commands import Output
 from sims4.localization import TunableLocalizedStringFactory, create_tokens
 from sims4.tuning.tunable import TunableResourceKey
 from terrain import get_water_depth
+from world.ocean_tuning import OceanTuning
 import autonomy.content_sets
 import build_buy
 import enum
@@ -36,7 +37,6 @@ import sims4.commands
 import sims4.log
 import sims4.reload
 import telemetry_helper
-from world.ocean_tuning import OceanTuning
 logger = sims4.log.Logger('Interactions')
 TELEMETRY_GROUP_PIE_MENU = 'PIEM'
 TELEMETRY_HOOK_CREATE_PIE_MENU = 'PIEM'
@@ -85,7 +85,7 @@ def show_interaction_failure_reason(enable:bool=None, _connection=None):
     toggle_show_interaction_failure_reason(enable=enable)
 
 @sims4.commands.Command('interactions.has_choices', command_type=sims4.commands.CommandType.Live)
-def has_choices(target_id:int=None, pick_type=PickType.PICK_TERRAIN, x:float=0.0, y:float=0.0, z:float=0.0, lot_id:int=0, level:int=0, control:int=0, alt:int=0, shift:int=0, reference_id:int=0, _connection=None):
+def has_choices(target_id:int=None, pick_type:PickType=PickType.PICK_TERRAIN, x:float=0.0, y:float=0.0, z:float=0.0, lot_id:int=0, level:int=0, control:int=0, alt:int=0, shift:int=0, reference_id:int=0, is_routable:bool=True, _connection=None):
     if target_id is None:
         return
     zone = services.current_zone()
@@ -103,12 +103,14 @@ def has_choices(target_id:int=None, pick_type=PickType.PICK_TERRAIN, x:float=0.0
         return
     position = sims4.math.Vector3(x, y, z)
     pick_target = zone.find_object(target_id)
-    (pick_target, pick_type, potential_targets) = _get_targets_from_pick(sim, pick_target, pick_type, position, level, zone.id, lot_id, preferred_objects=set())
+    (pick_target, pick_type, potential_targets) = _get_targets_from_pick(sim, pick_target, pick_type, position, level, zone.id, lot_id, is_routable, preferred_objects=set())
     is_interactable = False
     if pick_target is not None:
         tutorial_service = services.get_tutorial_service()
+        alt_bool = bool(alt)
+        control_bool = bool(control)
         for (potential_target, routing_surface) in potential_targets:
-            pick = PickInfo(pick_type=pick_type, target=potential_target, location=position, routing_surface=routing_surface, lot_id=lot_id, level=level, alt=bool(alt), control=bool(control), shift=shift_held)
+            pick = PickInfo(pick_type=pick_type, target=potential_target, location=position, routing_surface=routing_surface, lot_id=lot_id, level=level, alt=alt_bool, control=control_bool, shift=shift_held)
             context = client.create_interaction_context(sim, pick=pick)
             for aop in potential_target.potential_interactions(context):
                 if tutorial_service is not None and not tutorial_service.is_affordance_visible(aop.affordance):
@@ -132,6 +134,21 @@ def has_choices(target_id:int=None, pick_type=PickType.PICK_TERRAIN, x:float=0.0
                     if autonomy.content_sets.any_content_set_available(sim, si.super_affordance, si, context, potential_targets=(potential_target,), include_failed_aops_with_tooltip=True):
                         is_interactable = True
                         break
+        if not is_interactable:
+            fire_service = services.get_fire_service()
+            if fire_service.fire_is_active:
+                fires = fire_service.get_fires_in_potential_targets(potential_targets)
+                if fires:
+                    potential_target = fires[0]
+                    pick = PickInfo(pick_type=pick_type, target=potential_target, location=position, routing_surface=routing_surface, lot_id=lot_id, level=level, alt=alt_bool, control=control_bool, shift=shift_held)
+                    context = client.create_interaction_context(sim, pick=pick)
+                    for aop in potential_target.potential_interactions(context):
+                        if not aop.affordance.allow_user_directed:
+                            continue
+                        result = ChoiceMenu.is_valid_aop(aop, context, user_pick_target=potential_target)
+                        if result:
+                            is_interactable = True
+                            break
     interactable_flags = _get_interactable_flags(pick_target, is_interactable)
     _send_interactable_message(client, target_id, is_interactable, True, interactable_flags=interactable_flags)
 
@@ -174,36 +191,32 @@ def should_generate_pie_menu(client, sim, shift_held):
     else:
         return PieMenuActions.INTERACTION_QUEUE_FULL_TOOLTIP
 
-def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level:int, zone_id:int, lot_id:int, *, preferred_objects):
+def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level:int, zone_id:int, lot_id:int, is_routable:bool, preferred_objects=()):
     potential_targets = []
-    if pick_type == PickType.PICK_WATER_TERRAIN:
-        water_terrain_object_cache = services.object_manager().water_terrain_object_cache
-        nearest_obj = water_terrain_object_cache.get_nearest_object(position)
-        if nearest_obj is not None:
-            pick_target = nearest_obj
-            potential_targets.append((pick_target, pick_target.routing_surface))
+    pool_block_id = 0
+    if sim is not None and pick_type not in PICK_NEVER_USE_POOL and build_buy.is_location_pool(zone_id, position, level):
+        routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+        pool_block_id = build_buy.get_block_id(sim.zone_id, position, level - 1)
     else:
-        pool_block_id = 0
-        if pick_type != PickType.PICK_POOL_EDGE and build_buy.is_location_pool(zone_id, position, level):
-            routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
-            pool_block_id = build_buy.get_block_id(sim.zone_id, position, level - 1)
-        else:
-            routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_WORLD)
-        if pick_type in PICK_USE_TERRAIN_OBJECT:
-            location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
-            terrain_point = objects.terrain.TerrainPoint(location)
-            pick_target = terrain_point
-            water_height = get_water_depth(position.x, position.z, level)
-            if lot_id and lot_id != services.active_lot_id():
-                pick_type = PickType.PICK_TERRAIN
-                potential_targets.append((pick_target, routing_surface))
-            elif pool_block_id:
-                pool = pool_utils.get_pool_by_block_id(pool_block_id)
-                if pool is not None:
-                    pool_point = objects.terrain.PoolPoint(location, pool)
-                    pick_target = pool_point
-                    potential_targets.append((pool_point, routing_surface))
-            elif water_height > 0 and services.terrain_service.ocean_object() is not None:
+        routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_WORLD)
+    if pick_type in PICK_USE_TERRAIN_OBJECT:
+        location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+        terrain_point = objects.terrain.TerrainPoint(location)
+        pick_target = terrain_point
+        water_height = get_water_depth(position.x, position.z, level)
+        if lot_id and lot_id != services.active_lot_id():
+            pick_type = PickType.PICK_TERRAIN
+            potential_targets.append((pick_target, routing_surface))
+        elif pool_block_id:
+            pool = pool_utils.get_pool_by_block_id(pool_block_id)
+            if pool is not None:
+                pool_point = objects.terrain.PoolPoint(location, pool)
+                pick_target = pool_point
+                potential_targets.append((pool_point, routing_surface))
+        elif water_height > 0 and sim is not None:
+            if services.terrain_service.ocean_object() is not None:
+                if not is_routable:
+                    return (None, None, ())
                 wading_interval = OceanTuning.get_actor_wading_interval(sim)
                 if wading_interval is not None and water_height > wading_interval.upper_bound:
                     ocean_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
@@ -214,39 +227,45 @@ def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level
                 else:
                     potential_targets.append((terrain_point, routing_surface))
             else:
-                potential_targets.append((terrain_point, routing_surface))
+                water_terrain_object_cache = services.object_manager().water_terrain_object_cache
+                nearest_obj = water_terrain_object_cache.get_nearest_object(position)
+                if nearest_obj is not None:
+                    pick_target = nearest_obj
+                    potential_targets.append((pick_target, pick_target.routing_surface))
         else:
-            if lot_id and lot_id != services.active_lot_id():
-                location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+            potential_targets.append((terrain_point, routing_surface))
+    else:
+        if lot_id and lot_id != services.active_lot_id():
+            location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+            pick_target = objects.terrain.TerrainPoint(location)
+            pick_type = PickType.PICK_TERRAIN
+            potential_targets.append((pick_target, routing_surface))
+        elif pick_target is not None and pick_target.provided_routing_surface is not None and not pick_target.is_routing_surface_overlapped_at_position(position):
+            potential_targets.append((pick_target, routing_surface))
+            new_routing_surface = pick_target.provided_routing_surface
+            location = sims4.math.Location(sims4.math.Transform(position), new_routing_surface)
+            if sim is not None and not posture_graph.is_object_mobile_posture_compatible(pick_target) and routing.test_connectivity_math_locations(sim.location, location, sim.routing_context):
                 pick_target = objects.terrain.TerrainPoint(location)
-                pick_type = PickType.PICK_TERRAIN
-                potential_targets.append((pick_target, routing_surface))
-            elif pick_target is not None and pick_target.provided_routing_surface is not None:
-                potential_targets.append((pick_target, routing_surface))
-                new_routing_surface = pick_target.provided_routing_surface
-                location = sims4.math.Location(sims4.math.Transform(position), new_routing_surface)
-                if sim is not None and not posture_graph.is_object_mobile_posture_compatible(pick_target) and routing.test_connectivity_math_locations(sim.location, location, sim.routing_context):
-                    pick_target = objects.terrain.TerrainPoint(location)
-                    potential_targets.append((pick_target, new_routing_surface))
-            else:
-                preferred_objects.add(pick_target)
-                potential_targets.append((pick_target, routing_surface))
-            if pick_target is None:
-                return (None, None, ())
-            if pick_target.provides_terrain_interactions:
-                location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
-                terrain_target = objects.terrain.TerrainPoint(location)
-                potential_targets.append((terrain_target, routing_surface))
-            if pick_target.provides_ocean_interactions:
-                location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
-                ocean_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
-                ocean_location = location.clone(routing_surface=ocean_surface)
-                ocean_point = objects.terrain.OceanPoint(ocean_location)
-                potential_targets.append((ocean_point, ocean_surface))
+                potential_targets.append((pick_target, new_routing_surface))
+        else:
+            preferred_objects.add(pick_target)
+            potential_targets.append((pick_target, routing_surface))
+        if pick_target is None:
+            return (None, None, ())
+        if pick_target.provides_terrain_interactions:
+            location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+            terrain_target = objects.terrain.TerrainPoint(location)
+            potential_targets.append((terrain_target, routing_surface))
+        if pick_target.provides_ocean_interactions:
+            location = sims4.math.Location(sims4.math.Transform(position), routing_surface)
+            ocean_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
+            ocean_location = location.clone(routing_surface=ocean_surface)
+            ocean_point = objects.terrain.OceanPoint(ocean_location)
+            potential_targets.append((ocean_point, ocean_surface))
     return (pick_target, pick_type, tuple(potential_targets))
 
 @sims4.commands.Command('interactions.choices', command_type=sims4.commands.CommandType.Live)
-def generate_choices(target_id:int=None, pick_type:PickType=PickType.PICK_TERRAIN, x:float=0.0, y:float=0.0, z:float=0.0, lot_id:int=0, level:int=0, control:int=0, alt:int=0, shift:int=0, reference_id:int=0, preferred_object_id:int=0, _connection=None):
+def generate_choices(target_id:int=None, pick_type:PickType=PickType.PICK_TERRAIN, x:float=0.0, y:float=0.0, z:float=0.0, lot_id:int=0, level:int=0, control:int=0, alt:int=0, shift:int=0, reference_id:int=0, referred_object_id:int=0, preferred_object_id:int=0, is_routable:bool=True, _connection=None):
     if alt or control:
         return 0
     if target_id is None:
@@ -302,23 +321,37 @@ def generate_choices(target_id:int=None, pick_type:PickType=PickType.PICK_TERRAI
             if show_pie_menu:
                 shift_held = False
             position = sims4.math.Vector3(x, y, z)
-            (pick_target, pick_type, potential_targets) = _get_targets_from_pick(sim, pick_target, pick_type, position, level, zone.id, lot_id, preferred_objects=preferred_objects)
+            (pick_target, pick_type, potential_targets) = _get_targets_from_pick(sim, pick_target, pick_type, position, level, zone.id, lot_id, is_routable, preferred_objects=preferred_objects)
             if pick_target is None:
                 return
             interaction_parameters = client.get_interaction_parameters()
             if potential_targets:
-                for (potential_target, routing_surface) in potential_targets:
-                    if potential_target.is_sim:
-                        suppress_social_front_page |= potential_target.should_suppress_social_front_page_when_targeted()
-                    pick = PickInfo(pick_type=pick_type, target=potential_target, location=position, routing_surface=routing_surface, lot_id=lot_id, level=level, alt=bool(alt), control=bool(control), shift=shift_held)
+                alt_bool = bool(alt)
+                control_bool = bool(control)
+
+                def _add_potential_object_aops(potential_target, routing_surface):
+                    pick = PickInfo(pick_type=pick_type, target=potential_target, location=position, routing_surface=routing_surface, lot_id=lot_id, level=level, alt=alt_bool, control=control_bool, shift=shift_held)
                     context = client.create_interaction_context(sim, pick=pick, shift_held=shift_held)
                     context.add_preferred_objects(preferred_objects)
                     potential_aops = list(potential_target.potential_interactions(context, **interaction_parameters))
                     choice_menu.add_potential_aops(potential_target, context, potential_aops)
+                    return pick
+
+                for (potential_target, routing_surface) in potential_targets:
+                    if potential_target.is_sim:
+                        suppress_social_front_page |= potential_target.should_suppress_social_front_page_when_targeted()
+                    pick = _add_potential_object_aops(potential_target, routing_surface)
                 if not shift_held and sim is not None:
                     context = client.create_interaction_context(sim, pick=pick, shift_held=shift_held)
                     context.add_preferred_objects(preferred_objects)
                     sim.fill_choices_menu_with_si_state_aops(pick_target, context, choice_menu)
+                if len(choice_menu) == 0:
+                    fire_service = services.get_fire_service()
+                    if fire_service.fire_is_active:
+                        fires = fire_service.get_fires_in_potential_targets(potential_targets)
+                        if fires:
+                            potential_target = fires[0]
+                            _add_potential_object_aops(potential_target, potential_target.routing_surface)
                 client.set_choices(choice_menu)
     msg = create_pie_menu_message(sim, choice_menu, reference_id, pie_menu_action, target=pick_target, suppress_front_page=suppress_social_front_page)
     distributor = Distributor.instance()

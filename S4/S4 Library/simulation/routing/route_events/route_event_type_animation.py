@@ -79,7 +79,6 @@ class RouteEventTypeAnimation(RouteEventDataBase, HasTunableFactory, AutoFactory
             if asm is None:
                 logger.warn('Unable to get a valid Route Event ASM ({}) for {}.', route_event_animation, actor)
                 return
-            route_event_animation.overrides.override_asm(asm)
         else:
             route_event_animation = self.animation_element(actor, target=target, setup_asm_func=restart_asm if setup_asm_override is None else setup_asm_override)
             animation_context = routing_component.animation_context

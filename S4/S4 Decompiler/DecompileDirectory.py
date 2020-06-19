@@ -14,7 +14,7 @@ def Run () -> bool:
 	argumentParser.add_argument("-t", metavar = "target", type = str, help = "The target directory path.")
 	argumentParser.add_argument("-d", metavar = "destination", type = str, help = "The directory the decompiled files will be saved to.")
 	argumentParser.add_argument("-s", action = "store_true", help = "Prevents gui from appearing.")
-	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: argparse.Namespace
+	argumentDictionary = vars(argumentParser.parse_args(sys.argv[1:]))  # type: typing.Dict[str, typing.Any]
 
 	if argumentDictionary["t"] is not None:
 		if not os.path.exists(argumentDictionary["t"]):
@@ -36,31 +36,37 @@ def Run () -> bool:
 	tkRoot = tkinter.Tk()
 	tkRoot.withdraw()
 
-	targetDirectory = filedialog.askdirectory(initialdir = os.path.dirname(os.path.realpath(__file__)), title = "Select decompile target directory")  # type: str
+	if _targetPath is None:
+		if not _silent:
+			_targetPath = filedialog.askdirectory(initialdir = os.path.dirname(os.path.realpath(__file__)), title = "Select decompile target directory")  # type: str
 
-	if not targetDirectory:
-		return False
+		if not _targetPath:
+			print("No target directory specified.", file = sys.stderr)
+			return False
 
-	targetDirectory = os.path.abspath(targetDirectory)
+		_targetPath = os.path.abspath(_targetPath)
 
-	destinationDirectory = filedialog.askdirectory(initialdir = targetDirectory if targetDirectory else os.path.dirname(os.path.realpath(__file__)), title = "Select destination directory")  # type: str
+	if _destinationPath is None:
+		if not _silent:
+			_destinationPath = filedialog.askdirectory(initialdir = _targetPath if _targetPath else os.path.dirname(os.path.realpath(__file__)), title = "Select destination directory")  # type: str
 
-	if not destinationDirectory:
-		return False
+		if not _destinationPath:
+			print("No output destination specified.", file = sys.stderr)
+			return False
 
-	destinationDirectory = os.path.abspath(destinationDirectory)
+		_destinationPath = os.path.abspath(_destinationPath)
 
 	failedFiles = list()  # type: typing.List[str]
 
-	for directoryRoot, directoryNames, fileNames in os.walk(targetDirectory):  # type: str, list, list
+	for directoryRoot, directoryNames, fileNames in os.walk(_targetPath):  # type: str, list, list
 		for fileName in fileNames:  # type: str
 			filePath = os.path.join(directoryRoot, fileName)  # type: str
 			fileExtension = os.path.splitext(fileName)[1]  # type: str
 			Extension = fileExtension.casefold()
 
 			if Extension == ".pyc":
-				if not Decompile.DecompileFileToDirectory(filePath, directoryRoot.replace(targetDirectory, destinationDirectory)):
-					failedFiles.append(filePath.replace(targetDirectory + os.sep, ""))
+				if not Decompile.DecompileFileToDirectory(filePath, directoryRoot.replace(_targetPath, _destinationPath)):
+					failedFiles.append(filePath.replace(_targetPath + os.sep, ""))
 
 	if len(failedFiles) == 0:
 		print("All files decompiled successfully.")
@@ -81,9 +87,9 @@ def _FormatListToLines (targetList: typing.List[str]) -> str:
 
 	return text
 
-_targetPath = None  # type: str
-_destinationPath = None  # type: str
-_silent = False  # type: str
+_targetPath = None  # type: typing.Optional[str]
+_destinationPath = None  # type: typing.Optional[str]
+_silent = False  # type: bool
 
 if __name__ == "__main__":
 	if not Run():

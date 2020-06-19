@@ -23,6 +23,7 @@ from objects.components.name_component import NameComponent
 from objects.components.statistic_component import StatisticComponent
 from sims.funds import get_funds_for_source
 from sims.sim_info_name_data import SimInfoNameData
+from sims4.localization import LocalizationHelperTuning
 from sims4.repr_utils import standard_repr
 from sims4.utils import classproperty, staticproperty, constproperty
 from singletons import DEFAULT
@@ -379,6 +380,31 @@ class CraftingProcess(ComponentContainer):
                 hook.write_int(TELEMETRY_FIELD_INGREDIENTS_QUANTITY, len(self._reserved_ingredients))
                 if self.crafter is not None:
                     hook.write_localized_string(TELEMETRY_FIELD_RECIPE_NAME, self.recipe.get_recipe_name(self.crafter))
+        should_save_ingredients = False
+        ingredients_save = None
+        resolver = self._current_crafting_interaction.get_resolver() if self._current_crafting_interaction else None
+        if self.recipe.use_ingredients:
+            if self.recipe.use_ingredients.ingredients_save:
+                if resolver:
+                    ingredients_save = self.recipe.use_ingredients.ingredients_save
+                    if ingredients_save.tests:
+                        if ingredients_save.tests.run_tests(resolver):
+                            should_save_ingredients = random.random() < ingredients_save.save_chance.get_chance(resolver)
+        if should_save_ingredients and self._reserved_ingredients:
+            self.refund_payment()
+            if ingredients_save.notification:
+                recipe_token = self.recipe.get_display_name()
+                ingredients_token = LocalizationHelperTuning.get_bulleted_list(None, *(LocalizationHelperTuning.get_object_name(ingredient) for ingredient in self._reserved_ingredients))
+                notification = ingredients_save.notification(self.crafter, resolver=resolver)
+                notification.show_dialog(additional_tokens=(recipe_token, ingredients_token))
+            if ingredients_save.balloon:
+                balloon_requests = ingredients_save.balloon(self._current_crafting_interaction)
+                if balloon_requests:
+                    chosen_balloon = random.choice(balloon_requests)
+                    if chosen_balloon is not None:
+                        chosen_balloon.distribute()
+            self._reserved_ingredients.clear()
+            return
         for ingredient in self._reserved_ingredients:
             ingredient.destroy(source=self, cause='Consuming ingredients required to start crafting')
         self._reserved_ingredients.clear()
@@ -607,11 +633,11 @@ class CraftingProcess(ComponentContainer):
         tracker = obj.get_tracker(quality_stat)
         total_quality_modifier = 0
         logger_quality_adjustment = {}
-        skill_type = self.recipe.required_skill
-        skill_type_or_instance = self.crafter.get_stat_instance(skill_type) or skill_type
+        stat_type = self.recipe.quality_control_statistic
+        stat_instance = self.crafter.get_stat_instance(stat_type) or stat_type
         effective_skill_level = None
-        if skill_type_or_instance is not None:
-            effective_skill_level = self.crafter.get_effective_skill_level(skill_type_or_instance)
+        if stat_instance is not None:
+            effective_skill_level = self.crafter.get_effective_skill_level(stat_instance) if stat_instance.is_skill else stat_instance.get_user_value()
             quality_adjustment = self.recipe.get_final_product_quality_adjustment(effective_skill_level)
             logger_quality_adjustment['skill'] = str(quality_adjustment)
             total_quality_modifier += quality_adjustment
@@ -667,7 +693,9 @@ class CraftingProcess(ComponentContainer):
         obj.set_state(CraftingTuning.MASTERWORK_STATE, CraftingTuning.MASTERWORK_STATE_VALUE)
 
     def apply_simoleon_value(self, obj, single_serving=False):
-        if obj is self.original_target:
+        original_target = self.original_target
+        object_or_part = obj.part_owner if obj.is_part else obj
+        if object_or_part is original_target:
             return
         value_modifiers = self.recipe.simoleon_value_modifiers
         modifier = 1

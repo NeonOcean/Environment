@@ -2,7 +2,8 @@ from random import shuffle
 from event_testing.resolver import InteractionResolver, DoubleObjectResolver
 from event_testing.tests import TunableTestSet
 from interactions import ParticipantType, ParticipantTypeSingle
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableEnumEntry, TunableReference, TunableVariant, TunableList, Tunable, TunableRange
+from objects import components
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableEnumEntry, TunableReference, OptionalTunable, TunableVariant, TunableList, Tunable, TunableRange
 import services
 import sims4.log
 import sims4.resources
@@ -67,7 +68,7 @@ class SelectInventoryObjects(HasTunableFactory, AutoFactoryInit, SelectObjectBas
         return valid_objects
 
 class SlotStrategyBase(HasTunableFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'max_number_of_objects': TunableRange(description='\n            The number of objects we would like to slot into the target.\n            Obviously the number of valid objects available and the number of\n            free slots must accommodate this interval. However, it will fail\n            silently if we run out of either. This is essentially a firemeter\n            on how many objects we care to try and slot.\n            ', tunable_type=int, default=15, minimum=1, maximum=20), 'objects_to_slot': SelectObjectVariant(description='\n            The selection for objects to be slotted into the slot target.\n            '), 'slot_target': TunableEnumEntry(description='\n            The participant we want to slot objects into.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object)}
+    FACTORY_TUNABLES = {'max_number_of_objects': TunableRange(description='\n            The number of objects we would like to slot into the target.\n            Obviously the number of valid objects available and the number of\n            free slots must accommodate this interval. However, it will fail\n            silently if we run out of either. This is essentially a firemeter\n            on how many objects we care to try and slot.\n            ', tunable_type=int, default=15, minimum=1, maximum=20), 'objects_to_slot': SelectObjectVariant(description='\n            The selection for objects to be slotted into the slot target.\n            '), 'slot_target': TunableEnumEntry(description='\n            The participant we want to slot objects into.\n            ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.Object), 'require_claiming': OptionalTunable(description='\n            If enabled, if True:\n            Object slotted by this strategy will require claiming on load \n            (by some 3rd party) or they will be destroyed on load.\n            \n            If False:\n            If previously requiring claiming on load, objects slotted by this\n            strategy will no longer require claiming on load, and thus will \n            persist without fetters.\n            ', tunable=Tunable(description='\n                If checked, objects that are slotted by this strategy will\n                require claiming on load or they will be destroyed.\n                \n                If unchecked, objects that are slotted by this strategy will \n                no longer require claiming on load to avoid destruction if \n                they previously did.\n                ', tunable_type=bool, default=False))}
 
     def __init__(self, resolver, target=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -78,6 +79,14 @@ class SlotStrategyBase(HasTunableFactory, AutoFactoryInit):
 
     def slot_objects(self):
         raise NotImplementedError
+
+    def _do_claim(self, obj):
+        if self.require_claiming is None:
+            return
+        if self.require_claiming is False:
+            obj.remove_claim_requirement()
+        else:
+            obj.claim()
 
 class SlotStrategyTargetSlotType(SlotStrategyBase):
     FACTORY_TUNABLES = {'target_slot_type': TunableReference(description='\n            Slot type to place the transfered objects into the participant\n            target. Obviously the slot type must be available on the target\n            object and the source must support it.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SLOT_TYPE))}
@@ -95,6 +104,7 @@ class SlotStrategyTargetSlotType(SlotStrategyBase):
                         logger.error('Failed to remove object {} from inventory', obj, inventory, owner='rmccord')
                         break
                     runtime_slot.add_child(obj)
+                    self._do_claim(obj)
                     num_slotted += 1
                     break
         return num_slotted
@@ -126,6 +136,7 @@ class SlotStrategyAutoSlot(SlotStrategyBase):
                                     logger.error('Failed to remove object {} from inventory', obj, inventory, owner='rmccord')
                                 else:
                                     runtime_slot.add_child(obj)
+                                    self._do_claim(obj)
                                     num_slotted += 1
                                     slotted_objects.add(obj)
                                     continue_slotting = True

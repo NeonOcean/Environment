@@ -2,6 +2,7 @@ from objects import ALL_HIDDEN_REASONS
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_tracker import SimInfoTracker
 from sims4.callback_utils import CallableList
+from sims4.utils import classproperty
 import services
 import sims4
 logger = sims4.log.Logger('AwayActionTracker')
@@ -15,6 +16,10 @@ class AwayActionTracker(SimInfoTracker):
         self._on_away_action_ended = CallableList()
         self.add_on_away_action_started_callback(self._resend_away_action)
         self.add_on_away_action_ended_callback(self._resend_away_action)
+
+    @classproperty
+    def _tracker_lod_threshold(cls):
+        return SimInfoLODLevel.FULL
 
     @property
     def sim_info(self):
@@ -115,6 +120,9 @@ class AwayActionTracker(SimInfoTracker):
     def load_away_action_info_from_proto(self, away_action_tracker_proto):
         if away_action_tracker_proto.HasField('away_action'):
             away_action_cls = services.get_instance_manager(sims4.resources.Types.AWAY_ACTION).get(away_action_tracker_proto.away_action.away_action_id)
+            if away_action_cls is None:
+                logger.error('Failed to load away action id {}', away_action_tracker_proto.away_action.away_action_id)
+                return
             if away_action_tracker_proto.away_action.HasField('target_sim_id'):
                 target = services.sim_info_manager().get(away_action_tracker_proto.away_action.target_sim_id)
             else:

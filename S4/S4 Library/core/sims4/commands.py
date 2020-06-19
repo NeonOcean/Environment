@@ -1,11 +1,12 @@
-import inspect
-import re
 import enum
+import inspect
 import paths
+import re
 import sims4.common
 import sims4.log
 import sims4.reload
 import sims4.telemetry
+from singletons import UNSET
 __enable_native_commands = True
 try:
     import _commands
@@ -99,24 +100,34 @@ def prettify_usage(usage_string):
     return usage_string
 
 class CustomParam:
-    pass
+
+    @classmethod
+    def get_arg_count_and_value(cls, *_):
+        return (1, UNSET)
 
 def parse_args(spec, args, account):
     args = list(args)
-    for (name, index) in zip(spec.args, range(len(args))):
-        arg_type = spec.annotations.get(name)
-        if arg_type is not None:
-            arg_value = args[index]
-            _parse_arg(spec, args, arg_type, arg_value, name, index, account)
     index = 0
     for (name, index) in zip(spec.args, range(len(spec.args))):
+        if index >= len(args):
+            break
         arg_type = spec.annotations.get(name)
-        if index < len(args):
-            if isinstance(arg_type, type):
-                if issubclass(arg_type, CustomParam):
+        if isinstance(arg_type, type) and issubclass(arg_type, CustomParam):
+            (arg_count, arg_value) = arg_type.get_arg_count_and_value(*args[index:])
+            if arg_value is UNSET:
+                arg_values = args[index:index + arg_count]
+                args[index] = arg_type(*arg_values)
+            else:
+                args[index] = arg_value
+            if arg_count > 1:
+                del args[index + 1:index + arg_count]
+                index += arg_count - 1
+                if arg_type is not None:
                     arg_value = args[index]
-                    if not isinstance(arg_value, arg_type):
-                        args[index] = arg_type(arg_value)
+                    _parse_arg(spec, args, arg_type, arg_value, name, index, account)
+        elif arg_type is not None:
+            arg_value = args[index]
+            _parse_arg(spec, args, arg_type, arg_value, name, index, account)
     if spec.varargs is not None:
         arg_type = spec.annotations.get(spec.varargs)
         if arg_type is not None:
@@ -143,6 +154,8 @@ def _parse_arg(spec, args, arg_type, arg_value, name, index, account):
             try:
                 if arg_type is int:
                     args[index] = int(arg_value, base=0)
+                elif isinstance(arg_type, type) and issubclass(arg_type, CustomParam):
+                    pass
                 else:
                     args[index] = arg_type(arg_value)
             except Exception as exc:
@@ -198,6 +211,8 @@ def Command(*aliases, command_type=CommandType.DebugOnly, command_restrictions=C
             except BaseException as e:
                 output('Error: {}'.format(e), _session_id)
                 logger.warn('Error executing command')
+                if (full_arg_spec.varargs is None or full_arg_spec.varkw is None) and any(isinstance(arg_type, type) and issubclass(arg_type, CustomParam) for arg_type in full_arg_spec.annotations.values()):
+                    logger.warn('Command has CustomParams, consider adding *args and **kwargs to your command params')
                 raise
 
         invoke_command.__name__ = 'invoke_command ({})'.format(name)
@@ -246,14 +261,3 @@ class FileOutput:
         if self._file_path is not None:
             with open(self._file_path, 'a') as f:
                 f.write('{0}\n'.format(s))
-
-class NoneIntegerOrString(CustomParam):
-
-    def __new__(cls, value:str):
-        if value == 'None':
-            return
-        try:
-            return int(value, 0)
-        except:
-            pass
-        return value

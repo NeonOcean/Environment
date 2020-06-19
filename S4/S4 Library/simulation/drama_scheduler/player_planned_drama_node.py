@@ -2,6 +2,7 @@ from date_and_time import TimeSpan
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
 from drama_scheduler.drama_node import BaseDramaNode
 from drama_scheduler.drama_node_types import DramaNodeType
+from sims4.tuning.instances import lock_instance_tunables
 from sims4.utils import classproperty
 from situations.situation_serialization import SituationSeed
 from situations.situation_types import SituationCallbackOption
@@ -96,3 +97,5 @@ class PlayerPlannedDramaNode(BaseDramaNode):
         if not self.get_sender_sim_info().is_npc:
             services.calendar_service().mark_on_calendar(self, advance_notice_time=self.advance_notice_time())
         return True
+
+lock_instance_tunables(PlayerPlannedDramaNode, ui_display_data=None)

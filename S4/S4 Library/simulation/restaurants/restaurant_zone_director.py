@@ -528,12 +528,12 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
             food_instance = self._create_single_recipe_and_slot(food_recipe, RestaurantTuning.TABLE_FOOD_SLOT_TYPE, table_part, chef_sim)
             if food_instance is not None:
                 food_instance.set_state(RestaurantTuning.CONSUMABLE_FULL_STATE_VALUE.state, RestaurantTuning.CONSUMABLE_FULL_STATE_VALUE)
-                diner_sim.set_autonomy_preference(RestaurantTuning.FOOD_AUTONOMY_PREFERENCE, food_instance)
+                diner_sim.set_autonomy_preference(RestaurantTuning.FOOD_AUTONOMY_PREFERENCE, food_instance, None)
         if drink_recipe is not None:
             drink_instance = self._create_single_recipe_and_slot(drink_recipe, RestaurantTuning.TABLE_DRINK_SLOT_TYPE, table_part, chef_sim, push_reaction=food_instance is None)
             if drink_instance is not None:
                 drink_instance.set_state(RestaurantTuning.CONSUMABLE_FULL_STATE_VALUE.state, RestaurantTuning.CONSUMABLE_FULL_STATE_VALUE)
-                diner_sim.set_autonomy_preference(RestaurantTuning.DRINK_AUTONOMY_PREFERENCE, drink_instance)
+                diner_sim.set_autonomy_preference(RestaurantTuning.DRINK_AUTONOMY_PREFERENCE, drink_instance, None)
 
     def _create_single_recipe_and_slot(self, recipe, slot_type, table_part, chef_sim, push_reaction=True):
         recipe_definition = recipe.final_product_definition

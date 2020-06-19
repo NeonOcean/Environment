@@ -189,10 +189,13 @@ class Constants:
         CANOE_BOARD = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to board island canoe.')
         CANOE_SAIL_HERE = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to sail to a location with an island canoe.')
         CANOE_LOUNGE = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to lounge on an island canoe.')
+        CANOE_GO_FISHING = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to go fishing on the island canoe.')
         CANOE_MOBILE_POSTURE = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to verify that sim is in the island canoe mobile posture.')
         CANOE_SIT_POSTURE = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get sim to verify that sim is in the island canoe sit posture.')
         CANOE_PLACE_IN_WORLD = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get the canoe out of the inventory.')
         CANOE_EXIT = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to get the sim out of the canoe.')
+        BICYCLE_POSTURE_INTERACTION = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to verify the Sim mounted the bicycle after travel.')
+        BICYCLE_TRAVEL = TunablePackSafeReference(manager=interaction_manager, description='Interaction used to travel on the bicycle.')
 
     class ObjectDefinitions:
         ALIEN_PORTAL = TunablePackSafeReference(manager=object_manager, description='Portal to alien world')
@@ -286,6 +289,7 @@ class Constants:
         PET_BALL = TunablePackSafeReference(manager=object_manager, description='a pet ball')
         WATER_SCOOTER = TunablePackSafeReference(manager=object_manager, description='Water scooter used for testing ocean vehicles.')
         ISLAND_CANOE = TunablePackSafeReference(manager=object_manager, description='Island canoe used for testing ocean vehicles.')
+        BICYCLE_DEFINITION = TunablePackSafeReference(manager=object_manager, description='Bicycle used for testing vehicle travel.')
 
     class ResourceIds:
         BLK_FENCE_AND_CEILING_RAIL = TunableBlock(description='Build/buy block product type, has fence railing wall facet types and ceiling friezes')

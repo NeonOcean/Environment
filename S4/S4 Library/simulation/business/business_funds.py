@@ -12,11 +12,11 @@ class BusinessFunds(_Funds):
         super().__init__(household_id, starting_funds)
         self._business_manager = business_manager
 
-    def _send_money_update_internal(self, household_id, vfx_amount, sim=None, reason=0):
+    def _send_money_update_internal(self, household_id, vfx_amount, reason=0):
         self._business_manager.send_business_funds_update()
 
-    def send_money_update(self, vfx_amount, sim=None, reason=0):
-        self._send_money_update_internal(self._business_manager.owner_household_id, vfx_amount, sim, reason)
+    def send_money_update(self, vfx_amount, reason=0):
+        self._send_money_update_internal(self._business_manager.owner_household_id, vfx_amount, reason)
 
     @property
     def funds_transfer_gain_reason(self):

@@ -39,8 +39,6 @@ archive_data = {'autonomy_queue_time': 0, 'autonomy_queue_length': 0, 'ticks_per
 def enable_performance_logging(*args, enableLog=False, **kwargs):
     global previous_log_time_stamp, previous_log_time_ticks, performance_log_alarm
     if enableLog:
-        if performance_log_alarm is not None:
-            return
 
         def alarm_callback(_):
             global previous_log_time_stamp, previous_log_time_ticks

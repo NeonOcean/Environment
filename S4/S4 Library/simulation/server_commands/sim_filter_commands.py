@@ -1,4 +1,6 @@
+from cas.cas import get_tags_from_outfit
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, get_tunable_instance
+from sims.sim_info_types import Species, Age
 from sims.sim_spawner import SimSpawner
 import filters
 import services
@@ -133,6 +135,37 @@ def create_sim_info_from_template(sim_template:TunableInstanceParam(sims4.resour
             services.get_zone_situation_manager().create_visit_situation_for_unexpected(created_sim_info)
     else:
         sims4.commands.output('Failed to create sim info from template: {}'.format(sim_template), _connection)
+
+@sims4.commands.Command('filter.test_sim_template_generation')
+def test_sim_template_generation(_connection=None):
+    sim_templates = services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE).types.values()
+    failed_templates = []
+    for sim_template in sim_templates:
+        if sim_template.template_type != filters.sim_template.SimTemplateType.SIM:
+            continue
+        sim_creator = sim_template.sim_creator
+        sim_creation_dictionary = sim_creator.build_creation_dictionary()
+        tag_set = sim_creation_dictionary['tagSet']
+        if sim_creator.species != Species.HUMAN:
+            continue
+        if sim_creator.age == Age.BABY:
+            continue
+        if sim_creator.resource_key:
+            continue
+        sims4.commands.output('Processing Sim Template: {}'.format(sim_template), _connection)
+        (sim_info_list, _) = SimSpawner.create_sim_infos([sim_creator], creation_source='cheat: filter.test_sim_template_generation')
+        if sim_info_list:
+            created_sim_info = sim_info_list.pop()
+            (current_outfit_category, current_outfit_index) = created_sim_info.get_current_outfit()
+            tags = get_tags_from_outfit(created_sim_info._base, current_outfit_category, current_outfit_index)
+            created_tag_set = set().union(*tags.values())
+            if not tag_set.is_subset(created_tag_set):
+                failed_templates.append((sim_template, sim_creator, tag_set - created_tag_set))
+    if failed_templates:
+        sims4.commands.output('Failed to generate {} templates!'.format(len(failed_templates)), _connection)
+        for (sim_template, sim_creator, missing_tags) in failed_templates:
+            sims4.commands.output('Failed to generate {}, sim creator: {}, missing tags: {}'.format(sim_template, sim_creator, missing_tags), _connection)
+    sims4.commands.output('Finished Sim Template Generation Test!', _connection)
 
 @sims4.commands.Command('filter.create_household_from_template', command_type=sims4.commands.CommandType.Automation)
 def create_household_from_filter(filter_template:TunableInstanceParam(sims4.resources.Types.SIM_TEMPLATE), count:int=1, _connection=None):

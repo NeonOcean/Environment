@@ -93,6 +93,9 @@ class NPCHostedSituationService(Service):
             return
         if services.current_zone_id() != active_household.home_zone_id:
             return
+        venue = services.get_current_venue()
+        if not venue.supports_welcome_wagon:
+            return
         minimum_time = interval_in_sim_minutes(NPCHostedSituationService.WELCOME_WAGON_TUNING.minimum_time_to_start_situation)
         now = services.time_service().sim_now
         possible_time = now + minimum_time

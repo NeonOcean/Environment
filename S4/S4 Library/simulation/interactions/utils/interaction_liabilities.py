@@ -6,6 +6,7 @@ from interactions.interaction_finisher import FinishingType
 from interactions.liability import Liability, ReplaceableLiability
 from postures import PostureEvent
 from sims4.utils import setdefault_callable
+import services
 import sims4.log
 logger = sims4.log.Logger('Liability', default_owner='rmccord')
 ANIMATION_CONTEXT_LIABILITY = 'AnimationContext'
@@ -166,8 +167,9 @@ class CancelAOPLiability(Liability):
         if self._release_callback is not None:
             self._release_callback(self._posture)
         sim = self._sim_ref()
-        if sim is not None and (sim.posture is self._posture and sim.posture.ownable) and (not self._posture.owning_interactions or len(self._posture.owning_interactions) == 1 and self._interaction_cancel_replacement_ref() in self._posture.owning_interactions):
-            if not sim.posture.unconstrained:
+        posture = sim.posture
+        if sim is not None and posture is self._posture and (posture.is_vehicle or posture.ownable and (not self._posture.owning_interactions or len(self._posture.owning_interactions) == 1 and self._interaction_cancel_replacement_ref() in self._posture.owning_interactions)):
+            if not posture.unconstrained:
                 sim.schedule_reset_asap(source=self._posture.target, cause="CancelAOPLiability released without changing the Sim's posture away from {}".format(self._posture))
             else:
                 sim.ui_manager.update_interaction_cancel_status(self.interaction_to_cancel)
@@ -291,6 +293,23 @@ class ReservationLiability(ReplaceableLiability):
     def release_reservations(self):
         for handler in self._reservation_handlers:
             handler.end_reservation()
+
+SITUATION_LIABILITY = 'SituationLiability'
+
+class SituationLiability(Liability):
+
+    def __init__(self, situation, **kwargs):
+        super().__init__(**kwargs)
+        self._situation = situation
+
+    def on_reset(self):
+        services.get_zone_situation_manager().destroy_situation_by_id(self._situation.id)
+
+    def release(self):
+        services.get_zone_situation_manager().destroy_situation_by_id(self._situation.id)
+
+    def should_transfer(self, continuation):
+        return True
 
 AUTONOMY_MODIFIER_LIABILITY = 'AutonomyModifierLiability'
 

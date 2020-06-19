@@ -221,7 +221,7 @@ class BuildAndForceSatisfyShooConstraintInteraction(SuperInteraction):
             return Nowhere('BuildAndForceSatisfyShooConstraintInteraction, Could not generate goals to exit a privacy region, Sim: {} Privacy Region: {}', sim, self._privacy.constraint.geometry.polygon)
             yield
         route = routing.Route(sim.routing_location, goals, routing_context=sim.routing_context)
-        plan_primitive = PlanRoute(route, sim, reserve_final_location=False)
+        plan_primitive = PlanRoute(route, sim, reserve_final_location=False, interaction=self)
         yield from element_utils.run_child(timeline, plan_primitive)
         max_distance = self._privacy._max_line_of_sight_radius*self._privacy._max_line_of_sight_radius*4
         nodes = []

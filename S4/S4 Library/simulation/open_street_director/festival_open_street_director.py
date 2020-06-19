@@ -207,16 +207,21 @@ class CleanupObjectsFestivalState(BaseFestivalState):
 
     def _destroy_layers(self):
         self._layers_to_destroy = list(self._conditional_layers)
-        for conditional_layer in tuple(self._layers_to_destroy):
-            self._owner.remove_layer_objects(conditional_layer)
+        if self._layers_to_destroy:
+            for conditional_layer in tuple(self._layers_to_destroy):
+                self._owner.remove_layer_objects(conditional_layer)
+        else:
+            self._next_state_or_destroy()
 
     def on_layer_objects_destroyed(self, conditional_layer):
         super().on_layer_objects_destroyed(conditional_layer)
         if self._owner._prerolling:
             return
         self._layers_to_destroy.remove(conditional_layer)
-        if self._layers_to_destroy:
-            return
+        if not self._layers_to_destroy:
+            self._next_state_or_destroy()
+
+    def _next_state_or_destroy(self):
         next_state = self._get_next_state()
         if next_state is not None:
             self._owner.change_state(next_state)
@@ -280,7 +285,7 @@ class BaseFestivalOpenStreetDirector(OpenStreetDirectorBase):
         self._current_state.on_state_deactivated()
         self._current_state = None
         if self._drama_node_uid is not None:
-            services.drama_scheduler_service().complete_node(self._drama_node_uid)
+            services.drama_scheduler_service().complete_node(self._drama_node_uid, from_shutdown=True)
         situation_manager = services.get_zone_situation_manager()
         for situation_id in self._festival_situations:
             situation_manager.destroy_situation_by_id(situation_id)

@@ -88,17 +88,15 @@ class FireBrigadeSituation(SituationComplexCommon):
 
     @classmethod
     def should_create_volunteer_brigade(cls):
+        if not cls.eligible_regions:
+            return False
         if random.random() > cls.brigade_chance:
             return False
-        elif cls.eligible_regions:
-            in_valid_region = False
-            for region_id in cls.eligible_regions:
-                if services.current_region() is Region.REGION_DESCRIPTION_TUNING_MAP.get(region_id):
-                    in_valid_region = True
-                    break
-            if not in_valid_region:
-                return False
-        return True
+        current_region = services.current_region()
+        for region_id in cls.eligible_regions:
+            if current_region is Region.REGION_DESCRIPTION_TUNING_MAP.get(region_id):
+                return True
+        return False
 
     def advance_to_post_fire(self):
         self._change_state(_FireOutState())

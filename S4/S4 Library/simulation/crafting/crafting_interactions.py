@@ -10,6 +10,7 @@ from carry.carry_interactions import PickUpObjectSuperInteraction
 from carry.carry_postures import CarryingObject
 from carry.carry_utils import SCRIPT_EVENT_ID_STOP_CARRY, SCRIPT_EVENT_ID_START_CARRY, PARAM_CARRY_TRACK
 from crafting import crafting_handlers
+from crafting.crafting_grab_serving_mixin import GrabServingMixin
 from crafting.crafting_ingredients import IngredientTuning, IngredientTooltipStyle
 from crafting.crafting_process import CraftingProcess, CRAFTING_QUALITY_LIABILITY
 from crafting.crafting_tunable import CraftingTuning
@@ -34,7 +35,7 @@ from interactions.utils.interaction_elements import ParentObjectElement
 from interactions.utils.interaction_liabilities import CANCEL_INTERACTION_ON_EXIT_LIABILITY, CancelInteractionsOnExitLiability
 from interactions.utils.loot import LootOperationList
 from interactions.utils.reserve import TunableReserveObject
-from objects.components.state import state_change, TunableStateValueReference, TunableStateTypeReference
+from objects.components.state import state_change, TunableStateValueReference
 from objects.components.types import CRAFTING_COMPONENT
 from objects.helpers.create_object_helper import CreateObjectHelper
 from objects.persistence_groups import PersistenceGroups
@@ -285,12 +286,20 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
             return super().has_valid_choice(target, context, **kwargs)
         orderer = context.sim
         crafter = target if target is not None and target.is_sim else orderer
+        if hasattr(cls, 'proxied_affordance'):
+            is_order_interaction = issubclass(cls.proxied_affordance, StartCraftingOrderSuperInteraction)
+        else:
+            is_order_interaction = issubclass(cls, StartCraftingOrderSuperInteraction)
+        resolver = cls.get_resolver(target=target, context=context)
+        multiplier = cls.price_multiplier.get_multiplier(resolver)
         if cls.favorite_recipe is not None:
             favorite_recipe = orderer.sim_info.get_favorite_recipe(cls.favorite_recipe.recipe_tags)
             if favorite_recipe is not None:
-                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, 0, paying_sim=orderer)
+                (_, discounted_price) = favorite_recipe.get_price(is_order_interaction, multiplier)
+                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, discounted_price, paying_sim=orderer)
         for recipe in cls.recipes:
-            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, 0, paying_sim=orderer)
+            (_, discounted_price) = recipe.get_price(is_order_interaction, multiplier)
+            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=orderer)
             if recipe_test_result.visible:
                 if not recipe_test_result.errors:
                     return True
@@ -803,7 +812,7 @@ class CraftingStepInteraction(CraftingMixerInteractionMixin, MixerInteraction):
         yield
 
 class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
-    INSTANCE_TUNABLES = {'crafting_type_requirement': TunableReference(services.recipe_manager(), class_restrictions=CraftingObjectType, allow_none=True, description="This specifies the crafting object type that is required for this interaction to work.This allows the crafting system to know what type of object the SI was expecting when it can't find that SI.")}
+    INSTANCE_TUNABLES = {'crafting_type_requirement': TunableReference(services.recipe_manager(), class_restrictions=CraftingObjectType, allow_none=True, description="This specifies the crafting object type that is required for this interaction to work.This allows the crafting system to know what type of object the SI was expecting when it can't find that SI."), 'force_final_product': Tunable(description="\n            Whether or not to force the final product to set as a result of this interaction completing.  \n            Normally this is governed by the phase when a crafting process is transferred to an ICO or creation of the \n            final product.\n              \n            Set this to true in cases where this doesn't make sense.\n            \n            e.g. Crafting on a cauldron places the process early on the cauldron which starts out as an ICO, \n            but at the completion of the last crafting SI, the cauldron itself 'becomes' a the final product.\n            ", tunable_type=bool, default=False)}
     _object_info = None
 
     def __init__(self, *args, crafting_process, phase, **kwargs):
@@ -946,6 +955,9 @@ class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
     def _do_perform_gen(self, timeline):
         result = yield from super()._do_perform_gen(timeline)
         if self._should_go_to_next_phase(result) and self.auto_goto_next_phase:
+            if self.force_final_product:
+                current_ico = self.process.current_ico
+                current_ico.crafting_component.set_final_product(True)
             return self._go_to_next_phase()
             yield
         return result
@@ -1100,8 +1112,8 @@ class CraftingPhaseCreateObjectInInventorySuperInteraction(CraftingPhaseCreateOb
     INSTANCE_TUNABLES = {'inventory_participant': TunableEnumEntry(description='\n                The participant type who has the inventory for the created\n                target to go into.\n                ', tunable_type=ParticipantType, default=ParticipantType.Actor), 'use_family_inventory': Tunable(description='\n                If checked, this object will be added to the family inventory \n                of the tuned sim participant. If the participant is not a sim,\n                this tunable will be ignored.', tunable_type=bool, default=False)}
 
     @classmethod
-    def _constraint_gen(cls, sim, target, participant_type=ParticipantType.Actor):
-        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+    def _constraint_gen(cls, sim, target, **kwargs):
+        for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, **kwargs):
             yield constraint
 
     @property
@@ -1318,9 +1330,9 @@ class CraftingPhaseTransferCraftingComponentSuperInteraction(CraftingPhaseStagin
         if self.process is not None and not self.process.is_complete:
             self.process.refund_payment()
 
-class GrabServingSuperInteraction(SuperInteraction):
+class GrabServingSuperInteraction(GrabServingMixin, SuperInteraction):
     GRAB_WHILE_STANDING_PENALTY = Tunable(description='\n        An additional penalty to apply to the constraint of grabbing a serving\n        of food while standing so Sims will prefer to sit before grabbing the\n        food if possible.\n        ', tunable_type=int, default=5)
-    INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(one_shot=True, no_content=True, default='no_content'), 'posture_type': TunableReference(description='\n            Posture to use to carry the object.\n            ', manager=services.posture_manager()), 'si_to_push': TunableReference(description='\n            SI to push after picking up the object. ATTENTION: Any ads\n            specified by the SI to push will bubble up and attach themselves to\n            the _Grab interaction!\n            ', manager=services.affordance_manager(), allow_none=True), 'transferred_stats': TunableList(description='\n            A list of stats to be copied over to the grabbed object.\n            ', tunable=TunableReference(manager=services.statistic_manager())), 'transferred_states': TunableList(description='\n            A list of states to be copied over to the grabbed object.\n            ', tunable=TunableStateTypeReference(pack_safe=True)), 'default_grab_serving_animation': TunableAnimationReference(description='\n             The animation to play for this interaction in the case that the\n             object we are grabbing is not in an inventory.  If the object is\n             in an inventory, we will dynamically generate the animation we\n             need to grab it.\n             '), 'use_linked_recipe_mapping': Tunable(description='\n            If enabled, when this interaction creates the recipe, instead of\n            using the base recipe it will look into the recipe linked\n            recipe tuning and find what recipes it can generate.\n            This is used to support multiple recipes generated from the same\n            multiserve.\n            i.e. Ice cream carton can generate bowls, milkshakes and cones.\n            ', tunable_type=bool, default=False), 'decrease_serving': Tunable(description='\n            If checked then we will decrease the number of servings by 1 when\n            this interaction is run.\n            ', tunable_type=bool, default=True), 'consume_affordances_override': TunableList(description='\n            A list of consume affordances to attempt to run on the consumable.\n            \n            This is a priority based list - the affordances will test in the\n            order they are tuned, running the first one that passes.\n            \n            If none pass, this reverts to using the consume affordance tuned on\n            the consumable.\n            ', tunable=TunableReference(description='\n                An affordance to test and potentially run on the consumable.\n                ', manager=services.affordance_manager(), class_restrictions=('SuperInteraction',), pack_safe=True)), 'use_base_recipe_on_setup': Tunable(description='\n            If enabled, the created serving will use the Base Object when being \n            set up. Otherwise, the recipe tuning will be used. In general, this \n            should stay checked. Unchecking this is useful for objects like the \n            Pit BBQ where a group serving is being pulled from another group \n            serving. The "Call to Meal" interactions will be forwarded correctly.\n            ', tunable_type=bool, default=True)}
+    INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(one_shot=True, no_content=True, default='no_content'), 'posture_type': TunableReference(description='\n            Posture to use to carry the object.\n            ', manager=services.posture_manager()), 'si_to_push': TunableReference(description='\n            SI to push after picking up the object. ATTENTION: Any ads\n            specified by the SI to push will bubble up and attach themselves to\n            the _Grab interaction!\n            ', manager=services.affordance_manager(), allow_none=True), 'default_grab_serving_animation': TunableAnimationReference(description='\n             The animation to play for this interaction in the case that the\n             object we are grabbing is not in an inventory.  If the object is\n             in an inventory, we will dynamically generate the animation we\n             need to grab it.\n             '), 'decrease_serving': Tunable(description='\n            If checked then we will decrease the number of servings by 1 when\n            this interaction is run.\n            ', tunable_type=bool, default=True), 'consume_affordances_override': TunableList(description='\n            A list of consume affordances to attempt to run on the consumable.\n            \n            This is a priority based list - the affordances will test in the\n            order they are tuned, running the first one that passes.\n            \n            If none pass, this reverts to using the consume affordance tuned on\n            the consumable.\n            ', tunable=TunableReference(description='\n                An affordance to test and potentially run on the consumable.\n                ', manager=services.affordance_manager(), class_restrictions=('SuperInteraction',), pack_safe=True))}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1363,7 +1375,7 @@ class GrabServingSuperInteraction(SuperInteraction):
                 yield op
 
     @flexmethod
-    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor):
+    def _constraint_gen(cls, inst, sim, target, participant_type=ParticipantType.Actor, **kwargs):
         yielded_geometry = False
         if target is None:
             return
@@ -1377,7 +1389,7 @@ class GrabServingSuperInteraction(SuperInteraction):
             yield constraint
         else:
             total_constraint = Anywhere()
-            for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type):
+            for constraint in super(SuperInteraction, cls)._constraint_gen(sim, target, participant_type=participant_type, **kwargs):
                 for inner_constraint in constraint:
                     if inner_constraint.geometry or inner_constraint.tentative:
                         yielded_geometry = True
@@ -1432,33 +1444,10 @@ class GrabServingSuperInteraction(SuperInteraction):
                 mutated_listeners.remove(self.on_mutated)
 
     def setup_crafted_object(self, crafted_object):
-        recipe = self._get_recipe()
-        crafting_process = self.target.get_crafting_process()
-        if not self.use_base_recipe_on_setup:
-            if self.use_linked_recipe_mapping:
-                crafting_process.recipe = recipe
-        crafting_process.setup_crafted_object(crafted_object, use_base_recipe=self.use_base_recipe_on_setup, is_final_product=True, owning_household_id_override=self.target.get_household_owner_id())
-        self.setup_transferred_stats(crafted_object)
-        self.setup_transferred_states(crafted_object)
-        crafting_process.apply_simoleon_value(crafted_object, single_serving=True)
+        self._setup_crafted_object(self._get_recipe(), self.target, crafted_object)
         if self.target.is_in_inventory():
             inventory_owner = self.target.get_inventory().owner
             inventory_owner.inventory_component.system_add_object(crafted_object)
-        for apply_state in reversed(recipe.final_product.apply_states):
-            crafted_object.set_state(apply_state.state, apply_state)
-        crafted_object.append_tags(recipe.apply_tags)
-
-    def setup_transferred_stats(self, crafted_object):
-        for stat in self.transferred_stats:
-            tracker = self.target.get_tracker(stat)
-            value = tracker.get_value(stat)
-            tracker = crafted_object.get_tracker(stat)
-            tracker.set_value(stat, value)
-
-    def setup_transferred_states(self, crafted_object):
-        for state in self.transferred_states:
-            state_value = self.target.get_state(state)
-            crafted_object.set_state(state, state_value)
 
     def on_mutated(self):
         if not self._has_handled_mutation:
@@ -1519,6 +1508,12 @@ class GrabServingSuperInteraction(SuperInteraction):
                 logger.error('{} cannot find the consume interaction from the final product {}.', self, self.created_target)
                 return (None, None)
             aop = AffordanceObjectPair(affordance, self.created_target, affordance, None)
+            target_parent = self.target.parent
+            preferred_locations = set()
+            if target_parent is not None:
+                for child in target_parent.get_all_children_gen():
+                    preferred_locations.add(child.id)
+            aop.interaction_parameters['preferred_posture_targets'] = preferred_locations
             return (aop, context)
 
         def grab_sequence(timeline):

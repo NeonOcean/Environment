@@ -250,5 +250,11 @@ class SchedulingZoneDirectorMixin:
             situation_ids.extend(situation_data_proto.situation_ids)
             self._situation_shifts_to_situation_ids[situation_shift] = situation_ids
 
+    def save_situation_shifts(self, proto):
+        self._save_situation_shifts(proto, None)
+
+    def load_situation_shifts(self, proto):
+        self._load_situation_shifts(proto, None)
+
 class SchedulingZoneDirector(FanZoneDirectorMixin, ObjectBasedSituationZoneDirectorMixin, SchedulingZoneDirectorMixin, ZoneDirectorBase):
     pass

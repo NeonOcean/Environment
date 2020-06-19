@@ -21,6 +21,12 @@ class _PortalTypeDataBase(HasTunableSingletonFactory, AutoFactoryInit):
     def lock_portal_on_use(self):
         return True
 
+    def get_additional_required_portal_flags(self, entry_location, exit_location):
+        return 0
+
+    def notify_in_use(self, user, portal_instance, portal_object):
+        pass
+
     def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
         pass
 

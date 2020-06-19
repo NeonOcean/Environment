@@ -3,6 +3,7 @@ from interactions import ParticipantType
 from interactions.base.super_interaction import SuperInteraction
 from objects import ALL_HIDDEN_REASONS
 from relationships.relationship_tests import TunableRelationshipTest
+from sims4.tuning.tunable import Tunable
 from situations.visiting.visiting_tuning import VisitingTuning
 from ui.ui_dialog_notification import UiDialogNotification
 import interactions
@@ -11,7 +12,7 @@ import sims4
 logger = sims4.log.Logger('VisitingInteractions', default_owner='camilogarcia')
 
 class RingDoorbellSuperInteraction(SuperInteraction):
-    INSTANCE_TUNABLES = {'_nobody_home_failure_notification': UiDialogNotification.TunableFactory(description='\n                Notification that displays if no one was home when they tried\n                to ring the doorbell.\n                '), '_bad_relationship_failure_notification': UiDialogNotification.TunableFactory(description="\n                Notification that displays if there wasn't high enough\n                relationship with any of the household members when they\n                tried to ring the doorbell.\n                "), '_success_notification': UiDialogNotification.TunableFactory(description='\n                Notification that displays if the user succeeded in becoming\n                greeted when they rang the doorbell.\n                '), '_relationship_test': TunableRelationshipTest(description='\n                The Relationship test ran between the sim running the\n                interaction and all of the npc family members to see if they\n                are allowed in.\n                ', locked_args={'subject': ParticipantType.Actor, 'target_sim': ParticipantType.TargetSim})}
+    INSTANCE_TUNABLES = {'_nobody_home_failure_notification': UiDialogNotification.TunableFactory(description='\n                Notification that displays if no one was home when they tried\n                to ring the doorbell.\n                '), '_bad_relationship_failure_notification': UiDialogNotification.TunableFactory(description="\n                Notification that displays if there wasn't high enough\n                relationship with any of the household members when they\n                tried to ring the doorbell.\n                "), '_success_notification': UiDialogNotification.TunableFactory(description='\n                Notification that displays if the user succeeded in becoming\n                greeted when they rang the doorbell.\n                '), '_relationship_test': TunableRelationshipTest(description='\n                The Relationship test ran between the sim running the\n                interaction and all of the npc family members to see if they\n                are allowed in.\n                ', locked_args={'subject': ParticipantType.Actor, 'target_sim': ParticipantType.TargetSim}), '_always_allow_greeting': Tunable(description='\n                If set to true, we will always allow the sim to be greeted.\n                ', tunable_type=bool, default=False)}
 
     def _get_owner_sim_infos(self):
         owner_household_or_travel_group = services.household_manager().get(services.current_zone().lot.owner_household_id)
@@ -23,6 +24,9 @@ class RingDoorbellSuperInteraction(SuperInteraction):
         return owner_sim_infos
 
     def _make_greeted(self):
+        resolver = self.get_resolver()
+        dialog = self._success_notification(self.sim, resolver)
+        dialog.show_dialog()
         services.get_zone_situation_manager().make_waiting_player_greeted(self.sim)
         self._try_make_always_welcomed(self.sim)
 
@@ -40,6 +44,9 @@ class RingDoorbellSuperInteraction(SuperInteraction):
         dialog.show_dialog()
 
     def _try_to_be_invited_in(self):
+        if self._always_allow_greeting:
+            self._make_greeted()
+            return
         owner_sim_infos = self._get_owner_sim_infos()
         if owner_sim_infos is None:
             self._show_nobody_home_dialog()
@@ -61,9 +68,6 @@ class RingDoorbellSuperInteraction(SuperInteraction):
         for occupant in occupants:
             relationship_resolver = DoubleSimResolver(self.sim.sim_info, occupant)
             if relationship_resolver(self._relationship_test):
-                resolver = self.get_resolver()
-                dialog = self._success_notification(self.sim, resolver)
-                dialog.show_dialog()
                 self._make_greeted()
                 return
         dialog = self._bad_relationship_failure_notification(self.sim, resolver)

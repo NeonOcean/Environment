@@ -1,15 +1,15 @@
-from _collections import defaultdict
-from contextlib import contextmanager
 import operator
 import random
-from protocolbuffers import SimObjectAttributes_pb2 as protocols
+from _collections import defaultdict
+from contextlib import contextmanager
+import sims4
 from buffs.appearance_modifier import appearance_modifier_handlers
+from buffs.appearance_modifier.appearance_modifier_type import AppearanceModifierType
 from cas.cas import apply_siminfo_override
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver
-from sims.outfits.outfit_enums import OutfitCategory, BodyTypeFlag
+from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from sims4.math import MAX_UINT32
-import sims4
 logger = sims4.log.Logger('Appearance')
 
 class ModifierInfo:
@@ -116,6 +116,7 @@ class AppearanceTracker:
                     for (index, mod_info) in enumerate(appearance_modifier_info_list):
                         mod_info.should_display = True if index == 0 else False
                 modifiers_to_apply.extend(appearance_modifier_info_list)
+        modifiers_to_apply.sort(key=lambda m: m.modifier.modifier_type == AppearanceModifierType.GENERATE_OUTFIT, reverse=True)
         self.apply_appearance_modifiers(modifiers_to_apply, self._sim_info)
 
     def active_displayed_appearance_modifiers(self):

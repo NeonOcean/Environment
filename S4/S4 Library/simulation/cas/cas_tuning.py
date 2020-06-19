@@ -7,12 +7,13 @@ from sims4.common import Pack
 from sims4.localization import TunableLocalizedStringFactory, TunableLocalizedString
 from sims4.resources import Types
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
-from sims4.tuning.tunable import TunableEnumEntry, TunableTuple, TunableList, TunableMapping, HasTunableReference, Tunable, TunableVariant, TunablePackSafeReference, OptionalTunable, TunableEnumSet, TunableEnumFlags, TunableSet, TunableResourceKey
+from sims4.tuning.tunable import TunableEnumEntry, TunableTuple, TunableList, TunableMapping, HasTunableReference, Tunable, TunableVariant, TunablePackSafeReference, OptionalTunable, TunableEnumSet, TunableEnumFlags, TunableSet, TunableResourceKey, TunableReference, TunableRange
 from sims4.tuning.tunable_base import ExportModes, GroupNames
 from tag import TunableTag
 from tutorials.tutorial_tip import TutorialTipUiElement
 import enum
 import services
+import sims4
 
 class CASContextCriterion(TunableVariant):
 
@@ -53,6 +54,10 @@ class CASAddSimAction(enum.Int):
     ACTION_GENETICS = 3
     ACTION_GALLERY = 4
     ACTION_LIBRARY = 5
+    ACTION_STORY = 6
+
+class CASStoriesTuning:
+    CAS_STORIES = TunableTuple(description='\n            Tuning for the CAS Stories sim-creation flow.\n            ', questions_per_pack=TunableMapping(description='\n                Mapping between the number of packs available and the number of\n                base game questions and questions per pack that should be asked.\n                ', key_type=Tunable(description='\n                    The number of available packs.\n                    ', tunable_type=int, default=0), value_type=TunableTuple(description='\n                    The number of questions that should be asked.\n                    ', base_game_questions=Tunable(description='\n                        The number of base game questions to ask.\n                        ', tunable_type=int, default=0), per_pack_questions=Tunable(description='\n                        The number of pack questions to ask per pack.\n                        ', tunable_type=int, default=0), export_class_name='CasStoriesQuestionCountTuple'), tuple_name='CasStoriesQuestionsPerPackKeyValue'), funds_traits=TunableMapping(description='\n                Mapping between specific traits and the amount of starting\n                household funds to give to a sim with that trait.\n                ', key_type=TunableReference(description='\n                    Reference to the trait.\n                    ', manager=services.get_instance_manager(Types.TRAIT)), value_type=Tunable(description='\n                    The household starting funds.\n                    ', tunable_type=int, default=0), tuple_name='CasStoriesFundsPerTraitKeyValue'), additional_sims_funds_percentage=TunableRange(description='\n                If additional CAS Stories sims are added to a household, this is\n                the percentage of their normal funding to add to the household\n                funds as additonal funding. For instance, if we have 1 sim with\n                a 10,000 simoleon trait and a second sim with a 5,000 simoleon\n                trait and this is tuned to .5, the resulting household income\n                would be 10,000 + .5 * 5,000 = 12,500.\n                ', tunable_type=float, default=0.75, minimum=0, maximum=1), silouetted_sim_info=TunableResourceKey(description='\n                The SimInfo file to use for the silouetted sim in CAS Stories.\n                ', default=None, resource_types=(sims4.resources.Types.SIMINFO,)), export_modes=ExportModes.ClientBinary, export_class_name='CasStoriesTuning')
 
 class CASTuning:
     CAS_SPECIES_PAINT_POSES = TunableMapping(description='\n        A mapping of species type to data that is required for the paint pose ui\n        ', key_type=TunableEnumEntry(description='\n            The species type that this entry applies to.\n            ', tunable_type=SpeciesExtended, default=SpeciesExtended.HUMAN, invalid_enums=(SpeciesExtended.INVALID,)), value_type=TunableList(description='\n            A list of CasPaintPostTuples\n            ', tunable=TunableTuple(description='\n                Data required for each UI Paint pose button.\n                ', icon=TunableIcon(description='\n                    Icon to be displayed on the button for the pose\n                    ', tuning_group=GroupNames.UI), icon_selected=TunableIcon(description='\n                    Icon to be displayed on the button when the pose button is selected\n                    ', tuning_group=GroupNames.UI), pose=TunableEnumEntry(description='\n                    The pose to play when the button is pressed\n                    ', tunable_type=CASPaintPose, default=CASPaintPose.NONE), export_class_name='CasPaintPoseTuple')), export_modes=ExportModes.ClientBinary, tuple_name='CasPaintPoseKeyValue')

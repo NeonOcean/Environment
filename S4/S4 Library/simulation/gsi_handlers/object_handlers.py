@@ -88,7 +88,7 @@ with object_manager_schema.add_has_many('object_relationships', GsiGridSchema) a
     sub_schema.add_field('simValue', label='Sim', width=0.25, unique_field=True)
     sub_schema.add_field('relationshipValue', label='Relationship Value', width=0.25)
     sub_schema.add_field('relationshipStatInfo', label='Relationship Stat Info')
-with object_manager_schema.add_has_many('portal_lock', GsiGridSchema) as sub_schema:
+with object_manager_schema.add_has_many('locking_component', GsiGridSchema) as sub_schema:
     sub_schema.add_field('lock_type', label='Lock Type', width=0.5)
     sub_schema.add_field('lock_priority', label='Lock Priority', width=0.25)
     sub_schema.add_field('lock_side', label='Lock Side', width=0.25)
@@ -270,17 +270,17 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
                                                     inv_entry['stack_sort_order'] = obj.get_stack_sort_order(inspect_only=True)
                                                     inv_entry['hidden'] = inventory.is_object_hidden(obj)
                                                     ret_dict['inventory'].append(inv_entry)
-                                            ret_dict['portal_lock'] = []
-                                            portal_locking_component = cur_obj.portal_locking_component
-                                            if portal_locking_component is not None:
-                                                for lock_data in portal_locking_component.lock_datas.values():
+                                            ret_dict['locking_component'] = []
+                                            locking_component = cur_obj.get_locking_component()
+                                            if locking_component is not None:
+                                                for lock_data in locking_component.lock_datas.values():
                                                     inv_entry = {}
                                                     inv_entry['lock_type'] = str(lock_data.lock_type)
                                                     inv_entry['lock_priority'] = str(lock_data.lock_priority)
                                                     inv_entry['lock_side'] = str(lock_data.lock_sides)
                                                     inv_entry['should_persist'] = lock_data.should_persist
                                                     inv_entry['exceptions'] = lock_data.get_exception_data()
-                                                    ret_dict['portal_lock'].append(inv_entry)
+                                                    ret_dict['locking_component'].append(inv_entry)
                                             ret_dict['awareness'] = []
                                             awareness_scores = cur_obj.awareness_scores
                                             if awareness_scores is not None:
@@ -494,17 +494,17 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
                     inv_entry['stack_sort_order'] = obj.get_stack_sort_order(inspect_only=True)
                     inv_entry['hidden'] = inventory.is_object_hidden(obj)
                     ret_dict['inventory'].append(inv_entry)
-            ret_dict['portal_lock'] = []
-            portal_locking_component = cur_obj.portal_locking_component
-            if portal_locking_component is not None:
-                for lock_data in portal_locking_component.lock_datas.values():
+            ret_dict['locking_component'] = []
+            locking_component = cur_obj.get_locking_component()
+            if locking_component is not None:
+                for lock_data in locking_component.lock_datas.values():
                     inv_entry = {}
                     inv_entry['lock_type'] = str(lock_data.lock_type)
                     inv_entry['lock_priority'] = str(lock_data.lock_priority)
                     inv_entry['lock_side'] = str(lock_data.lock_sides)
                     inv_entry['should_persist'] = lock_data.should_persist
                     inv_entry['exceptions'] = lock_data.get_exception_data()
-                    ret_dict['portal_lock'].append(inv_entry)
+                    ret_dict['locking_component'].append(inv_entry)
             ret_dict['awareness'] = []
             awareness_scores = cur_obj.awareness_scores
             if awareness_scores is not None:

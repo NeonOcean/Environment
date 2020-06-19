@@ -55,7 +55,7 @@ class UiTextInput(HasTunableSingletonFactory, AutoFactoryInit):
     def min_length(self):
         return self.length_restriction.min_length
 
-    def build_msg(self, dialog, msg, name, text_input_overrides=None, additional_tokens=()):
+    def build_msg(self, dialog, msg, name, text_input_overrides=None, additional_tokens=(), max_value=None, invalid_max_tooltip=None, min_value=None, invalid_min_tooltip=None):
         initial_value = self.initial_value
         if text_input_overrides is not None:
             if name not in text_input_overrides:
@@ -71,4 +71,12 @@ class UiTextInput(HasTunableSingletonFactory, AutoFactoryInit):
             text_input_msg.title = dialog._build_localized_string_msg(self.title, *additional_tokens)
         if self.restricted_characters is not None:
             text_input_msg.restricted_characters = dialog._build_localized_string_msg(self.restricted_characters, *additional_tokens)
+        if max_value is not None:
+            text_input_msg.max_value = int(max_value)
+        if invalid_max_tooltip is not None:
+            text_input_msg.input_invalid_max_tooltip = dialog._build_localized_string_msg(invalid_max_tooltip, *additional_tokens)
+        if min_value is not None:
+            text_input_msg.min_value = int(min_value)
+        if invalid_min_tooltip is not None:
+            text_input_msg.input_invalid_min_tooltip = dialog._build_localized_string_msg(invalid_min_tooltip, *additional_tokens)
         self.length_restriction.build_msg(dialog, text_input_msg, *additional_tokens)

@@ -1,6 +1,7 @@
 from protocolbuffers import GameplaySaveData_pb2
 from apartments.landlord_tuning import LandlordTuning
 from distributor.shared_messages import IconInfoData
+from event_testing.resolver import SingleSimResolver
 from relationships.relationship_track import RelationshipTrack
 from sims4.common import Pack
 from sims4.service_manager import Service
@@ -72,6 +73,20 @@ class LandlordService(Service):
         plex_service = services.get_plex_service()
         households = {services.owning_household_of_active_lot(), services.active_household()}
         households.discard(None)
+
+        def test_household(household):
+            if household is None:
+                return False
+            tests = LandlordTuning.HOUSEHOLD_LANDLORD_EXCEPTION_TESTS
+            if not tests:
+                return True
+            sim_info = next(household.sim_info_gen(), None)
+            if sim_info is None:
+                return False
+            resolver = SingleSimResolver(sim_info)
+            return tests.run_tests(resolver)
+
+        households = [household for household in households if test_household(household)]
         if any(plex_service.is_zone_a_plex(household.home_zone_id) for household in households):
             landlord_sim_info = self.get_landlord_sim_info()
             if landlord_sim_info is None:

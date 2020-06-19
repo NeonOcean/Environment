@@ -75,7 +75,7 @@ class ZoneModifierService(Service):
                 if data.execute_on_removal:
                     if data.zone_modifier in removed_modifiers:
                         self._on_scheduled_alarm(None, schedule_entry, None)
-        instanced_sims = frozenset(services.sim_info_manager().instanced_sims_on_active_lot_gen())
+        instanced_sims = frozenset(services.sim_info_manager().instanced_sims_on_active_lot_gen(include_spawn_point=True))
         for sim in instanced_sims:
             loot_resolver = SingleSimResolver(sim.sim_info)
             loots_to_apply = set()

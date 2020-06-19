@@ -2,6 +2,8 @@ from element_utils import build_critical_section_with_finally
 from reservation.reservation_result import ReservationResult
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableFactory
 from singletons import DEFAULT
+import sims4
+logger = sims4.log.Logger('ReservationHandler', default_owner='miking')
 
 class _ReservationHandler(HasTunableFactory, AutoFactoryInit):
 
@@ -37,8 +39,10 @@ class _ReservationHandler(HasTunableFactory, AutoFactoryInit):
             return ReservationResult.TRUE
         result = self.may_reserve(_from_reservation_call=True)
         if not result:
+            logger.warn('begin_reservation() called on target {} but may_reserve() failed. {} ', self._target, result)
             return result
-        return self._target.add_reservation_handler(self)
+        self._target.add_reservation_handler(self)
+        return ReservationResult.TRUE
 
     def do_reserve(self, sequence=()):
         return build_critical_section_with_finally(self.begin_reservation, sequence, self.end_reservation)

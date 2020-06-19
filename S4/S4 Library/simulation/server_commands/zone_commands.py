@@ -4,6 +4,11 @@ from sims4.utils import create_csv
 import services
 import sims4.commands
 
+@sims4.commands.Command('zone.current_region')
+def current_region(_connection=None):
+    current_region = services.current_region()
+    sims4.commands.output(f'Current Region: {current_region}', _connection)
+
 @sims4.commands.Command('zone.loading_screen_animation_finished', command_type=sims4.commands.CommandType.Live)
 def loading_screen_animation_finished(_connection=None):
     services.current_zone().on_loading_screen_animation_finished()

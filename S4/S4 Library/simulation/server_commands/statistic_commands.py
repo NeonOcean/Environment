@@ -90,20 +90,20 @@ def show_change(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, 
         sims4.commands.output('No sim or stat type for stats.show_change.', _connection)
 
 @sims4.commands.Command('stats.fill_commodities', command_type=sims4.commands.CommandType.Cheat)
-def fill_commodities(opt_sim:OptionalTargetParam=None, visible_only:bool=True, _connection=None):
+def set_commodities_to_best_values(opt_sim:OptionalTargetParam=None, visible_only:bool=True, _connection=None):
     sim = get_optional_target(opt_sim, _connection)
     if sim is not None:
         sims4.commands.output('Setting all motives on the current sim to full.', _connection)
         if sim.commodity_tracker is not None:
-            sim.commodity_tracker.set_all_commodities_to_max(visible_only=visible_only)
+            sim.commodity_tracker.set_all_commodities_to_best_value(visible_only=visible_only)
 
 @sims4.commands.Command('stats.fill_commodities_household', command_type=sims4.commands.CommandType.Cheat)
-def fill_commodities_household(visible_only:bool=True, _connection=None):
+def set_commodities_to_best_values_household(visible_only:bool=True, _connection=None):
     tgt_client = services.client_manager().get(_connection)
     sims4.commands.output('Setting all motives on all household sims to full.', _connection)
     for sim_info in tgt_client.selectable_sims:
         if sim_info.commodity_tracker is not None:
-            sim_info.commodity_tracker.set_all_commodities_to_max(visible_only=visible_only)
+            sim_info.commodity_tracker.set_all_commodities_to_best_value(visible_only=visible_only)
 
 @sims4.commands.Command('stats.tank_commodities')
 def tank_commodities(opt_sim:OptionalTargetParam=None, _connection=None):
@@ -152,7 +152,9 @@ def add_statistic_to_tracker(stat_type:TunableInstanceParam(sims4.resources.Type
     target = get_optional_target(opt_target, _connection)
     if target is not None and stat_type is not None:
         tracker = target.get_tracker(stat_type)
-        tracker.add_statistic(stat_type)
+        stat = tracker.add_statistic(stat_type)
+        if stat is None:
+            sims4.commands.output('Stat not added to tracker', _connection)
     else:
         sims4.commands.output('No target for stats.add_stat_to_tracker. Params: stat_name, optional target', _connection)
 
@@ -360,20 +362,29 @@ def set_commodity_percent(stat_type:TunableInstanceParam(sims4.resources.Types.S
     else:
         sims4.commands.output('Unable to set Commodity - invalid arguments or sim info has no commodity tracker.', _connection)
 
-@sims4.commands.Command('stats.fill_all_sim_commodities_except')
-def fill_all_sim_commodities_except(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), opt_sim:OptionalTargetParam=None, _connection=None):
+@sims4.commands.Command('stats.set_commodity_best_value')
+def set_commodity_best_value(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), opt_sim:OptionalSimInfoParam=None, _connection=None):
+    sim_info = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection)
+    tracker = sim_info.get_tracker(stat_type)
+    if sim_info is not None and stat_type is not None and tracker is not None:
+        tracker.set_value(stat_type, stat_type.best_value)
+    else:
+        sims4.commands.output('Unable to set commodity for stats.set_commodity_best_value', _connection)
+
+@sims4.commands.Command('stats.set_all_sim_commodities_best_value_except', 'stats.fill_all_sim_commodities_except')
+def set_all_sim_commodities_best_value_except(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), opt_sim:OptionalTargetParam=None, _connection=None):
     if stat_type is not None:
         if opt_sim is not None:
             sim = get_optional_target(opt_sim, _connection)
             tracker = sim.get_tracker(stat_type)
             if sim is None or tracker is None:
-                sims4.commands.output('No valid target for stats.fill_all_sim_commodities_except', _connection)
+                sims4.commands.output('No valid target for stats.set_all_sim_commodities_best_value_except', _connection)
                 return
-            tracker.debug_set_all_to_max_except(stat_type)
+            tracker.debug_set_all_to_best_except(stat_type)
         else:
             for sim in services.sim_info_manager().instanced_sims_gen():
                 tracker = sim.get_tracker(stat_type)
-                tracker.debug_set_all_to_max_except(stat_type)
+                tracker.debug_set_all_to_best_except(stat_type)
     else:
         sims4.commands.output('Unable to set Commodity - commodity {} not found.'.format(stat_type.lower()), _connection)
 

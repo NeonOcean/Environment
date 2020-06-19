@@ -1,4 +1,6 @@
+import operator
 from event_testing.tests import TunableTestVariant
+from sims4.math import Operator
 from sims4.sim_irq_service import yield_to_irq
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
 from sims4.tuning.tunable import HasTunableReference, TunableList, TunableTuple, Tunable
@@ -17,9 +19,45 @@ class TestBasedScore(HasTunableReference, metaclass=HashedTunedInstanceMetaclass
     INSTANCE_TUNABLES = {'_scores': TunableList(description='\n            A list of tuned tests and accompanied scores. All successful tests\n            add the scores to an effective score. The effective score is used by\n            threshold tests.\n            ', tunable=TunableTuple(description='\n                A test and score.\n                ', test=TunableTestVariant(description='\n                    Pass this test to get the accompanied score.\n                    '), score=Tunable(description='\n                    Score you get for passing the test.\n                    ', tunable_type=float, default=1)))}
 
     @classmethod
+    def _tuning_loaded_callback(cls):
+        cls._positive_scores = list(score for score in cls._scores if score.score > 0)
+        cls._negative_scores = list(score for score in cls._scores if score.score < 0)
+        cls._negative_scores.sort(key=operator.attrgetter('score'))
+        cls._positive_scores.sort(key=operator.attrgetter('score'), reverse=True)
+        cls._total_positive_score = sum(score.score for score in cls._positive_scores)
+        cls._total_negative_score = sum(score.score for score in cls._negative_scores)
+
+    @classmethod
     def get_score(cls, resolver):
         yield_to_irq()
         return sum(test_pair.score for test_pair in cls._scores if resolver(test_pair.test))
+
+    @classmethod
+    def passes_threshold(cls, resolver, threshold):
+        direction = sims4.math.Operator.from_function(threshold.comparison).category
+        if direction is Operator.LESS:
+            current_score = sum(test_pair.score for test_pair in cls._positive_scores if resolver(test_pair.test))
+            available_score = cls._total_negative_score
+            remaining_scores = cls._negative_scores
+        elif direction is Operator.GREATER:
+            current_score = sum(test_pair.score for test_pair in cls._negative_scores if resolver(test_pair.test))
+            available_score = cls._total_positive_score
+            remaining_scores = cls._positive_scores
+        else:
+            return threshold.compare(cls.get_score(resolver))
+        if threshold.compare(current_score):
+            return True
+        for test_pair in remaining_scores:
+            available_score -= test_pair.score
+            if resolver(test_pair.test):
+                current_score += test_pair.score
+                if threshold.compare(current_score):
+                    return True
+                    if not threshold.compare(current_score + available_score):
+                        return False
+            elif not threshold.compare(current_score + available_score):
+                return False
+        return False
 
     @classmethod
     def debug_dump(cls, resolver, dump=logger.warn):

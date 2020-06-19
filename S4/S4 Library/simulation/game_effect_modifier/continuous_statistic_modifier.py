@@ -26,7 +26,7 @@ class ContinuousStatisticModifier(HasTunableSingletonFactory, BaseGameEffectModi
             return
         stat = sim_info.get_statistic(self.statistic)
         if stat is None:
-            stat = sim_info.add_statistic(self.statistic)
+            return
         stat.add_statistic_modifier(self.modifier_value)
         if isinstance(stat, Skill):
             sim_info.current_skill_guid = stat.guid64

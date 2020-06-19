@@ -30,10 +30,11 @@ class PremadeHouseholdTemplate(HouseholdTemplate):
             household.set_to_hidden()
         if household is not None:
             household.name = cls.__name__
+        household.premade_household_template_id = cls.guid64
         return household
 
     @classmethod
-    def apply_fixup_to_household(cls, household):
+    def apply_fixup_to_household(cls, household, premade_sim_infos):
         if cls._townie_street is not None:
             if household.home_zone_id:
                 logger.error('{} has Townie Street is tuned but household {} is not a townie household', cls, household)
@@ -43,3 +44,21 @@ class PremadeHouseholdTemplate(HouseholdTemplate):
                     logger.error('{} has invalid townie street: {}', cls, cls._townie_street)
                 else:
                     household.set_home_world_id(world_id)
+        if household.premade_household_template_id is not None:
+            logger.info('Premade household template fixup applied. Household id: {}, Template id: {}', household.id, household.premade_household_template_id)
+            household_template = cls._get_household_template_from_id(household.premade_household_template_id)
+            if household_template is not None:
+                tag_to_sim_info = {}
+                household_members = household_template.get_household_members()
+                for member in household_members:
+                    premade_sim_info = premade_sim_infos.get(member.sim_template)
+                    if premade_sim_info is not None:
+                        tag_to_sim_info[member.household_member_tag] = premade_sim_info
+                cls.set_household_relationships_by_tags(tag_to_sim_info, household)
+            household.premade_household_template_id = 0
+
+    @classmethod
+    def _get_household_template_from_id(cls, template_id):
+        template_manager = services.get_instance_manager(sims4.resources.Types.SIM_TEMPLATE)
+        household_template = template_manager.get(template_id)
+        return household_template

@@ -15,6 +15,7 @@ from sims4.tuning.tunable import HasTunableFactory, TunableEnumFlags, TunableEnu
 from tunable_multiplier import TunableMultiplier
 import distributor.fields
 import distributor.ops
+import enum
 import objects.components.types
 import services
 import sims4
@@ -22,6 +23,11 @@ import zone_types
 
 class CanvasType(DynamicEnumFlags):
     NONE = 0
+
+class PortraitType(enum.Int):
+    NONE = 0
+    AUTOGRAPH = 1
+    GRADUATION = 2
 
 logger = sims4.log.Logger('Canvas')
 
@@ -127,6 +133,11 @@ class CanvasComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
     def get_canvas_texture_effect(self):
         return self.painting_effect
 
+    def set_composite_image(self, resource_key, resource_key_type, resource_key_group, *args, **kwargs):
+        res_key = sims4.resources.Key(resource_key_type, resource_key, resource_key_group)
+        painting_state = PaintingState.from_key(res_key, PaintingState.REVEAL_LEVEL_MAX, False, 0)
+        self.painting_state = painting_state
+
 class FamilyPortraitComponent(CanvasComponent):
     FACTORY_TUNABLES = {'background_image': TunableResourceKey(description='\n            The background image for the family portrait.\n            ', resource_types=sims4.resources.CompoundTypes.IMAGE, default=None)}
 
@@ -144,9 +155,7 @@ class FamilyPortraitComponent(CanvasComponent):
 
     def set_composite_image(self, resource_key, resource_key_type, resource_key_group, no_op_version):
         if self._should_update_new_composite_image():
-            res_key = sims4.resources.Key(resource_key_type, resource_key, resource_key_group)
-            painting_state = PaintingState.from_key(res_key, PaintingState.REVEAL_LEVEL_MAX, False, 0)
-            self.painting_state = painting_state
+            super().set_composite_image(resource_key, resource_key_type, resource_key_group)
             self.no_op_version = no_op_version
         self.ignore_last_update_composite_image = False
 
@@ -184,7 +193,7 @@ class FamilyPortraitComponent(CanvasComponent):
         Distributor.instance().add_op_with_no_owner(op)
 
 class SimPortraitComponent(CanvasComponent):
-    FACTORY_TUNABLES = {'background_image': TunableResourceKey(description='\n            The background image for the portrait.\n            ', resource_types=sims4.resources.CompoundTypes.IMAGE, default=None), 'fame_autograph_signatures': TunableList(description='\n            A list of autograph signature ResourceKeys.\n            ', tunable=TunableResourceKey(description='\n                The autograph signature image.\n                ', resource_types=[sims4.resources.Types.TGA], default=None), unique_entries=True, minlength=1), 'composite_params': OptionalTunable(description='\n            The base (portrait) and overlay (signature) image parameters.\n            ', tunable=TunableTuple(base_scale_x=Tunable(description='\n                    Scale x of the base image.\n                    ', tunable_type=float, default=1.0), base_scale_y=Tunable(description='\n                    Scale y of the base image.\n                    ', tunable_type=float, default=1.0), base_offset_x=Tunable(description='\n                    Offset the x of the base image.\n                    ', tunable_type=float, default=0), base_offset_y=Tunable(description='\n                    Offset the y of the base image.\n                    ', tunable_type=float, default=0), overlay_scale_x=Tunable(description='\n                    Scale x of the overlay image.\n                    ', tunable_type=float, default=1.0), overlay_scale_y=Tunable(description='\n                    Scale y of the overlay image.\n                    ', tunable_type=float, default=1.0), overlay_offset_x=Tunable(description='\n                    Offset the x of the overlay image.\n                    ', tunable_type=float, default=0), overlay_offset_y=Tunable(description='\n                    Offset the y of the overlay image.\n                    ', tunable_type=float, default=0), technique=Tunable(description='\n                    The compositing technique, where 0 is the alpha overlay. \n                    See Client for options.\n                    ', tunable_type=int, default=0), overlay_color=TunableColor(description='\n                    Color of the overlay image.\n                    ')))}
+    FACTORY_TUNABLES = {'background_image': TunableResourceKey(description='\n            The background image for the portrait.\n            ', resource_types=sims4.resources.CompoundTypes.IMAGE, default=None), 'fame_autograph_signatures': TunableList(description='\n            A list of autograph signature ResourceKeys.\n            ', tunable=TunableResourceKey(description='\n                The autograph signature image.\n                ', resource_types=[sims4.resources.Types.TGA], default=None), unique_entries=True), 'composite_params': OptionalTunable(description='\n            The base (portrait) and overlay (signature) image parameters.\n            ', tunable=TunableTuple(base_scale_x=Tunable(description='\n                    Scale x of the base image.\n                    ', tunable_type=float, default=1.0), base_scale_y=Tunable(description='\n                    Scale y of the base image.\n                    ', tunable_type=float, default=1.0), base_offset_x=Tunable(description='\n                    Offset the x of the base image.\n                    ', tunable_type=float, default=0), base_offset_y=Tunable(description='\n                    Offset the y of the base image.\n                    ', tunable_type=float, default=0), overlay_scale_x=Tunable(description='\n                    Scale x of the overlay image.\n                    ', tunable_type=float, default=1.0), overlay_scale_y=Tunable(description='\n                    Scale y of the overlay image.\n                    ', tunable_type=float, default=1.0), overlay_offset_x=Tunable(description='\n                    Offset the x of the overlay image.\n                    ', tunable_type=float, default=0), overlay_offset_y=Tunable(description='\n                    Offset the y of the overlay image.\n                    ', tunable_type=float, default=0), technique=Tunable(description='\n                    The compositing technique, where 0 is the alpha overlay. \n                    See Client for options.\n                    ', tunable_type=int, default=0), overlay_color=TunableColor(description='\n                    Color of the overlay image.\n                    '))), 'portrait_type': TunableEnumEntry(tunable_type=PortraitType, default=PortraitType.AUTOGRAPH, invalid_enums=(PortraitType.NONE,))}
 
     def __init__(self, owner, *args, **kwargs):
         super().__init__(owner, *args, **kwargs)
@@ -209,9 +218,7 @@ class SimPortraitComponent(CanvasComponent):
             self.update_composite_image()
 
     def set_composite_image(self, resource_key, resource_key_type, resource_key_group, no_op_version):
-        res_key = sims4.resources.Key(resource_key_type, resource_key, resource_key_group)
-        painting_state = PaintingState.from_key(res_key, PaintingState.REVEAL_LEVEL_MAX, False, 0)
-        self.painting_state = painting_state
+        super().set_composite_image(resource_key, resource_key_type, resource_key_group)
         inventory_owner = self.owner.inventoryitem_component.last_inventory_owner
         if inventory_owner is not None:
             self.owner.get_inventory().visible_storage.distribute_owned_inventory_update_message(self.owner, inventory_owner)
@@ -219,7 +226,11 @@ class SimPortraitComponent(CanvasComponent):
             logger.error('SimPortraitComponent image {} somehow has no inventory owner', self.owner)
 
     def update_composite_image(self, force_rebuild_thumb=False):
-        thumb_url = 'img://thumbs/sims/b_0x{:016x}_x_{:d}'.format(self.sim_id, int(self.outfit_category))
+        if self.portrait_type == PortraitType.AUTOGRAPH:
+            thumb_url = 'img://thumbs/sims/b_0x{:016x}_x_{:d}'.format(self.sim_id, int(self.outfit_category))
+        elif self.portrait_type == PortraitType.GRADUATION:
+            robe_color = 'b'
+            thumb_url = 'img://thumbs/sims/d_0x{:016x}_x_{:s}'.format(self.sim_id, robe_color)
         composite_operations = [self._create_composite_operation_msg()]
         op = CompositeThumbnail(thumb_url, self.background_image.instance, self.owner.id, self.no_op_version, force_rebuild_thumb=force_rebuild_thumb, additional_composite_operations=composite_operations)
         Distributor.instance().add_op_with_no_owner(op)
@@ -233,8 +244,12 @@ class SimPortraitComponent(CanvasComponent):
             msg.base_scale_y = self.composite_params.base_scale_y
             msg.base_offset_x = self.composite_params.base_offset_x
             msg.base_offset_y = self.composite_params.base_offset_y
-            msg.overlay_scale_x = self.composite_params.overlay_scale_x
-            msg.overlay_scale_y = self.composite_params.overlay_scale_y
+            if self.portrait_type == PortraitType.GRADUATION:
+                msg.overlay_scale_x = 0
+                msg.overlay_scale_y = 0
+            else:
+                msg.overlay_scale_x = self.composite_params.overlay_scale_x
+                msg.overlay_scale_y = self.composite_params.overlay_scale_y
             msg.overlay_offset_x = self.composite_params.overlay_offset_x
             msg.overlay_offset_y = self.composite_params.overlay_offset_y
             msg.technique = self.composite_params.technique

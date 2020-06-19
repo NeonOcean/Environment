@@ -2,6 +2,7 @@ from collections import namedtuple
 import operator
 from native.routing.connectivity import Handle
 from objects.doors.door import Door
+from objects.doors.door_enums import VenueFrontdoorRequirement
 from plex.plex_enums import PlexBuildingType
 from routing.portals.portal_tuning import PortalFlags
 from sims4.service_manager import Service
@@ -23,6 +24,9 @@ class DoorConnectivityHandle(Handle):
         super().__init__(location, routing_surface)
         self.door = door
         self.is_front = is_front
+
+EXEMPT_DOOR_WORLD_DESCRIPTION_ID = 118767
+EXEMPT_DOOR_LOT_DESCRIPTION_ID = 118799
 
 class DoorService(Service):
     FRONT_DOOR_ALLOWED_PORTAL_FLAGS = TunableEnumFlags(description="\n        Door Service does a routability check to all doors from the lot's\n        arrival spawn point to find doors that are reachable without crossing\n        other doors.\n        \n        These flags are supplied to the routability check's PathPlanContext, to\n        tell it what portals are usable. For example, stair portals should be\n        allowed (e.g. for front doors off the ground level, or house is on a\n        foundation).\n        ", enum_type=PortalFlags)
@@ -89,13 +93,18 @@ class DoorService(Service):
 
     def _zone_requires_front_door(self):
         zone = services.current_zone()
-        if not zone.venue_service.venue.venue_requires_front_door:
+        venue = zone.venue_service.venue
+        requires_front_door = venue.venue_requires_front_door
+        if requires_front_door == VenueFrontdoorRequirement.NEVER:
             return False
-        if type(zone.venue_service.venue) is VenueTuning.RESIDENTIAL_VENUE_TYPE:
+        if requires_front_door == VenueFrontdoorRequirement.ALWAYS:
             return True
-        elif not services.travel_group_manager().is_current_zone_rented() and zone.lot.owner_household_id == 0:
-            return False
-        return True
+        if requires_front_door == VenueFrontdoorRequirement.OWNED_OR_RENTED:
+            if services.travel_group_manager().is_current_zone_rented():
+                return True
+            return zone.lot.owner_household_id != 0
+        logger.error('Current venue {} at Zone {} has front door requirement set to invalid value: {}', venue, zone, requires_front_door, owner='trevor')
+        return False
 
     def _choose_front_door(self, exterior_door_infos, preferred_door_id=None):
         if not self._zone_requires_front_door():
@@ -218,6 +227,8 @@ class DoorService(Service):
                     lot_description_id = services.get_lot_description_id(lot.lot_id, world_description_id)
                     neighborhood_id = current_zone.neighborhood_id
                     neighborhood_data = services.get_persistence_service().get_neighborhood_proto_buff(neighborhood_id)
+                    if False and EXEMPT_DOOR_WORLD_DESCRIPTION_ID == world_description_id and EXEMPT_DOOR_LOT_DESCRIPTION_ID == lot_description_id:
+                        continue
                     logger.error("Door isn't part of any plex. This will require WB fix. Door: {}, Lot desc id: {}, World desc id: {}. Neighborhood id: {}, Neighborhood Name: {}", door, lot_description_id, world_description_id, neighborhood_id, neighborhood_data.name)
                 else:
                     if front_zone_id == back_zone_id:

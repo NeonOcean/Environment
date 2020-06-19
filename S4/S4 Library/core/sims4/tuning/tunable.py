@@ -109,7 +109,7 @@ class Tunable(TunableBase):
                 logger.error('allow_empty is only allowed for tunable strings.')
         return export_dict
 
-    def load_etree_node(self, node=None, source=None, expect_error=False):
+    def load_etree_node(self, node, source, expect_error):
         if node is None:
             return self.default
         if node.text is None:
@@ -211,7 +211,7 @@ class TunableTuple(TunableBase):
             values.update(locked_args)
         return self._value_class(values)
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         value = {}
         tuned = set()
         mtg = get_manager()
@@ -231,7 +231,7 @@ class TunableTuple(TunableBase):
                             tunable_name = node.get(LoadingAttributes.Name, '<Unnamed>')
                             logger.error("Incorrectly matched tuning types found in tuning for {0} in {1}. Expected '{2}', got '{3}'", tunable_name, source, current_tunable_tag, child_node.tag)
                             logger.error('ATTRS 2: {}', node.items())
-                        tuplevalue = template.load_etree_node(node=child_node, source=source)
+                        tuplevalue = template.load_etree_node(child_node, source, expect_error)
                     value[name] = tuplevalue
                     tuned.add(name)
                 else:
@@ -322,8 +322,8 @@ class TunableFactory(TunableTuple):
             total_kwargs = dict(self._tuned_values, **kwargs)
             try:
                 return self.factory(*args, **total_kwargs)
-            except:
-                logger.error('Error invoking {}:', self)
+            except Exception as e:
+                logger.exception('Error invoking {}', self)
                 raise
 
         @property
@@ -491,8 +491,8 @@ class TunableSingletonFactory(TunableFactory):
         self._default = self.default()
         self._origin_value_map = None
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value is not None:
             constructed_value = value()
             if self._has_callback:
@@ -606,8 +606,8 @@ class TunableReferenceFactory(TunableFactory):
             self._default = None
         self.cache_key = '{}_{}'.format(manager.TYPE, id(self))
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value is not None and value.factory is not None:
             return value
 
@@ -696,7 +696,7 @@ class TunableVariant(TunableTuple):
                 export_dict[self.VARIANTNULLTAG] = [sub_dict]
         return export_dict
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         if node is None:
             return self.default
         value = None
@@ -729,7 +729,7 @@ class TunableVariant(TunableTuple):
                 else:
                     child_node = None
                 if value is None:
-                    value = template.load_etree_node(node=child_node, source=source)
+                    value = template.load_etree_node(child_node, source, expect_error)
                 if value is not None:
                     if template._has_callback:
                         if self._variant_map is None:
@@ -788,8 +788,8 @@ class TunableRange(Tunable):
         self.min = minimum
         self.max = maximum
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        value = super().load_etree_node(node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if self._convert_defined_values:
             converted_min = self._convert_to_value(self.min)
             converted_max = self._convert_to_value(self.max)
@@ -818,7 +818,7 @@ class TunableRange(Tunable):
         return export_dict
 
 class _TunableCollection(TunableBase):
-    __slots__ = ('_template', '_default')
+    __slots__ = ('_template', '_default', 'minlength')
 
     def __init__(self, tunable, description=None, minlength=None, maxlength=None, source_location=None, source_query=None, allow_none=False, **kwargs):
         super().__init__(description=description, **kwargs)
@@ -826,6 +826,7 @@ class _TunableCollection(TunableBase):
             source_location = '../' + source_location
         self._template = _to_tunable(tunable, source_location=source_location, source_query=source_query)
         self._has_callback |= self._template._has_callback
+        self.minlength = minlength
         if isinstance(tunable, TunableBase):
             self.cache_key = tunable.cache_key
         else:
@@ -835,7 +836,7 @@ class _TunableCollection(TunableBase):
     def _get_collection_types(self):
         raise NotImplementedError
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         (collection_type, collection_fn, final_type, is_final_node) = self._get_collection_types()
         if is_final_node(node):
             return self.default
@@ -858,7 +859,7 @@ class _TunableCollection(TunableBase):
                     if current_tunable_tag != child_node.tag:
                         logger.error("Incorrectly matched tuning types found in tuning for {0} in {1}. Expected '{2}', got '{3}'", tunable_name, source, current_tunable_tag, child_node.tag)
                         logger.error('ATTRS: {}'.format(child_node.items()))
-                    value = tunable_instance.load_etree_node(node=child_node, source=source)
+                    value = tunable_instance.load_etree_node(child_node, source, expect_error)
                 if False and not self.allow_none and value is None:
                     logger.error('None entry found in tunable list in {}.\nName: {}\nIndex: {}\nContent:{}', source, tunable_name, element_index, child_node)
                 else:
@@ -870,7 +871,7 @@ class _TunableCollection(TunableBase):
             except:
                 logger.exception('Error while parsing tuning in {0}:', source)
                 logger.error('Failed to load element for {0} (index {1}): {2}. Skipping.', tunable_name, element_index, child_node)
-        if False and self.minlength is not None and len(tunable_collection) < self.minlength:
+        if self.minlength is not None and len(tunable_collection) < self.minlength:
             logger.info('Collection {} in {} has fewer than the minimum number of entries.', source, tunable_name)
             raise TunableMinimumLengthError
         return final_type(tunable_collection)
@@ -988,8 +989,8 @@ class TunableMapping(TunableList):
             value = frozendict(dict_items)
         return value
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        value = super().load_etree_node(node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         tunable_name = node.get(LoadingAttributes.Name, '<UNKNOWN ITEM>')
         return self._process_dict_value(value, tunable_name, source)
 
@@ -1101,8 +1102,8 @@ class TunableEnumSet(TunableSet):
     def _export_default(self, value):
         return ','.join(e.name for e in value)
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        value = super().load_etree_node(node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if not self.allow_empty_set and len(value) <= 0:
             name = '<UNKNOWN ITEM>'
             if node is not None:
@@ -1152,8 +1153,8 @@ class TunableEnumFlags(TunableSet):
             logger.error('Error parsing enum flags for {}: No flags specified for {}', source, name)
         return flags
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        value = TunableSet.load_etree_node(self, node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = TunableSet.load_etree_node(self, node, source, expect_error)
         attrs = None
         if node is not None:
             attrs = node.items()
@@ -1176,8 +1177,8 @@ class TunableEnumItem(Tunable):
         super().__init__(str, default=None)
         self.cache_key = 'EnumItem'
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        enum_name = super().load_etree_node(node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        enum_name = super().load_etree_node(node, source, expect_error)
         enum_value = int(node.get(LoadingAttributes.EnumValue))
         return EnumItem(enum_name=enum_name, enum_value=enum_value)
 
@@ -1235,7 +1236,7 @@ class TunableReference(_TunableHasPackSafeMixin, Tunable):
         del export_dict[Attributes.Default]
         return export_dict
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         if sims4.core_services.defer_tuning_references:
             logger.callstack('Attempting to load a tunable reference before services have been started. Please mark this tunable as deferred. source: {}'.format(source), sims4.log.LEVEL_ERROR)
             value = None
@@ -1286,9 +1287,9 @@ class TunablePackSafeReference(TunableReference):
         super().__init__(*args, pack_safe=True, **kwargs)
         self.cache_key = '{}_{}'.format('TunablePackSafeReference', self._manager.TYPE.name)
 
-    def load_etree_node(self, *args, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         try:
-            return super().load_etree_node(*args, **kwargs)
+            return super().load_etree_node(node, source, expect_error)
         except UnavailablePackSafeResourceError:
             return self.default
 
@@ -1365,7 +1366,7 @@ class TunableResourceKeyReferenceBase(_TunableHasPackSafeMixin, Tunable):
             del export_dict[Attributes.Default]
         return export_dict
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         if node is None:
             return self.default
         if node.text is None:
@@ -1475,9 +1476,9 @@ class TunablePackSafeLotDescription(TunableLotDescription):
         super().__init__(*args, pack_safe=True, **kwargs)
         self.cache_key = '{}_{}'.format('TunablePackSafeLotDescription', self.definition_name)
 
-    def load_etree_node(self, *args, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         try:
-            return super().load_etree_node(*args, **kwargs)
+            return super().load_etree_node(node, source, expect_error)
         except UnavailablePackSafeResourceError:
             return self.default
 
@@ -1723,8 +1724,8 @@ class TunableResourceKey(_TunableHasPackSafeMixin, Tunable):
             export_dict[Attributes.AllowNone] = self._allow_none
         return export_dict
 
-    def load_etree_node(self, *args, **kwargs):
-        value = super().load_etree_node(*args, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if self.pack_safe and self.validate_pack_safe and not sims4.resources.does_key_exist(value):
             raise UnavailablePackSafeResourceError
         return value
@@ -1743,9 +1744,9 @@ class TunablePackSafeResourceKey(TunableResourceKey):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, pack_safe=True, **kwargs)
 
-    def load_etree_node(self, *args, **kwargs):
+    def load_etree_node(self, node, source, expect_error):
         try:
-            return super().load_etree_node(*args, **kwargs)
+            return super().load_etree_node(node, source, expect_error)
         except UnavailablePackSafeResourceError:
             return
 
@@ -1789,8 +1790,8 @@ class TunableOperator(TunableEnumEntry):
             self._default = None
         self.cache_key = 'TunableOperator_{}'.format(tunable_type.cache_key)
 
-    def load_etree_node(self, **kwargs):
-        value = super().load_etree_node(**kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         constructed_value = value.function
         return constructed_value
 
@@ -1816,8 +1817,8 @@ class TunableThreshold(TunableTuple):
             constructed_value = sims4.math.Threshold()
         return constructed_value
 
-    def load_etree_node(self, node=None, source=None, **kwargs):
-        value = super().load_etree_node(node=node, source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         return self._process_threshold_value(value, source)
 
     def invoke_callback(self, instance_class, tunable_name, source, value):
@@ -1859,8 +1860,8 @@ class TunableInterval(TunableSingletonFactory):
         else:
             super().__init__(lower_bound=tunable_type(default=default_lower, minimum=minimum, description='The lower bound of the interval.'), upper_bound=tunable_type(default=default_upper, maximum=maximum, description='The upper bound of the interval.'), description=description, **kwargs)
 
-    def load_etree_node(self, source=None, **kwargs):
-        value = super().load_etree_node(source=source, **kwargs)
+    def load_etree_node(self, node, source, expect_error):
+        value = super().load_etree_node(node, source, expect_error)
         if value.lower_bound is not None and value.upper_bound is not None and value.lower_bound > value.upper_bound:
             logger.error('Error in tunable interval: {0} > {1}, in instance {2}', value.lower_bound, value.upper_bound, source)
         return value

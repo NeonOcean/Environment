@@ -12,6 +12,8 @@ class CareerUnemployment(CareerKnowledgeMixin):
 
     @property
     def current_track_tuning(self):
+        if self._sim_info.household is None:
+            return self.CAREER_TRACK_UNEMPLOYED
         if any(household_sim.is_teen_or_younger and self._sim_info.sim_id in household_sim.genealogy.get_parent_sim_ids_gen() for household_sim in self._sim_info.household):
             return self.CAREER_TRACK_STAY_AT_HOME
         return self.CAREER_TRACK_UNEMPLOYED

@@ -50,7 +50,7 @@ class RoutingHandle(Handle):
     def _get_kwargs_for_clone(self, kwargs):
         kwargs.update(sim=self.sim, constraint=self.constraint, geometry=self.geometry, los_reference_point=self.los_reference_point, routing_surface_override=self.routing_surface, locked_params=self.locked_params)
 
-    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None, always_reject_invalid_goals=False):
+    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None, always_reject_invalid_goals=False, perform_los_check=True):
         force_multi_surface = relative_object is not None and (relative_object.force_multi_surface_constraints or relative_object.is_sim and relative_object.routing_surface != self.sim.routing_surface)
         if force_multi_surface or not not (self.constraint.multi_surface and for_source):
             routing_surfaces = self.constraint.get_all_valid_routing_surfaces(force_multi_surface=force_multi_surface)
@@ -92,7 +92,9 @@ class RoutingHandle(Handle):
         for routing_surface in routing_surfaces:
             if routing_surface is None:
                 continue
-            los_reference_pt = self.get_los_reference_point(routing_surface, force_multi_surface=force_multi_surface)
+            los_reference_pt = None
+            if perform_los_check:
+                los_reference_pt = self.get_los_reference_point(routing_surface, force_multi_surface=force_multi_surface)
             (surface_min_water_depth, surface_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface(routing_surface, wading_interval=wading_interval, min_water_depth=min_water_depth, max_water_depth=max_water_depth)
             goals = placement.generate_routing_goals_for_polygon(self.sim, self.geometry.polygon, routing_surface, orientation_restrictions, objects_to_ignore, flush_planner=self.constraint._flush_planner, los_reference_pt=los_reference_pt, max_points=max_goals, ignore_outer_penalty_amount=self.constraint._ignore_outer_penalty_threshold, single_goal_only=single_goal_only, los_routing_context=los_routing_context, all_blocking_edges_block_los=all_blocking_edges_block_los, provided_points=provided_points, min_water_depth=surface_min_water_depth, max_water_depth=surface_max_water_depth, terrain_tags=terrain_tags)
             if not goals:

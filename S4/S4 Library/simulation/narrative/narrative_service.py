@@ -32,6 +32,7 @@ class NarrativeService(Service):
 
     def __init__(self, *_, **__):
         self._active_narratives = {}
+        self._locked_narratives = set()
         self._completed_narratives = set()
         self._env_settings = {}
         self._narrative_aware_object_handler = None
@@ -96,6 +97,11 @@ class NarrativeService(Service):
         return self._active_narratives.items()
 
     @property
+    def locked_narratives(self):
+        narrative_tuning_manager = services.get_instance_manager(Types.NARRATIVE)
+        return tuple(narrative_tuning_manager.get(narrative_id) for narrative_id in self._locked_narratives)
+
+    @property
     def completed_narratives(self):
         return tuple(self._completed_narratives)
 
@@ -103,6 +109,8 @@ class NarrativeService(Service):
         narratives_to_end = set()
         narratives_to_start = set()
         for (narrative_cls, narrative_inst) in self._active_narratives.items():
+            if narrative_cls.guid64 in self._locked_narratives:
+                continue
             linked_narratives_to_start = narrative_inst.apply_progression_for_event(event, amount)
             if linked_narratives_to_start:
                 narratives_to_start.update(linked_narratives_to_start)
@@ -118,6 +126,8 @@ class NarrativeService(Service):
         narratives_to_end = set()
         narratives_to_start = set()
         for narrative in self._active_narratives:
+            if narrative.guid64 in self._locked_narratives:
+                continue
             links = narrative.narrative_links
             if event in links:
                 narratives_to_end.add(narrative)
@@ -130,7 +140,7 @@ class NarrativeService(Service):
         self._handle_narrative_updates(custom_keys=process_event_custom_keys)
 
     def start_narrative(self, narrative, do_handle_updates=True):
-        if narrative in self._active_narratives:
+        if narrative in self._active_narratives or narrative.guid64 in self._locked_narratives:
             return
         with services.conditional_layer_service().defer_conditional_layer_event_processing():
             for active_narrative in tuple(self._active_narratives):
@@ -142,6 +152,15 @@ class NarrativeService(Service):
             self._send_narrative_start_telemetry(narrative)
             if do_handle_updates:
                 self._handle_narrative_updates(custom_keys=(narrative,))
+
+    def lock_narrative(self, narrative):
+        self._locked_narratives.add(narrative.guid64)
+
+    def unlock_narrative(self, narrative):
+        self._locked_narratives.remove(narrative.guid64)
+
+    def is_narrative_locked(self, narrative):
+        return narrative.guid64 in self._locked_narratives
 
     def _handle_narrative_updates(self, custom_keys=(), immediate=False):
         services.get_event_manager().process_event(TestEvent.NarrativesUpdated, custom_keys=custom_keys)
@@ -186,7 +205,7 @@ class NarrativeService(Service):
                     self._env_settings[param] = setting_val
 
     def end_narrative(self, narrative, do_handle_updates=True):
-        if narrative not in self._active_narratives:
+        if narrative not in self._active_narratives and narrative.guid64 not in self._locked_narratives:
             return
         self._send_narrative_end_telemetry(narrative)
         del self._active_narratives[narrative]

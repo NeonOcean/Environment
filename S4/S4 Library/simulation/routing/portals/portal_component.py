@@ -3,7 +3,7 @@ from collections import namedtuple
 from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableList, OptionalTunable
 import sims4.utils
 from objects.components import Component, types, componentmethod_with_fallback, componentmethod
-from objects.components.portal_locking_component import PortalLockingComponent
+from objects.components.locking_components import PortalLockingComponent
 from routing import remove_portal
 from routing.portals.portal_animation_component import PortalAnimationComponent
 from routing.portals.portal_data import TunablePortalReference
@@ -108,6 +108,7 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         portal = self._portals.get(portal_id)
         if portal is not None:
             portal.traversal_type.add_portal_events(portal_id, actor, self.owner, time, route_pb)
+            portal.traversal_type.notify_in_use(actor, portal, self.owner)
 
     @componentmethod
     def get_portal_asm_params(self, portal_id, sim):

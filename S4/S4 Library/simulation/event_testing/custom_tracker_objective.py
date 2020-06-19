@@ -21,7 +21,8 @@ class TrackCommodity(HasTunableFactory, AutoFactoryInit):
         sim_info = self._event_data_tracker.owner_sim_info
         if sim_info is None:
             return False
-        self._commodity_tracker_handle = sim_info.commodity_tracker.create_and_add_listener(self.commodity_to_track, self.threshold, self.on_threshold_reached)
+        if self._commodity_tracker_handle is not None:
+            self._commodity_tracker_handle = sim_info.commodity_tracker.create_and_add_listener(self.commodity_to_track, self.threshold, self.on_threshold_reached)
         return True
 
     def clear(self):

@@ -22,6 +22,11 @@ class VFXMask(enum.IntFlags):
     MASK_PARENTING_SKILL = 16384
     MASK_CURSED = 32768
     MASK_SKILL_LEVEL_HIGH = 65536
+    MASK_WITCH_MOTES = 131072
+    MASK_SECRET_SOCIETY = 262144
+    MASK_SPRITE_LOW = 524288
+    MASK_SPRITE_MEDIUM = 1048576
+    MASK_SPRITE_HIGH = 2097152
 
 def notify_client_mask_update(new_active_sim_info):
     if new_active_sim_info is None:

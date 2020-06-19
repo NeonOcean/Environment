@@ -1,7 +1,7 @@
 import collections
 import functools
 import random
-from date_and_time import TimeSpan
+from date_and_time import TimeSpan, create_time_span
 from distributor.rollback import ProtocolBufferRollback
 from sims4.tuning.tunable import TunableList, Tunable, TunableFactory, TunableReference, TunableSingletonFactory, AutoFactoryInit, HasTunableSingletonFactory, HasTunableFactory, TunableEnumEntry
 from tunable_time import Days, TunableTimeOfDay
@@ -60,7 +60,7 @@ class WeeklySchedule(HasTunableFactory):
     def schedule_entry_data(**kwargs):
         return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of\n                the week to a start_time and duration.\n                ', tunable=ScheduleEntry.TunableFactory(schedule_entry_data=kwargs))}
 
-    def __init__(self, schedule_entries, start_callback=None, schedule_immediate=True, min_alarm_time_span=None, min_duration_remaining=None, early_warning_callback=None, early_warning_time_span=None, extra_data=None, init_only=False, required_start_time=None, schedule_shift_type=CareerShiftType.ALL_DAY):
+    def __init__(self, schedule_entries, start_callback=None, schedule_immediate=True, min_alarm_time_span=None, min_duration_remaining=None, early_warning_callback=None, early_warning_time_span=None, extra_data=None, init_only=False, required_start_time=None, schedule_shift_type=CareerShiftType.ALL_DAY, cross_zone=False):
         self._schedule_entry_tuning = schedule_entries
         self._schedule_entries = set()
         now = services.time_service().sim_now
@@ -82,6 +82,7 @@ class WeeklySchedule(HasTunableFactory):
         self._early_warning_callback = early_warning_callback
         self._early_warning_time_span = early_warning_time_span
         self._early_warning_alarm_handle = None
+        self._cross_zone = cross_zone
         self._cooldown_time = None
         if not init_only:
             self.schedule_next_alarm(schedule_immediate=schedule_immediate, min_duration_remaining=min_duration_remaining)
@@ -112,7 +113,7 @@ class WeeklySchedule(HasTunableFactory):
             if time_span == date_and_time.TimeSpan.ZERO:
                 if schedule_immediate:
                     time_span = date_and_time.TimeSpan.ONE
-            self._alarm_handle = alarms.add_alarm(self, time_span, self._alarm_callback)
+            self._alarm_handle = alarms.add_alarm(self, time_span, self._alarm_callback, cross_zone=self._cross_zone)
             self._alarm_data[self._alarm_handle] = best_work_data
             if self._early_warning_callback is not None:
                 if self._early_warning_time_span is not None:
@@ -120,7 +121,7 @@ class WeeklySchedule(HasTunableFactory):
                         warning_time_span = time_span - self._early_warning_time_span
                         if warning_time_span > date_and_time.TimeSpan.ZERO:
                             logger.assert_log(self._early_warning_alarm_handle is None, 'Scheduler is setting an early warning alarm when the previous one has not fired.', owner='tingyul')
-                            self._early_warning_alarm_handle = alarms.add_alarm(self, warning_time_span, self._early_warning_alarm_callback)
+                            self._early_warning_alarm_handle = alarms.add_alarm(self, warning_time_span, self._early_warning_alarm_callback, cross_zone=self._cross_zone)
 
     def _random_alarm_callback(self, handle, alarm_data):
         self._random_alarm_handles.remove(handle)
@@ -143,11 +144,25 @@ class WeeklySchedule(HasTunableFactory):
                     available_time_span = alarm_data.end_time - current_time
                     random_time_span = TimeSpan(random.randint(0, available_time_span.in_ticks()))
                     random_callback = functools.partial(self._random_alarm_callback, alarm_data=alarm_data)
-                    cur_handle = alarms.add_alarm(self, random_time_span, random_callback)
+                    cur_handle = alarms.add_alarm(self, random_time_span, random_callback, cross_zone=self._cross_zone)
                     self._random_alarm_handles.append(cur_handle)
                 else:
                     self._start_callback(self, alarm_data, self.extra_data)
         self.schedule_next_alarm(schedule_immediate=False)
+
+    def time_since_last_scheduled_event(self, cur_time):
+        cur_time_of_week = cur_time.absolute_days() % date_and_time.DAYS_PER_WEEK
+
+        def get_elapsed_time(event_end_time):
+            if event_end_time <= cur_time_of_week:
+                return cur_time_of_week - event_end_time
+            else:
+                return cur_time_of_week + date_and_time.DAYS_PER_WEEK - event_end_time
+
+        if len(self._schedule_entries) == 0:
+            return
+        shortest_elapsed_time = min(get_elapsed_time(e.end_time.absolute_days()) for e in self._schedule_entries)
+        return create_time_span(days=shortest_elapsed_time)
 
     def time_until_next_scheduled_event(self, current_date_and_time, schedule_immediate=False, min_duration_remaining=None):
         best_time = None

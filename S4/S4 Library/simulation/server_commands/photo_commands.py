@@ -1,6 +1,6 @@
 from crafting.photography import Photography
 from crafting.photography_enums import CameraMode, CameraQuality, PhotoStyleType, PhotoSize, PhotoOrientation
-from event_testing.resolver import SingleSimResolver
+from event_testing import test_events
 from interactions.interaction_finisher import FinishingType
 import services
 import sims4.commands
@@ -8,6 +8,7 @@ logger = sims4.log.Logger('Photography')
 
 @sims4.commands.Command('photography.get_photo_list', command_type=sims4.commands.CommandType.Live)
 def get_photo_list(*photo_list:str, _connection=None):
+    services.get_event_manager().process_event(test_events.TestEvent.ExitedPhotoMode)
     if photo_list:
         photo_service = services.get_photography_service()
         photo_iter = iter(photo_list)
@@ -39,7 +40,11 @@ def get_photo_list(*photo_list:str, _connection=None):
             photo_size = PhotoSize(photo_data[4])
             photo_orientation = PhotoOrientation(photo_data[5])
             time_stamp = photo_data[6]
-            Photography.create_photo_from_photo_data(camera_mode, camera_quality, photographer_sim_id, target_obj_id, target_sim_ids, res_key, photo_style, photo_size, photo_orientation, photographer_sim_info, photographer_sim, time_stamp)
+            if len(photo_data) > 7:
+                selected_mood_param = photo_data[7]
+            else:
+                selected_mood_param = None
+            Photography.create_photo_from_photo_data(camera_mode, camera_quality, photographer_sim_id, target_obj_id, target_sim_ids, res_key, photo_style, photo_size, photo_orientation, photographer_sim_info, photographer_sim, time_stamp, selected_mood_param)
         if user_took_photo:
             photo_service.apply_loot_for_photo(photographer_sim_info)
         elif camera_mode is CameraMode.PAINT_BY_REFERENCE:

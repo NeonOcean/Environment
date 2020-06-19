@@ -1,9 +1,3 @@
-import collections
-import operator
-from protocolbuffers import Commodities_pb2
-from protocolbuffers import SimObjectAttributes_pb2 as protocols
-from protocolbuffers.Consts_pb2 import MSG_SIM_SKILL_UPDATE
-from protocolbuffers.DistributorOps_pb2 import Operation
 from distributor.ops import GenericProtocolBufferOp
 from distributor.shared_messages import add_object_message, IconInfoData
 from distributor.system import Distributor
@@ -13,6 +7,12 @@ from interactions import ParticipantType
 from interactions.utils.tunable_icon import TunableIcon
 from interactions.utils.tunable_provided_affordances import TunableProvidedAffordances
 from objects.mixins import ProvidedAffordanceData
+from protocolbuffers import Commodities_pb2
+from protocolbuffers import SimObjectAttributes_pb2 as protocols
+from protocolbuffers.Consts_pb2 import MSG_SIM_SKILL_UPDATE
+from protocolbuffers.DistributorOps_pb2 import Operation
+from protocolbuffers.Localization_pb2 import LocalizedStringToken
+from rewards.reward_enums import RewardDestination
 from sims.sim_info_types import Age
 from sims.sim_info_utils import apply_super_affordance_commodity_flags, remove_super_affordance_commodity_flags
 from sims4.localization import TunableLocalizedString
@@ -20,7 +20,7 @@ from sims4.math import Threshold
 from sims4.tuning.dynamic_enum import DynamicEnum
 from sims4.tuning.geometric import TunableVector2, TunableCurve
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
-from sims4.tuning.tunable import Tunable, TunableList, TunableEnumEntry, TunableMapping, TunableSet, TunableTuple, OptionalTunable, TunableInterval, TunableReference, TunableRange, HasTunableReference, TunablePackSafeReference
+from sims4.tuning.tunable import Tunable, TunableList, TunableEnumEntry, TunableMapping, TunableSet, TunableTuple, OptionalTunable, TunableInterval, TunableReference, TunableRange, HasTunableReference, TunablePackSafeReference, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory
 from sims4.tuning.tunable_base import ExportModes, GroupNames
 from sims4.utils import classproperty, flexmethod, constproperty
 from singletons import DEFAULT
@@ -31,9 +31,11 @@ from tag import TunableTag
 from ui.ui_dialog import UiDialogResponse
 from ui.ui_dialog_notification import UiDialogNotification
 import caches
+import collections
 import distributor
 import enum
 import gsi_handlers.sim_handlers_log
+import operator
 import rewards.reward_tuning
 import services
 import sims4.log
@@ -201,6 +203,8 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
 
     def should_send_update(self, sim_info, stat_value):
         if sim_info.is_npc and not self.update_client_for_npcs:
+            return False
+        if self.hidden:
             return False
         if Skill.convert_to_user_value(stat_value) == 0:
             return False
@@ -427,7 +431,7 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
             return
         if level_data.rewards:
             for reward in level_data.rewards:
-                reward().open_reward(self._tracker.owner, False)
+                reward().open_reward(self._tracker.owner, reward_destination=RewardDestination.SIM)
         if level_data.loot:
             resolver = SingleSimResolver(self._tracker.owner)
             for loot in level_data.loot:
@@ -486,10 +490,45 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
         mixers = level_data.actor_mixers.get(super_interaction, tuple()) if level_data is not None else []
         return mixers
 
+    @flexmethod
+    def populate_localization_token(cls, inst, token):
+        inst_or_cls = inst if inst is not None else cls
+        token.type = LocalizedStringToken.STRING
+        token.text_string = inst_or_cls.stat_name
+
 _SkillLootData = collections.namedtuple('_SkillLootData', ['level_range', 'stat', 'effectiveness'])
 EMPTY_SKILL_LOOT_DATA = _SkillLootData(None, None, None)
 
 class TunableSkillLootData(TunableTuple):
 
     def __init__(self, **kwargs):
-        super().__init__(level_range=OptionalTunable(TunableInterval(description="\n                            Interval is used to clamp the sim's user facing\n                            skill level to determine how many point to give. If\n                            disabled, level passed to the dynamic skill loot\n                            will always be the current user facing skill level\n                            of sim. \n                            Example: if sim is level 7 in fitness but\n                            interaction skill level is only for 1 to 5 give the\n                            dynamic skill amount as if sim is level 5.\n                            ", tunable_type=int, default_lower=0, default_upper=1, minimum=0)), stat=TunablePackSafeReference(description='\n                             The statistic we are operating on.\n                             ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), allow_none=True, class_restrictions=Skill), effectiveness=TunableEnumEntry(description='\n                             Enum to determine which curve to use when giving\n                             points to sim.\n                             ', tunable_type=SkillEffectiveness, needs_tuning=True, default=None), **kwargs)
+        super().__init__(level_range=OptionalTunable(TunableInterval(description="\n                            Interval is used to clamp the sim's user facing\n                            skill level to determine how many point to give. If\n                            disabled, level passed to the dynamic skill loot\n                            will always be the current user facing skill level\n                            of sim. \n                            Example: if sim is level 7 in fitness but\n                            interaction skill level is only for 1 to 5 give the\n                            dynamic skill amount as if sim is level 5.\n                            ", tunable_type=int, default_lower=0, default_upper=1, minimum=0)), stat=TunablePackSafeReference(description='\n                            The statistic we are operating on.\n                            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), allow_none=True, class_restrictions=Skill), effectiveness=TunableEnumEntry(description='\n                             Enum to determine which curve to use when giving\n                             points to sim.\n                             ', tunable_type=SkillEffectiveness, needs_tuning=True, default=None), **kwargs)
+
+class _CareerSkillLootData(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'career': TunablePackSafeReference(description='\n            The career to reference a statistic from.\n            ', manager=services.get_instance_manager(sims4.resources.Types.CAREER), class_restrictions=('UniversityCourseCareerSlot',))}
+
+    def __call__(self, sim_info, interaction):
+        if sim_info is None:
+            return
+        degree_tracker = sim_info.degree_tracker
+        if degree_tracker is None:
+            return
+        course_data = degree_tracker.get_course_data(self.career.guid64)
+        if course_data is None:
+            return
+        return course_data.course_skill_data.related_skill
+
+class PickedStatReference(HasTunableSingletonFactory, AutoFactoryInit):
+
+    def __call__(self, sim_info, interaction):
+        if interaction is not None:
+            stats = interaction.get_participants(ParticipantType.PickedStatistic)
+            if len(stats) > 1:
+                logger.error('PickedStatReference only supports one picked skill. The first found will be returned, the rest are ignored.')
+            for stat in stats:
+                return stat
+
+class TunableVariantSkillLootData(TunableTuple):
+
+    def __init__(self, **kwargs):
+        super().__init__(level_range=OptionalTunable(TunableInterval(description="\n                            Interval is used to clamp the sim's user facing\n                            skill level to determine how many point to give. If\n                            disabled, level passed to the dynamic skill loot\n                            will always be the current user facing skill level\n                            of sim. \n                            Example: if sim is level 7 in fitness but\n                            interaction skill level is only for 1 to 5 give the\n                            dynamic skill amount as if sim is level 5.\n                            ", tunable_type=int, default_lower=0, default_upper=1, minimum=0)), stat=TunableVariant(description='\n                            Where to obtain the statistic we are operating on.\n                            ', from_career=_CareerSkillLootData.TunableFactory(), from_picked=PickedStatReference.TunableFactory(), default='from_career'), effectiveness=TunableEnumEntry(description='\n                             Enum to determine which curve to use when giving\n                             points to sim.\n                             ', tunable_type=SkillEffectiveness, needs_tuning=True, default=None), **kwargs)

@@ -223,9 +223,9 @@ def gsi_print_archive_records(_connection=None):
     gsi_handlers.gameplay_archiver.print_num_archive_records()
 
 @sims4.commands.Command('gsi.enable_all_logging', command_type=sims4.commands.CommandType.Automation)
-def gsi_enable_all_logging(_connection=None):
+def gsi_enable_all_logging(location=None, _connection=None):
     sims4.gsi.archive.set_all_archivers_enabled()
-    gsi_dump_on_save()
+    gsi_dump_on_save(location=location)
 
 @sims4.commands.Command('gsi.disable_all_logging')
 def gsi_disable_all_logging(_connection=None):
@@ -272,7 +272,7 @@ def call_gsi_dump_on_error_or_exception(_connection=None):
     sims4.log.call_callback_on_error_or_exception('From gsi.call_gsi_dump_on_error_or_exception')
 
 @sims4.commands.Command('gsi.gsi_dump_on_error_or_exception', command_type=sims4.commands.CommandType.Automation)
-def gsi_dump_on_error_or_exception(_connection=None):
+def gsi_dump_on_error_or_exception(location=None, _connection=None):
     if sims4.log.callback_on_error_or_exception is None:
 
         def create_gsi_dump(error_str):
@@ -289,18 +289,18 @@ def gsi_dump_on_error_or_exception(_connection=None):
                 sims4.log.callback_on_error_or_exception = None
             client = services.client_manager().get_first_client()
             client_id = client.id if client is not None else None
-            gsi_dump(_connection=client_id, error_str=error_str)
+            gsi_dump(_connection=client_id, location=location, error_str=error_str)
 
         sims4.log.callback_on_error_or_exception = create_gsi_dump
 
 @sims4.commands.Command('gsi.gsi_dump_on_save', command_type=sims4.commands.CommandType.Automation)
-def gsi_dump_on_save(enable=True, _connection=None):
+def gsi_dump_on_save(enable=True, location=None, _connection=None):
     if persistence_service.callback_on_save is None and enable:
 
         def create_gsi_dump(filename):
             client = services.client_manager().get_first_client()
             client_id = client.id if client is not None else None
-            gsi_dump(filename=filename, _connection=client_id)
+            gsi_dump(location=location, filename=filename, _connection=client_id)
 
         persistence_service.callback_on_save = create_gsi_dump
     elif not enable:

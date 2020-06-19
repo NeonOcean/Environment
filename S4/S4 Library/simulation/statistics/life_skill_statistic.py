@@ -18,7 +18,7 @@ from vfx import TunablePlayEffectVariant
 import services
 import sims4.log
 logger = sims4.log.Logger('LifeSkillStatistic', default_owner='bosee')
-LifeSkillDisplayMixin = get_display_mixin(has_description=True, has_icon=True, has_tooltip=False, use_string_tokens=False, export_modes=ExportModes.All)
+LifeSkillDisplayMixin = get_display_mixin(has_description=True, has_icon=True, has_tooltip=True, use_string_tokens=False, export_modes=ExportModes.All)
 
 class LifeSkillStatistic(HasTunableReference, LifeSkillDisplayMixin, TunedContinuousStatistic, metaclass=HashedTunedInstanceMetaclass, manager=services.get_instance_manager(sims4.resources.Types.STATISTIC)):
     REMOVE_INSTANCE_TUNABLES = ('initial_value',)

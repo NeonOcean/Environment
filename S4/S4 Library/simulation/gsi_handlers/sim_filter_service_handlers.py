@@ -1,6 +1,8 @@
 from gsi_handlers.gameplay_archiver import GameplayArchiver
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
 import services
+import sims4.log
+logger = sims4.log.Logger('SimFilterServiceGSIHandlers', default_owner='skorman')
 
 class SimFilterServiceGSILoggingData:
 
@@ -8,6 +10,8 @@ class SimFilterServiceGSILoggingData:
         self.request_type = request_type
         self.sim_filter_type = sim_filter_type
         self.yielding = yielding
+        if gsi_source_fn is None:
+            logger.warn('{} filter request for {} did not specify a gsi_source_fn. Please make sure the filter request is provided with this argument.', request_type, sim_filter_type)
         self.gsi_source_fn = gsi_source_fn
         self.rejected_sim_infos = []
         self.created_sim_infos = []
@@ -62,7 +66,10 @@ def archive_filter_request(filter_results, gsi_logging_data):
     entry['filter_type'] = str(gsi_logging_data.sim_filter_type)
     entry['matching_results'] = len(filter_results)
     entry['created_sims'] = len(gsi_logging_data.created_sim_infos)
-    entry['source'] = gsi_logging_data.gsi_source_fn()
+    if gsi_logging_data.gsi_source_fn is not None:
+        entry['source'] = gsi_logging_data.gsi_source_fn()
+    else:
+        entry['source'] = 'Not Specified'
     filter_results_list = []
     for filter_result in filter_results:
         filter_results_list.append({'sim_info': str(filter_result.sim_info), 'score': filter_result.score, 'reason': filter_result.reason, 'filter_tag': str(filter_result.tag)})

@@ -61,7 +61,7 @@ with group_log_schema.add_has_many('group_members', GsiGridSchema, label='Member
     sub_schema.add_field('sim_name', label='Sim Name', width=0.4)
     sub_schema.add_field('registered_si', label='Registered SIs')
     sub_schema.add_field('social_context', label='Social Context')
-group_log_archiver = GameplayArchiver('group_log', group_log_schema, enable_archive_by_default=True)
+group_log_archiver = GameplayArchiver('group_log', group_log_schema)
 
 def archive_group_message(group, add, shutdown):
     entry = {'id': group.id, 'type': repr(group), 'count': len(group), 'add/remove': add, 'shut_down': 'x' if shutdown else ''}

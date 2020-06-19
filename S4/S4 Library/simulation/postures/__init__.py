@@ -53,6 +53,7 @@ class DerailReason(enum.Int, export=False):
     WAIT_FOR_CARRY_TARGET = 15
 
 MOVING_DERAILS = (DerailReason.CONSTRAINTS_CHANGED, DerailReason.MUST_EXIT_MOBILE_POSTURE_OBJECT, DerailReason.MASTER_SIM_ROUTING)
+FAILURE_DERAILS = (DerailReason.TRANSITION_FAILED, DerailReason.TARGET_RESET)
 
 def create_posture(posture_type, sim, target, track=PostureTrack.BODY, **kwargs):
     if isinstance(posture_type, str):

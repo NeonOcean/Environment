@@ -6,24 +6,32 @@ from balloon.balloon_request import BalloonRequest
 from balloon.balloon_variant import BalloonVariant
 from balloon.tunable_balloon import TunableBalloon
 from event_testing.resolver import SingleObjectResolver, DoubleObjectResolver
-from interactions.constraints import Circle
+from event_testing.tests import TunableTestSet
+from interactions.constraint_variants import TunableGeometricConstraintVariant
+from interactions.constraints import Circle, Anywhere
 from interactions.utils.animation_reference import TunableRoutingSlotConstraint
+from interactions.utils.loot import LootActions
 from objects.components import types
+from objects.object_state_utils import all_objects_gen
 from placement import find_good_location
 from routing import Goal, SurfaceType, SurfaceIdentifier
+from routing.object_routing.object_routing_behavior_actions import ObjectRoutingBehaviorActionAnimation, ObjectRoutingBehaviorActionDestroyObjects, ObjectRoutingBehaviorActionApplyLoot
 from routing.waypoints.waypoint_generator import WaypointContext
 from routing.waypoints.waypoint_generator_variant import TunableWaypointGeneratorVariant
 from routing.waypoints.waypoint_stitching import WaypointStitchingVariant
 from sims4 import random
 from sims4.math import vector3_almost_equal
 from sims4.random import weighted_random_item
-from sims4.tuning.tunable import OptionalTunable, HasTunableFactory, AutoFactoryInit, Tunable, TunableReference, TunableEnumEntry
+from sims4.tuning.geometric import TunableDistanceSquared
+from sims4.tuning.instances import lock_instance_tunables
+from sims4.tuning.tunable import OptionalTunable, HasTunableFactory, AutoFactoryInit, Tunable, TunableReference, TunableEnumEntry, TunableList, TunablePercent, TunableVariant, HasTunableSingletonFactory
 from sims4.tuning.tunable_base import GroupNames
 from tag import TunableTags
 import placement
 import routing
 import services
 import sims4.resources
+logger = sims4.log.Logger('ObjectRouteVariants', default_owner='miking')
 
 class _ObjectRoutingBehaviorBase(HasTunableFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'route_fail': OptionalTunable(description='\n            If enabled, show a route failure balloon if the agent is unable to\n            route to the routing slot constraint.\n            ', tunable=BalloonVariant.TunableFactory(), enabled_name='show_balloon')}
@@ -66,6 +74,13 @@ class _ObjectRoutingBehaviorBase(HasTunableFactory, AutoFactoryInit):
 
     def get_randomize_orientation(self):
         return False
+
+    def do_target_action_rules_gen(self, timeline):
+        return False
+        yield
+
+    def on_no_target(self):
+        pass
 
 class ObjectRoutingBehaviorFromWaypointGenerator(_ObjectRoutingBehaviorBase):
     FACTORY_TUNABLES = {'waypoint_generator': TunableWaypointGeneratorVariant(tuning_group=GroupNames.ROUTING), 'waypoint_count': Tunable(description='\n            The number of waypoints per loop.\n            ', tunable_type=int, default=10), 'waypoint_stitching': WaypointStitchingVariant(tuning_group=GroupNames.ROUTING), 'return_to_starting_point': OptionalTunable(description='\n            If enabled then the route will return to the starting position\n            within a circle constraint that has a radius of the value tuned\n            here.\n            ', tunable=Tunable(description='\n                The radius of the circle constraint to build to satisfy the\n                return to starting point feature.\n                ', tunable_type=int, default=6), enabled_name='radius_to_return_within'), 'randomize_orientation': Tunable(description='\n            Make Waypoint orientation random.  Default is velocity aligned.\n            ', tunable_type=bool, default=False)}
@@ -189,3 +204,116 @@ class ObjectRouteFromFGL(_ObjectRoutingBehaviorBase):
         routing_context = self._obj.get_routing_context()
         route = routing.Route(self._obj.routing_location, (goal,), routing_context=routing_context)
         yield route
+
+class _TargetActionRules(HasTunableFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'chance': TunablePercent(description='\n            A random chance of this action getting applied (default 100%).\n            ', default=100), 'test': TunableTestSet(description='\n            A test to decide whether or not to apply this particular set of actions to the target object.\n            ', tuning_group=GroupNames.TESTS), 'actions': TunableList(description='\n            A list of one or more ObjectRoutingBehaviorActions to run on the\n            target object after routing to it. These are applied in sequence.\n            ', tunable=TunableVariant(play_animation=ObjectRoutingBehaviorActionAnimation.TunableFactory(), destroy_objects=ObjectRoutingBehaviorActionDestroyObjects.TunableFactory(), apply_loot=ObjectRoutingBehaviorActionApplyLoot.TunableFactory(), default='play_animation')), 'abort_if_applied': Tunable(description="\n            Don't run any further actions from this list of action rules if \n            conditions are met and this action is executed.\n            ", tunable_type=bool, default=False)}
+
+class _RouteTargetType(HasTunableSingletonFactory, AutoFactoryInit):
+
+    def get_objects(self):
+        raise NotImplementedError
+
+class _RouteTargetTypeObject(_RouteTargetType):
+    FACTORY_TUNABLES = {'tags': TunableTags(description='\n            Tags used to pre-filter the list of potential targets.\n            If any of the tags match the object will be considered.\n            ', filter_prefixes=('Func',))}
+
+    def get_objects(self):
+        if self.tags:
+            return services.object_manager().get_objects_matching_tags(self.tags, match_any=True)
+        else:
+            return services.object_manager().get_valid_objects_gen()
+
+class _RouteTargetTypeSim(_RouteTargetType):
+    FACTORY_TUNABLES = {}
+
+    def get_objects(self):
+        return services.sim_info_manager().instanced_sims_gen()
+
+class ObjectRouteFromTargetObject(_ObjectRoutingBehaviorBase):
+    FACTORY_TUNABLES = {'radius': TunableDistanceSquared(description='\n            Only objects within this distance are considered.\n            ', default=1), 'target_type': TunableVariant(description='\n            Type of target object to choose (object, sim).\n            ', object=_RouteTargetTypeObject.TunableFactory(), sim=_RouteTargetTypeSim.TunableFactory(), default='object'), 'target_selection_test': TunableTestSet(description='\n            A test used for selecting a target.\n            ', tuning_group=GroupNames.TESTS), 'no_target_loot': TunableList(description="\n            Loot to apply if no target is selected (eg, change state back to 'wander').\n            ", tunable=LootActions.TunableReference()), 'constraints': TunableList(description='\n            Constraints relative to the relative participant.\n            ', tunable=TunableGeometricConstraintVariant(description='\n                Use the point on the found object defined by these geometric constraints.\n                ', disabled_constraints=('spawn_points', 'spawn_points_with_backup'))), 'target_action_rules': TunableList(description='\n            A set of conditions and a list of one or more TargetObjectActions to run\n             on the target object after routing to it. These are applied in sequence.\n            ', tunable=_TargetActionRules.TunableFactory())}
+
+    @classmethod
+    def _verify_tuning_callback(cls):
+        if not cls.target_selection_test and not cls.tags:
+            logger.error('No selection test tuned for ObjectRouteFromTargetObject {}.', cls, owner='miking')
+
+    def _find_target(self):
+        all_objects = self.target_type.get_objects()
+        objects = []
+        for o in all_objects:
+            dist_sq = (o.position - self._obj.position).magnitude_squared()
+            if dist_sq > self.radius:
+                continue
+            if o == self:
+                continue
+            if not o.is_sim and not o.may_reserve(self._obj):
+                continue
+            if self.target_selection_test:
+                resolver = DoubleObjectResolver(self._obj, o)
+                if not self.target_selection_test.run_tests(resolver):
+                    continue
+            else:
+                objects.append([o, dist_sq])
+        if not objects:
+            return
+        source_handles = [routing.connectivity.Handle(self._obj.position, self._obj.routing_surface)]
+        dest_handles = []
+        for o in objects:
+            obj = o[0]
+            parent = obj.parent
+            route_to_obj = parent if parent is not None else obj
+            constraint = Anywhere()
+            for tuned_constraint in self.constraints:
+                constraint = constraint.intersect(tuned_constraint.create_constraint(self._obj, route_to_obj))
+            dests = constraint.get_connectivity_handles(self._obj, target=obj)
+            if dests:
+                dest_handles.extend(dests)
+        if not dest_handles:
+            return
+        routing_context = self._obj.get_routing_context()
+        connections = routing.estimate_path_batch(source_handles, dest_handles, routing_context=routing_context)
+        if not connections:
+            return
+        connections.sort(key=lambda connection: connection[2])
+        best_connection = connections[0]
+        best_dest_handle = best_connection[1]
+        best_obj = best_dest_handle.target
+        return best_obj
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._target = self._find_target()
+
+    def get_routes_gen(self):
+        if self._target is None:
+            self.on_no_target()
+            return False
+            yield
+        routing_slot_constraint = Anywhere()
+        for tuned_constraint in self.constraints:
+            routing_slot_constraint = routing_slot_constraint.intersect(tuned_constraint.create_constraint(self._obj, self._target))
+        goals = list(itertools.chain.from_iterable(h.get_goals() for h in routing_slot_constraint.get_connectivity_handles(self._obj)))
+        routing_context = self._obj.get_routing_context()
+        route = routing.Route(self._obj.routing_location, goals, routing_context=routing_context)
+        yield route
+
+    def do_target_action_rules_gen(self, timeline):
+        if not self.target_action_rules or self._target is None:
+            return
+        resolver = DoubleObjectResolver(self._obj, self._target)
+        for target_action_rule in self.target_action_rules:
+            if random.random.random() >= target_action_rule.chance:
+                continue
+            if not target_action_rule.test.run_tests(resolver):
+                continue
+            if target_action_rule.actions is not None:
+                for action in target_action_rule.actions:
+                    result = yield from action.run_action_gen(timeline, self._obj, self._target)
+                    if not result:
+                        return
+            if target_action_rule.abort_if_applied:
+                return
+
+    def on_no_target(self):
+        resolver = SingleObjectResolver(self._obj)
+        for loot_action in self.no_target_loot:
+            loot_action.apply_to_resolver(resolver)

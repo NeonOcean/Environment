@@ -12,6 +12,7 @@ from autonomy.autonomy_gsi_enums import AutonomyStageLabel, GSIDataKeys
 from autonomy.autonomy_interaction_priority import AutonomyInteractionPriority
 from autonomy.autonomy_mixer_provider import _MixerProvider, _MixerProviderType
 from autonomy.autonomy_mixer_provider_scoring import _MixerProviderScoring
+from autonomy.autonomy_preference import AutonomyPreferenceType
 from autonomy.autonomy_request import AutonomyDistanceEstimationBehavior, AutonomyPostureBehavior
 from caches import cached
 from clock import ClockSpeedMode
@@ -767,7 +768,7 @@ class FullAutonomy(_SuperInteractionAutonomy):
                     for aop_data in valid_aop_list:
                         autonomy_preference = aop_data.aop.affordance.autonomy_preference
                         if autonomy_preference is not None:
-                            if self._sim.is_object_use_preferred(autonomy_preference.preference.tag, aop_data.aop.target):
+                            if self._sim.get_autonomy_preference_type(autonomy_preference.preference.tag, aop_data.aop.target, True, allow_test=False) >= AutonomyPreferenceType.USE_PREFERENCE:
                                 final_aop_list.append(aop_data)
                     num_final_aops = len(final_aop_list)
                     if num_final_aops < self.NUMBER_OF_DUPLICATE_AFFORDANCE_TAGS_TO_SCORE:
@@ -22073,17 +22074,22 @@ class FullAutonomy(_SuperInteractionAutonomy):
         if inventory_type is not None:
             posture_result_tuple = self._inventory_posture_score_cache.get(inventory_type)
         sim = self._sim
-        if posture_result_tuple is None and best_threshold is not None:
-            autonomy_preference = aop.affordance.autonomy_preference
-            if autonomy_preference is None or not (autonomy_preference.preference.is_scoring or not self._sim.is_object_use_preferred(autonomy_preference.preference.tag, aop.target)):
-                (best_scoring_rank, target_score) = best_threshold
-                if self.FULL_AUTONOMY_INTERACTION_PRIORITY_RANKING.get(interaction.scoring_priority, 0) < best_scoring_rank:
-                    return (InteractionResult.Failure(aop, AutonomyStageLabel.BEFORE_POSTURE_SEARCH, self._actively_scored_motives, reason='Already found an affordance with a higher scoring priority (ours is {})', reason_args=(interaction.scoring_priority,)), None, 0)
-                    yield
-                (optimistic_score, _optimistic_multitask_percentage) = self._calculate_interaction_score(interaction, 0, 0, False, None, True, outside_multiplier)
-                if optimistic_score < target_score:
-                    return (InteractionResult.Failure(aop, AutonomyStageLabel.BEFORE_POSTURE_SEARCH, self._actively_scored_motives, reason='Optimistic score of {:02f} less than current target of {:02f}\nScore Details\n{}', reason_args=(optimistic_score, target_score, optimistic_score)), None, 0)
-                    yield
+        autonomy_preference = aop.affordance.autonomy_preference
+        preference_type = AutonomyPreferenceType.ALLOWED
+        if autonomy_preference is not None and not autonomy_preference.preference.is_scoring:
+            preference_type = self._sim.get_autonomy_preference_type(autonomy_preference.preference.tag, aop.target, True)
+            if preference_type == AutonomyPreferenceType.DISALLOWED and self._request.context.source != InteractionContext.SOURCE_PIE_MENU:
+                return (InteractionResult.Failure(aop, AutonomyStageLabel.BEFORE_POSTURE_SEARCH, self._actively_scored_motives, reason='Disallowed by autonomy preference'), None, 0)
+                yield
+        if posture_result_tuple is None and best_threshold is not None and preference_type == AutonomyPreferenceType.ALLOWED:
+            (best_scoring_rank, target_score) = best_threshold
+            if self.FULL_AUTONOMY_INTERACTION_PRIORITY_RANKING.get(interaction.scoring_priority, 0) < best_scoring_rank:
+                return (InteractionResult.Failure(aop, AutonomyStageLabel.BEFORE_POSTURE_SEARCH, self._actively_scored_motives, reason='Already found an affordance with a higher scoring priority (ours is {})', reason_args=(interaction.scoring_priority,)), None, 0)
+                yield
+            (optimistic_score, _optimistic_multitask_percentage) = self._calculate_interaction_score(interaction, 0, 0, False, None, True, outside_multiplier)
+            if optimistic_score < target_score:
+                return (InteractionResult.Failure(aop, AutonomyStageLabel.BEFORE_POSTURE_SEARCH, self._actively_scored_motives, reason='Optimistic score of {:02f} less than current target of {:02f}\nScore Details\n{}', reason_args=(optimistic_score, target_score, optimistic_score)), None, 0)
+                yield
         if posture_result_tuple is None:
             rt_start = None
             if self._request.autonomy_ping_request_record is not None:
@@ -22402,16 +22408,15 @@ class FullAutonomy(_SuperInteractionAutonomy):
             if aop.affordance in valid_interactions_at_priority:
                 scored_interaction_data_to_compare = valid_interactions_at_priority[aop.affordance]
                 autonomy_preference = aop.affordance.autonomy_preference
-                if autonomy_preference is not None:
-                    if not autonomy_preference.preference.is_scoring:
-                        tag = autonomy_preference.preference.tag
-                        if self._sim.is_object_use_preferred(tag, scored_interaction_data_to_compare.interaction.target):
-                            if self._gsi_interactions is not None:
-                                self._gsi_interactions.append(InteractionResult.Failure(aop, AutonomyStageLabel.AFTER_SCORING, self._actively_scored_motives, reason='There is another scored interaction with use preference: {}\n{}', reason_args=(scored_interaction_data_to_compare.interaction, interaction_result.score.details)))
-                            interaction_to_shutdown = interaction
-                            return (False, best_threshold)
-                        if self._sim.is_object_use_preferred(tag, aop.target):
-                            force_replace = True
+                if autonomy_preference is not None and not autonomy_preference.preference.is_scoring:
+                    tag = autonomy_preference.preference.tag
+                    if self._sim.get_autonomy_preference_type(tag, aop.target, True, allow_test=False) >= AutonomyPreferenceType.USE_PREFERENCE:
+                        force_replace = True
+                    elif self._sim.get_autonomy_preference_type(tag, scored_interaction_data_to_compare.interaction.target, True, allow_test=False) < AutonomyPreferenceType.USE_PREFERENCE:
+                        if self._gsi_interactions is not None:
+                            self._gsi_interactions.append(InteractionResult.Failure(aop, AutonomyStageLabel.AFTER_SCORING, self._actively_scored_motives, reason='There is another scored interaction with use preference: {}\n{}', reason_args=(scored_interaction_data_to_compare.interaction, interaction_result.score.details)))
+                        interaction_to_shutdown = interaction
+                        return (False, best_threshold)
                 if not force_replace:
                     if interaction_score < scored_interaction_data_to_compare.score:
                         if self._request.record_test_result is not None:
@@ -22471,13 +22476,15 @@ class FullAutonomy(_SuperInteractionAutonomy):
 
     def _applicable_stat_ops_gen(self, interaction, include_hidden_false_ads=False, gsi_commodity_scores=None):
         for stat_op_list in interaction.affordance.autonomy_ads_gen(target=interaction.target, include_hidden_false_ads=include_hidden_false_ads):
-            if not stat_op_list.is_valid(interaction):
-                continue
             if not stat_op_list.stat.add_if_not_in_tracker and stat_op_list.stat not in self._motive_scores:
                 if gsi_commodity_scores is not None:
                     gsi_commodity_scores.append(InteractionCommodityScore(0, stat_op_list.stat, advertise=False))
+                    if not stat_op_list.is_valid(interaction):
+                        continue
                     yield stat_op_list
             else:
+                if not stat_op_list.is_valid(interaction):
+                    continue
                 yield stat_op_list
 
     @staticmethod
@@ -22580,14 +22587,16 @@ class FullAutonomy(_SuperInteractionAutonomy):
                     return TestResult(False, 'None - {} in queue is disallowing autonomous multitasking.', interaction)
                     if not interaction.source == InteractionContext.SOURCE_SOCIAL_ADJUSTMENT:
                         if not interaction.source == InteractionContext.SOURCE_BODY_CANCEL_AOP:
-                            if interaction.source == InteractionContext.SOURCE_GET_COMFORTABLE:
-                                continue
-                            return TestResult(False, 'None - {} is pending.', interaction)
+                            if not interaction.source == InteractionContext.SOURCE_VEHICLE_CANCEL_AOP:
+                                if interaction.source == InteractionContext.SOURCE_GET_COMFORTABLE:
+                                    continue
+                                return TestResult(False, 'None - {} is pending.', interaction)
             elif not interaction.source == InteractionContext.SOURCE_SOCIAL_ADJUSTMENT:
                 if not interaction.source == InteractionContext.SOURCE_BODY_CANCEL_AOP:
-                    if interaction.source == InteractionContext.SOURCE_GET_COMFORTABLE:
-                        continue
-                    return TestResult(False, 'None - {} is pending.', interaction)
+                    if not interaction.source == InteractionContext.SOURCE_VEHICLE_CANCEL_AOP:
+                        if interaction.source == InteractionContext.SOURCE_GET_COMFORTABLE:
+                            continue
+                        return TestResult(False, 'None - {} is pending.', interaction)
         for interaction in tuple(sim.si_state):
             if interaction.disallows_full_autonomy(AutonomyMode._disable_autonomous_multitasking_if_user_directed_override):
                 return TestResult(False, 'None - {} in si_state is disallowing autonomous multitasking.', interaction)

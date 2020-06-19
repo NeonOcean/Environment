@@ -1,3 +1,4 @@
+from buffs.appearance_modifier.appearance_modifier_type import AppearanceModifierType
 from cas.cas import set_caspart, get_caspart_bodytype, randomize_part_color, randomize_skintone_from_tags, randomize_caspart
 from sims.outfits.outfit_enums import BodyType, OutfitCategory, BodyTypeFlag
 from sims.outfits.outfit_generator import OutfitGenerator
@@ -5,20 +6,12 @@ from sims.sim_info_base_wrapper import SimInfoBaseWrapper
 from sims4.repr_utils import standard_repr
 from sims4.tuning.dynamic_enum import DynamicEnum
 from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableCasPart, TunableEnumEntry, TunableList, TunableVariant, Tunable, OptionalTunable, TunableTuple, TunableSet, TunableMapping
-from tag import TagCategory, TunableTag
+from tag import TagCategory, TunableTag, TunableTags
 from tunable_multiplier import TunableMultiplier
 from tunable_utils.tunable_white_black_list import TunableWhiteBlackList
-import enum
 import sims4
 import tag
 logger = sims4.log.Logger('Appearance')
-
-class AppearanceModifierType(enum.Int):
-    SET_CAS_PART = 0
-    RANDOMIZE_BODY_TYPE_COLOR = 1
-    RANDOMIZE_SKINTONE_FROM_TAGS = 2
-    GENERATE_OUTFIT = 3
-    RANDOMIZE_CAS_PART = 4
 
 class AppearanceModifierPriority(DynamicEnum):
     INVALID = 0
@@ -135,10 +128,10 @@ class AppearanceModifier(HasTunableSingletonFactory, AutoFactoryInit):
             return standard_repr(self, default_set_part=self.default_set_part, update_genetics=self.update_genetics, expect_invalid_parts=self.expect_invalid_parts)
 
     class RandomizeCASPart(BaseAppearanceModification):
-        FACTORY_TUNABLES = {'body_type': TunableEnumEntry(description='\n                The body type that will have its part randomized.\n                ', tunable_type=BodyType, default=BodyType.NONE, invalid_enums=(BodyType.NONE,)), 'tag_categories_to_keep': TunableSet(description='\n                Match tags from the existing CAS part of the specified body \n                type that belong to these tag categories when searching\n                for a new random part.\n                ', tunable=TunableEnumEntry(description='\n                    Tags that belong to this category that are on the existing\n                    CAS part of the specified body type will be used to find\n                    a new random part.\n                    ', tunable_type=TagCategory, default=TagCategory.INVALID, invalid_enums=(TagCategory.INVALID,)))}
+        FACTORY_TUNABLES = {'body_type': TunableEnumEntry(description='\n                The body type that will have its part randomized.\n                ', tunable_type=BodyType, default=BodyType.NONE, invalid_enums=(BodyType.NONE,)), 'tag_categories_to_keep': TunableSet(description='\n                Match tags from the existing CAS part of the specified body \n                type that belong to these tag categories when searching\n                for a new random part.\n                ', tunable=TunableEnumEntry(description='\n                    Tags that belong to this category that are on the existing\n                    CAS part of the specified body type will be used to find\n                    a new random part.\n                    ', tunable_type=TagCategory, default=TagCategory.INVALID, invalid_enums=(TagCategory.INVALID,))), 'tags': TunableTags(description='\n                List of tags to use when randomizing a CAS part for the tuned\n                body type.\n                ')}
 
         def modify_sim_info(self, source_sim_info, modified_sim_info, random_seed):
-            if randomize_caspart(source_sim_info._base, modified_sim_info._base, self.body_type, list(self.tag_categories_to_keep), random_seed):
+            if randomize_caspart(source_sim_info._base, modified_sim_info._base, self.body_type, list(self.tag_categories_to_keep), random_seed, list(self.tags)):
                 return BodyTypeFlag.make_body_type_flag(self.body_type)
             return BodyTypeFlag.NONE
 

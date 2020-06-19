@@ -108,7 +108,6 @@ class GardeningFruitComponent(_GardeningComponent, component_name=objects.compon
                 self.owner.transient = True
             else:
                 self.owner.destroy(source=self.owner, cause='Successfully germinated.')
-                return
         except:
             logger.exception('Failed to germinate.')
             if plant is not None:
@@ -145,24 +144,3 @@ class GardeningFruitComponent(_GardeningComponent, component_name=objects.compon
             season_text = GardeningTuning.get_seasonality_text_from_plant(self.plant)
             if season_text:
                 yield (TooltipFields.season_text.name, season_text)
-
-    @componentmethod_with_fallback(lambda : True)
-    def can_be_destroyed(self):
-        if self.owner.has_component(objects.components.types.RETAIL_COMPONENT) and self.owner.retail_component.is_sold:
-            return True
-        if self.owner.is_in_inventory():
-            return True
-        parent = self.owner.parent
-        if parent is not None:
-            gardening_component = parent.get_component(GARDENING_COMPONENT)
-            if gardening_component is not None:
-                return True
-            else:
-                germinate_stat = self.owner.commodity_tracker.get_statistic(GardeningTuning.SPONTANEOUS_GERMINATION_COMMODITY)
-                if germinate_stat.get_value() == 0:
-                    return True
-        else:
-            germinate_stat = self.owner.commodity_tracker.get_statistic(GardeningTuning.SPONTANEOUS_GERMINATION_COMMODITY)
-            if germinate_stat.get_value() == 0:
-                return True
-        return False

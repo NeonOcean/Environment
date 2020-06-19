@@ -8,6 +8,7 @@ from sims.sim_info_tracker import SimInfoTracker
 from sims4.tuning.dynamic_enum import DynamicEnumLocked
 from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, TunableReference, TunableList, TunableTuple, OptionalTunable
 from sims4.utils import classproperty
+from traits.trait_type import TraitType
 from ui.ui_dialog_notification import TunableUiDialogNotificationReference
 import clubs
 import services
@@ -90,6 +91,7 @@ class DeathTracker(SimInfoTracker):
         ghost_trait = DeathTracker.DEATH_TYPE_GHOST_TRAIT_MAP.get(death_type)
         if ghost_trait is not None:
             self._sim_info.add_trait(ghost_trait)
+        self._sim_info.trait_tracker.remove_traits_of_type(TraitType.PROFESSOR)
         self._death_type = death_type
         self._death_time = services.time_service().sim_now.absolute_ticks()
         self._sim_info.reset_age_progress()

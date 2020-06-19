@@ -36,3 +36,4 @@ class StateChange:
     TAN_LEVEL = 'tan_level'
     ROUTE_EVENT = 'route_event'
     SET_FIRE = 'set_fire'
+    SCALE = 'scale'

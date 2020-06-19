@@ -49,7 +49,7 @@ class CareerLocation(HasTunableFactory, AutoFactoryInit):
                         self._dialog.show_dialog(*args, additional_tokens=career.get_career_text_tokens(), **kwargs)
 
                 sim_info.try_to_set_goodbye_notification(_UiDialogNotificationCareerGoodbye)
-            if sim_info.is_at_home and self._career.push_go_to_work_affordance():
+            if self._career.push_go_to_work_affordance():
                 return
             services.get_zone_situation_manager().make_sim_leave_now_must_run(sim)
             career.attend_work()

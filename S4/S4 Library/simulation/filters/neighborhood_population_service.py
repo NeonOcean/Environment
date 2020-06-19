@@ -1,5 +1,7 @@
 import operator
 import random
+from event_testing.resolver import SingleSimResolver
+from event_testing.tests import TunableTestSet
 from filters.household_template import HouseholdTemplate
 from sims.sim_info_types import Age
 from sims4.service_manager import Service
@@ -188,6 +190,7 @@ class _CreateHomelessHouseholdRequest(_BasePopulationRequest):
             yield from element_utils.run_child(timeline, element_utils.sleep_until_next_tick_element())
 
 class _FillRentableLotRequest(_BasePopulationRequest):
+    CAN_RENT_TESTS = TunableTestSet(description='\n        A set of tests that must pass for a Sim to be able to rent a lot as either the leader or a member of the travel\n        group.\n        ')
 
     def __init__(self, *args, available_zone_ids=None, region_renting_data=None):
         super().__init__(*args)
@@ -223,6 +226,9 @@ class _FillRentableLotRequest(_BasePopulationRequest):
             sim_infos_available_for_vacation = []
             for sim_info in household:
                 if sim_info.is_instanced():
+                    continue
+                resolver = SingleSimResolver(sim_info)
+                if not _FillRentableLotRequest.CAN_RENT_TESTS.run_tests(resolver):
                     continue
                 if sim_info.is_young_adult_or_older and sim_info.is_human:
                     sim_infos_that_can_lead_travel_group.append(sim_info)

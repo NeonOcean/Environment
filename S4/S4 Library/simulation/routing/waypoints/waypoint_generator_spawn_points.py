@@ -1,4 +1,4 @@
-from interactions.constraints import Circle
+from interactions.constraints import Circle, create_constraint_set
 from routing.waypoints.waypoint_generator import _WaypointGeneratorBase
 from sims.sim_info_types import SimInfoSpawnerTags
 from sims4.random import pop_weighted
@@ -43,6 +43,15 @@ class _WaypointGeneratorSpawnPoints(_WaypointGeneratorBase):
     def get_waypoint_constraints_gen(self, routing_agent, waypoint_count):
         zone = services.current_zone()
         constraint_set = zone.get_spawn_points_constraint(except_lot_id=self._except_lot_id, sim_spawner_tags=self.spawn_point_tags, generalize=True)
+        routing_context = routing_agent.routing_component.pathplan_context
+        source_handle = routing.connectivity.Handle(routing_agent.position, routing_agent.routing_surface)
+        dest_handles = set()
+        for constraint in constraint_set:
+            handles = constraint.get_connectivity_handles(routing_agent)
+            dest_handles.update(handles)
+        connectivity = routing.test_connectivity_batch((source_handle,), dest_handles, routing_context=routing_context, compute_cost=True)
+        vehicle_dest_handles = {dest for (_, dest, cost) in connectivity if sims4.math.almost_equal(cost, 0.0)}
+        constraint_set = create_constraint_set([handle.constraint for handle in vehicle_dest_handles])
         constraints_weighted = []
         min_score = sims4.math.MAX_FLOAT
         for constraint in constraint_set:

@@ -180,7 +180,6 @@ def py_tree_dump(file_name=None, _connection=None):
     output = sims4.commands.CheatOutput(_connection)
     labeled_roots = get_labeled_roots()
     labeled_roots.insert(0, ('Integers', list(range(-5, 257))))
-    labeled_roots.insert(0, ('Floats', float.get_interned()))
     file_name = write_out_py_tree_dump(labeled_roots, file_name, 'python_tree_dump', None, bfs=True, include_cycles=False)
     output_str = "Wrote Python heap tree: '{}'".format(file_name)
     output(output_str)

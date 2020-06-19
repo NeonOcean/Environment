@@ -68,6 +68,9 @@ class TunableSituationStart(TunableFactory):
                     default_job = situation.default_job()
                     if invite_picked_sims:
                         target_sims = resolver.get_participants(ParticipantType.PickedSim)
+                        roommate_service = services.get_roommate_service()
+                        if roommate_service is not None:
+                            target_sims = tuple(itertools.chain(target_sims, roommate_service.get_auto_invite_sim_infos(sim, situation)))
                         if target_sims:
                             for sim_or_sim_info in target_sims:
                                 guest_info = create_guest_info(sim_or_sim_info.sim_id, default_job)

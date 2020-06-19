@@ -38,6 +38,12 @@ class CraftingStationComponent(Component, HasTunableFactory, component_name=type
         if self._children_invalidate_crafting_cache and len(self.owner.children) == 0:
             self.add_to_crafting_cache(user_directed=False)
 
+    def on_added_to_inventory(self):
+        self.remove_from_crafting_cache()
+
+    def on_removed_from_inventory(self):
+        self.add_to_crafting_cache()
+
     @componentmethod_with_fallback(lambda : None)
     def add_to_crafting_cache(self, user_directed=True, autonomy=True):
         if self.crafting_station_types:

@@ -31,6 +31,7 @@ writer_age = sims4.telemetry.TelemetryWriter(TELEMETRY_CHANGE_AGE)
 
 class AgingMixin:
     AGE_PROGRESS_BAR_FACTOR = 100
+    FILL_AGE_PROGRESS_BAR_BUFFER = 0.0001
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -189,24 +190,32 @@ class AgingMixin:
             age_progress = age_time
         else:
             age_progress = auto_age_time
-        self._age_progress.set_value(age_progress - 0.0001)
+        self._age_progress.set_value(age_progress - self.FILL_AGE_PROGRESS_BAR_BUFFER)
         self.update_age_callbacks()
 
-    def decrement_age_progress(self, days):
-        delta_age = self._age_progress.get_value() - days
-        new_age_value = max(delta_age, 0)
+    def _set_age_progress(self, new_age_value):
         self._age_progress.set_value(new_age_value)
         self.send_age_progress_bar_update()
         self.resend_age()
         self.update_age_callbacks()
 
-    def reset_age_progress(self):
-        self._age_progress.set_value(self._age_progress.min_value)
-        self.send_age_progress_bar_update()
-        self.resend_age()
-        self.update_age_callbacks()
+    def decrement_age_progress(self, days):
+        delta_age = self._age_progress.get_value() - days
+        new_age_value = max(delta_age, 0)
+        self._set_age_progress(new_age_value)
 
-    def _days_until_ready_to_age(self):
+    def increment_age_progress(self, days):
+        delta_age = self._age_progress.get_value() + days
+        new_age_value = min(delta_age, self._age_time)
+        self._set_age_progress(new_age_value - self.FILL_AGE_PROGRESS_BAR_BUFFER)
+
+    def reset_age_progress(self):
+        self._set_age_progress(self._age_progress.min_value)
+
+    def fill_age_progress(self):
+        self._set_age_progress(self._age_time - self.FILL_AGE_PROGRESS_BAR_BUFFER)
+
+    def days_until_ready_to_age(self):
         aging_service = services.get_aging_service()
         setting_multiplier = aging_service.get_speed_multiple(self._age_speed_setting)
         return (self._age_time - self._age_progress.get_value())/setting_multiplier
@@ -240,7 +249,7 @@ class AgingMixin:
         aging_service = services.get_aging_service()
         setting_multiplier = aging_service.get_speed_multiple(self._age_speed_setting)
         self._age_progress.set_modifier(setting_multiplier)
-        age_time = self._days_until_ready_to_age()
+        age_time = self.days_until_ready_to_age()
         warn_time = age_time - age_transition_data.age_transition_warning/setting_multiplier
         auto_age_time = age_time + (age_transition_data.age_transition_delay + bonus_days)/setting_multiplier
         if self._almost_can_age_handle is not None:
@@ -363,9 +372,10 @@ class AgingMixin:
         self._age_speed_setting = AgeSpeeds(speed)
         self.update_age_callbacks()
 
-    def set_aging_enabled(self, enabled:bool):
+    def set_aging_enabled(self, enabled:bool, update_callbacks=True):
         self._auto_aging_enabled = enabled
-        self.update_age_callbacks()
+        if update_callbacks:
+            self.update_age_callbacks()
 
     def advance_age_progress(self, days:float) -> None:
         self._age_progress.set_value(self._age_progress.get_value() + days)
@@ -534,5 +544,6 @@ class AgingMixin:
             logger.warn("Trying to suppress aging when aging is already suppressed. You probably don't want to do be doing this.", owner='jjacobson')
         self._age_suppression_alarm_handle = alarms.add_alarm(self, create_time_span(minutes=AgingTuning.AGE_SUPPRESSION_ALARM_TIME), self._suppress_aging_callback, cross_zone=True)
 
-    def is_birthday(self):
-        return self._days_until_ready_to_age() <= 0
+    def set_days_alive_to_zero(self):
+        self.load_time_alive(TimeSpan.ZERO)
+        self.reset_age_progress()

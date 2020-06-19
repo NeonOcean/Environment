@@ -1,8 +1,8 @@
 from _weakrefset import WeakSet
+from animation.animation_overrides_tuning import TunableParameterMapping
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from animation import AnimationContext
-from animation.animation_element import TunableParameterMapping
 from animation.animation_utils import get_auto_exit, flush_all_animations
 from animation.posture_manifest import PostureManifest, AnimationParticipant, PostureManifestEntry, MATCH_ANY, MATCH_NONE
 from animation.posture_manifest_constants import SWIM_POSTURE_TYPE
@@ -976,7 +976,7 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
                 anim_overrides = target.get_anim_overrides(target_name)
                 if anim_overrides is not None and anim_overrides.params:
                     virtual_actor_target_name = self.get_target_name(sim=sim, target=target) or target_name
-                    virtual_actor_map = {virtual_actor_target_name: self.target}
+                    virtual_actor_map = {virtual_actor_target_name: self.target if self.target is not None else target}
                     asm.update_locked_params(anim_overrides.params, virtual_actor_map)
             if not self._setup_custom_posture_target_name(asm, target):
                 logger.error('Unable to setup custom posture target name for {} on {}', target, asm)
@@ -1012,11 +1012,16 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
 
     def get_end(self):
         if self._primitive is None:
+            current_zone = services.current_zone()
+            lot = current_zone.lot
+            world_description_id = services.get_world_description_id(current_zone.world_id)
+            lot_description_id = services.get_lot_description_id(lot.lot_id, world_description_id)
             sim = self.sim
             if sim is not None:
-                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim ID: {sim.id}'
+                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim ID: {sim.id}. Last affordance: {sim.last_affordance}.'
             else:
-                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim has already been cleaned up or not set'
+                runtime_error_string = f'Posture Exit({self}) called multiple times without a paired entry or never called (PrimitiveCreated: {self._primitive_created}). Sim has already been cleaned up or not set.'
+            runtime_error_string += f' Current lot description id: {lot_description_id}.'
             raise RuntimeError(runtime_error_string)
         exit_behavior = self._primitive.next_stage()
         self._primitive = None
@@ -1286,6 +1291,18 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
             if self.outfit_change.get_on_exit_outfit(interaction):
                 if self._saved_exit_clothing_change is None:
                     self._saved_exit_clothing_change = self.outfit_change.get_on_exit_outfit(interaction, **kwargs)
+
+    def has_exit_change(self, interaction, **kwargs):
+        si_outfit_change = interaction.outfit_change
+        if si_outfit_change is not None and si_outfit_change.posture_outfit_change_overrides is not None:
+            overrides = si_outfit_change.posture_outfit_change_overrides.get(self.posture_type)
+            if overrides is not None and overrides.has_exit_change(interaction, **kwargs):
+                return True
+            elif self.outfit_change and self.outfit_change.get_on_exit_outfit(interaction):
+                return self.outfit_change.has_exit_change(interaction, **kwargs)
+        elif self.outfit_change and self.outfit_change.get_on_exit_outfit(interaction):
+            return self.outfit_change.has_exit_change(interaction, **kwargs)
+        return False
 
     def exit_clothing_change(self, interaction, *, sim_info=DEFAULT, do_spin=True, **kwargs):
         if self._saved_exit_clothing_change is None or interaction is None:

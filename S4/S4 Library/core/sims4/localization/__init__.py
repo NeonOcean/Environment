@@ -186,6 +186,7 @@ class LocalizationHelperTuning:
     BULLETED_LIST_STRUCTURE = TunableLocalizedStringFactory(description='\n        Localized string that will define the bulleted list start structure,\n        this item will receive a string followed by a bulleted item\n        e.g. {0.String}\n * {1.String}\n        ')
     BULLETED_ITEM_STRUCTURE = TunableLocalizedStringFactory(description='\n        Localized string that will define a single bulleted item.\n        e.g.  * {0.String}\n        ')
     SIM_FIRST_NAME_LOCALIZATION = TunableLocalizedStringFactory(description='\n        Localized string that will recieve a sim and will return the First Name\n        of the sim.\n        e.g. {0.SimFirstName}\n        ')
+    SIM_FULL_NAME_LOCALIZATION = TunableLocalizedStringFactory(description='\n        Localized string that will recieve a sim and will return the Full Name\n        of the sim.\n        e.g. {0.SimFullName}\n        ')
     OBJECT_NAME_LOCALIZATION = TunableLocalizedStringFactory(description='\n        Localized factory that will receive an object and will return the\n        localized catalog name of that object name\n        e.g. {0.ObjectName} \n        ')
     OBJECT_NAME_INDETERMINATE = TunableLocalizedStringFactory(description='\n        Localized factory that will receive an object and will return the object\n        name preceded by the appropriate indeterminate article.\n        e.g. A/an {0.ObjectName}\n        ')
     OBJECT_NAME_COUNT = TunableLocalizedStringFactory(description='\n        Localized string that defines the pattern for object counts.\n        e.g. {0.Number} {S0.{S1.ObjectName}}{P0.{P1.ObjectName}}\n        ')
@@ -210,6 +211,10 @@ class LocalizationHelperTuning:
     @classmethod
     def get_sim_name(cls, sim):
         return cls.SIM_FIRST_NAME_LOCALIZATION(sim)
+
+    @classmethod
+    def get_sim_full_name(cls, sim):
+        return cls.SIM_FULL_NAME_LOCALIZATION(sim)
 
     @classmethod
     def get_object_name_indeterminate(cls, obj_def):

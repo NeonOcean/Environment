@@ -18,6 +18,7 @@ class InteractionSource(enum.Int):
     REACTION = 8
     GET_COMFORTABLE = 9
     SCRIPT_WITH_USER_INTENT = 10
+    VEHCILE_CANCEL_AOP = 11
 
 class InteractionBucketType(enum.Int, export=False):
     BASED_ON_SOURCE = 0
@@ -26,6 +27,7 @@ class InteractionBucketType(enum.Int, export=False):
     BODY_CANCEL_REPLACEMENT = 3
     CARRY_CANCEL_REPLACEMENT = 4
     DEFAULT = 5
+    VEHICLE_CANCEL_REPLACEMENT = 6
 
 class QueueInsertStrategy(enum.Int, export=False):
     LAST = 0
@@ -42,11 +44,12 @@ class InteractionContext:
     SOURCE_SOCIAL_ADJUSTMENT = InteractionSource.SOCIAL_ADJUSTMENT
     SOURCE_REACTION = InteractionSource.REACTION
     SOURCE_GET_COMFORTABLE = InteractionSource.GET_COMFORTABLE
+    SOURCE_VEHICLE_CANCEL_AOP = InteractionSource.VEHCILE_CANCEL_AOP
     SOURCE_SCRIPT_WITH_USER_INTENT = InteractionSource.SCRIPT_WITH_USER_INTENT
     SOURCE_POSTURE_GRAPH = InteractionSource.POSTURE_GRAPH
     TRANSITIONAL_SOURCES = frozenset((SOURCE_SOCIAL_ADJUSTMENT, SOURCE_GET_COMFORTABLE, SOURCE_POSTURE_GRAPH))
 
-    def __init__(self, sim, source, priority, run_priority=None, client=None, pick=None, insert_strategy=QueueInsertStrategy.LAST, must_run_next=False, continuation_id=None, group_id=None, shift_held=False, carry_target=None, create_target_override=None, target_sim_id=None, bucket=InteractionBucketType.BASED_ON_SOURCE, visual_continuation_id=None, restored_from_load=False, cancel_if_incompatible_in_queue=False, always_check_in_use=False, source_interaction_id=None, source_interaction_sim_id=None, preferred_objects=(), preferred_carrying_sim=None):
+    def __init__(self, sim, source, priority, run_priority=None, client=None, pick=None, insert_strategy=QueueInsertStrategy.LAST, must_run_next=False, continuation_id=None, group_id=None, shift_held=False, carry_target=None, create_target_override=None, target_sim_id=None, bucket=InteractionBucketType.BASED_ON_SOURCE, visual_continuation_id=None, restored_from_load=False, cancel_if_incompatible_in_queue=False, always_check_in_use=False, source_interaction_id=None, source_interaction_sim_id=None, preferred_objects=(), preferred_carrying_sim=None, can_derail_if_constraint_invalid=True):
         self._sim = sim.ref() if sim else None
         self.source = source
         self.priority = priority
@@ -70,6 +73,7 @@ class InteractionContext:
         self.always_check_in_use = always_check_in_use
         self.preferred_objects = WeakSet(preferred_objects)
         self._preferred_carrying_sim = preferred_carrying_sim.ref() if preferred_carrying_sim is not None else None
+        self.can_derail_if_constraint_invalid = can_derail_if_constraint_invalid
 
     def _clone(self, **overrides):
         result = copy.copy(self)
@@ -86,7 +90,7 @@ class InteractionContext:
 
     @property
     def is_cancel_aop(self):
-        return self.source == InteractionSource.BODY_CANCEL_AOP or self.source == InteractionSource.CARRY_CANCEL_AOP
+        return self.source == InteractionSource.BODY_CANCEL_AOP or (self.source == InteractionSource.CARRY_CANCEL_AOP or self.source == InteractionSource.VEHCILE_CANCEL_AOP)
 
     def clone_for_user_directed_choice(self):
         return self._clone(source=InteractionContext.SOURCE_PIE_MENU, priority=self.client.interaction_priority, insert_strategy=QueueInsertStrategy.LAST, continuation_id=None, group_id=None)

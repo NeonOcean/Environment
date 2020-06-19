@@ -203,7 +203,11 @@ class Club:
                     return False
                 return True
 
-            available_zone_ids = tuple(filter(is_valid_zone_id, services.venue_service().get_zones_for_venue_type_gen(self.hangout_venue)))
+            venue_service = services.venue_service()
+            available_zone_ids = tuple(filter(is_valid_zone_id, venue_service.get_zones_for_venue_type_gen(self.hangout_venue)))
+            for venue in self.hangout_venue.included_venues_for_club_gathering:
+                included_zone_ids = tuple(filter(is_valid_zone_id, venue_service.get_zones_for_venue_type_gen(venue)))
+                available_zone_ids += included_zone_ids
             if not available_zone_ids:
                 return 0
             if prefer_current:

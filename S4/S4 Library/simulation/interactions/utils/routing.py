@@ -1,9 +1,9 @@
-from protocolbuffers import DistributorOps_pb2 as protocols
 from animation.animation_utils import flush_all_animations
 from distributor.ops import GenericProtocolBufferOp
 from element_utils import soft_sleep_forever, build_critical_section
 from placement import FGLTuning
-from routing import SurfaceType, SurfaceIdentifier
+from protocolbuffers import DistributorOps_pb2 as protocols
+from routing import SurfaceType, SurfaceIdentifier, PathNodeAction
 from routing.portals.portal_enums import PathSplitType
 from routing.walkstyle.walkstyle_behavior import WalksStyleBehavior
 from sims4.geometry import QtCircle, build_rectangle_from_two_points_and_radius
@@ -41,13 +41,6 @@ class RouteTargetType(enum.Int, export=False):
     NONE = 1
     OBJECT = 2
     PARTS = 3
-
-class PathNodeAction(enum.Int, export=False):
-    PATH_NODE_WALK_ACTION = 0
-    PATH_NODE_PORTAL_WARP_ACTION = 1
-    PATH_NODE_PORTAL_WALK_ACTION = 2
-    PATH_NODE_PORTAL_ANIMATE_ACTION = 3
-    PATH_NODE_UNDEFINED_ACTION = 4294967295
 
 class SlotGoal(routing.Goal):
     __slots__ = ('slot_params', 'containment_transform')
@@ -226,6 +219,9 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             routing_surface = final_path_node.routing_surface_id
             final_position.y = services.terrain_service.terrain_object().get_routing_surface_height_at(final_position.x, final_position.z, routing_surface)
             self.actor.location = sims4.math.Location(sims4.math.Transform(final_position, final_orientation), routing_surface)
+            if gsi_handlers.routing_handlers.sim_route_archiver.enabled and self.actor.is_sim:
+                interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
+                gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
             return True
             yield
         time_debt = 0
@@ -233,21 +229,29 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
         self.wait_time = 0
         new_time_debt = 0
         if self.actor.is_sim:
-            (teleport_routing, cost, from_liability) = self.actor.sim_info.get_active_teleport_style()
-            override_teleport = self.actor.get_walkstyle() in WalksStyleBehavior.WALKSTYLES_OVERRIDE_TELEPORT and not from_liability
-            if teleport_routing is not None and not override_teleport and not self.actor.get_routing_slave_data():
-                final_position = sims4.math.Vector3(*self.path.nodes[-1].position)
+            (teleport_routing, cost, from_tuned_liability) = self.actor.sim_info.get_active_teleport_style()
+            override_teleport = self.actor.get_walkstyle() in WalksStyleBehavior.WALKSTYLES_OVERRIDE_TELEPORT and not from_tuned_liability
+            routing_slave_prevents_teleport = TeleportHelper.does_routing_slave_prevent_teleport(self.actor)
+            if teleport_routing is not None and not override_teleport and not routing_slave_prevents_teleport:
+                final_path_node = self.path.nodes[-1]
+                final_position = sims4.math.Vector3(*final_path_node.position)
+                final_orientation = sims4.math.Quaternion(*final_path_node.orientation)
+                final_routing_surface = final_path_node.routing_surface_id
                 distance = (self.actor.position - final_position).magnitude_2d_squared()
                 level = self.actor.routing_surface.secondary_id
                 is_in_water = self.actor.should_be_swimming_at_position(final_position, level)
-                if not is_in_water and (self.path.force_ghost_route or distance > teleport_routing.teleport_min_distance or from_liability):
-                    (sequence, animation_interaction) = TeleportHelper.generate_teleport_sequence(self.actor, teleport_routing, self.path.nodes[-1], cost)
-                    try:
-                        result = yield from element_utils.run_child(timeline, build_critical_section(sequence, flush_all_animations))
-                    finally:
-                        animation_interaction.on_removed_from_queue()
-                    return result
-                    yield
+                if not is_in_water and (self.path.force_ghost_route or distance > teleport_routing.teleport_min_distance or from_tuned_liability):
+                    (sequence, animation_interaction) = TeleportHelper.generate_teleport_sequence(self.actor, teleport_routing, final_position, final_orientation, final_routing_surface, cost)
+                    if sequence is not None and animation_interaction is not None:
+                        try:
+                            result = yield from element_utils.run_child(timeline, build_critical_section(sequence, flush_all_animations))
+                        finally:
+                            animation_interaction.on_removed_from_queue()
+                            if self.actor.is_sim:
+                                interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
+                                gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
+                        return result
+                        yield
             current_zone = services.current_zone()
             if not current_zone.is_zone_running and services.sim_spawner_service().sim_is_leaving(self.actor):
 
@@ -371,8 +375,12 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             return True
             yield
         finally:
-            if self.actor.is_sim and accumulator.MAXIMUM_TIME_DEBT > 0:
-                accumulator.set_time_debt((self.actor,), new_time_debt)
+            if self.actor.is_sim:
+                if gsi_handlers.routing_handlers.sim_route_archiver.enabled:
+                    interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
+                    gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
+                if accumulator.MAXIMUM_TIME_DEBT > 0:
+                    accumulator.set_time_debt((self.actor,), new_time_debt)
 
     def _soft_stop(self):
         self.canceled = True
@@ -421,6 +429,7 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
 
     def choose_cancellation_time(self):
         path_duration = self.path.duration()
+        fallback_for_ladder = None
         if path_duration > 0:
             server_delay = (services.time_service().sim_timeline.future - services.time_service().sim_now).in_real_world_seconds()
             min_time = self.ROUTE_MINIMUM_TIME_REMAINING_FOR_CANCELLATION + server_delay
@@ -443,7 +452,17 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                 else:
                     if all_placements_passed:
                         return (cancellation_time, self.ROUTE_CANCELLATION_APPROX_STOP_ACTION_TIME + (cancellation_time - current_time))
+                    else:
+                        current_time = cancellation_time
+                        if fallback_for_ladder is None:
+                            return
+                        else:
+                            return fallback_for_ladder
                 current_time = cancellation_time
+        if fallback_for_ladder is None:
+            return
+        else:
+            return fallback_for_ladder
 
     def write(self, msg):
         if self.actor.should_route_instantly():
@@ -514,13 +533,14 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
 
 class PlanRoute(elements.SubclassableGeneratorElement):
 
-    def __init__(self, route, sim, reserve_final_location=True, is_failure_route=False):
+    def __init__(self, route, sim, reserve_final_location=True, is_failure_route=False, interaction=None):
         super().__init__()
         self.route = route
         self.path = routing.Path(sim, route)
         self.sim = sim
         self.reserve_final_location = reserve_final_location
         self._is_failure_route = is_failure_route
+        self._interaction = interaction
 
     @classmethod
     def shortname(cls):
@@ -532,28 +552,27 @@ class PlanRoute(elements.SubclassableGeneratorElement):
         try:
             effective_ghost_route = context.ghost_route
             effective_discourage_key_mask = context.get_discourage_key_mask()
+            teleport_style_data = None
             if self.sim.is_sim:
-                (teleport_route, _, _) = self.sim.sim_info.get_active_teleport_style()
+                teleport_style_data = TeleportHelper.get_teleport_style_data_used_for_interaction_route(self.sim, self._interaction)
                 from carry.carry_utils import get_carried_objects_gen
                 for (_, _, carry_object) in get_carried_objects_gen(self.sim):
                     if carry_object.is_sim:
                         if not carry_object.routing_context.ghost_route:
                             context.ghost_route = False
-                            teleport_route = None
                             break
                 if context.ghost_route:
                     routing_slave_data = self.sim.get_routing_slave_data()
                     for data in routing_slave_data:
                         if not data.slave.get_routing_context().ghost_route:
                             context.ghost_route = False
-                            teleport_route = None
                             break
                 wading_interval = OceanTuning.get_actor_wading_interval(self.sim)
             else:
-                teleport_route = None
+                teleport_style_data = None
                 wading_interval = None
             if not effective_ghost_route:
-                if teleport_route is not None:
+                if teleport_style_data is not None:
                     conectivity_result = routing.test_connectivity_pt_pt(self.sim.routing_location, self.path.route.goals[0].location, self.sim.routing_context)
                     if not conectivity_result:
                         context.ghost_route = True
@@ -567,11 +586,11 @@ class PlanRoute(elements.SubclassableGeneratorElement):
                     context.set_discourage_key_mask(effective_discourage_key_mask | routing.FOOTPRINT_DISCOURAGE_KEY_LANDINGSTRIP)
             if self.path.status == routing.Path.PLANSTATUS_NONE:
                 yield from self.generate_path(timeline)
-            if not effective_ghost_route and teleport_route is not None:
+            if not effective_ghost_route and teleport_style_data is not None:
                 path_final_location = self.path.final_location
                 if path_final_location is not None:
                     sim_target_distance = (path_final_location.position - self.sim.routing_location.position).magnitude_squared()
-                    if sim_target_distance < teleport_route.teleport_min_distance and self.path.length_squared() > teleport_route.teleport_min_distance and self.path.portal_obj is None:
+                    if sim_target_distance < teleport_style_data.teleport_min_distance and self.path.length_squared() > teleport_style_data.teleport_min_distance and self.path.portal_obj is None:
                         context.ghost_route = True
                         force_ghost = True
                         yield from self.generate_path(timeline)
@@ -741,27 +760,36 @@ def do_route(timeline, agent, path, lockout_target, handle_failure, interaction=
             if agent.position != origin_location.position:
                 logger.error("Route-to-position has outdated starting location. Sim's position ({}) is {:0.2f}m from the original starting position ({})", agent.position, (agent.position - origin_location.position).magnitude(), origin_location.position)
             sequence = FollowPath(agent, path, callback_fn=callback_fn, track_override=track_override, mask_override=mask_override)
+            sim = agent if agent_is_sim else None
+            if sim is None:
+                if agent.vehicle_component is not None:
+                    sim = agent.vehicle_component.driver
             if interaction is not None:
-                if agent_is_sim:
-                    for buff in agent.get_active_buff_types():
+                if sim is not None:
+                    for buff in sim.get_active_buff_types():
                         periodic_stat_change = buff.routing_periodic_stat_change
                         if periodic_stat_change is None:
                             continue
                         sequence = periodic_stat_change(interaction, sequence=sequence)
-                    sequence = agent.with_skill_bar_suppression(sequence=sequence)
+                    suppress_skill_bars = True
+                    if interaction.basic_content:
+                        if interaction.basic_content.periodic_stat_change:
+                            suppress_skill_bars = interaction.basic_content.periodic_stat_change.suppress_skill_bars
+                    if suppress_skill_bars:
+                        sequence = sim.with_skill_bar_suppression(sequence=sequence)
             if path.is_route_fail():
                 if handle_failure:
                     yield from element_utils.run_child(timeline, sequence)
-                if lockout_target is not None and agent_is_sim:
-                    agent.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
+                if lockout_target is not None and sim is not None:
+                    sim.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
                 return Result.ROUTE_FAILED
                 yield
             critical_element = elements.WithFinallyElement(sequence, lambda _: path.remove_intended_location_from_quadtree())
             result = yield from element_utils.run_child(timeline, critical_element)
             return result
             yield
-        if lockout_target is not None and agent_is_sim:
-            agent.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
+        if lockout_target is not None and sim is not None:
+            sim.add_lockout(lockout_target, AutonomyMode.LOCKOUT_TIME)
         return Result.ROUTE_PLAN_FAILED
         yield
 
@@ -796,6 +824,10 @@ def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ign
         else:
             reference_transform = relative_obj.intended_transform
             reference_routing_surface = relative_obj.intended_routing_surface
+        if reference_routing_surface.type != relative_obj.routing_surface.type:
+            if not placement.surface_supports_object_placement(reference_routing_surface, jig_definition.id):
+                reference_transform = relative_obj.transform
+                reference_routing_surface = relative_obj.routing_surface
     else:
         reference_transform = relative_obj.transform
         reference_routing_surface = relative_obj.routing_surface
@@ -875,9 +907,10 @@ def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ign
         delta_z = upper_bound.z - lower_bound.z
         position_increment = min(delta_x, delta_z)*placement.FGL_FOOTPRINT_POSITION_INCREMENT_MULTIPLIER
         position_increment = max(position_increment, placement.FGL_DEFAULT_POSITION_INCREMENT)
+        position_increment_info = placement.PositionIncrementInfo(position_increment=position_increment, from_exception=False)
     except RuntimeError:
-        position_increment = placement.FGL_DEFAULT_POSITION_INCREMENT
-    fgl_context = placement.FindGoodLocationContext(starting_location, routing_context=sim.routing_context, ignored_object_ids=ignored_object_ids, max_distance=max_dist, height_tolerance=height_tolerance, restrictions=restrictions, offset_restrictions=offset_restrictions, scoring_functions=scoring_functions, object_id=object_id, object_def_state_index=model_suite_state_index, object_footprints=(object_footprint,), max_results=1, max_steps=10, search_flags=search_flags, min_water_depth=min_water_depth, max_water_depth=max_water_depth, position_increment=position_increment)
+        position_increment_info = placement.PositionIncrementInfo(position_increment=placement.FGL_DEFAULT_POSITION_INCREMENT, from_exception=True)
+    fgl_context = placement.FindGoodLocationContext(starting_location, routing_context=sim.routing_context, ignored_object_ids=ignored_object_ids, max_distance=max_dist, height_tolerance=height_tolerance, restrictions=restrictions, offset_restrictions=offset_restrictions, scoring_functions=scoring_functions, object_id=object_id, object_def_state_index=model_suite_state_index, object_footprints=(object_footprint,), max_results=1, max_steps=10, search_flags=search_flags, min_water_depth=min_water_depth, max_water_depth=max_water_depth, position_increment_info=position_increment_info)
     return fgl_context
 
 def get_two_person_transforms_for_jig(jig_definition, jig_transform, routing_surface, sim_index, target_index):

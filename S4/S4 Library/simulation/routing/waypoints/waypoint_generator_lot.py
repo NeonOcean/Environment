@@ -44,7 +44,7 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
                 for (polygon, routing_surface) in block_data:
                     polygon_waypoint_count = math.ceil(waypoint_count*(polygon.area()/total_area))
                     for position in random_uniform_points_in_compound_polygon(polygon, num=int(polygon_waypoint_count)):
-                        if not routing.test_connectivity_pt_pt(sim_location, routing.Location(position, routing_surface=self._routing_surface), sim_routing_context):
+                        if not routing.test_connectivity_pt_pt(sim_location, routing.Location(position, routing_surface=self._routing_surface), sim_routing_context, ignore_objects=self._sim):
                             continue
                         position_constraint = Circle(position, self.constraint_radius, routing_surface=routing_surface)
                         for block_object_constraint in tuple(block_object_constraints):

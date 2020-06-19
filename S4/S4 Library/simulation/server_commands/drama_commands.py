@@ -46,7 +46,8 @@ def schedule_node(drama_node:TunableInstanceParam(sims4.resources.Types.DRAMA_NO
         scheduled_day = int(services.time_service().sim_now.absolute_days()) + days_from_now
         specific_time = create_date_and_time(days=scheduled_day)
     resolver = DoubleSimResolver(actor_sim_info, target_sim_info)
-    if services.drama_scheduler_service().schedule_node(drama_node, resolver, specific_time=specific_time):
+    uid = services.drama_scheduler_service().schedule_node(drama_node, resolver, specific_time=specific_time)
+    if uid is not None:
         sims4.commands.output('Successfully scheduled drama node: {}'.format(drama_node.__name__), _connection)
     else:
         sims4.commands.output('Failed to scheduled drama node: {}'.format(drama_node.__name__), _connection)

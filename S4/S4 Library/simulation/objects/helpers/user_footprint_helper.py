@@ -88,6 +88,8 @@ class UserFootprintHelper:
             if sims4.geometry.test_point_in_polygon(near_sim.position, polygon):
                 if near_sim.parent is not None:
                     continue
+                if near_sim.si_state is None:
+                    continue
                 total_constraint = near_sim.si_state.get_total_constraint(include_inertial_sis=True, force_inertial_sis=True)
                 (single_point, _) = total_constraint.single_point()
                 if single_point is not None:
