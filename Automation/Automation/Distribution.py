@@ -1,10 +1,10 @@
 import datetime
 import os
-import re
 import typing
 from json import decoder
 
 from Automation import Paths, Setup
+from Automation.Tools import Version
 
 # noinspection SpellCheckingInspection
 ReleasesURL = "https://releases.mods.neonoceancreations.com"  # type: str
@@ -16,24 +16,14 @@ class ModVersion:
 		versionDirectoryPath = os.path.normpath(versionDirectoryPath)
 		baseDirectoryPath = os.path.normpath(baseDirectoryPath)
 
-		versionMatch = _versionParseRegex.match(versionString)
-
-		if not versionMatch:
-			raise ValueError("Invalid version number '%s'" % versionString)
-
-		self.Version = versionString  # type: str
-
-		self.VersionNumber = int("{}{}{}{}".format(*versionMatch.groups("0")))  # type: int
+		self.Version = Version.Version(versionString = versionString, translate = True)  # type: Version.Version
 
 		with open(os.path.join(versionDirectoryPath, "information.json")) as informationFile:
 			information = decoder.JSONDecoder().decode(informationFile.read())
 
-			gameVersion = information["Game Version"]  # type: str
+			gameVersionString = information["Game Version"]  # type: str
 
-			if not _versionParseRegex.match(gameVersion):
-				raise ValueError("Invalid game version number '%s'" % gameVersion)
-
-			self.GameVersion = gameVersion  # type: str
+			self.GameVersion = Version.Version(versionString = gameVersionString, translate = True)  # type: Version.Version
 
 			self.ReleaseDate = information["Release Date"]  # type: str
 			self.ReleaseDateObject = datetime.date.fromisoformat(self.ReleaseDate)  # type: datetime.date
@@ -115,7 +105,7 @@ def GetReleaseLatest (namespace: str) -> typing.Optional[ModVersion]:
 		if latestVersion is None:
 			latestVersion = version
 
-		if latestVersion.VersionNumber < version.VersionNumber:
+		if latestVersion.Version < version.Version:
 			latestVersion = version
 
 	return latestVersion
@@ -136,7 +126,7 @@ def GetPreviewLatest (namespace: str) -> typing.Optional[ModVersion]:
 		if latestVersion is None:
 			latestVersion = version
 
-		if latestVersion.VersionNumber < version.VersionNumber:
+		if latestVersion.Version < version.Version:
 			latestVersion = version
 
 	return latestVersion
@@ -224,10 +214,8 @@ def _Setup () -> None:
 
 		for modReleaseVersion in modReleaseVersions:  # type: ModVersion
 			for modPreviewVersion in modPreviewVersions:  # type: ModVersion
-				if modReleaseVersion.VersionNumber == modPreviewVersion.VersionNumber:
-					raise Exception(modNamespace + " version exists in the release distribution and the preview distribution.\nVersion: " + str(modReleaseVersion.VersionNumber))
-
-_versionParseRegex = re.compile(r'^(\d+) \. (\d+) (?:\. (\d+))? (?:\. (\d+))?$', re.VERBOSE | re.ASCII)
+				if modReleaseVersion.Version == modPreviewVersion.Version:
+					raise Exception(modNamespace + " version exists in the release distribution and the preview distribution.\nVersion: " + str(modReleaseVersion.Version))
 
 Releases = dict()  # type: typing.Dict[str, typing.List[ModVersion]]
 Previews = dict()  # type: typing.Dict[str, typing.List[ModVersion]]
