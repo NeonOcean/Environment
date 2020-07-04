@@ -18,6 +18,9 @@ class Mod:
 		self.PreviewLatest = Distribution.GetPreviewLatest(namespace)  # type: typing.Optional[Distribution.ModVersion]
 		self.PreviewVersions = Distribution.GetPreviewVersions(namespace)  # type: typing.Optional[typing.List[Distribution.ModVersion]]
 
+		self.Game = "The Sims 4"  # type: str #TODO actually get the game for each mod.
+		self.GameShortened = "S4"  # type: str # Used in website page paths
+
 		try:
 			self.Module = _GetModModule(namespace)  # type: typing.Optional
 		except Exception as e:
