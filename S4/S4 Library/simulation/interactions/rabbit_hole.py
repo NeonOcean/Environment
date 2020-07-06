@@ -24,6 +24,16 @@ class RabbitHoleLiability(DaycareLiability):
     def on_add(self, interaction):
         super().on_add(interaction)
         self._interaction = interaction
+        for sim_info in self._sim_infos:
+            sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if sim is not None:
+                sim.ignore_blocking_near_destination = True
+            familiar_tracker = sim_info.familiar_tracker
+            if familiar_tracker is not None:
+                familiar = familiar_tracker.get_active_familiar()
+                if familiar is not None:
+                    if not familiar.is_sim:
+                        familiar.ignore_blocking_near_destination = True
 
     def on_run(self):
         for sim_info in self._sim_infos:
@@ -71,6 +81,8 @@ class RabbitHoleLiability(DaycareLiability):
                 if familiar is not None and not familiar.is_sim:
                     familiar.show(HiddenReasonFlag.RABBIT_HOLE)
                     familiar.add_location_to_quadtree(placement.ItemType.SIM_POSITION)
+                    familiar.ignore_blocking_near_destination = False
                     familiar.set_state(self.FAMILIAR_EXIT_RABBIT_HOLE_STATE.state, self.FAMILIAR_EXIT_RABBIT_HOLE_STATE)
             self._has_hidden = False
+            sim.ignore_blocking_near_destination = False
         super().release()

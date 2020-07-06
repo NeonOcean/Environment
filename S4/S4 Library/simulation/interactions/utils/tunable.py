@@ -125,7 +125,7 @@ class GameSpeedLiability(Liability, HasTunableFactory):
 			situation_manager = services.get_zone_situation_manager()
 			self._ss3_requests[sim].add(self)
 
-			def validity_check ():
+			def validity_check (situations_to_ignore = None):
 				business_manager = services.business_service().get_business_manager_for_zone()
 				if business_manager is not None and business_manager.is_open:
 					return False
@@ -133,6 +133,8 @@ class GameSpeedLiability(Liability, HasTunableFactory):
 				if current_venue is not None and not current_venue.allow_super_speed_three:
 					return False
 				for situation in situation_manager.get_all():
+					if situations_to_ignore and situation in situations_to_ignore:
+						continue
 					if situation.blocks_super_speed_three:
 						return False
 
@@ -194,7 +196,7 @@ class GameSpeedLiability(Liability, HasTunableFactory):
 					continue
 				if not situation.super_speed3_replacement_speed:
 					continue
-				replacement_request = services.game_clock_service().push_speed(situation.super_speed3_replacement_speed, validity_check = lambda s = situation: s in situation_manager.running_situations(), reason = 'Situation alternate SS3 speed request')
+				replacement_request = services.game_clock_service().push_speed(situation.super_speed3_replacement_speed, validity_check = lambda s = situation: s in situation_manager.running_situations() and validity_check(situations_to_ignore = (s,)), reason = 'Situation alternate SS3 speed request')
 				situation_id = situation.id
 				callback_fn = functools.partial(situation_ended_callback, request = replacement_request, situation_speed_requests = self.situation_speed_request_data)
 				situation_manager.register_for_callback(situation_id, SituationCallbackOption.END_OF_SITUATION, callback_fn)
@@ -464,8 +466,7 @@ class ServiceNpcRequest(XevtTriggeredElement):
 
 class DoCommand(XevtTriggeredElement, HasTunableFactory):
 	ARG_TYPE_PARTICIPANT = 0
-	ARG_TYPE_STRING = 1
-	ARG_TYPE_NUMBER = 2
+	ARG_TYPE_LITERAL = 1
 	ARG_TYPE_TAG = 3
 
 	@staticmethod
@@ -485,36 +486,17 @@ class DoCommand(XevtTriggeredElement, HasTunableFactory):
 
 	FACTORY_TUNABLES = {
 		'command': Tunable(description = '\n            The command to run.\n            ', tunable_type = str, default = None),
-		'arguments': TunableList(
-			description = "\n            The arguments for this command. Arguments will be added after the\n            command in the order they're listed here.\n            ",
-			tunable = TunableVariant(
-				description = '\n                The argument to use. In most cases, the ID of the participant\n                will be used.\n                ',
-				participant = TunableTuple(
-					description = '\n                    An argument that is a participant in the interaction. The\n                    ID will be used as the argument for the command.\n                    ',
-					argument = TunableEnumEntry(description = '\n                        The participant argument. The ID will be used in the\n                        command.\n                        ',
-												tunable_type = ParticipantType,
-												default = ParticipantTypeSingle.Object),
-					locked_args = {
-						'arg_type': ARG_TYPE_PARTICIPANT
-					}),
-				string = TunableTuple(
-					description = "\n                    An argument that's a string.\n                    ",
-					argument = Tunable(description = '\n                        The string argument.\n                        ', tunable_type = str, default = None),
-					locked_args = {
-						'arg_type': ARG_TYPE_STRING
-					}),
-				number = TunableTuple(
-					description = '\n                    An argument that is a number. This can be a float or an int.\n                    ',
-					argument = Tunable(description = '\n                        The number argument.\n                        ', tunable_type = float, default = 0),
-					locked_args = {
-						'arg_type': ARG_TYPE_NUMBER
-					}),
-				tag = TunableTuple(
-					description = '\n                    An argument that is a tag.\n                    ',
-					argument = TunableTag(description = '\n                        The tag argument.\n                        '),
-					locked_args = {
-						'arg_type': ARG_TYPE_TAG
-					}))),
+		'arguments': TunableList(description = "\n            The arguments for this command. Arguments will be added after the\n            command in the order they're listed here.\n            ", tunable = TunableVariant(description = '\n                The argument to use. In most cases, the ID of the participant\n                will be used.\n                ', participant = TunableTuple(description = '\n                    An argument that is a participant in the interaction. The\n                    ID will be used as the argument for the command.\n                    ', argument = TunableEnumEntry(description = '\n                        The participant argument. The ID will be used in the\n                        command.\n                        ', tunable_type = ParticipantType, default = ParticipantTypeSingle.Object), locked_args = {
+			'arg_type': ARG_TYPE_PARTICIPANT
+		}), string = TunableTuple(description = "\n                    An argument that's a string.\n                    ", argument = Tunable(description = '\n                        The string argument.\n                        ', tunable_type = str, default = None), locked_args = {
+			'arg_type': ARG_TYPE_LITERAL
+		}), number = TunableTuple(description = '\n                    An argument that is a number. This can be a float or an int.\n                    ', argument = Tunable(description = '\n                        The number argument.\n                        ', tunable_type = float, default = 0), locked_args = {
+			'arg_type': ARG_TYPE_LITERAL
+		}), tag = TunableTuple(description = '\n                    An argument that is a tag.\n                    ', argument = TunableTag(description = '\n                        The tag argument.\n                        '), locked_args = {
+			'arg_type': ARG_TYPE_TAG
+		}), boolean = TunableTuple(description = '\n                    An argument that is a boolean.\n                    ', argument = Tunable(description = '\n                        The number argument.\n                        ', tunable_type = bool, default = True), locked_args = {
+			'arg_type': ARG_TYPE_LITERAL
+		}))),
 		'verify_tunable_callback': _verify_tunable_callback
 	}
 
@@ -523,16 +505,19 @@ class DoCommand(XevtTriggeredElement, HasTunableFactory):
 		for arg in self.arguments:
 			if arg.arg_type == self.ARG_TYPE_PARTICIPANT:
 				for participant in self.interaction.get_participants(arg.argument):
-					full_command += ' {}'.format(participant.id)
+					if hasattr(participant, 'id'):
+						full_command += ' {}'.format(participant.id)
+					else:
+						full_command += ' {}'.format(participant)
 				else:
-					if arg.arg_type == self.ARG_TYPE_STRING or arg.arg_type == self.ARG_TYPE_NUMBER:
+					if arg.arg_type == self.ARG_TYPE_LITERAL:
 						full_command += ' {}'.format(arg.argument)
 					elif arg.arg_type == self.ARG_TYPE_TAG:
 						full_command += ' {}'.format(int(arg.argument))
 					else:
 						logger.error('Trying to run the Do Command element with an invalid arg type, {}.', arg.arg_type, owner = 'trevor')
 						return False
-			elif arg.arg_type == self.ARG_TYPE_STRING or arg.arg_type == self.ARG_TYPE_NUMBER:
+			elif arg.arg_type == self.ARG_TYPE_LITERAL:
 				full_command += ' {}'.format(arg.argument)
 			elif arg.arg_type == self.ARG_TYPE_TAG:
 				full_command += ' {}'.format(int(arg.argument))

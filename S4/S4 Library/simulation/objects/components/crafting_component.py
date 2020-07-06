@@ -10,6 +10,7 @@ from objects.game_object_properties import GameObjectProperty
 from objects.hovertip import TooltipFieldsComplete
 from retail.retail_component import RetailComponent
 from sims4.callback_utils import CallableList
+from sims4.localization import LocalizationHelperTuning
 from singletons import DEFAULT
 import services
 import sims4.math
@@ -178,13 +179,16 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             return
         self.owner.update_tooltip_field(TooltipFieldsComplete.recipe_name, recipe.get_recipe_name(crafting_process.crafter))
         crafted_by_text = crafting_process.get_crafted_by_text(is_from_gallery=self.owner.is_from_gallery)
+        crafted_with_text = crafting_process.get_crafted_with_text()
         if crafted_by_text is not None:
-            self.owner.update_tooltip_field(TooltipFieldsComplete.crafted_by_text, crafted_by_text)
+            if crafted_with_text is not None:
+                crafted_by_text = LocalizationHelperTuning.NEW_LINE_LIST_STRUCTURE(crafted_by_text, crafted_with_text)
             crafter_sim_id = crafting_process.crafter_sim_id
             if crafter_sim_id is not None:
                 self.owner.update_tooltip_field(TooltipFieldsComplete.crafter_sim_id, crafter_sim_id)
-        else:
-            self.owner.update_tooltip_field(TooltipFieldsComplete.crafted_by_text, None)
+        elif crafted_with_text is not None:
+            crafted_by_text = crafted_with_text
+        self.owner.update_tooltip_field(TooltipFieldsComplete.crafted_by_text, crafted_by_text)
         if owner.has_state(CraftingTuning.QUALITY_STATE):
             value_quality = CraftingTuning.QUALITY_STATE_VALUE_MAP.get(owner.get_state(CraftingTuning.QUALITY_STATE))
             if value_quality is not None:
@@ -204,6 +208,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         current_inventory = owner.get_inventory()
         if current_inventory is not None:
             current_inventory.push_inventory_item_update_msg(owner)
+        self.owner.on_hovertip_requested()
         self.owner.update_object_tooltip()
 
     def update_simoleon_tooltip(self):
@@ -304,6 +309,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
         crafting_process = self._crafting_process
         if crafting_process is None:
             return
+        crafting_process.clear_refundables()
         if crafting_process.current_ico is None:
             crafting_process.current_ico = self.owner
         recipe = crafting_process.recipe
@@ -334,7 +340,7 @@ class CraftingComponent(Component, component_name=types.CRAFTING_COMPONENT, pers
             return
         return recipe.photo_definition
 
-    @componentmethod_with_fallback(lambda : None)
+    @componentmethod_with_fallback(lambda *_, **__: None)
     def get_craftable_property(self, property_type):
         recipe = self._get_recipe()
         crafting_process = self._crafting_process

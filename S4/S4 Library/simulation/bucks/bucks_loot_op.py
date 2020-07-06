@@ -1,15 +1,20 @@
+import build_buy
 from bucks.bucks_enums import BucksType
+from bucks.bucks_recycling import BucksRecycling
 from bucks.bucks_utils import BucksUtils
-from event_testing.resolver import SingleSimResolver
-from interactions.utils.loot_basic_op import BaseLootOperation
-from sims4.tuning.tunable import TunableEnumEntry, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, TunableReference, Tunable, OptionalTunable
+from event_testing.resolver import SingleSimResolver, SingleActorAndObjectResolver
+from interactions import ParticipantType
+from interactions.utils.loot_basic_op import BaseLootOperation, BaseTargetedLootOperation
+from objects.gallery_tuning import ContentSource
+from tunable_multiplier import TunableMultiplier
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
 import services
+from sims4.tuning.tunable import TunableEnumEntry, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, TunableReference, Tunable, OptionalTunable, TunableList, TunableTuple
 import sims4
 logger = sims4.log.Logger('Bucks', default_owner='tastle')
 
 class BucksLoot(BaseLootOperation):
-    FACTORY_TUNABLES = {'bucks_type': TunableEnumEntry(description='\n            The type of Bucks to grant.\n            ', tunable_type=BucksType, default=BucksType.INVALID), 'amount': Tunable(description='\n            The amount of Bucks to award.\n            ', tunable_type=int, default=10), 'force_refund': Tunable(description='\n            If enabled then if the total amount of bucks would be reduced to\n            a negative value, the bucks tracker will try to get back to zero\n            by refunding perks to make up the difference.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'bucks_type': TunableEnumEntry(description='\n            The type of Bucks to grant.\n            ', tunable_type=BucksType, default=BucksType.INVALID, pack_safe=True), 'amount': Tunable(description='\n            The amount of Bucks to award.\n            ', tunable_type=int, default=10), 'force_refund': Tunable(description='\n            If enabled then if the total amount of bucks would be reduced to\n            a negative value, the bucks tracker will try to get back to zero\n            by refunding perks to make up the difference.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, bucks_type, amount, force_refund=False, **kwargs):
         super().__init__(**kwargs)
@@ -80,3 +85,45 @@ class AwardPerkLoot(BaseLootOperation):
         if show_dialog and self._notification_on_successful_unlock is not None:
             notification = self._notification_on_successful_unlock(subject, resolver=SingleSimResolver(subject))
             notification.show_dialog()
+
+class RecyclingBucksLoot(BaseTargetedLootOperation):
+    FACTORY_TUNABLES = {'bucks_types': TunableList(description='\n            The type of Bucks to grant.\n            ', tunable=TunableTuple(buck_type=TunableEnumEntry(tunable_type=BucksType, default=BucksType.INVALID), buck_multiplier=TunableMultiplier.TunableFactory(description='\n                    Multipliers to apply only to this buck type when recycling an object.\n                    '))), 'bucks_multipliers': TunableMultiplier.TunableFactory(description='\n            Multipliers to apply to all bucks amounts granted by recycling an object.\n            ')}
+
+    def __init__(self, bucks_types, bucks_multipliers, **kwargs):
+        super().__init__(**kwargs)
+        self._bucks_types = bucks_types
+        self._bucks_multipliers = bucks_multipliers
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        bucks_multiplier = self._bucks_multipliers.get_multiplier(resolver)
+        for buck_type_tuning in self._bucks_types:
+            amount = BucksRecycling.get_recycling_value_for_object(buck_type_tuning.buck_type, target)
+            if amount == 0:
+                continue
+            final_multiplier = bucks_multiplier*buck_type_tuning.buck_multiplier.get_multiplier(resolver)
+            amount *= final_multiplier
+            tracker = BucksUtils.get_tracker_for_bucks_type(buck_type_tuning.buck_type, owner_id=subject.id, add_if_none=True)
+            if tracker is None:
+                logger.error('Attempting to apply a BucksLoot op to the subject {} of amount {} but they have no tracker for that bucks type {}.', subject, amount, buck_type_tuning.buck_type)
+            else:
+                result = tracker.try_modify_bucks(buck_type_tuning.buck_type, int(amount))
+                if not result:
+                    logger.error("Failed to modify the Sim {}'s bucks of type {} by amount {}.", subject, buck_type_tuning.buck_type, self._amount)
+        resolver = SingleActorAndObjectResolver(subject, target, self)
+        for loot_action in target.recycling_data.recycling_loot:
+            loot_action.apply_to_resolver(resolver)
+
+    def _get_subject_household(self, subject):
+        if subject.is_sim:
+            return subject.household
+        elif subject.household_owner_id is not None:
+            return services.household_manager().get(subject.household_owner_id)
+
+    def _get_object_inventory(self, obj):
+        if obj.is_sim:
+            return
+        inventoryitem_component = getattr(obj, 'inventoryitem_component', None)
+        if inventoryitem_component is not None:
+            if inventoryitem_component.inventory_owner is not None:
+                inventory = getattr(inventoryitem_component.inventory_owner, 'inventory_component', None)
+        return inventory

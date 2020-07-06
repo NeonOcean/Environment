@@ -1,4 +1,4 @@
-from build_buy import get_block_id
+from build_buy import get_room_id
 from event_testing.resolver import SingleObjectResolver
 from event_testing.tests import TunableTestSet
 from objects.components.state import TunableStateValueReference
@@ -16,10 +16,10 @@ def all_objects_gen(objects):
         yield obj
 
 def objects_in_target_room_gen(target, objects):
-    target_block_id = get_block_id(target.zone_id, target.position, target.level)
+    target_room_id = get_room_id(target.zone_id, target.position, target.level)
     for obj in objects:
-        obj_block_id = get_block_id(obj.zone_id, obj.position, obj.level)
-        if obj_block_id != target_block_id:
+        obj_room_id = get_room_id(obj.zone_id, obj.position, obj.level)
+        if obj_room_id != target_room_id:
             continue
         yield obj
 

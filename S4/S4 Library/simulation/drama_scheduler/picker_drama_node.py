@@ -3,7 +3,7 @@ import enum
 import random
 from careers.career_gig import Gig
 from careers.career_tuning import Career
-from drama_scheduler.drama_node import BaseDramaNode, CooldownOption
+from drama_scheduler.drama_node import BaseDramaNode, CooldownOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.resolver import SingleSimResolver, DoubleSimResolver
 from event_testing.tests import TunableTestSet, TunableTestSetWithTooltip
@@ -112,7 +112,7 @@ class PickerDramaNode(BaseDramaNode, AutoFactoryInit):
         return super().setup(resolver, gsi_data, **kwargs)
 
     def _run(self):
-        return True
+        return DramaNodeRunOutcome.SUCCESS_NODE_COMPLETE
 
     def on_picker_choice(self, owner=None):
         if self.on_pick_behavior == PickBehavior.REMOVE:
@@ -199,4 +199,4 @@ class PickerDramaNode(BaseDramaNode, AutoFactoryInit):
 
     REMOVE_INSTANCE_TUNABLES = ('receiver_sim', 'sender_sim_info', 'picked_sim_info')
 
-lock_instance_tunables(PickerDramaNode, allow_during_work_hours=True, cooldown_option=CooldownOption.ON_SCHEDULE)
+lock_instance_tunables(PickerDramaNode, allow_during_work_hours=True)

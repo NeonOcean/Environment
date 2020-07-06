@@ -208,8 +208,8 @@ class DaycareService(Service):
             if not sim_info.trait_tracker.has_trait(DaycareTuning.NANNY_TRAIT_ON_KIDS):
                 sent_sim_infos.append(sim_info)
                 sim_info.add_trait(DaycareTuning.NANNY_TRAIT_ON_KIDS)
-                if sim_info.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS):
-                    sim_info.remove_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
+                if self.is_sim_info_at_daycare(sim_info):
+                    self.remove_sim_info_from_daycare(sim_info)
                 if sim_info.zone_id != household.home_zone_id:
                     sim_info.inject_into_inactive_zone(household.home_zone_id)
         if is_active_household and sent_sim_infos:
@@ -228,7 +228,7 @@ class DaycareService(Service):
                 for sim_info in daycare_sim_infos:
                     if household.home_zone_id == current_zone_id:
                         self._apply_daycare_effects_to_sim(sim_info)
-                    if not sim_info.trait_tracker.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS):
+                    if not self.is_sim_info_at_daycare(sim_info):
                         sent_sim_infos.append(sim_info)
                         sim_info.add_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
                         if sim_info.zone_id != household.home_zone_id:
@@ -280,8 +280,8 @@ class DaycareService(Service):
             for sim_info in tuple(daycare_sim_infos):
                 if not self._remove_daycare_effects_from_sim(sim_info) or sim_info in returning_sim_infos:
                     daycare_sim_infos.remove(sim_info)
-                if sim_info.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS):
-                    sim_info.remove_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
+                if self.is_sim_info_at_daycare(sim_info):
+                    self.remove_sim_info_from_daycare(sim_info)
             if not returned_children:
                 self._show_daycare_notification(household, daycare_sim_infos, is_enable=False)
         if services.active_household() == household:
@@ -412,6 +412,9 @@ class DaycareService(Service):
 
     def is_sim_info_at_daycare(self, sim_info):
         return sim_info.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
+
+    def remove_sim_info_from_daycare(self, sim_info):
+        sim_info.remove_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS)
 
     def is_anyone_at_daycare(self, household):
         return any(sim_info.has_trait(DaycareTuning.DAYCARE_TRAIT_ON_KIDS) for sim_info in household if sim_info.is_toddler_or_younger)

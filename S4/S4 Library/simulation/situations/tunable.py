@@ -205,6 +205,16 @@ class CreateSituationLootOp(BaseLootOperation):
     def _apply_to_subject_and_target(self, subject, target, resolver):
         self.create_situation(resolver)()
 
+class DestroySituationLootOp(BaseLootOperation, DestroySituationsByTagsMixin):
+
+    def __init__(self, situation_tags, required_participant, **kwargs):
+        super().__init__(**kwargs)
+        self.situation_tags = situation_tags
+        self.required_participant = required_participant
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        self._destroy_situations_by_tags(resolver)
+
 class TunableUserAskNPCToLeave(TunableFactory):
 
     @staticmethod

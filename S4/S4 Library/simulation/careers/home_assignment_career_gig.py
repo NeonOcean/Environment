@@ -1,6 +1,6 @@
 import random
 from careers.career_enums import GigResult
-from careers.career_gig import Gig
+from careers.career_gig import Gig, TELEMETRY_GIG_PROGRESS_TIMEOUT, TELEMETRY_GIG_PROGRESS_COMPLETE
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableReference, OptionalTunable, TunablePercent, TunableTuple
@@ -16,6 +16,19 @@ class HomeAssignmentGig(Gig):
     def get_aspiration(cls):
         return cls.gig_assignment_aspiration
 
+    def register_aspiration_callbacks(self):
+        super().register_aspiration_callbacks()
+        if self.bonus_gig_aspiration_tuning is None:
+            return
+        bonus_aspiration = self.bonus_gig_aspiration_tuning.bonus_gig_aspiration
+        if not bonus_aspiration:
+            return
+        bonus_aspiration.register_callbacks()
+        aspiration_tracker = self._owner.aspiration_tracker
+        if aspiration_tracker is not None:
+            aspiration_tracker.validate_and_return_completed_status(bonus_aspiration)
+            aspiration_tracker.process_test_events_for_aspiration(bonus_aspiration)
+
     def set_up_gig(self):
         super().set_up_gig()
         aspiration_tracker = self._owner.aspiration_tracker
@@ -26,10 +39,6 @@ class HomeAssignmentGig(Gig):
             aspiration_tracker.reset_milestone(self.bonus_gig_aspiration_tuning.bonus_gig_aspiration)
             self.bonus_gig_aspiration_tuning.bonus_gig_aspiration.register_callbacks()
             aspiration_tracker.process_test_events_for_aspiration(self.bonus_gig_aspiration_tuning.bonus_gig_aspiration)
-
-    def refresh_on_load(self):
-        super().refresh_on_load()
-        self.gig_assignment_aspiration.register_callbacks()
 
     def _determine_gig_outcome(self):
         completed_objectives = 0
@@ -59,15 +68,19 @@ class HomeAssignmentGig(Gig):
                     self._gig_result = GigResult.FAILURE
             else:
                 self._gig_result = GigResult.FAILURE
+            self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_TIMEOUT)
         elif self.great_success_remaining_time and remaining_time > self.great_success_remaining_time():
             self._gig_result = GigResult.GREAT_SUCCESS
+            self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_COMPLETE)
         elif completed_bonus_objectives > 0:
+            self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_COMPLETE)
             if self.bonus_gig_aspiration_tuning and self.bonus_gig_aspiration_tuning.great_success_chance and random.random() <= self.bonus_gig_aspiration_tuning.great_success_chance:
                 self._gig_result = GigResult.GREAT_SUCCESS
             else:
                 self._gig_result = GigResult.SUCCESS
         else:
             self._gig_result = GigResult.SUCCESS
+            self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_COMPLETE)
 
     def get_overmax_evaluation_result(self, reward_text, overmax_level, *args, **kwargs):
         return super().get_overmax_evaluation_result(reward_text, overmax_level, *args, **kwargs)

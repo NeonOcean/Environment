@@ -119,6 +119,8 @@ class GreetingLootOp(BaseLootOperation):
         if subject_sim is None:
             return
         target_sim = target_sim_info.get_sim_instance()
+        if target_sim is None:
+            return
         if self.greeting_type == GreetingType.GREETING_TARGETED:
             try_push_targeted_greeting_for_sim(subject_sim, target_sim, greeting_resolver)
         elif self.greeting_type == GreetingType.GREETING_GROUP:

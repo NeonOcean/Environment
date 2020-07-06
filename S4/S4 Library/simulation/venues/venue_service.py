@@ -1,10 +1,19 @@
+from protocolbuffers import GameplaySaveData_pb2 as gameplay_serialization, Consts_pb2, Venue_pb2
+import alarms
+import build_buy
+import clock
+import persistence_error_types
 import random
-from protocolbuffers import GameplaySaveData_pb2 as gameplay_serialization
+import services
+import sims4.log
+import sims4.resources
+import telemetry_helper
 from build_buy import get_current_venue
 from distributor.ops import OwnedUniversityHousingLoad
 from distributor.system import Distributor
 from open_street_director.open_street_director_request import OpenStreetDirectorRequestFactory
 from server_commands.bill_commands import autopay_bills
+from sims4.common import Pack
 from sims.university.university_housing_tuning import UniversityHousingTuning
 from sims.university.university_utils import UniversityUtils
 from sims4.callback_utils import CallableList
@@ -13,17 +22,8 @@ from sims4.tuning.tunable import TunableSimMinute
 from sims4.utils import classproperty
 from situations.service_npcs.modify_lot_items_tuning import ModifyAllLotItems
 from venues.venue_constants import ZoneDirectorRequestType
-from venues.venue_tuning import VenueTypes
+from venues.venue_tuning import VenueTypes, Venue
 from world.region import get_region_instance_from_zone_id, get_region_description_id_from_zone_id
-import alarms
-import build_buy
-import clock
-import persistence_error_types
-import services
-import sims4.log
-import sims4.resources
-import telemetry_helper
-import zone_director
 TELEMETRY_GROUP_VENUE = 'VENU'
 TELEMETRY_HOOK_TIMESPENT = 'TMSP'
 TELEMETRY_FIELD_VENUE = 'venu'
@@ -47,7 +47,8 @@ class VenueService(Service):
         self._persisted_background_event_id = None
         self._persisted_special_event_id = None
         self._special_event_start_alarm = None
-        self._venue = None
+        self._source_venue = None
+        self._active_venue = None
         self._zone_director = None
         self._requested_zone_directors = []
         self._prior_zone_director_proto = None
@@ -64,38 +65,73 @@ class VenueService(Service):
         return persistence_error_types.ErrorCodes.SERVICE_SAVE_FAILED_VENUE_SERVICE
 
     @property
-    def venue(self):
-        return self._venue
+    def active_venue(self):
+        return self._active_venue
+
+    @property
+    def source_venue(self):
+        return self._source_venue
 
     def venue_is_type(self, required_type):
-        if type(self.venue) is required_type:
+        if type(self.active_venue) is required_type:
             return True
         return False
 
-    def _set_venue(self, venue_type):
-        if venue_type is None:
-            logger.error('Zone {} has invalid venue type.', services.current_zone().id)
+    @staticmethod
+    def get_variable_venue_source_venue(test_venue_type):
+        if test_venue_type is None:
+            return
+        sub_venue_types = test_venue_type.sub_venue_types
+        if sub_venue_types:
+            return test_venue_type
+        venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
+        for venue_tuning_type in venue_manager.types.values():
+            if test_venue_type == venue_tuning_type:
+                continue
+            if venue_tuning_type.valid_active_venue_type(test_venue_type):
+                return venue_tuning_type
+
+    def _set_venue(self, active_venue_type, source_venue_type):
+        if active_venue_type is None:
+            logger.error('Zone {} has invalid active venue type.', services.current_zone().id)
             return False
-        if type(self._venue) is venue_type:
+        if source_venue_type is None:
+            source_venue_type = active_venue_type
+        current_source_venue = self.source_venue
+        source_venue_changed = type(current_source_venue) is not source_venue_type
+        current_active_venue = self.active_venue
+        active_venue_changed = type(current_active_venue) is not active_venue_type
+        if not source_venue_changed and not active_venue_changed:
             return False
-        if self._venue is not None:
-            self._venue.shut_down()
-            if self._special_event_start_alarm is not None:
-                alarms.cancel_alarm(self._special_event_start_alarm)
-                self._special_event_start_alarm = None
-        self._send_venue_time_spent_telemetry()
-        new_venue = venue_type()
-        self._venue = new_venue
-        self._venue_start_time = services.time_service().sim_now
-        return True
+        if active_venue_changed:
+            if current_active_venue is not None:
+                current_active_venue.shut_down()
+                if self._special_event_start_alarm is not None:
+                    alarms.cancel_alarm(self._special_event_start_alarm)
+                    self._special_event_start_alarm = None
+            self._send_venue_time_spent_telemetry()
+            if not source_venue_changed and source_venue_type is active_venue_type:
+                self._active_venue = self._source_venue
+            else:
+                self._active_venue = active_venue_type(source_venue_type=source_venue_type)
+            self._venue_start_time = services.time_service().sim_now
+        if source_venue_changed:
+            if source_venue_type is active_venue_type:
+                self._source_venue = self._active_venue
+            else:
+                self._source_venue = source_venue_type()
+            provider = self._source_venue.civic_policy_provider
+            if provider is not None:
+                provider.finalize_startup()
+        return active_venue_changed
 
     def _send_venue_time_spent_telemetry(self):
-        if self._venue is None or self._venue_start_time is None:
+        if self.active_venue is None or self._venue_start_time is None:
             return
         time_spent_mins = (services.time_service().sim_now - self._venue_start_time).in_minutes()
         if time_spent_mins:
             with telemetry_helper.begin_hook(venue_telemetry_writer, TELEMETRY_HOOK_TIMESPENT) as hook:
-                hook.write_guid(TELEMETRY_FIELD_VENUE, self._venue.guid64)
+                hook.write_guid(TELEMETRY_FIELD_VENUE, self.active_venue.guid64)
                 hook.write_int(TELEMETRY_FIELD_VENUE_TIMESPENT, time_spent_mins)
 
     def get_venue_tuning(self, zone_id):
@@ -105,28 +141,41 @@ class VenueService(Service):
             venue_tuning = services.venue_manager().get(venue_type)
         return venue_tuning
 
-    def change_venue_type_at_runtime(self, venue_type):
+    def on_change_venue_type_at_runtime(self, active_venue_type, source_venue_type=None, force_start_situations=False):
         if self.build_buy_edit_mode:
             return
-        type_changed = self._set_venue(venue_type)
+        type_changed = self._set_venue(active_venue_type, source_venue_type)
+        if self.active_venue is None:
+            return type_changed
+        active_venue = self.active_venue
         if type_changed:
-            if self._venue is not None:
-                zone_director = self._venue.create_zone_director_instance()
-                self.change_zone_director(zone_director, run_cleanup=True)
-                self.create_situations_during_zone_spin_up()
-                if self._zone_director.should_create_venue_background_situation:
-                    self._venue.schedule_background_events(schedule_immediate=True)
-                    self._venue.schedule_special_events(schedule_immediate=False)
-                    self._venue.schedule_club_gatherings(schedule_immediate=True)
-                self.on_venue_type_changed()
-                for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-                    sim.sim_info.add_venue_buffs()
+            zone_director = active_venue.create_zone_director_instance()
+            self.change_zone_director(zone_director, run_cleanup=True)
+            self.start_venue_situations(active_venue)
+            self.on_venue_type_changed()
+            for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
+                sim.sim_info.add_venue_buffs()
+        elif force_start_situations:
+            self.start_venue_situations(active_venue)
+        return type_changed
+
+    def start_venue_situations(self, active_venue):
+        self.create_situations_during_zone_spin_up()
+        if self._zone_director.should_create_venue_background_situation:
+            active_venue.schedule_background_events(schedule_immediate=True)
+            active_venue.schedule_special_events(schedule_immediate=False)
+            active_venue.schedule_club_gatherings(schedule_immediate=True)
 
     def make_venue_type_zone_director_request(self):
-        if self._venue is None:
+        active_venue = self.active_venue
+        if active_venue is None:
             raise RuntimeError('Venue type must be determined before requesting a zone director.')
-        zone_director = self._venue.create_zone_director_instance()
-        self.request_zone_director(zone_director, ZoneDirectorRequestType.AMBIENT_VENUE)
+        zone_director = active_venue.create_zone_director_instance()
+        if active_venue is self.source_venue:
+            request_type = ZoneDirectorRequestType.AMBIENT_VENUE
+        else:
+            request_type = ZoneDirectorRequestType.AMBIENT_SUB_VENUE
+        self.request_zone_director(zone_director, request_type)
 
     def setup_lot_premade_status(self):
         services.active_lot().flag_as_premade(True)
@@ -201,13 +250,29 @@ class VenueService(Service):
     def determine_which_situations_to_load(self):
         self._zone_director.determine_which_situations_to_load()
 
+    def get_additional_zone_modifiers(self, zone_id):
+        current_venue_tuning = self.get_venue_tuning(zone_id)
+        if not current_venue_tuning:
+            return ()
+        zone_modifiers = set(current_venue_tuning.zone_modifiers)
+        if not current_venue_tuning.venue_tiers:
+            return zone_modifiers
+        current_tier = build_buy.get_venue_tier(zone_id)
+        if current_tier != -1:
+            zone_modifiers.update(current_venue_tuning.venue_tiers[current_tier].zone_modifiers)
+        return zone_modifiers
+
     def on_client_connect(self, client):
         zone = services.current_zone()
-        venue_type = get_current_venue(zone.id)
-        logger.assert_raise(venue_type is not None, 'Venue Type is None in on_client_connect for zone:{}', zone, owner='sscholl')
-        venue_tuning = self.get_venue_tuning(zone.id)
-        if venue_tuning is not None:
-            self._set_venue(venue_tuning)
+        active_venue_key = get_current_venue(zone.id)
+        logger.assert_raise(active_venue_key is not None, ' Venue Type is None for zone id:{}', zone.id, owner='shouse')
+        raw_active_venue_key = get_current_venue(zone.id, allow_ineligible=True)
+        logger.assert_raise(raw_active_venue_key is not None, ' Raw Venue Type is None for zone id:{}', zone.id, owner='shouse')
+        if not active_venue_key is None and not raw_active_venue_key is None:
+            active_venue_type = services.venue_manager().get(active_venue_key)
+            raw_active_venue_type = services.venue_manager().get(raw_active_venue_key)
+            source_venue_type = VenueService.get_variable_venue_source_venue(raw_active_venue_type)
+            self._set_venue(active_venue_type, source_venue_type)
 
     def on_cleanup_zone_objects(self, client):
         zone = services.current_zone()
@@ -233,12 +298,13 @@ class VenueService(Service):
     def initialize_venue_schedules(self):
         if not self._zone_director.should_create_venue_background_situation:
             return
-        if self._venue is not None:
-            self._venue.set_active_event_ids(self._persisted_background_event_id, self._persisted_special_event_id)
+        active_venue = self.active_venue
+        if active_venue is not None:
+            active_venue.set_active_event_ids(self._persisted_background_event_id, self._persisted_special_event_id)
             situation_manager = services.current_zone().situation_manager
             schedule_immediate = self._persisted_background_event_id is None or self._persisted_background_event_id not in situation_manager
-            self._venue.schedule_background_events(schedule_immediate=schedule_immediate)
-            self._venue.schedule_club_gatherings(schedule_immediate=schedule_immediate)
+            active_venue.schedule_background_events(schedule_immediate=schedule_immediate)
+            active_venue.schedule_club_gatherings(schedule_immediate=schedule_immediate)
 
     def process_traveled_and_persisted_and_resident_sims_during_zone_spin_up(self, traveled_sim_infos, zone_saved_sim_infos, plex_group_saved_sim_infos, open_street_saved_sim_infos, injected_into_zone_sim_infos):
         self._zone_director.process_traveled_and_persisted_and_resident_sims(traveled_sim_infos, zone_saved_sim_infos, plex_group_saved_sim_infos, open_street_saved_sim_infos, injected_into_zone_sim_infos)
@@ -248,8 +314,8 @@ class VenueService(Service):
         self._special_event_start_alarm = alarms.add_alarm(self, special_event_time_span, self._schedule_venue_special_events, repeating=False)
 
     def _schedule_venue_special_events(self, alarm_handle):
-        if self._venue is not None:
-            self._venue.schedule_special_events(schedule_immediate=True)
+        if self.active_venue is not None:
+            self.active_venue.schedule_special_events(schedule_immediate=True)
 
     def is_zone_valid_for_venue_type(self, zone_id, venue_types, compatible_region=None, ignore_region_compatability_tags=False, region_blacklist=[]):
         if not zone_id:
@@ -294,13 +360,14 @@ class VenueService(Service):
         return (None, None)
 
     def save(self, zone_data=None, open_street_data=None, **kwargs):
+        active_venue = self.active_venue
         if zone_data is not None:
-            if self._venue is not None:
+            if active_venue is not None:
                 venue_data = zone_data.gameplay_zone_data.venue_data
-                if self._venue.active_background_event_id is not None:
-                    venue_data.background_situation_id = self._venue.active_background_event_id
-                if self._venue.active_special_event_id is not None:
-                    venue_data.special_event_id = self._venue.active_special_event_id
+                if active_venue.active_background_event_id is not None:
+                    venue_data.background_situation_id = active_venue.active_background_event_id
+                if active_venue.active_special_event_id is not None:
+                    venue_data.special_event_id = active_venue.active_special_event_id
                 if self._zone_director is not None:
                     zone_director_data = gameplay_serialization.ZoneDirectorData()
                     self._zone_director.save(zone_director_data, open_street_data)
@@ -338,15 +405,154 @@ class VenueService(Service):
         return self._university_housing_kick_out_completed
 
     def run_venue_preparation_operations(self):
+        if self.active_venue is None:
+            return
         zone = services.current_zone()
+        venue_type = self.active_venue.venue_type
         owner_household = zone.lot.get_household()
-        if self._venue.is_university_housing:
+        if venue_type == VenueTypes.UNIVERSITY_HOUSING:
             if owner_household is not None:
                 op = OwnedUniversityHousingLoad(zone.id)
                 Distributor.instance().add_op_with_no_owner(op)
                 self._university_housing_household_validation_alarm = alarms.add_alarm(self, UniversityHousingTuning.UNIVERSITY_HOUSING_VALIDATION_CADENCE(), lambda _: UniversityUtils.validate_household_sims(), repeating=True)
-        active_sim = services.get_active_sim()
-        if active_sim:
-            active_sim_household = active_sim.household
-            if active_sim_household and services.venue_service().get_venue_tuning(active_sim_household.home_zone_id).is_university_housing:
-                autopay_bills(True)
+
+class VenueGameService(Service):
+
+    def __init__(self):
+        super().__init__()
+        self._zone_provider = dict()
+        self.on_venue_type_changed = CallableList()
+
+    @classproperty
+    def save_error_code(cls):
+        return persistence_error_types.ErrorCodes.SERVICE_SAVE_FAILED_VENUE_GAME_SERVICE
+
+    @classproperty
+    def required_packs(cls):
+        return (Pack.BASE_GAME, Pack.EP09)
+
+    def on_cleanup_zone_objects(self, client):
+        self.load()
+        for provider in self._zone_provider.values():
+            provider.finalize_startup()
+
+    def save(self, object_list=None, zone_data=None, open_street_data=None, store_travel_group_placed_objects=False, save_slot_data=None):
+        for (zone_id, provider) in self._zone_provider.items():
+            if provider is None:
+                continue
+            zone_data = services.get_persistence_service().get_zone_proto_buff(zone_id)
+            if zone_data is None:
+                continue
+            venue_data = zone_data.gameplay_zone_data.venue_data
+            provider.save(venue_data.civic_provider_data)
+
+    def load(self, zone_data=None):
+        persistence_service = services.get_persistence_service()
+
+        def _get_current_venue(zone_id):
+            neighborhood_data = persistence_service.get_neighborhood_proto_buf_from_zone_id(zone_id)
+            for lot_data in neighborhood_data.lots:
+                if zone_id == lot_data.zone_instance_id:
+                    return lot_data.venue_key
+
+        current_zone_id = services.current_zone_id()
+        zones = services.get_persistence_service().get_save_game_data_proto().zones
+        for zone_data_msg in zones:
+            if zone_data_msg is None:
+                continue
+            if zone_data_msg.zone_id == current_zone_id:
+                active_venue_tuning_id = get_current_venue(zone_data_msg.zone_id)
+                raw_active_venue_tuning_id = get_current_venue(zone_data_msg.zone_id, allow_ineligible=True)
+            else:
+                active_venue_tuning_id = _get_current_venue(zone_data_msg.zone_id)
+                raw_active_venue_tuning_id = active_venue_tuning_id
+            if active_venue_tuning_id is None:
+                self.set_provider(zone_data_msg.zone_id, None)
+            else:
+                active_venue_type = services.venue_manager().get(active_venue_tuning_id)
+                raw_active_venue_type = services.venue_manager().get(raw_active_venue_tuning_id)
+                source_venue_type = VenueService.get_variable_venue_source_venue(raw_active_venue_type)
+                if source_venue_type is None:
+                    self.set_provider(zone_data_msg.zone_id, None)
+                elif source_venue_type.variable_venues is None:
+                    self.set_provider(zone_data_msg.zone_id, None)
+                else:
+                    existing_provider = self.get_provider(zone_data_msg.zone_id)
+                    if existing_provider is not None and existing_provider.source_venue_type is source_venue_type:
+                        continue
+                    provider = source_venue_type.variable_venues.civic_policy(source_venue_type, active_venue_type)
+                    if not provider:
+                        self.set_provider(zone_data_msg.zone_id, None)
+                    else:
+                        self.set_provider(zone_data_msg.zone_id, provider)
+                        if zone_data_msg.HasField('gameplay_zone_data'):
+                            if zone_data_msg.gameplay_zone_data.HasField('venue_data'):
+                                if zone_data_msg.gameplay_zone_data.venue_data.HasField('civic_provider_data'):
+                                    provider.load(zone_data_msg.gameplay_zone_data.venue_data.civic_provider_data)
+
+    def get_zone_for_provider(self, provider):
+        zone_manager = services.get_zone_manager()
+        for (zone, stored_provider) in self._zone_provider.items():
+            if stored_provider is provider:
+                return zone_manager.get(zone, allow_uninstantiated_zones=True)
+
+    def get_provider(self, zone_id):
+        return self._zone_provider.get(zone_id)
+
+    def set_provider(self, zone_id, provider):
+        if zone_id in self._zone_provider:
+            self._zone_provider[zone_id].stop_civic_policy_provider()
+            del self._zone_provider[zone_id]
+        if provider is not None:
+            self._zone_provider[zone_id] = provider
+
+    def change_venue_type(self, provider, active_venue_type, source_venue_type=None):
+        zone = self.get_zone_for_provider(provider)
+        if zone is None:
+            return False
+        zone_id = zone.id
+        persistence_service = services.get_persistence_service()
+        neighborhood_data = persistence_service.get_neighborhood_proto_buf_from_zone_id(zone_id)
+        for lot_data in neighborhood_data.lots:
+            if zone_id == lot_data.zone_instance_id:
+                if lot_data.venue_key == active_venue_type.guid64:
+                    return False
+                lot_data.venue_key = active_venue_type.guid64
+                for sub_venue_info in lot_data.sub_venue_infos:
+                    if sub_venue_info.sub_venue_key == lot_data.venue_key:
+                        lot_data.venue_eligible = sub_venue_info.sub_venue_eligible
+                        break
+                else:
+                    sub_venue_info = lot_data.sub_venue_infos.add()
+                    sub_venue_info.sub_venue_key = lot_data.venue_key
+                    sub_venue_info.sub_venue_eligible = False
+                    lot_data.venue_eligible = False
+                break
+        on_active_lot = zone_id == services.current_zone_id()
+        if on_active_lot:
+            if source_venue_type is None:
+                source_venue_type = VenueService.get_variable_venue_source_venue(active_venue_type)
+            services.venue_service().on_change_venue_type_at_runtime(active_venue_type, source_venue_type)
+        lot_id = None
+        world_id = None
+        if zone.is_instantiated:
+            lot_id = zone.lot.lot_id
+            world_id = zone.world_id
+        else:
+            save_game_data = persistence_service.get_save_game_data_proto()
+            for zone_data in save_game_data.zones:
+                if zone_data.zone_id == zone_id:
+                    lot_id = zone_data.lot_id
+                    world_id = zone_data.world_id
+                    break
+        if lot_id is None or world_id is None:
+            return False
+        distributor = Distributor.instance()
+        venue_update_request_msg = Venue_pb2.VenueUpdateRequest()
+        venue_update_request_msg.venue_key = active_venue_type.guid64
+        venue_update_request_msg.lot_id = lot_id
+        venue_update_request_msg.world_id = world_id
+        distributor.add_event(Consts_pb2.MSG_SET_SUB_VENUE, venue_update_request_msg)
+        distributor.add_event(Consts_pb2.MSG_NS_NEIGHBORHOOD_UPDATE, neighborhood_data)
+        self.on_venue_type_changed(zone_id, active_venue_type)
+        return True

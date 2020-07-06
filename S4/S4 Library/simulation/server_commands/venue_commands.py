@@ -1,17 +1,21 @@
 import collections
+import sims4.commands
 from server_commands.argument_helpers import TunableInstanceParam
 from venues.venue_service import VenueService
 import build_buy
 import services
-import sims4.commands
 
 @sims4.commands.Command('venues.set_venue')
 def set_venue(venue_tuning:TunableInstanceParam(sims4.resources.Types.VENUE), _connection=None):
     if venue_tuning is None:
         sims4.commands.output('Requesting an unknown venue type: {0}'.format(venue_tuning), _connection)
         return False
-    services.current_zone().venue_service.change_venue_type_at_runtime(venue_tuning)
-    return True
+    venue_game_service = services.venue_game_service()
+    if venue_game_service is None:
+        return services.venue_service().on_change_venue_type_at_runtime(venue_tuning)
+    else:
+        provider = venue_game_service.get_provider(services.current_zone_id())
+        return venue_game_service.change_venue_type(provider, venue_tuning)
 
 @sims4.commands.Command('venues.test_all_venues')
 def test_all_venues(_connection=None):
@@ -50,10 +54,10 @@ def print_venues(_connection=None):
         for lot_owner_info in neighborhood_proto.lots:
             zone_id = lot_owner_info.zone_instance_id
             if zone_id is not None:
-                venue_type_id = build_buy.get_current_venue(zone_id)
-                venue_type = venue_manager.get(venue_type_id)
-                if venue_type is not None:
-                    log = PrintVenueLog._make((neighborhood_proto.name, neighborhood_proto.region_id, lot_owner_info.lot_description_id, zone_id, venue_type.__name__, lot_owner_info.lot_name))
+                venue_tuning_id = build_buy.get_current_venue(zone_id)
+                venue_tuning = venue_manager.get(venue_tuning_id)
+                if venue_tuning is not None:
+                    log = PrintVenueLog._make((neighborhood_proto.name, neighborhood_proto.region_id, lot_owner_info.lot_description_id, zone_id, venue_tuning.__name__, lot_owner_info.lot_name))
                     venues.append(log)
     str_format = '{:20} ({:{center}15}) {:{center}20} {:15} ({:{center}20}) {:20}'
 

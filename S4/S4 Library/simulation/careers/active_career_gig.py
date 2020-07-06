@@ -1,4 +1,4 @@
-from careers.career_gig import Gig
+from careers.career_gig import Gig, TELEMETRY_GIG_PROGRESS_COMPLETE
 from distributor.shared_messages import create_icon_info_msg, IconInfoData
 from event_testing.resolver import SingleSimResolver
 from sims4 import math
@@ -55,6 +55,7 @@ class ActiveGig(Gig):
         self._roll_cast()
 
     def get_pay(self, payout_multiplier=None, rabbit_hole=False, **_):
+        self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_COMPLETE)
         if rabbit_hole:
             return self.gig_pay.lower_bound
         return math.ceil((self.gig_pay.upper_bound - self.gig_pay.lower_bound)*payout_multiplier) + self.gig_pay.lower_bound

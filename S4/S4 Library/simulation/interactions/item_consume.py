@@ -1,8 +1,8 @@
 from collections import Counter
 from event_testing.results import TestResult
-from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning
+from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning, TunableLocalizedString
 from sims4.resources import Types
-from sims4.tuning.tunable import TunableRange, TunableList, TunableTuple, HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableVariant
+from sims4.tuning.tunable import TunableRange, TunableList, TunableTuple, HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableVariant, OptionalTunable
 import event_testing
 import services
 
@@ -21,18 +21,20 @@ class ItemCostBase:
 
     def get_test_result(self, sim, cls):
         unavailable_items = Counter()
+        unavailable_item_description = {}
         for item in self.ingredients:
             item_count = sim.inventory_component.get_item_quantity_by_definition(item.ingredient)
             if item_count < item.quantity:
                 unavailable_items[item.ingredient] += item.quantity - item_count
+                unavailable_item_description[item.ingredient] = item.missing_ingredient_additional_text
         if unavailable_items:
-            tooltip = LocalizationHelperTuning.get_bulleted_list(ItemCost.UNAVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(count, item) for (item, count) in unavailable_items.items()))
+            tooltip = LocalizationHelperTuning.get_bulleted_list(ItemCost.UNAVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(count, ingredientDef, detail_text=unavailable_item_description[ingredientDef]) for (ingredientDef, count) in unavailable_items.items()))
             return event_testing.results.TestResult(False, "Sim doesn't have the required items in inventory.", tooltip=lambda *_, **__: tooltip)
         return TestResult.TRUE
 
     def get_interaction_tooltip(self, tooltip=None, sim=None):
         if self.ingredients:
-            item_tooltip = LocalizationHelperTuning.get_bulleted_list(ItemCost.AVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(ingredient.quantity, ingredient.ingredient) for ingredient in self.ingredients))
+            item_tooltip = LocalizationHelperTuning.get_bulleted_list(ItemCost.AVAILABLE_TOOLTIP_HEADER(sim), *tuple(LocalizationHelperTuning.get_object_count(ingredient.quantity, ingredient.ingredient, detail_text=ingredient.missing_ingredient_additional_text) for ingredient in self.ingredients))
             if tooltip is None:
                 return item_tooltip
             else:
@@ -48,7 +50,7 @@ class ItemCostBase:
 class ItemCost(ItemCostBase, AutoFactoryInit, HasTunableSingletonFactory):
     UNAVAILABLE_TOOLTIP_HEADER = TunableLocalizedStringFactory(description='\n        A string to be used as a header for a bulleted list of items that the\n        Sim is missing in order to run this interaction.\n        ')
     AVAILABLE_TOOLTIP_HEADER = TunableLocalizedStringFactory(description='\n        A string to be used as a header for a bulleted list of items that the\n        Sim will consume in order to run this interaction.\n        ')
-    FACTORY_TUNABLES = {'ingredients': TunableList(description='\n            List of tuples of Objects and Quantity, which will indicate\n            the cost of items for this interaction to run\n            ', tunable=TunableTuple(description='\n                Pair of Object and Quantity needed for this interaction\n                ', ingredient=TunableReference(description='\n                    Object reference of the type of game object needed.\n                    ', manager=services.definition_manager()), quantity=TunableRange(description='\n                    Quantity of objects needed\n                    ', tunable_type=int, default=1, minimum=1)))}
+    FACTORY_TUNABLES = {'ingredients': TunableList(description='\n            List of tuples of Objects and Quantity, which will indicate\n            the cost of items for this interaction to run\n            ', tunable=TunableTuple(description='\n                Pair of Object and Quantity needed for this interaction\n                ', ingredient=TunableReference(description='\n                    Object reference of the type of game object needed.\n                    ', manager=services.definition_manager()), quantity=TunableRange(description='\n                    Quantity of objects needed\n                    ', tunable_type=int, default=1, minimum=1), missing_ingredient_additional_text=OptionalTunable(description='\n                    If set, this text is inserted on a new line following a missing ingredient.\n                    ', tunable=TunableLocalizedString(default=None, description='The string key of the text description'))))}
 
 class SpellCost(ItemCostBase, AutoFactoryInit, HasTunableSingletonFactory):
     FACTORY_TUNABLES = {'from_spell': TunableReference(description='The spell to pull ingredients from.', manager=services.get_instance_manager(Types.SPELL))}

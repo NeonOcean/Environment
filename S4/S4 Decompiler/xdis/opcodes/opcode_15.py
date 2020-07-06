@@ -1,4 +1,4 @@
-# (C) Copyright 2017, 2019 by Rocky Bernstein
+# (C) Copyright 2017, 2019-2020 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -21,11 +21,16 @@ opcodes in Python's dis.py library.
 """
 
 # These are used from outside this module
-from xdis.bytecode import findlabels, findlinestarts
+from xdis.cross_dis import findlabels, findlinestarts
 from xdis.opcodes.base import (
     compare_op,
     const_op,
     def_op,
+    extended_format_CALL_FUNCTION,
+    extended_format_MAKE_FUNCTION_older,
+    extended_format_RAISE_VARARGS_older,
+    extended_format_RETURN_VALUE,
+    format_RAISE_VARARGS_older,
     jabs_op,
     jrel_op,
     finalize_opcodes,
@@ -33,12 +38,14 @@ from xdis.opcodes.base import (
     local_op,
     name_op,
     nargs_op,
+    store_op,
     # Although these aren't used here, they are exported
     varargs_op,
     update_pj2,
 )
 
 version = 1.5
+python_implementation = "CPython"
 
 cmp_op = (
     "<",
@@ -72,15 +79,16 @@ l["findlabels"] = findlabels
 
 hascompare = []
 hascondition = []  # conditional operator; has jump offset
-hasconst = []
-hasfree = []
-hasjabs = []
-hasjrel = []
-haslocal = []
-hasname = []
-hasnargs = []  # For function-like calls
-hasvargs = []  # Similar but for operators BUILD_xxx
-nofollow = []  # Instruction doesn't fall to the next opcode
+hasconst  = []
+hasfree   = []
+hasjabs   = []
+hasjrel   = []
+haslocal  = []
+hasname   = []
+hasnargs  = []  # For function-like calls
+hasstore  = []  # Some sort of store operation
+hasvargs  = []  # Similar but for operators BUILD_xxx
+nofollow  = []  # Instruction doesn't fall to the next opcode
 
 # oppush[op] => number of stack entries pushed
 # -9 means handle special. Note his forces oppush[i] - oppop[i] negative
@@ -126,17 +134,17 @@ def_op(l, "SLICE+1", 31, 2, 1)
 def_op(l, "SLICE+2", 32, 2, 1)
 def_op(l, "SLICE+3", 33, 3, 1)
 
-def_op(l, "STORE_SLICE+0", 40, 2, 0)
-def_op(l, "STORE_SLICE+1", 41, 3, 0)
-def_op(l, "STORE_SLICE+2", 42, 3, 0)
-def_op(l, "STORE_SLICE+3", 43, 4, 0)
+store_op(l, "STORE_SLICE+0", 40, 2, 0)
+store_op(l, "STORE_SLICE+1", 41, 3, 0)
+store_op(l, "STORE_SLICE+2", 42, 3, 0)
+store_op(l, "STORE_SLICE+3", 43, 4, 0)
 
 def_op(l, "DELETE_SLICE+0", 50, 1, 0)
 def_op(l, "DELETE_SLICE+1", 51, 2, 0)
 def_op(l, "DELETE_SLICE+2", 52, 2, 0)
 def_op(l, "DELETE_SLICE+3", 53, 3, 0)
 
-def_op(l, "STORE_SUBSCR", 60, 3, 0)  # Implements TOS1[TOS] = TOS2.
+store_op(l, "STORE_SUBSCR", 60, 3, 0)  # Implements TOS1[TOS] = TOS2.
 def_op(l, "DELETE_SUBSCR", 61, 2, 0)  # Implements del TOS1[TOS].
 
 def_op(l, "BINARY_LSHIFT", 62, 2, 1)
@@ -147,9 +155,9 @@ def_op(l, "BINARY_OR", 66, 2, 1)
 
 def_op(l, "PRINT_EXPR", 70, 1, 0)
 def_op(l, "PRINT_ITEM", 71, 1, 0)
-def_op(l, "PRINT_NEWLINE", 72, 1, 0)
+def_op(l, "PRINT_NEWLINE", 72, 0, 0)
 
-def_op(l, "BREAK_LOOP", 80, 0, 0)
+def_op(l, "BREAK_LOOP", 80, 0, 0, fallthrough=False)
 
 def_op(l, "LOAD_LOCALS", 82, 0, 1)
 def_op(l, "RETURN_VALUE", 83, 1, 0, fallthrough=False)
@@ -162,13 +170,13 @@ def_op(l, "BUILD_CLASS", 89, 3, 0)
 
 # HAVE_ARGUMENT = 90               # Opcodes from here have an argument:
 
-name_op(l, "STORE_NAME", 90, 1, 0)  # Operand is in name list
+store_op(l, "STORE_NAME", 90, 1, 0, is_type="name")  # Operand is in name list
 name_op(l, "DELETE_NAME", 91, 0, 0)  # ""
 varargs_op(l, "UNPACK_TUPLE", 92)  # Number of tuple items
 def_op(l, "UNPACK_LIST", 93)  # Number of list items
-name_op(l, "STORE_ATTR", 95, 2, 0)  # Operand is in name list
+store_op(l, "STORE_ATTR", 95, 2, 0, is_type="name")  # Operand is in name list
 name_op(l, "DELETE_ATTR", 96, 1, 0)  # ""
-name_op(l, "STORE_GLOBAL", 97, 1, 0)  # ""
+store_op(l, "STORE_GLOBAL", 97, 1, 0, is_type="name")  # ""
 name_op(l, "DELETE_GLOBAL", 98, 0, 0)  # ""
 
 const_op(l, "LOAD_CONST", 100, 0, 1)  # Operand is in const list
@@ -182,10 +190,10 @@ compare_op(l, "COMPARE_OP", 106, 2, 1)  # Comparison operator
 name_op(l, "IMPORT_NAME", 107, 2, 1)  # Operand is in name list
 name_op(l, "IMPORT_FROM", 108, 0, 1)  # Operand is in name list
 
-jrel_op(l, "JUMP_FORWARD", 110, 0, 0)  # Number of bytes to skip
+jrel_op(l, "JUMP_FORWARD", 110, 0, 0, fallthrough=False)  # Number of bytes to skip
 jrel_op(l, "JUMP_IF_FALSE", 111, 1, 1, True)  # ""
 jrel_op(l, "JUMP_IF_TRUE", 112, 1, 1, True)  # ""
-jabs_op(l, "JUMP_ABSOLUTE", 113, 0, 0)  # Target byte offset from beginning of code
+jabs_op(l, "JUMP_ABSOLUTE", 113, 0, 0, fallthrough=False)  # Target byte offset from beginning of code
 def_op(l, "FOR_LOOP", 114)  # Number of bytes to skip
 
 name_op(l, "LOAD_GLOBAL", 116, 0, 1)  # Operand is in name list
@@ -195,7 +203,7 @@ jrel_op(l, "SETUP_EXCEPT", 121, 0, 0)  # ""
 jrel_op(l, "SETUP_FINALLY", 122, 0, 0)  # ""
 
 local_op(l, "LOAD_FAST", 124, 0, 1)  # Local variable number
-local_op(l, "STORE_FAST", 125, 1, 0)  # Local variable number
+store_op(l, "STORE_FAST", 125, 1, 0, is_type="local")  # Local variable number
 local_op(l, "DELETE_FAST", 126)  # Local variable number
 
 def_op(l, "SET_LINENO", 127)  # Current line number
@@ -214,6 +222,16 @@ fields2copy = """cmp_op hasjabs""".split()
 
 update_pj2(globals(), l)
 
-opcode_arg_fmt = {"EXTENDED_ARG": format_extended_arg}
+opcode_arg_fmt = {
+    "EXTENDED_ARG": format_extended_arg,
+    "RAISE_VARARGS": format_RAISE_VARARGS_older
+}
 
 finalize_opcodes(l)
+
+opcode_extended_fmt = {
+    "CALL_FUNCTION": extended_format_CALL_FUNCTION,
+    "MAKE_FUNCTION": extended_format_MAKE_FUNCTION_older,
+    "RAISE_VARARGS": extended_format_RAISE_VARARGS_older,
+    "RETURN_VALUE": extended_format_RETURN_VALUE,
+}

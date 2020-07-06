@@ -15,9 +15,10 @@ class FloorFeatureRemoveOp(BaseLootOperation):
 
     def find_floor_feature_locations_within_radius(self, ff_type, location, level, radius):
         found_ff = set()
-        zone_id = services.current_zone_id()
         radius_squared = radius*radius
-        ff_locations = build_buy.list_floor_features(zone_id, ff_type)
+        ff_locations = build_buy.list_floor_features(ff_type)
+        if ff_locations is None:
+            return found_ff
         for (ff_pos, ff_level) in ff_locations:
             if ff_level == level:
                 if (location - ff_pos).magnitude_squared() <= radius_squared:

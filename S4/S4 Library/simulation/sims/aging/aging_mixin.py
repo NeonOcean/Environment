@@ -445,6 +445,7 @@ class AgingMixin:
             sim_instance.schedule_element(services.time_service().sim_timeline, build_element(sim_instance._update_face_and_posture_gen))
             sim_instance._update_multi_motive_buff_trackers()
             sim_instance.update_portal_locks()
+            sim_instance.update_rig()
         self.reset_age_progress()
         if not self.is_npc and self.whim_tracker is not None:
             self.whim_tracker.validate_goals()

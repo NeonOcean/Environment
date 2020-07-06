@@ -41,3 +41,10 @@ class TunableTimeSpan(sims4.tuning.tunable.TunableFactory):
 
     def __init__(self, description='A duration that may be specified in weeks/days/hours/minutes.', default_days=0, default_hours=0, default_minutes=0, **kwargs):
         super().__init__(days=TunableRange(description='Number of days', tunable_type=int, default=default_days, minimum=0), hours=TunableRange(description='Number of hours', tunable_type=int, default=default_hours, minimum=0, maximum=23), minutes=TunableRange(description='Number of minutes', tunable_type=int, default=default_minutes, minimum=0, maximum=59), description=description, **kwargs)
+
+class TunableTimeSpanSingleton(sims4.tuning.tunable.TunableSingletonFactory):
+    __slots__ = ()
+    FACTORY_TYPE = staticmethod(time_span_from_days_hours_minutes)
+
+    def __init__(self, description='A duration that may be specified in weeks/days/hours/minutes.', default_days=0, default_hours=0, default_minutes=0, **kwargs):
+        super().__init__(days=TunableRange(description='Number of days', tunable_type=int, default=default_days, minimum=0), hours=TunableRange(description='Number of hours', tunable_type=int, default=default_hours, minimum=0, maximum=23), minutes=TunableRange(description='Number of minutes', tunable_type=int, default=default_minutes, minimum=0, maximum=59), description=description, **kwargs)

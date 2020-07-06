@@ -1,3 +1,4 @@
+from _collections import defaultdict
 from weakref import WeakKeyDictionary
 import itertools
 import math
@@ -33,6 +34,7 @@ from interactions.aop import AffordanceObjectPair
 from interactions.context import QueueInsertStrategy
 from interactions.interaction_finisher import FinishingType
 from objects import ALL_HIDDEN_REASONS, HiddenReasonFlag
+from objects.client_object_mixin import ClientObjectMixin
 from sims.outfits.outfit_enums import OutfitChangeReason, OutfitCategory
 from sims.sickness_tuning import SicknessTuning
 from sims.sim_info_types import Age
@@ -69,6 +71,7 @@ TELEMETRY_HOOK_CAREER_LEAVE_EARLY = 'CALE'
 TELEMETRY_HOOK_CAREER_EVENT_END = 'CEND'
 TELEMETRY_HOOK_CAREER_INITIAL_ASSIGNMENT_OFFER = 'ASSI'
 TELEMETRY_HOOK_CAREER_ASSIGNMENT_END = 'ASEV'
+TELEMETRY_HOOK_CAREER_WORKDAY_START = 'BOTD'
 TELEMETRY_CAREER_ID = 'caid'
 TELEMETRY_CAREER_LEVEL = 'leve'
 TELEMETRY_CAREER_DAILY_PERFORMANCE = 'poin'
@@ -80,6 +83,11 @@ TELEMETRY_CAREER_EVENT_GOALS = 'cego'
 TELEMETRY_ASSIGNMENT_ID = 'asid'
 TELEMETRY_ASSIGNMENT_ACCEPTANCE = 'asar'
 TELEMETRY_ASSIGNMENT_COMPLETED = 'ascf'
+TELEMETRY_FIELD_WORKDAY_TYPE = 'wktp'
+TELEMETRY_WORKDAY_TYPE_RABBIT_HOLE = 1
+TELEMETRY_WORKDAY_TYPE_ACTIVE = 2
+TELEMETRY_WORKDAY_TYPE_WORK_FROM_HOME = 3
+TELEMETRY_WORKDAY_TYPE_DAY_OFF = 4
 career_telemetry_writer = sims4.telemetry.TelemetryWriter(TELEMETRY_GROUP_CAREERS)
 logger = sims4.log.Logger('Careers', default_owner='tingyul')
 NO_TIME_DIFFERENCE = date_and_time.TimeSpan.ZERO
@@ -142,7 +150,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._end_work_handle = None
         self._late_for_work_handle = None
         self._assignment_offering_handle = None
-        self._interaction = None
+        self._rabbit_hole_id = None
         self._statistic_down_listeners = {}
         self._statistic_up_listeners = {}
         self._trait_listener = None
@@ -150,7 +158,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._career_session_extended = False
         self._has_attended_first_day = False
         self._career_event_cooldown_map = {}
-        self._should_restore_career_state = True
         self._active_assignments = []
         self._offered_assignment_ids = set()
         self._assignment_late = False
@@ -162,16 +169,13 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._current_shift_type = CareerShiftType.ALL_DAY
         self._first_gig_completed = False
         self._seen_scholarship_info = False
+        self._guid_to_claimed_object_ids = None
 
     def __repr__(self):
         return '{} on {}'.format(type(self).__name__, self._get_sim())
 
     def _get_sim(self):
         return self._sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-
-    def get_interaction(self):
-        if self._interaction is not None:
-            return self._interaction()
 
     @property
     def sim_info(self):
@@ -442,6 +446,14 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             else:
                 msg.work_state = DistributorOps_pb2.SetAtWorkInfo.WORKDAY_AVAILABLE
                 msg.enable_go_to_work = True
+        elif self.career_panel_type == CareerPanelType.UNIVERSITY_COURSE and not self._sim_info.is_in_travel_group():
+            degree_tracker = self._sim_info.degree_tracker
+            if degree_tracker is not None:
+                if degree_tracker.allowed_to_enroll:
+                    if not degree_tracker.course_infos:
+                        msg.enable_go_to_work = True
+        elif self.career_panel_type == CareerPanelType.FREELANCE_CAREER:
+            msg.work_state = DistributorOps_pb2.SetAtWorkInfo.WORKDAY_OVER
         elif self.requested_day_off and self.requested_day_off_reason != career_ops.CareerTimeOffReason.WORK_FROM_HOME:
             self._populate_work_state_time_off_msg(msg, self.requested_day_off_reason)
         elif self._sim_info.is_in_travel_group():
@@ -449,12 +461,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 self._populate_work_state_time_off_msg(msg, career_ops.CareerTimeOffReason.PTO)
             else:
                 self._populate_work_state_time_off_msg(msg, career_ops.CareerTimeOffReason.MISSING_WORK)
-        elif self.career_panel_type == CareerPanelType.UNIVERSITY_COURSE:
-            degree_tracker = self._sim_info.degree_tracker
-            if degree_tracker is not None:
-                if degree_tracker.allowed_to_enroll:
-                    if not degree_tracker.course_infos:
-                        msg.enable_go_to_work = True
         else:
             msg.work_state = DistributorOps_pb2.SetAtWorkInfo.WORKDAY_OVER
         if self.on_assignment:
@@ -481,8 +487,10 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 return
             self._taking_day_off_reason = reason
             self.resend_at_work_info()
+            self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_DAY_OFF)
             return
         self._requested_day_off_reason = reason
+        self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_DAY_OFF)
         self.resend_career_data()
         self.resend_at_work_info()
 
@@ -708,7 +716,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._work_scheduler = self.current_level_tuning.schedule(self, start_callback=self._start_work_callback, schedule_immediate=schedule_immediate, early_warning_callback=self.early_warning_callback, early_warning_time_span=early_warning_time_span, schedule_shift_type=self._current_shift_type, init_only=schedule_init_only)
         self._add_performance_statistics()
         if is_load:
-            self._refresh_gig_on_load()
             self.restore_career_session()
             self.restore_tones()
         else:
@@ -728,9 +735,53 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                         aspiration_tracker.reset_milestone(aspiration)
                         aspiration.register_callbacks()
                         aspiration_tracker.process_test_events_for_aspiration(aspiration)
+            sim = self._sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if sim is not None:
+                self.create_objects()
         self._remove_statistic_metric_listeners()
         self._add_statistic_metric_listeners()
         self._add_trait_listener()
+
+    def create_objects(self):
+        object_creation_datas = self.current_level_tuning.object_create_on_join
+        if not object_creation_datas:
+            return
+        if self._sim_info.is_npc:
+            return
+        guid = self.current_level_tuning.guid
+        if self._guid_to_claimed_object_ids:
+            if guid in self._guid_to_claimed_object_ids:
+                return
+        else:
+            self._guid_to_claimed_object_ids = {}
+        self._guid_to_claimed_object_ids[guid] = set()
+        resolver = SingleSimResolver(self._sim_info)
+        for creation_data in object_creation_datas:
+            if creation_data.require_claim:
+                creation_data.initialize_helper(resolver)
+                created_object = creation_data.create_object(resolver)
+                if created_object:
+                    self._guid_to_claimed_object_ids[guid].add(created_object.id)
+
+    def _destroy_claimed_objects(self, guid):
+        if self._guid_to_claimed_object_ids:
+            object_manager = services.object_manager()
+            inventory_manager = services.inventory_manager()
+            if guid in self._guid_to_claimed_object_ids:
+                for object_id in self._guid_to_claimed_object_ids[guid]:
+                    object_manager.set_unclaimed_item(object_id)
+                    target = object_manager.get(object_id)
+                    if target is None:
+                        target = inventory_manager.get(object_id)
+                        if target is None:
+                            continue
+                    elif target.in_use:
+                        target.transient = True
+                    else:
+                        target.destroy(source=self, cause='destroying claimed objects for guid {}'.format(guid), fade_duration=ClientObjectMixin.FADE_DURATION)
+                del self._guid_to_claimed_object_ids[guid]
+                if not self._guid_to_claimed_object_ids:
+                    self._guid_to_claimed_object_ids = None
 
     def career_stop(self, for_travel=False, is_level_change=False):
         if self._work_scheduler is not None:
@@ -748,6 +799,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._remove_trait_listener()
         if not for_travel:
             self._remove_performance_statistics()
+            self._destroy_claimed_objects(self.current_level_tuning.guid)
 
     def _clear_career_alarms(self):
         if self._end_work_handle is not None:
@@ -1000,6 +1052,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._offered_assignment_ids.clear()
         self.resend_at_work_info()
         self.send_assignment_update()
+        self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_WORK_FROM_HOME)
 
     def _on_early_warning_alarm_response(self, dialog):
         response = dialog.response
@@ -1104,31 +1157,11 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             return
         if self.on_assignment:
             return
-        sim = self._sim_info.get_sim_instance()
-        if sim is not None:
-            affordance = self.get_work_affordance()
-            if affordance is None or sim.queue.has_duplicate_super_affordance(affordance, sim, sim):
-                return
+        if self._rabbit_hole_id and services.get_rabbit_hole_service().is_in_rabbit_hole(self.sim_info.id, self._rabbit_hole_id):
+            return
         if self.career_messages.career_missing_work is None:
             return
         self.send_career_message(self.career_messages.career_missing_work.dialog, on_response=self._career_missing_work_response)
-
-    def on_sim_creation_callback(self, sim, request):
-        self.push_go_to_work_affordance()
-
-    def on_sim_creation_denied_callback(self, request):
-        self.attend_work()
-
-    def send_uninstantiated_sim_home_for_work(self):
-        if self._sim_info.is_at_home:
-            return
-        home_zone_id = self._sim_info.household.home_zone_id
-        if home_zone_id == services.current_zone_id():
-            sim_spawn_request = SimSpawnRequest(self._sim_info, SimSpawnReason.ACTIVE_HOUSEHOLD, SimSpawnPointStrategy(spawner_tags=(SpawnPoint.ARRIVAL_SPAWN_POINT_TAG,), spawn_point_option=None, spawn_action=None), secondary_priority=0, customer=self, customer_data=None, spin_up_action=None)
-            services.sim_spawner_service().submit_request(sim_spawn_request)
-        else:
-            self._sim_info.inject_into_inactive_zone(home_zone_id)
-            self.attend_work()
 
     def _start_work_callback(self, scheduler, alarm_data, extra_data):
         if self._at_work:
@@ -1150,6 +1183,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             if self.requested_day_off:
                 self._taking_day_off_reason = self._requested_day_off_reason
                 self._requested_day_off_reason = career_ops.CareerTimeOffReason.NO_TIME_OFF
+                self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_DAY_OFF)
             else:
                 self._requested_day_off_reason = career_ops.CareerTimeOffReason.NO_TIME_OFF
                 self.resend_career_data()
@@ -1161,6 +1195,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             else:
                 self._taking_day_off_reason = career_ops.CareerTimeOffReason.MISSING_WORK
             self.resend_career_data()
+            self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_DAY_OFF)
         if not self.on_assignment:
             end_time = date_and_time_from_week_time(current_time.week(), alarm_data.end_time)
         else:
@@ -1202,7 +1237,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                                 if dialog.accepted:
                                     if self._try_offer_career_event():
                                         return
-                                    self.push_go_to_work_affordance()
+                                    self.put_sim_in_career_rabbit_hole()
                                 elif dialog.response == RESPONSE_ID_TAKE_PTO:
                                     self.request_day_off(CareerTimeOffReason.PTO)
                                     self.add_pto(-1)
@@ -1214,12 +1249,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 return
             if self.on_assignment:
                 return
-            if sim is not None:
-                self.push_go_to_work_affordance()
-            elif self._sim_info.household.home_zone_id != self._sim_info.zone_id:
-                self.send_uninstantiated_sim_home_for_work()
-            else:
-                self.attend_work()
+            self.put_sim_in_career_rabbit_hole()
 
     def _try_offer_career_event(self):
         if services.get_persistence_service().is_save_locked():
@@ -1248,9 +1278,10 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._start_career_event(career_event)
         self._add_career_event_cooldown(career_event)
         self.attend_work(start_tones=False)
+        self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_ACTIVE)
 
     def _on_career_event_declined(self, career_event):
-        self.push_go_to_work_affordance()
+        self.put_sim_in_career_rabbit_hole()
 
     def _start_career_event(self, career_event):
         self.active_days_worked_statistic.add_value(1)
@@ -1286,6 +1317,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
     def _end_work_at_home_gig(self):
         current_gig = self._upcoming_gig
         money_earned = current_gig.get_pay(overmax_level=self._overmax_level)
+        money_earned = self._get_simolean_trait_bonus_pay(pay=money_earned)
         self._sim_info.household.funds.add(money_earned, Consts_pb2.TELEMETRY_MONEY_CAREER, self._get_sim())
         pto_earned = 0
         self.apply_gig_performance_change()
@@ -1302,6 +1334,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self.add_work_performance(performance)
         self.apply_gig_performance_change()
         money_earned = current_gig.get_pay(payout.money_multiplier)
+        money_earned = self._get_simolean_trait_bonus_pay(pay=money_earned)
         self._sim_info.household.funds.add(money_earned, Consts_pb2.TELEMETRY_MONEY_CAREER, self._get_sim())
         result = self.evaluate_career_performance(money_earned, 0)
         if result is not None:
@@ -1374,8 +1407,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._career_event_cooldown_map = {event_id: day for (event_id, day) in self._career_event_cooldown_map.items() if current_day < day}
 
     def _end_work_callback(self, _):
-        if self._interaction is not None and self._interaction() is not None:
-            return
         if self.currently_at_work:
             self.leave_work()
         else:
@@ -1425,6 +1456,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 self.reset_homework_help()
 
     def restore_career_session(self):
+        self._set_up_gig_timers()
         if self.is_work_time and not self.on_assignment:
             self._create_work_session_alarms()
         if self._career_event_manager is not None:
@@ -1496,7 +1528,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
 
     def end_career_session(self):
         self._clear_career_alarms()
-        self._interaction = None
         if not self.taking_day_off and (self._upcoming_gig is None or self._upcoming_gig.odd_job_tuning is None):
             self._reset_performance_statistics()
             if not self._sim_info.is_npc:
@@ -1505,6 +1536,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._current_work_end = None
         self._current_work_duration = None
         self._at_work = False
+        self._rabbit_hole_id = None
         self._career_session_extended = False
         self._taking_day_off_reason = career_ops.CareerTimeOffReason.NO_TIME_OFF
         self._pto_taken = 0
@@ -1531,60 +1563,38 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._create_end_of_work_day_alarm()
         self.resend_at_work_info()
 
-    def get_career_affordance(self):
-        return self.career_affordance
-
-    def get_go_home_to_work_affordance(self):
-        return self.go_home_to_work_affordance
-
-    def get_work_affordance(self):
-        resolver = SingleSimResolver(self._sim_info)
-        for item in self.tested_affordances:
-            if item.tests.run_tests(resolver):
-                return item.affordance
-        if self._sim_info.can_go_to_work():
-            return self.get_career_affordance()
-        if self._sim_info.should_send_home_to_go_to_work():
-            if self._sim_info.is_npc:
-                return
+    def put_sim_in_career_rabbit_hole(self):
+        if self._rabbit_hole_id is None:
+            self._rabbit_hole_id = services.get_rabbit_hole_service().put_sim_in_managed_rabbithole(self._sim_info, self.career_rabbit_hole, career_uid=self.guid64)
+            if self._rabbit_hole_id is not None:
+                self._send_workday_info_telemetry(TELEMETRY_WORKDAY_TYPE_RABBIT_HOLE)
+                return True
             else:
-                return self.get_go_home_to_work_affordance()
+                return False
+        return False
 
-    def push_go_to_work_affordance(self):
-        sim = self._get_sim()
-        if sim is None:
-            return EnqueueResult.NONE
-        affordance = self.get_work_affordance()
-        if affordance is None:
-            return EnqueueResult.NONE
-        if not sim.queue.can_queue_visible_interaction():
-            return EnqueueResult.NONE
-        if sim.queue.has_duplicate_super_affordance(affordance, sim, sim):
-            return EnqueueResult.NONE
-        context = interactions.context.InteractionContext(sim, interactions.context.InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, insert_strategy=QueueInsertStrategy.LAST)
-        result = sim.push_super_affordance(affordance, sim, context, career_uid=self.guid64)
-        return result
+    def on_inactive_rabbit_hole_canceled(self):
+        self._rabbit_hole_id = None
 
-    def leave_work_early(self, on_response=None):
+    def remove_sim_from_career_rabbit_hole(self):
+        if not self._rabbit_hole_id:
+            logger.error('Tried to remove {} from career rabbit hole but no rabbit hole exists.', self._sim_info)
+            return
+        services.get_rabbit_hole_service().remove_sim_from_rabbit_hole(self.sim_info.id, self._rabbit_hole_id)
+
+    def leave_work_early(self):
         self._send_telemetry(TELEMETRY_HOOK_CAREER_LEAVE_EARLY)
-        interaction = self._interaction() if self._interaction is not None else None
-        if interaction is not None:
-            if self.on_assignment:
-                interaction.cancel(FinishingType.NATURAL, cancel_reason_msg='Canceled work through assignment acceptance.')
-            elif not self._sim_info.is_selectable:
-                interaction.cancel(FinishingType.NATURAL, cancel_reason_msg='Canceled work for non-selectable Sim.')
+        if self._rabbit_hole_id:
+            if self.sim_info.is_selectable:
+                services.get_rabbit_hole_service().try_remove_sim_from_rabbit_hole(self.sim_info.id, self._rabbit_hole_id)
             else:
-                interaction.cancel_user(cancel_reason_msg='User canceled work interaction through UI panel.', on_response=on_response)
+                self.remove_sim_from_career_rabbit_hole()
         else:
             self.leave_work(left_early=True)
-            if on_response is not None:
-                on_response(True)
 
     def attend_work(self, interaction=None, start_tones=True):
         if not self._has_attended_first_day:
             self._has_attended_first_day = True
-        if interaction is not None:
-            self._interaction = weakref.ref(interaction)
         if self._at_work:
             return
         self.days_worked_statistic.add_value(1)
@@ -1594,7 +1604,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._taking_day_off_reason = CareerTimeOffReason.NO_TIME_OFF
         self.add_pto(self._pto_taken*-1)
         self._pto_taken = 0
-        self._should_restore_career_state = True
         if self._late_for_work_handle is not None:
             alarms.cancel_alarm(self._late_for_work_handle)
             self._late_for_work_handle = None
@@ -1604,12 +1613,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             self.resend_at_work_info()
         if start_tones:
             self.start_tones()
-            familiar_tracker = self.sim_info.familiar_tracker
-            if familiar_tracker is not None:
-                familiar = familiar_tracker.get_active_familiar()
-                if familiar is not None and familiar.is_sim:
-                    rabbit_hole_service = services.get_rabbit_hole_service()
-                    rabbit_hole_service.put_sim_in_managed_rabbithole(familiar.sim_info, rabbit_hole_service.FAMILIAR_RABBIT_HOLE, ignore_exit_conditions=True)
         services.get_event_manager().process_event(test_events.TestEvent.WorkdayStart, sim_info=self._sim_info, career=self)
 
     def leave_work(self, left_early=False):
@@ -1618,15 +1621,12 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             return
         if left_early and self._upcoming_gig is not None:
             self._upcoming_gig.notify_canceled()
+        if self._rabbit_hole_id:
+            self.remove_sim_from_career_rabbit_hole()
         hours_worked = self.end_tones_and_get_hours_worked()
         if not self._sim_info.is_npc and not self.on_assignment:
             self.handle_career_loot(hours_worked, left_early=left_early)
         self.end_career_session()
-        familiar_tracker = self.sim_info.familiar_tracker
-        if familiar_tracker is not None:
-            familiar_pet_id = familiar_tracker.active_familiar_id_pet_id
-            if familiar_pet_id is not None:
-                services.get_rabbit_hole_service().remove_sim_from_rabbit_hole(familiar_pet_id)
         if not self._sim_info.is_npc and self._sim_info.away_action_tracker is not None:
             self._sim_info.away_action_tracker.reset_to_default_away_action()
         if not left_early:
@@ -1689,6 +1689,11 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             hook.write_int(TELEMETRY_ASSIGNMENT_ID, assignment.guid64)
             hook.write_bool(telemetry_type, result)
 
+    def _send_workday_info_telemetry(self, work_type):
+        with telemetry_helper.begin_hook(career_telemetry_writer, TELEMETRY_HOOK_CAREER_WORKDAY_START, sim_info=self._sim_info) as hook:
+            self._populate_telemetry_hook_with_career_data(hook)
+            hook.write_int(TELEMETRY_FIELD_WORKDAY_TYPE, work_type)
+
     def promote(self, levels_to_promote=1):
         result = self._promote(levels_to_promote=levels_to_promote)
         if result is not None:
@@ -1700,7 +1705,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             result.display_dialog(self)
 
     def fire(self):
-        if not self._sim_info.is_npc and self._interaction is not None:
+        if not self._sim_info.is_npc and self._rabbit_hole_id is not None:
             self.end_tones_and_get_hours_worked()
         result = self._fire()
         if result is not None:
@@ -1723,6 +1728,22 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._remove_career_knowledge(update_ui)
         self.remove_coworker_relationship_bit()
         self.clear_current_agent()
+        object_manager = services.object_manager()
+        inventory_manager = services.inventory_manager()
+        if self._guid_to_claimed_object_ids:
+            for object_id_list in self._guid_to_claimed_object_ids.values():
+                for object_id in object_id_list:
+                    object_manager.set_unclaimed_item(object_id)
+                    target = object_manager.get(object_id)
+                    if target is None:
+                        target = inventory_manager.get(object_id)
+                        if target is None:
+                            continue
+                    elif target.in_use:
+                        target.transient = True
+                    else:
+                        target.destroy(source=self, cause='Quitting career claiming object', fade_duration=ClientObjectMixin.FADE_DURATION)
+            self._guid_to_claimed_object_ids.clear()
         services.get_event_manager().process_event(test_events.TestEvent.CareerEvent, sim_info=self._sim_info, career=self)
 
     def can_change_level(self, demote=False):
@@ -1801,12 +1822,12 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 logger.info('Giving reward {} to {}', promotion_reward, self.sim_info, owner='jdimailig')
                 reward_payout.extend(promotion_reward.give_reward(self._sim_info))
             if reward_payout:
-                return LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text() for reward in reward_payout))
+                return LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text(SingleSimResolver(self._sim_info)) for reward in reward_payout))
 
     def _demote(self, levels_to_demote=1):
         current_level_tuning = self.current_level_tuning
         current_performance = self.work_performance
-        if self.can_be_fired and (current_performance <= current_level_tuning.demotion_performance_level or self._level < levels_to_demote):
+        if self.can_be_fired and (current_performance <= current_level_tuning.fired_performance_level or self._level < levels_to_demote):
             return self._fire()
         if self._level >= levels_to_demote:
             return self._demote_within_track(levels_to_demote=levels_to_demote)
@@ -1895,10 +1916,10 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         if overmax is not None:
             if overmax.reward_by_level and self._overmax_level in overmax.reward_by_level:
                 reward_payout = overmax.reward_by_level[self._overmax_level].give_reward(self._sim_info)
-                reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text() for reward in reward_payout))
+                reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text(SingleSimResolver(self._sim_info)) for reward in reward_payout))
             elif overmax.reward is not None:
                 reward_payout = overmax.reward.give_reward(self._sim_info)
-                reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text() for reward in reward_payout))
+                reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text(SingleSimResolver(self._sim_info)) for reward in reward_payout))
         else:
             reward_text = None
         if self.promotion_buff is not None:
@@ -2058,6 +2079,19 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         sim.push_super_affordance(self.career_messages.career_performance_warning.affordance, sim, context)
 
     @flexmethod
+    def _get_simolean_trait_bonus_pay(cls, inst, pay, sim_info=DEFAULT, career_track=DEFAULT, career_level=DEFAULT):
+        if pay == 0:
+            return pay
+        sim_info = sim_info if sim_info is not DEFAULT else inst.sim_info
+        career_track = career_track if career_track is not DEFAULT else inst.current_track_tuning
+        career_level = career_level if career_level is not DEFAULT else inst.level
+        level_tuning = career_track.career_levels[career_level]
+        for trait_bonus in level_tuning.simolean_trait_bonus:
+            if sim_info.trait_tracker.has_trait(trait_bonus.trait):
+                pay += pay*(trait_bonus.bonus*0.01)
+        return pay
+
+    @flexmethod
     def get_hourly_pay(cls, inst, sim_info=DEFAULT, career_track=DEFAULT, career_level=DEFAULT, overmax_level=DEFAULT):
         inst_or_cls = inst if inst is not None else cls
         sim_info = sim_info if sim_info is not DEFAULT else inst.sim_info
@@ -2070,9 +2104,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         hourly_pay = level_tuning.simoleons_per_hour
         if career_track.overmax is not None:
             hourly_pay += career_track.overmax.salary_increase*overmax_level
-        for trait_bonus in level_tuning.simolean_trait_bonus:
-            if sim_info.trait_tracker.has_trait(trait_bonus.trait):
-                hourly_pay += hourly_pay*(trait_bonus.bonus*0.01)
+        hourly_pay = inst_or_cls._get_simolean_trait_bonus_pay(pay=hourly_pay, sim_info=sim_info, career_track=career_track, career_level=career_level)
         hourly_pay = int(hourly_pay)
         return hourly_pay
 
@@ -2086,9 +2118,7 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         assignment_pay = level_tuning.simoleons_for_assignments_per_day*assignments/career_track.active_assignment_amount
         if career_track.overmax is not None:
             hourly_pay += career_track.overmax.salary_increase*self.overmax_level
-        for trait_bonus in level_tuning.simolean_trait_bonus:
-            if sim_info.trait_tracker.has_trait(trait_bonus.trait):
-                hourly_pay += hourly_pay*(trait_bonus.bonus*0.01)
+        hourly_pay = self._get_simolean_trait_bonus_pay(pay=hourly_pay, sim_info=sim_info, career_track=career_track, career_level=level_tuning.level)
         assignment_pay = assignment_pay*hourly_pay/level_tuning.simoleons_per_hour
         return assignment_pay
 
@@ -2453,38 +2483,34 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self.resend_career_data()
 
     def startup_career(self):
-        pass
+        self.create_objects()
 
     def on_loading_screen_animation_finished(self):
         if self._pending_promotion:
             self.promote()
-
-    @property
-    def should_restore_career_state(self):
-        return self._should_restore_career_state
 
     def on_zone_unload(self):
         if game_services.service_manager.is_traveling:
             if self._career_event_manager is not None:
                 self._career_event_manager.save_scorable_situation_for_travel()
             self.career_stop(for_travel=True)
-        self._interaction = None
 
     def on_zone_load(self):
         self.setup_career_event()
         if game_services.service_manager.is_traveling:
             self.career_start(is_load=True)
-
-    def update_should_restore_state(self):
-        if self.is_work_time:
-            sim = self._get_sim()
-            career_affordance = self.get_career_affordance()
-            if career_affordance is not None:
-                if sim is not None:
-                    if not any(isinstance(i, career_affordance) for i in sim.get_all_running_and_queued_interactions()):
-                        self._should_restore_career_state = False
-        else:
-            self._should_restore_career_state = True
+        if self._guid_to_claimed_object_ids:
+            object_manager = services.object_manager()
+            inventory_manager = services.inventory_manager()
+            for object_id_list in self._guid_to_claimed_object_ids.values():
+                for object_id in object_id_list:
+                    obj = object_manager.get(object_id)
+                    if obj is None:
+                        obj = inventory_manager.get(object_id)
+                    if obj is not None:
+                        obj.claim()
+                    else:
+                        object_manager.set_claimed_item(object_id)
 
     def get_persistable_sim_career_proto(self):
         proto = SimObjectAttributes_pb2.PersistableSimCareer()
@@ -2500,13 +2526,13 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         self._career_location.save_career_location(proto)
         proto.has_attended_first_day = self._has_attended_first_day
         proto.pto_taken = self._pto_taken
-        self.update_should_restore_state()
-        proto.should_restore_career_state = self._should_restore_career_state
         if self._current_work_start is not None:
             proto.current_work_start = self._current_work_start.absolute_ticks()
             proto.current_work_end = self._current_work_end.absolute_ticks()
             proto.current_work_duration = self._current_work_duration.in_ticks()
             proto.career_session_extended = self._career_session_extended
+        if self._rabbit_hole_id is not None:
+            proto.rabbit_hole_id = self._rabbit_hole_id
         if self._join_time is not None:
             proto.join_time = self._join_time.absolute_ticks()
         if self._career_event_manager is not None:
@@ -2524,6 +2550,11 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         proto.schedule_shift_type = self.schedule_shift_type
         proto.first_gig_completed = self._first_gig_completed
         proto.seen_scholarship_info = self._seen_scholarship_info
+        if self._guid_to_claimed_object_ids:
+            for (guid, object_id_list) in self._guid_to_claimed_object_ids.items():
+                with ProtocolBufferRollback(proto.claimed_object_datas) as claimed_object_datas:
+                    claimed_object_datas.guid = guid
+                    claimed_object_datas.claimed_object_ids.extend(object_id_list)
         return proto
 
     def load_from_persistable_sim_career_proto(self, proto, skip_load=False):
@@ -2539,8 +2570,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             self._at_work = proto.attended_work
             self._has_attended_first_day = proto.has_attended_first_day
             self._pto_taken = proto.pto_taken
-            if proto.HasField('should_restore_career_state'):
-                self._should_restore_career_state = proto.should_restore_career_state
             if proto.HasField('called_in_sick'):
                 if proto.called_in_sick:
                     self._requested_day_off_reason = career_ops.CareerTimeOffReason.FAKE_SICK
@@ -2557,6 +2586,10 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
                 self._current_work_end = DateAndTime(proto.current_work_end)
                 self._current_work_duration = TimeSpan(proto.current_work_duration)
                 self._career_session_extended = proto.career_session_extended
+            if proto.HasField('rabbit_hole_id'):
+                self._rabbit_hole_id = proto.rabbit_hole_id
+            else:
+                self._rabbit_hole_id = None
             if has_field(proto, 'career_event_manager_data'):
                 self._career_event_manager = CareerEventManager(self)
                 self._career_event_manager.load_career_event_manager_data_proto(proto.career_event_manager_data)
@@ -2590,6 +2623,15 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
             self._seen_scholarship_info = proto.seen_scholarship_info
         else:
             self._seen_scholarship_info = False
+        if proto.claimed_object_datas:
+            if self._guid_to_claimed_object_ids is not None:
+                logger.error('loading career claimed objects but there are already ones claimed')
+            self._guid_to_claimed_object_ids = {}
+            for claimed_object_data in proto.claimed_object_datas:
+                guid = claimed_object_data.guid
+                self._guid_to_claimed_object_ids[guid] = set()
+                for object_id in claimed_object_data.claimed_object_ids:
+                    self._guid_to_claimed_object_ids[guid].add(object_id)
         self.career_start(is_load=True, schedule_init_only=self.is_course_slot)
 
     def get_career_seniority(self):
@@ -2658,11 +2700,6 @@ class CareerBase(CoworkerMixin, CareerKnowledgeMixin, sims.sim_spawner_service.I
         for audition in auditions:
             if audition.get_receiver_sim_info().id == self.sim_info.id:
                 drama_scheduler.cancel_scheduled_node(audition.uid)
-
-    def _refresh_gig_on_load(self):
-        self._set_up_gig_timers()
-        if self._upcoming_gig is not None:
-            self._upcoming_gig.refresh_on_load()
 
     def _set_up_gig_timers(self):
         if self._upcoming_gig is None:

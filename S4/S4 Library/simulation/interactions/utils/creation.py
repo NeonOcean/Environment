@@ -70,7 +70,7 @@ class ObjectCreationElement(XevtTriggeredElement, ObjectCreationMixin):
             self._object_helper.object.visibility = VisibilityState(False)
         with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_OBJECT_CREATE_BSCEXTRA) as hook:
             hook.write_enum(TELEMETRY_FIELD_OBJECT_INTERACTION, self.interaction.guid64)
-            hook.write_guid(TELEMETRY_FIELD_OBJECT_DEFINITION, self.definition.id)
+            hook.write_guid(TELEMETRY_FIELD_OBJECT_DEFINITION, self._object_helper.object.definition.id)
         return True
 
     def _setup_created_object(self, created_object):
@@ -413,7 +413,7 @@ class SimCreationElement(XevtTriggeredElement):
             self.sim_info_source.do_pre_spawn_behavior(sim_info, resolver, household)
             SimSpawner.spawn_sim(sim_info, position, spawn_action=self.spawn_action, sim_location=location, use_fgl=use_fgl)
             if self.set_summoning_purpose is not None:
-                services.current_zone().venue_service.venue.summon_npcs((sim_info,), self.set_summoning_purpose)
+                services.current_zone().venue_service.active_venue.summon_npcs((sim_info,), self.set_summoning_purpose)
             if self.set_genealogy is not None and target_participant is not None:
                 self.set_genealogy(target_participant, sim_info)
             self.sim_info_source.do_post_spawn_behavior(sim_info, resolver, client_manager)

@@ -104,13 +104,14 @@ class PremadeSimFixupHelper:
 
     def _apply_template_data(self):
         for (premade_sim_template, sim_info) in self._premade_sim_infos.items():
-            premade_sim_template.add_perks(sim_info)
-            premade_sim_template.add_rank(sim_info)
+            premade_sim_template.add_perks(sim_info, suppress_telemetry=True)
+            premade_sim_template.add_rank(sim_info, suppress_telemetry=True)
 
     def _apply_aspiration(self):
         for (premade_sim_template, sim_info) in self._premade_sim_infos.items():
             if premade_sim_template.primary_aspiration is not None:
-                sim_info.primary_aspiration = premade_sim_template.primary_aspiration
+                with sim_info.primary_aspiration_telemetry_suppressed():
+                    sim_info.primary_aspiration = premade_sim_template.primary_aspiration
 
     def _add_fixups(self):
         for (premade_sim_template, sim_info) in self._premade_sim_infos.items():

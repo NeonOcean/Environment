@@ -7,17 +7,25 @@ import objects.components
 import placement
 import services
 import sims4.tuning.tunable
+from sims4.tuning.tunable import TunableList, TunableReference
 
 class ProximityComponent(objects.components.Component, sims4.tuning.tunable.HasTunableFactory, component_name=objects.components.types.PROXIMITY_COMPONENT, allow_dynamic=True):
-    FACTORY_TUNABLES = {'buffs': sims4.tuning.tunable.TunableList(sims4.tuning.tunable.TunableReference(description='\n                    A list of buffs to apply to Sims that are near the\n                    component owner.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True)), 'update_frequency': sims4.tuning.tunable.TunableRealSecond(description='\n                Number of seconds between proximity updates.\n                ', default=18.0, tuning_filter=sims4.tuning.tunable_base.FilterTag.EXPERT_MODE), 'update_distance': sims4.tuning.tunable.Tunable(int, 10, description='\n                Max distance Sims away from component owner and still be\n                considered in proximity.\n                ', tuning_filter=sims4.tuning.tunable_base.FilterTag.EXPERT_MODE)}
+    FACTORY_TUNABLES = {'buffs': sims4.tuning.tunable.TunableList(sims4.tuning.tunable.TunableReference(description='\n                    A list of buffs to apply to Sims that are near the\n                    component owner.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.BUFF), pack_safe=True)), 'update_frequency': sims4.tuning.tunable.TunableRealSecond(description='\n                Number of seconds between proximity updates.\n                ', default=18.0, tuning_filter=sims4.tuning.tunable_base.FilterTag.EXPERT_MODE), 'update_distance': sims4.tuning.tunable.Tunable(int, 10, description='\n                Max distance Sims away from component owner and still be\n                considered in proximity.\n                ', tuning_filter=sims4.tuning.tunable_base.FilterTag.EXPERT_MODE), 'disabling_state_values': TunableList(description='\n            If tuned, states which will, if active, cause this component to \n            disable.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions=('ObjectStateValue',)))}
 
-    def __init__(self, owner, buffs=(), update_frequency=6, update_distance=10, **kwargs):
+    def __init__(self, owner, buffs=(), update_frequency=6, update_distance=10, disabling_state_values=None, **kwargs):
         super().__init__(owner, **kwargs)
         self.buff_types = buffs
         self.update_frequency = update_frequency
         self.update_distance = update_distance
         self.active_buff_handles = {}
         self._alarm = None
+        self._disabling_state_values = disabling_state_values
+
+    def on_state_changed(self, state, old_value, new_value, from_init):
+        if new_value in self._disabling_state_values:
+            self._stop()
+        elif old_value in self._disabling_state_values and not any(self.owner.state_value_active(state_value) for state_value in self._disabling_state_values):
+            self._start()
 
     def on_add(self):
         self._start()

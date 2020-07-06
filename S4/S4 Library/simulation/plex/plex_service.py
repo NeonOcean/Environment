@@ -60,7 +60,7 @@ class PlexService(Service):
         if active_zone_id not in self._zone_to_master_map:
             return
         (master_id, _) = self._zone_to_master_map[active_zone_id]
-        plex_id = build_buy.get_location_plex_id(active_zone_id, world_position, level)
+        plex_id = build_buy.get_location_plex_id(world_position, level)
         for (zone_id, (other_master_id, other_plex_id)) in self._zone_to_master_map.items():
             if master_id == other_master_id:
                 if plex_id == other_plex_id:
@@ -75,12 +75,13 @@ class PlexService(Service):
                 return True
         return False
 
-    def get_plex_polygons(self, zone_id, level):
+    def get_plex_polygons(self, level):
+        zone_id = services.current_zone_id()
         if zone_id not in self._zone_to_master_map:
             logger.error("Can't get polygons for a non-plex: {}", zone_id)
             return []
         (_, plex_id) = self._zone_to_master_map[zone_id]
-        blocks = build_buy.get_plex_outline(zone_id, plex_id, level)
+        blocks = build_buy.get_plex_outline(plex_id, level)
         polygons = []
         for block in blocks:
             logger.assert_log(len(block) == 1, 'Plex has cutouts. get_plex_polygons needs to be updated. Zone: {}, Level: {}', zone_id, level)

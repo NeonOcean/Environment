@@ -16,8 +16,9 @@ class NearbyFloorFeatureTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTe
     FACTORY_TUNABLES = {'floor_feature': TunableEnumEntry(description="\n            The floor feature type that is required to be inside the radius_actor's\n            radius.\n            ", tunable_type=FloorFeatureType, default=FloorFeatureType.BURNT), 'radius': TunableDistanceSquared(description="\n            The radius, with the radius actor's position, that defines the area\n            within which the floor feature is valid.\n            ", default=5.0), 'radius_actor': TunableEnumEntry(description='\n            The Actor within whose radius the tuned floor feature must be in\n            for consideration.\n            ', tunable_type=ParticipantType, default=ParticipantType.Actor)}
 
     def floor_feature_exists_in_object_radius(self, radius_actors):
-        zone_id = services.current_zone_id()
-        floor_features = build_buy.list_floor_features(zone_id, self.floor_feature)
+        floor_features = build_buy.list_floor_features(self.floor_feature)
+        if floor_features is None:
+            return False
         for actor in radius_actors:
             for (ff_position, _) in floor_features:
                 delta = ff_position - actor.position

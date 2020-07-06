@@ -4,10 +4,10 @@ import math
 from protocolbuffers import GameplaySaveData_pb2
 from date_and_time import DateAndTime, TimeSpan, DAYS_PER_WEEK, create_date_and_time, create_time_span
 from distributor.rollback import ProtocolBufferRollback
-from drama_scheduler.drama_node import DramaNodeScoringBucket, CooldownOption
+from drama_scheduler.drama_node import DramaNodeScoringBucket, CooldownOption, CooldownGroup, NODE_COOLDOWN, BaseDramaNode, DramaNodeRunOutcome
 from event_testing.resolver import SingleSimResolver
 from gsi_handlers.drama_handlers import is_scoring_archive_enabled, GSIDramaScoringData, archive_drama_scheduler_scoring, GSIRejectedDramaNodeScoringData, GSIDramaNodeScoringData, is_drama_node_log_enabled, log_drama_node_scoring, DramaNodeLogActions
-from scheduler import TunableDayAvailability
+from scheduler_utils import TunableDayAvailability
 from sims4 import random
 from sims4.service_manager import Service
 from sims4.tuning.tunable import TunableMapping, TunableEnumEntry, TunableTuple, TunableVariant, Tunable, TunableRange, TunableSet
@@ -38,8 +38,10 @@ class DramaScheduleService(Service):
         self._active_nodes = {}
         self._scheduled_nodes = {}
         self._cooldown_nodes = {}
-        self._has_started_up = False
+        self._cooldown_groups = {}
         self._drama_nodes_on_permanent_cooldown = set()
+        self._drama_node_groups_on_permanent_cooldown = set()
+        self._has_started_up = False
         self._processor = None
         self._enabled = True
         self._startup_buckets_used = set()
@@ -80,13 +82,19 @@ class DramaScheduleService(Service):
         yield from self._scheduled_nodes.values()
 
     def start_cooldown(self, drama_node):
-        if drama_node.put_on_permanent_cooldown:
-            self._drama_nodes_on_permanent_cooldown.add(drama_node.guid64)
+        if drama_node.cooldown_data is None:
             return
-        if drama_node.cooldown == 0:
+        if drama_node.cooldown.duration is None:
+            if drama_node.cooldown_data.cooldown_type == NODE_COOLDOWN:
+                self._drama_nodes_on_permanent_cooldown.add(drama_node.guid64)
+            else:
+                self._drama_node_groups_on_permanent_cooldown.add(drama_node.cooldown_data.group)
             return
         now = services.time_service().sim_now
-        self._cooldown_nodes[drama_node] = now
+        if drama_node.cooldown_data.cooldown_type == NODE_COOLDOWN:
+            self._cooldown_nodes[drama_node] = now
+        else:
+            self._cooldown_groups[drama_node.cooldown_data.group] = now
 
     def get_active_node_by_uid(self, drama_node_uid):
         return self._active_nodes.get(drama_node_uid)
@@ -106,10 +114,18 @@ class DramaScheduleService(Service):
     def _update_cooldowns(self):
         now = services.time_service().sim_now
         for (drama_node, time) in tuple(self._cooldown_nodes.items()):
-            cooldown_length = date_and_time.create_time_span(hours=drama_node.cooldown)
+            cooldown = drama_node.cooldown
+            if cooldown is None:
+                continue
+            cooldown_length = date_and_time.create_time_span(hours=cooldown.duration)
             time += cooldown_length
             if time < now:
                 del self._cooldown_nodes[drama_node]
+        for (cooldown_group, time) in tuple(self._cooldown_groups.items()):
+            cooldown_length = date_and_time.create_time_span(hours=BaseDramaNode.COOLDOWN_GROUPS[cooldown_group].duration)
+            time += cooldown_length
+            if time < now:
+                del self._cooldown_groups[cooldown_group]
 
     def on_situation_creation_during_zone_spin_up(self):
         for node in self.active_nodes_gen():
@@ -126,7 +142,7 @@ class DramaScheduleService(Service):
         if is_drama_node_log_enabled():
             log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.SCHEDULED)
         self._scheduled_nodes[drama_node_inst.uid] = drama_node_inst
-        if drama_node.cooldown_option == CooldownOption.ON_SCHEDULE:
+        if drama_node.cooldown is not None and drama_node.cooldown.cooldown_option == CooldownOption.ON_SCHEDULE:
             self.start_cooldown(drama_node)
         return drama_node_inst.uid
 
@@ -157,8 +173,11 @@ class DramaScheduleService(Service):
         if not drama_node_inst.setup(resolver, **kwargs):
             return False
         drama_node_inst.debug_set_selected_time(services.time_service().sim_now)
-        if not drama_node_inst.run():
+        result = drama_node_inst.run()
+        if result == DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE:
             self._active_nodes[uid] = drama_node_inst
+        elif result == DramaNodeRunOutcome.RESCHEDULED:
+            self._scheduled_nodes[uid] = drama_node_inst
         elif is_drama_node_log_enabled():
             log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.COMPLETED)
         return True
@@ -184,13 +203,16 @@ class DramaScheduleService(Service):
             if is_drama_node_log_enabled():
                 log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.CANCELED, 'Drama Scheduler is disabled')
             return
-        if drama_node_inst.cooldown_option != CooldownOption.ON_SCHEDULE and self._is_node_on_cooldown(type(drama_node_inst)):
+        if drama_node_inst.cooldown is not None and drama_node_inst.cooldown.cooldown_option != CooldownOption.ON_SCHEDULE and self._is_node_on_cooldown(type(drama_node_inst)):
             drama_node_inst.cleanup()
             if is_drama_node_log_enabled():
                 log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.CANCELED, '{} is currently on cooldown', drama_node_inst)
             return
-        if not drama_node_inst.run():
+        result = drama_node_inst.run()
+        if result == DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE:
             self._active_nodes[uid] = drama_node_inst
+        elif result == DramaNodeRunOutcome.RESCHEDULED:
+            self._scheduled_nodes[uid] = drama_node_inst
         else:
             if is_drama_node_log_enabled():
                 log_drama_node_scoring(drama_node_inst, DramaNodeLogActions.COMPLETED)
@@ -211,7 +233,12 @@ class DramaScheduleService(Service):
             with ProtocolBufferRollback(drama_schedule_proto.cooldown_nodes) as cooldown_node:
                 cooldown_node.node_type = drama_node.guid64
                 cooldown_node.completed_time = time.absolute_ticks()
+        for (group, time) in self._cooldown_groups.items():
+            with ProtocolBufferRollback(drama_schedule_proto.cooldown_groups) as cooldown_group:
+                cooldown_group.group = group
+                cooldown_group.completed_time = time.absolute_ticks()
         drama_schedule_proto.drama_nodes_on_permanent_cooldown.extend(self._drama_nodes_on_permanent_cooldown)
+        drama_schedule_proto.cooldown_groups_on_permanent_cooldown.extend(self._drama_node_groups_on_permanent_cooldown)
         drama_schedule_proto.startup_drama_node_buckets_used.extend(self._startup_buckets_used)
         save_slot_data.gameplay_data.drama_schedule_service = drama_schedule_proto
 
@@ -244,7 +271,11 @@ class DramaScheduleService(Service):
                 continue
             time = DateAndTime(cooldown_proto.completed_time)
             self._cooldown_nodes[node_type] = time
+        for cooldown_group_proto in save_slot_data.gameplay_data.drama_schedule_service.cooldown_groups:
+            time = DateAndTime(cooldown_proto.completed_time)
+            self._cooldown_groups[CooldownGroup(cooldown_group_proto.group)] = time
         self._drama_nodes_on_permanent_cooldown.update(save_slot_data.gameplay_data.drama_schedule_service.drama_nodes_on_permanent_cooldown)
+        self._drama_node_groups_on_permanent_cooldown.update(CooldownGroup(cooldown_group) for cooldown_group in save_slot_data.gameplay_data.drama_schedule_service.cooldown_groups_on_permanent_cooldown)
         self._startup_buckets_used = {DramaNodeScoringBucket(bucket) for bucket in save_slot_data.gameplay_data.drama_schedule_service.startup_drama_node_buckets_used}
 
     def _setup_scoring_alarm(self):
@@ -258,7 +289,12 @@ class DramaScheduleService(Service):
         self._processor = sim_timeline.schedule(elements.GeneratorElement(self._process_scoring_gen), when=schedule_time)
 
     def _is_node_on_cooldown(self, drama_node):
-        return drama_node in self._cooldown_nodes or drama_node.guid64 in self._drama_nodes_on_permanent_cooldown
+        if drama_node.cooldown_data is None:
+            return False
+        if drama_node.cooldown_data.cooldown_type == NODE_COOLDOWN:
+            return drama_node in self._cooldown_nodes or drama_node.guid64 in self._drama_nodes_on_permanent_cooldown
+        else:
+            return drama_node.cooldown_data.group in self._cooldown_groups or drama_node.cooldown_data.group in self._drama_node_groups_on_permanent_cooldown
 
     def score_and_schedule_nodes_gen(self, nodes_to_score, nodes_to_schedule, specific_time=None, time_modifier=TimeSpan.ZERO, timeline=None, gsi_data=None, **additional_drama_node_kwargs):
         active_household = services.active_household()
@@ -310,7 +346,7 @@ class DramaScheduleService(Service):
                         if gsi_data is not None:
                             gsi_data.chosen_nodes.append(GSIDramaNodeScoringData(type(chosen_node), chosen_node.score(), chosen_node.get_score_details(), chosen_node.get_receiver_sim_info(), chosen_node.get_sender_sim_info()))
                         self._scheduled_nodes[chosen_node.uid] = chosen_node
-                        if chosen_node.cooldown_option == CooldownOption.ON_SCHEDULE:
+                        if chosen_node.cooldown is not None and chosen_node.cooldown.cooldown_option == CooldownOption.ON_SCHEDULE:
                             self.start_cooldown(type(chosen_node))
                         if is_drama_node_log_enabled():
                             log_drama_node_scoring(chosen_node, DramaNodeLogActions.SCHEDULED)
@@ -338,17 +374,17 @@ class DramaScheduleService(Service):
                 zone_id = lot_owner_info.zone_instance_id
                 if not zone_id:
                     continue
-                venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
-                if venue_type is None:
+                venue_tuning = venue_manager.get(build_buy.get_current_venue(zone_id))
+                if venue_tuning is None:
                     continue
-                if not venue_type.drama_node_events:
+                if not venue_tuning.drama_node_events:
                     continue
                 if is_scoring_archive_enabled():
                     gsi_data = GSIDramaScoringData()
                     gsi_data.bucket = 'Venue'
                 else:
                     gsi_data = None
-                yield from self.score_and_schedule_nodes_gen(venue_type.drama_node_events, venue_type.drama_node_events_to_schedule, timeline=timeline, gsi_data=gsi_data, zone_id=zone_id)
+                yield from self.score_and_schedule_nodes_gen(venue_tuning.drama_node_events, venue_tuning.drama_node_events_to_schedule, timeline=timeline, gsi_data=gsi_data, zone_id=zone_id)
                 if gsi_data is not None:
                     archive_drama_scheduler_scoring(gsi_data)
                 if timeline is not None:

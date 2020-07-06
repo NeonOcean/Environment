@@ -60,6 +60,7 @@ class GroupNames:
     FESTIVAL_CONTEST = 'Festival Contest'
     FISHING = 'Fishing'
     GHOSTS = 'Ghosts'
+    GIG = 'Gig'
     GOALS = 'Goals'
     LOOT = 'Loot'
     MIXER = 'Mixer'
@@ -93,7 +94,7 @@ class GroupNames:
     TRAVEL = 'Travel'
     UI = 'UI'
     VENUES = 'Venues'
-    GIG = 'Gig'
+    WALKBY = 'Walkby'
 
 class RateDescriptions:
     PER_SIM_MINUTE = 'per Sim minute'

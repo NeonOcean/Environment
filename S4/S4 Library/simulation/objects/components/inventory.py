@@ -1,6 +1,7 @@
 import weakref
 from protocolbuffers import FileSerialization_pb2, UI_pb2 as ui_protocols
 from build_buy import ObjectOriginLocation
+from collections import defaultdict
 from distributor.system import Distributor
 from event_testing.resolver import SingleObjectResolver
 from objects.components import Component, types, componentmethod
@@ -173,12 +174,12 @@ class InventoryComponent(Component):
         self._insert_item(obj, force_add_to_hidden_inventory=hidden)
         return True
 
-    def system_add_object(self, obj):
+    def system_add_object(self, obj, compact=True):
         if not self.can_add(obj):
             logger.error('Attempt to add object ({}) which failed the common test.', obj)
             obj.destroy(source=self.owner, cause='Failed attempt to add object to an inventory using system_add_object(). Object was destroyed.')
             return
-        self._insert_item(obj)
+        self._insert_item(obj, compact=compact)
 
     def add_from_load(self, obj, hidden=False):
         self._insert_item(obj, force_add_to_hidden_inventory=hidden, compact=False)
@@ -323,6 +324,17 @@ class InventoryComponent(Component):
         items.sort(key=lambda item: item.get_stack_sort_order())
         return items
 
+    def get_stack_items_map(self, stack_ids):
+        stack_map = defaultdict(list)
+        for obj in self:
+            obj_stack_id = obj.inventoryitem_component.get_stack_id()
+            if obj_stack_id not in stack_ids:
+                continue
+            if obj_stack_id not in stack_map:
+                stack_map[obj_stack_id] = []
+            stack_map[obj_stack_id].append(obj)
+        return stack_map
+
     def get_item_update_ops_gen(self):
         yield from self._storage.get_item_update_ops_gen()
 
@@ -352,6 +364,10 @@ class InventoryComponent(Component):
         if obj.id in self._storage:
             self._storage.distribute_inventory_update_message(obj)
 
+    def push_inventory_item_stack_update_msg(self, obj):
+        if obj.id in self._storage:
+            self._storage.distribute_inventory_stack_update_message(obj)
+
     def open_ui_panel(self):
         self._storage.open_ui_panel(self.owner)
 
@@ -378,19 +394,18 @@ class InventoryComponent(Component):
             return
         if not object_list.objects:
             return
-        zone_id = services.current_zone_id()
         for obj_data in object_list.objects:
-            def_id = build_buy.get_vetted_object_defn_guid(zone_id, obj_data.object_id, obj_data.guid or obj_data.type)
+            def_id = build_buy.get_vetted_object_defn_guid(obj_data.object_id, obj_data.guid or obj_data.type)
             if def_id is not None:
                 self._load_item(def_id, obj_data)
         self._on_load_items()
 
     def _create_inventory_object(self, definition_id, obj_data):
-        objects.system.create_object(definition_id, obj_id=obj_data.object_id, loc_type=obj_data.loc_type, post_add=lambda o: self._post_create_object(o, obj_data))
+        objects.system.create_object(definition_id, obj_id=obj_data.object_id, loc_type=obj_data.loc_type, post_add=lambda o: self._post_create_object(o, obj_data), disable_object_commodity_callbacks=True)
 
     def _post_create_object(self, obj, obj_data):
         try:
-            obj.load_object(obj_data)
+            obj.load_object(obj_data, inline_finalize=True)
             if obj not in self:
                 if self.can_add(obj):
                     self.add_from_load(obj)

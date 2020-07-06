@@ -75,7 +75,7 @@ class ThrowingGroupCostFunction(HasTunableFactory, AutoFactoryInit, CostFunction
     def _score_location(self, position):
         if self.location_tests.validate_snowmask is not None and terrain.get_snowmask_value(position) > self.location_tests.validate_snowmask:
             return ThrowingGroupCostFunction.INVALID_GOAL_SCORE
-        elif self.location_tests.validate_is_outside is not None and self.location_tests.validate_is_outside != is_location_outside(self._sim.zone_id, position, self._sim.level):
+        elif self.location_tests.validate_is_outside is not None and self.location_tests.validate_is_outside != is_location_outside(position, self._sim.level):
             return ThrowingGroupCostFunction.INVALID_GOAL_SCORE
         return 0.0
 

@@ -58,6 +58,26 @@ class EnvironmentScoreMixin:
         self._clear_environment_score()
         self._dirty = True
 
+    def on_build_objects_environment_score_update(self):
+        self._dirty = True
+        self.schedule_environment_score_update(force_run=True)
+
+    def _get_build_objects_environment_score(self):
+        negative_value = 0
+        positive_value = 0
+        if not services.get_zone_modifier_service().is_build_eco_effects_enabled:
+            return (negative_value, positive_value)
+        lot = services.current_zone().lot
+        negative_stat_type = EnvironmentScoreTuning.BUILD_OBJECTS_ENVIRONMENT_SCORING.negative_environment_scoring
+        negative_stat_tracker = lot.get_tracker(negative_stat_type)
+        if negative_stat_tracker is not None:
+            negative_value = negative_stat_tracker.get_value(negative_stat_type)
+        positive_stat_type = EnvironmentScoreTuning.BUILD_OBJECTS_ENVIRONMENT_SCORING.positive_environment_scoring
+        positive_stat_tracker = lot.get_tracker(positive_stat_type)
+        if positive_stat_tracker is not None:
+            positive_value = positive_stat_tracker.get_value(positive_stat_type)
+        return (negative_value, positive_value)
+
     def _get_broadcasting_environment_score_objects_gen(self):
         for broadcaster in self._environment_score_broadcasters:
             if broadcaster.broadcasting_object is not None:
@@ -132,6 +152,9 @@ class EnvironmentScoreMixin:
             total_mood_scores = Counter()
             total_negative_score = 0
             total_positive_score = 0
+            (build_objs_negative_score, build_objs_positive_score) = self._get_build_objects_environment_score()
+            total_negative_score += build_objs_negative_score
+            total_positive_score += build_objs_positive_score
             if gsi_handlers.sim_handlers_log.environment_score_archiver.enabled:
                 contributing_objects = []
                 object_contributions = []

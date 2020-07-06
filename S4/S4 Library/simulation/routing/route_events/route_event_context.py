@@ -218,7 +218,7 @@ class RouteEventContext:
                 break
         else:
             return
-        if path is not None and gsi_handlers.route_event_handlers.archiver.enabled:
+        if path is not None and (gsi_handlers.route_event_handlers.archiver.enabled or gsi_handlers.routing_handlers.sim_route_archiver.enabled):
             gsi_handlers.route_event_handlers.gsi_route_event_executed(path, actor, route_event)
         if route_event.event_data.should_remove_on_execute():
             self.remove_route_event(route_event, time)
@@ -404,7 +404,7 @@ class RouteEventContext:
 
     def gsi_update_route_events(self, path, added_events, start_time):
         gsi_path_log = None
-        if gsi_handlers.route_event_handlers.archiver.enabled:
+        if gsi_handlers.route_event_handlers.archiver.enabled or gsi_handlers.routing_handlers.sim_route_archiver.enabled:
             gsi_path_log = gsi_handlers.route_event_handlers.get_path_route_events_log(path)
         if gsi_path_log is not None:
             for (route_event, time) in self._scheduled_events:

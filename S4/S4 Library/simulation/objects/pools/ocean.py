@@ -194,7 +194,7 @@ class Ocean(SwimmingMixin, GameObject):
                                     location = portal_instance.there_entry
                                 elif portal_id == portal_instance.back:
                                     location = portal_instance.back_exit
-                                if location and build_buy.is_location_natural_ground(location.routing_surface.primary_id, location.position, location.routing_surface.secondary_id):
+                                if location and build_buy.is_location_natural_ground(location.position, location.routing_surface.secondary_id):
                                     add_portals.append(portal_id)
                                 else:
                                     remove_portals.append(portal_id)

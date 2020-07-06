@@ -1,3 +1,4 @@
+import services
 from distributor.ops import SetCallToAction, ElementDistributionOpMixin
 from sims4.tuning.tunable import HasTunableFactory, TunableColor, TunableRange, AutoFactoryInit
 import distributor.ops
@@ -19,6 +20,8 @@ class Glow(ElementDistributionOpMixin, HasTunableFactory, AutoFactoryInit):
 
     def detach(self, *objects):
         super().detach(*objects)
+        if services.current_zone().is_zone_shutting_down:
+            return
         glowOp = SetCallToAction(0, 0, 0)
         distributor.ops.record(self._target, glowOp)
 

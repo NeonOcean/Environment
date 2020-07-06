@@ -2,6 +2,7 @@ from functools import total_ordering
 from build_buy import get_object_catalog_name, get_object_catalog_description, get_object_is_deletable, get_object_can_depreciate
 from protocolbuffers.Localization_pb2 import LocalizedStringToken
 from sims4.repr_utils import standard_angle_repr
+from sims4.utils import constproperty
 from singletons import UNSET
 import build_buy
 import services
@@ -163,6 +164,10 @@ class Definition:
     def icon(self):
         return self._safe_index(self._icon, 0)
 
+    @constproperty
+    def is_sim():
+        return False
+
     def get_model(self, index):
         return self._safe_index(self._model, index)
 
@@ -252,6 +257,9 @@ class Definition:
         if set(tags) & set(self.build_buy_tags):
             return True
         return False
+
+    def get_tags(self):
+        return self.build_buy_tags
 
     def get_is_deletable(self):
         return get_object_is_deletable(self.id)

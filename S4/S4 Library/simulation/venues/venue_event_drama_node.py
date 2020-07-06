@@ -1,6 +1,6 @@
 from date_and_time import create_time_span, TimeSpan
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
-from drama_scheduler.drama_node import BaseDramaNode, DramaNodeUiDisplayType, TimeSelectionOption
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeUiDisplayType, TimeSelectionOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.results import TestResult
 from gsi_handlers.drama_handlers import GSIRejectedDramaNodeScoringData
@@ -99,7 +99,7 @@ class VenueEventDramaNode(VenueEventDramaNodeDisplayMixin, BaseDramaNode):
                 if self.ending_notification is not None:
                     dialog = self.ending_notification(services.active_sim_info())
                     dialog.show_dialog()
-                venue_service.change_zone_director(venue_service.venue.zone_director(), True)
+                venue_service.change_zone_director(venue_service.active_venue.zone_director(), True)
         elif self.ending_notification is not None:
             dialog = self.ending_notification(services.active_sim_info())
             dialog.show_dialog()
@@ -131,13 +131,13 @@ class VenueEventDramaNode(VenueEventDramaNodeDisplayMixin, BaseDramaNode):
         zone_data = services.get_persistence_service().get_zone_proto_buff(self._zone_id)
         if zone_data is None:
             return
-        venue_type_id = build_buy.get_current_venue(self._zone_id)
+        venue_tuning_id = build_buy.get_current_venue(self._zone_id)
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_instance = venue_manager.get(venue_type_id)
-        if venue_instance is None:
+        venue_tuning = venue_manager.get(venue_tuning_id)
+        if venue_tuning is None:
             return
         dialog = self.away_notification(services.active_sim_info())
-        dialog.show_dialog(additional_tokens=(zone_data.name, venue_instance.display_name))
+        dialog.show_dialog(additional_tokens=(zone_data.name, venue_tuning.display_name))
 
     def _process_scoring_gen(self, timeline):
         try:
@@ -149,28 +149,28 @@ class VenueEventDramaNode(VenueEventDramaNodeDisplayMixin, BaseDramaNode):
         finally:
             self._additional_nodes_processor = None
 
-    def _validate_venue_type(self):
-        venue_type_id = build_buy.get_current_venue(self._zone_id)
+    def _validate_venue_tuning(self):
+        venue_tuning_id = build_buy.get_current_venue(self._zone_id)
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_type = venue_manager.get(venue_type_id)
-        if venue_type is None:
+        venue_tuning = venue_manager.get(venue_tuning_id)
+        if venue_tuning is None:
             return False
-        elif type(self) not in venue_type.drama_node_events:
+        elif type(self) not in venue_tuning.drama_node_events:
             return False
         return True
 
     def _run(self):
-        if not self._validate_venue_type():
-            return True
+        if not self._validate_venue_tuning():
+            return DramaNodeRunOutcome.FAILURE
         self._duration_alarm_handle = alarms.add_alarm(self, create_time_span(minutes=self.duration), self._on_venue_event_complete)
         if services.current_zone_id() == self._zone_id:
             self._run_venue_behavior()
-            return False
+            return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
         self._show_away_notification()
         if self.additional_drama_nodes:
             sim_timeline = services.time_service().sim_timeline
             self._additional_nodes_processor = sim_timeline.schedule(elements.GeneratorElement(self._process_scoring_gen))
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def schedule_duration_alarm(self, callback, cross_zone=False):
         if self._duration_override is not None:
@@ -227,7 +227,7 @@ class VenueEventDramaNode(VenueEventDramaNodeDisplayMixin, BaseDramaNode):
         super_success = super().load(drama_node_proto, schedule_alarm=schedule_alarm)
         if not super_success:
             return False
-        if not self._validate_venue_type():
+        if not self._validate_venue_tuning():
             return False
         if self.ui_display_type != DramaNodeUiDisplayType.NO_UI:
             services.calendar_service().mark_on_calendar(self)
@@ -280,7 +280,7 @@ class OrganizationEventDramaNode(VenueEventDramaNode):
         context = interactions.context.InteractionContext(active_sim, interactions.context.InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, insert_strategy=interactions.context.QueueInsertStrategy.NEXT, pick=pick)
         active_sim.push_super_affordance(VenueEventDramaNode.GO_TO_VENUE_ZONE_INTERACTION, None, context)
 
-    def _validate_venue_type(self):
+    def _validate_venue_tuning(self):
         return True
 
     def load(self, *args, **kwargs):

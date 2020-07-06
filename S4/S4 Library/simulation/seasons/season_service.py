@@ -110,6 +110,11 @@ class SeasonService(Service):
     def get_four_seasons(self):
         return self.get_seasons(len(SeasonType))
 
+    def get_seasons_for_scheduling(self):
+        if self.season_length_option == SeasonLength.NORMAL:
+            return self.get_four_seasons()
+        return self.get_seasons(len(SeasonType) + 1)
+
     def get_seasons(self, num_seasons):
         season_data = []
         if num_seasons < 1:

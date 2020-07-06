@@ -45,9 +45,9 @@ class StoryProgressionPopulateAction(_StoryProgressionAction):
                     num_zones_filled += 1
                     break
             else:
-                venue_type_inst = venue_manager.get(lot_owner_info.venue_key)
-                if not venue_type_inst is None:
-                    if venue_type_inst.venue_type == VenueTypes.RESIDENTIAL:
+                venue_tuning = venue_manager.get(lot_owner_info.venue_key)
+                if not venue_tuning is None:
+                    if venue_tuning.venue_type == VenueTypes.RESIDENTIAL:
                         if lot_owner_info.lot_template_id > 0:
                             available_zone_ids.add(lot_owner_info.zone_instance_id)
                 if lot_owner_info.lot_template_id > 0:

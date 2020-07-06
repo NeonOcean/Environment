@@ -1,4 +1,4 @@
-from sims4.tuning.tunable import TunableReference, TunablePackSafeReference, Tunable, TunableList
+from sims4.tuning.tunable import TunableReference, TunablePackSafeReference, Tunable, TunableList, TunableSet
 import services
 import sims4.resources
 
@@ -18,3 +18,4 @@ class RelationshipGlobalTuning:
     MARRIAGE_RELATIONSHIP_BIT = TunableReference(description="\n        The marriage relationship bit. This tuning references the relationship bit signifying that \n        the sim is a spouse to someone. Whenever this bit is added to a sim's relationship, it has \n        the side effect of updating the spouse_sim_id on a sim's relationship tracker. If the bit \n        goes away, the field is cleared. \n        ", manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT))
     SIGNIFICANT_OTHER_RELATIONSHIP_BITS = TunableList(description='\n        A list of relationship bits that mark the relationship as being between\n        significant others.  Only one of these bits is required for the sims to\n        be considered significant others.\n        ', tunable=TunableReference(description='\n            A relationship bit that signifies that a sim is a significant other\n            to someone else.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT)))
     FEUD_TARGET = TunablePackSafeReference(description='\n        A reference to the bit a Sim has with a Sim they are Feuding with.\n        ', manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT))
+    MEANINGFUL_RELATIONSHIP_BITS = TunableSet(description='\n        A set of relationship bits that represent a meaningful relationship.\n        ', tunable=TunableReference(description='\n            A relationship bit that signifies that this is a meaningful relationship.\n            ', manager=services.get_instance_manager(sims4.resources.Types.RELATIONSHIP_BIT)))

@@ -1,4 +1,4 @@
-# (C) Copyright 2017, 2019 by Rocky Bernstein
+# (C) Copyright 2017, 2019-2020 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -20,9 +20,9 @@ Python opcode.py structures
 """
 
 from copy import deepcopy
-from xdis.bytecode import (
-    findlinestarts, findlabels, get_jump_targets,
-    get_jump_target_maps)
+from xdis.cross_dis import (
+    findlinestarts, findlabels, get_jump_target_maps, get_jump_targets
+)
 from xdis import wordcode
 from xdis import IS_PYPY, PYTHON_VERSION
 
@@ -36,7 +36,7 @@ HAVE_ARGUMENT = 90
 fields2copy = """
 hascompare hascondition
 hasconst hasfree hasjabs hasjrel haslocal
-hasname hasnargs hasvargs oppop oppush
+hasname hasnargs hasstore hasvargs oppop oppush
 nofollow
 """.split()
 
@@ -52,13 +52,12 @@ def init_opdata(l, from_mod, version=None, is_pypy=False):
     l['is_pypy'] = is_pypy
     l['cmp_op'] = cmp_op
     l['HAVE_ARGUMENT'] = HAVE_ARGUMENT
+    l['findlinestarts'] = findlinestarts
     if version <= 3.5:
-        l['findlinestarts'] = findlinestarts
         l['findlabels']     = findlabels
         l['get_jump_targets'] = get_jump_targets
         l['get_jump_target_maps']  = get_jump_target_maps
     else:
-        l['findlinestarts'] = wordcode.findlinestarts
         l['findlabels']     = wordcode.findlabels
         l['get_jump_targets'] = wordcode.get_jump_targets
         l['get_jump_target_maps']  = wordcode.get_jump_target_maps
@@ -113,8 +112,8 @@ def name_op(l, op_name, op_code, pop=-2, push=-2):
     def_op(l, op_name, op_code, pop, push)
     l['hasname'].append(op_code)
 
-def nargs_op(l, name, op, pop=-2, push=-2):
-    def_op(l, name, op, pop, push)
+def nargs_op(l, name, op, pop=-2, push=-2, fallthrough=True):
+    def_op(l, name, op, pop, push, fallthrough=fallthrough)
     l['hasnargs'].append(op)
 
 def rm_op(l, name, op):
@@ -154,6 +153,18 @@ def rm_op(l, name, op):
 
     assert l['opmap'][name] == op
     del l['opmap'][name]
+
+def store_op(l, name, op, pop=0, push=1, is_type="def"):
+    if is_type == "name":
+        name_op(l, name, op, pop, push)
+    elif is_type == "local":
+        local_op(l, name, op, pop, push)
+    elif is_type == "free":
+        free_op(l, name, op, pop, push)
+    else:
+        assert is_type == "def"
+        def_op(l, name, op, pop, push)
+    l['hasstore'].append(op)
 
 # This is not in Python. The operand indicates how
 # items on the pop from the stack. BUILD_TUPLE_UNPACK
@@ -231,22 +242,134 @@ def update_sets(l):
     l['NAME_OPS']        = frozenset(l['hasname'])
     l['NARGS_OPS']       = frozenset(l['hasnargs'])
     l['VARGS_OPS']       = frozenset(l['hasvargs'])
+    l['STORE_OPS']       = frozenset(l['hasstore'])
+
+
+def extended_format_CALL_FUNCTION(opc, instructions):
+    """call_function_inst should be a "CALL_FUNCTION_KW" instruction. Look in
+    `instructions` to see if we can find a method name.  If not we'll
+    return None.
+
+    """
+    # From opcode description: argc indicates the total number of positional and keyword arguments.
+    # Sometimes the function name is in the stack arg positions back.
+    call_function_inst = instructions[0]
+    assert call_function_inst.opname == "CALL_FUNCTION"
+    argc = call_function_inst.arg
+    name_default, pos_args, = divmod(argc, 256)
+    function_pos = pos_args + name_default*2 + 1
+    assert len(instructions) >= function_pos + 1
+    for i, inst in enumerate(instructions[1:]):
+        if i + 1 == function_pos:
+            i += 1
+            break
+        if inst.is_jump_target:
+            i += 1
+            break
+        # Make sure we are in the same basic block
+        # and ... ?
+        opcode = inst.opcode
+        if inst.optype in ("nargs", "vargs"):
+            break
+        if inst.opname == "LOAD_ATTR" or inst.optype != "name":
+            function_pos += (opc.oppop[opcode] - opc.oppush[opcode]) + 1
+        if inst.opname in ("CALL_FUNCTION", "CALL_FUNCTION_KW"):
+            break
+        pass
+
+    s = ""
+    if i == function_pos:
+        if instructions[function_pos].opname in ("LOAD_CONST", "LOAD_GLOBAL",
+                                                 "LOAD_ATTR", "LOAD_NAME"):
+            s = resolved_attrs(instructions[function_pos:])
+            s += ": "
+            pass
+        pass
+    s += format_CALL_FUNCTION_pos_name_encoded(call_function_inst.arg)
+    return s
+
+def resolved_attrs(instructions):
+    resolved = []
+    for inst in instructions:
+        name = inst.argrepr
+        if name:
+            if name[0] == "'" and name[-1] == "'":
+                name = name[1:-1]
+        else:
+            name = ""
+        resolved.append(name)
+        if inst.opname != "LOAD_ATTR":
+            break
+    return ".".join(reversed(resolved))
+
+def extended_format_MAKE_FUNCTION_older(opc, instructions):
+    """make_function_inst should be a "MAKE_FUNCTION" or "MAKE_CLOSURE" instruction. TOS
+    should have the function or closure name.
+    """
+    # From opcode description: argc indicates the total number of positional and keyword arguments.
+    # Sometimes the function name is in the stack arg positions back.
+    assert len(instructions) >= 2
+    inst = instructions[0]
+    assert inst.opname in ("MAKE_FUNCTION", "MAKE_CLOSURE")
+    s = ""
+    code_inst = instructions[1]
+    if code_inst.opname == "LOAD_CONST" and hasattr(code_inst.argval, "co_name"):
+        s += "%s: " % code_inst.argval.co_name
+        pass
+    s += format_MAKE_FUNCTION_default_argc(inst.arg)
+    return s
+
+def extended_format_RAISE_VARARGS_older(opc, instructions):
+    raise_inst = instructions[0]
+    assert raise_inst.opname == "RAISE_VARARGS"
+    assert len(instructions) >= 1
+    if instructions[1].opname in ("LOAD_CONST", "LOAD_GLOBAL",
+                                  "LOAD_ATTR", "LOAD_NAME"):
+        return resolved_attrs(instructions[1:])
+    return format_RAISE_VARARGS_older(raise_inst.argval)
+
+def extended_format_RETURN_VALUE(opc, instructions):
+    return_inst = instructions[0]
+    assert return_inst.opname == "RETURN_VALUE"
+    assert len(instructions) >= 1
+    if instructions[1].opname in ("LOAD_CONST", "LOAD_GLOBAL",
+                                  "LOAD_ATTR", "LOAD_NAME"):
+        return resolved_attrs(instructions[1:])
+    return None
 
 def format_extended_arg(arg):
     return str(arg * (1 << 16))
-
-def format_extended_arg36(arg):
-    return str(arg * (1 << 8))
-
 
 def format_CALL_FUNCTION_pos_name_encoded(argc):
     """Encoded positional and named args. Used to
     up to about 3.6 where wordcodes are used and
     a different encoding occurs. Pypy36 though
     sticks to this encoded version though."""
-    pos_args = argc & 0xFF
-    name = (argc >> 8) & 0xFF
-    return ("%d positional, %d named" % (pos_args, name))
+    name_default, pos_args = divmod(argc, 256)
+    return ("%d positional, %d named" % (pos_args, name_default))
+
+# After Python 3.2
+def format_MAKE_FUNCTION_arg(argc):
+    name_and_annotate, pos_args = divmod(argc, 256)
+    annotate_args, name_default = divmod(name_and_annotate, 256)
+    return ("%d positional, %d name and default, %d annotations" %
+            (pos_args, name_default, annotate_args))
+
+# Up to and including Python 3.2
+def format_MAKE_FUNCTION_default_argc(argc):
+    return ("%d default parameters" % argc)
+
+# Up until 3.7
+def format_RAISE_VARARGS_older(argc):
+    assert 0 <= argc <= 3
+    if argc == 0:
+        return "reraise"
+    elif argc == 1:
+        return "exception"
+    elif argc == 2:
+        return "exception, parameter"
+    elif argc == 3:
+        return "exception, parameter, traceback"
 
 def opcode_check(l):
     """When the version of Python we are running happens
@@ -266,7 +389,7 @@ def opcode_check(l):
             assert all(item in opmap.items() for item in l['opmap'].items())
             assert all(item in l['opmap'].items() for item in opmap.items())
         except:
-            import sys
+            pass
 
 def dump_opcodes(opmap):
     """Utility for dumping opcodes"""

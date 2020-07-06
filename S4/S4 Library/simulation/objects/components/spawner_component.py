@@ -204,10 +204,14 @@ class SpawnerComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         spawn_list = list(spawner_data.object_reference)
         parent_loc_type = self._get_inherited_spawn_location_type()
         source_object = self.owner
+        source_object_parent = source_object.parent
+        gardening_component = source_object.get_component(types.GARDENING_COMPONENT)
         for runtime_slot in source_object.get_runtime_slots_gen(slot_types=slot_types):
             if not spawn_list:
                 return
             if runtime_slot.empty:
+                if gardening_component is not None and gardening_component.is_prohibited_spawn_slot(runtime_slot.slot_name_hash, source_object_parent):
+                    continue
                 obj_def = spawn_list.pop(0)
                 obj = spawner_data.create_spawned_object(source_object, obj_def, loc_type=parent_loc_type)
                 if obj is not None:

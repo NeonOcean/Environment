@@ -11,6 +11,7 @@ from objects.components.types import PORTAL_COMPONENT, FOOTPRINT_COMPONENT
 from persistence_error_types import ErrorCodes, generate_exception_code, generate_exception_callstack
 from sims.fixup.sim_info_fixup_action import SimInfoFixupActionTiming
 from sims4.localization import TunableLocalizedString
+from statistics.commodity_tracker import CommodityTracker
 from world.lot_tuning import GlobalLotTuningAndCleanup
 from world.mailbox_owner_helper import MailboxOwnerHelper
 from world.premade_sim_fixup_helper import PremadeSimFixupHelper
@@ -556,8 +557,11 @@ class _FinalizeObjectsState(_ZoneSpinUpState):
         super().on_enter()
         active_household_id = services.active_household_id()
         object_manager = services.object_manager()
+        services.current_zone().suppress_object_commodity_callbacks = False
         for script_object in tuple(object_manager.get_all()):
             script_object.finalize(active_household_id=active_household_id)
+        lot = services.active_lot()
+        lot.on_finalize_load()
         roommate_service = services.get_roommate_service()
         if roommate_service is not None:
             roommate_service.do_decorations()
@@ -669,6 +673,8 @@ class _EditModeSequenceCompleteState(_ZoneSpinUpState):
         object_manager = services.object_manager()
         water_terrain_object_cache = object_manager.water_terrain_object_cache
         build_buy.register_build_buy_exit_callback(water_terrain_object_cache.refresh)
+        conditional_layer_service = services.conditional_layer_service()
+        conditional_layer_service.on_zone_load(editmode=True)
         for obj in object_manager.values():
             footprint_component = obj.get_component(FOOTPRINT_COMPONENT)
             if footprint_component is not None:

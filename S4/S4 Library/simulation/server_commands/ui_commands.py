@@ -27,6 +27,19 @@ def ui_dialog_pick_result(dialog_id:int, ingredient_check:bool, *choices:int, _c
         return False
     return True
 
+@sims4.commands.Command('ui.dialog.pick_result_definiton_and_count', command_type=sims4.commands.CommandType.Live)
+def ui_dialog_pick_result_definiton_and_count(dialog_id:int, ingredient_check:bool, *choices:int, _connection=None):
+    choice_list = []
+    choice_counts = []
+    for (objectId, objectCount) in zip(choices[::3], choices[1::3]):
+        choice_list.append(objectId)
+        choice_counts.append(objectCount)
+    zone = services.current_zone()
+    if not zone.ui_dialog_service.dialog_pick_result_def_and_counts(dialog_id, choice_list, choice_counts, ingredient_check=ingredient_check):
+        sims4.commands.output('That is not a valid pick result.', _connection)
+        return False
+    return True
+
 @sims4.commands.Command('ui.dialog.text_input', command_type=sims4.commands.CommandType.Live)
 def ui_dialog_text_input(dialog_id:int, text_input_name:str, text_input_value:str, _connection=None):
     zone = services.current_zone()

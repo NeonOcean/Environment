@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2019 Rocky Bernstein
+#  Copyright (c) 2016-2020 Rocky Bernstein
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -65,7 +65,7 @@ class Python36Parser(Python35Parser):
         jf_cf       ::= JUMP_FORWARD COME_FROM
         cf_jf_else  ::= come_froms JUMP_FORWARD ELSE
 
-        conditional ::= expr jmp_false expr jf_cf expr COME_FROM
+        if_exp ::= expr jmp_false expr jf_cf expr COME_FROM
 
         async_for_stmt     ::= SETUP_LOOP expr
                                GET_AITER
@@ -113,8 +113,16 @@ class Python36Parser(Python35Parser):
         except_suite ::= c_stmts_opt COME_FROM POP_EXCEPT jump_except COME_FROM
 
         jb_cfs      ::= JUMP_BACK come_froms
+
+        # If statement inside a loop.
+        stmt                ::= ifstmtl
+        ifstmtl            ::= testexpr _ifstmts_jumpl
+        _ifstmts_jumpl     ::= c_stmts JUMP_BACK
+
         ifelsestmtl ::= testexpr c_stmts_opt jb_cfs else_suitel
         ifelsestmtl ::= testexpr c_stmts_opt cf_jf_else else_suitel
+        ifelsestmt  ::= testexpr c_stmts_opt cf_jf_else else_suite _come_froms
+        ifelsestmt  ::= testexpr c_stmts come_froms else_suite come_froms
 
         # In 3.6+, A sequence of statements ending in a RETURN can cause
         # JUMP_FORWARD END_FINALLY to be omitted from try middle
@@ -153,11 +161,23 @@ class Python36Parser(Python35Parser):
 
         """
 
+    # Some of this is duplicated from parse37. Eventually we'll probably rebase from
+    # that and then we can remove this.
+    def p_37conditionals(self, args):
+        """
+        expr                       ::= if_exp37
+        if_exp37                   ::= expr expr jf_cfs expr COME_FROM
+        jf_cfs                     ::= JUMP_FORWARD _come_froms
+        ifelsestmt                 ::= testexpr c_stmts_opt jf_cfs else_suite opt_come_from_except
+        """
+
     def customize_grammar_rules(self, tokens, customize):
         # self.remove_rules("""
         # """)
         super(Python36Parser, self).customize_grammar_rules(tokens, customize)
         self.remove_rules("""
+           _ifstmts_jumpl     ::= c_stmts_opt
+           _ifstmts_jumpl     ::= _ifstmts_jump
            except_handler     ::= JUMP_FORWARD COME_FROM_EXCEPT except_stmts END_FINALLY COME_FROM
            async_for_stmt     ::= SETUP_LOOP expr
                                   GET_AITER
@@ -188,13 +208,7 @@ class Python36Parser(Python35Parser):
         for i, token in enumerate(tokens):
             opname = token.kind
 
-            if opname == 'LOAD_ASSERT':
-                if 'PyPy' in customize:
-                    rules_str = """
-                    stmt ::= JUMP_IF_NOT_DEBUG stmts COME_FROM
-                    """
-                    self.add_unique_doc_rules(rules_str, customize)
-            elif opname == 'FORMAT_VALUE':
+            if opname == 'FORMAT_VALUE':
                 rules_str = """
                     expr              ::= formatted_value1
                     formatted_value1  ::= expr FORMAT_VALUE
@@ -226,24 +240,26 @@ class Python36Parser(Python35Parser):
             elif opname == 'BEFORE_ASYNC_WITH':
                 rules_str = """
                   stmt ::= async_with_stmt
+                  async_with_pre     ::= BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM SETUP_ASYNC_WITH
+                  async_with_post    ::= COME_FROM_ASYNC_WITH
+                                         WITH_CLEANUP_START GET_AWAITABLE LOAD_CONST YIELD_FROM
+                                         WITH_CLEANUP_FINISH END_FINALLY
                   async_with_as_stmt ::= expr
-                               BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               SETUP_ASYNC_WITH store
+                               async_with_pre
+                               store
                                suite_stmts_opt
                                POP_BLOCK LOAD_CONST
-                               COME_FROM_ASYNC_WITH
-                               WITH_CLEANUP_START
-                               GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               WITH_CLEANUP_FINISH END_FINALLY
+                               async_with_post
                  stmt ::= async_with_as_stmt
                  async_with_stmt ::= expr
-                               BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               SETUP_ASYNC_WITH POP_TOP suite_stmts_opt
+                               POP_TOP
+                               suite_stmts_opt
                                POP_BLOCK LOAD_CONST
-                               COME_FROM_ASYNC_WITH
-                               WITH_CLEANUP_START
-                               GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               WITH_CLEANUP_FINISH END_FINALLY
+                               async_with_post
+                 async_with_stmt ::= expr
+                               POP_TOP
+                               suite_stmts_opt
+                               async_with_post
                 """
                 self.addRule(rules_str, nop_func)
 
@@ -289,34 +305,31 @@ class Python36Parser(Python35Parser):
                 self.addRule(rule, nop_func)
                 # Check to combine assignment + annotation into one statement
                 self.check_reduce['assign'] = 'token'
+            elif opname == "WITH_CLEANUP_START":
+                rules_str = """
+                  stmt        ::= with_null
+                  with_null   ::= with_suffix
+                  with_suffix ::= WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                """
+                self.addRule(rules_str, nop_func)
             elif opname == 'SETUP_WITH':
                 rules_str = """
-                withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
-                               WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                  with       ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
+                                 with_suffix
 
-                # Removes POP_BLOCK LOAD_CONST from 3.6-
-                withasstmt ::= expr SETUP_WITH store suite_stmts_opt COME_FROM_WITH
-                               WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                  # Removes POP_BLOCK LOAD_CONST from 3.6-
+                  withasstmt ::= expr SETUP_WITH store suite_stmts_opt COME_FROM_WITH
+                                 with_suffix
+                  with       ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
+                                 BEGIN_FINALLY COME_FROM_WITH
+                                 with_suffix
                 """
-                if self.version < 3.8:
-                    rules_str += """
-                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
-                                   LOAD_CONST
-                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
-                    """
-                else:
-                    rules_str += """
-                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
-                                   BEGIN_FINALLY COME_FROM_WITH
-                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH
-                                   END_FINALLY
-                    """
                 self.addRule(rules_str, nop_func)
                 pass
             pass
         return
 
-    def custom_classfunc_rule(self, opname, token, customize, next_token):
+    def custom_classfunc_rule(self, opname, token, customize, next_token, is_pypy):
 
         args_pos, args_kw = self.get_pos_kw(token)
 
@@ -338,10 +351,14 @@ class Python36Parser(Python35Parser):
             self.add_unique_rule('expr ::= async_call', token.kind, uniq_param, customize)
 
         if opname.startswith('CALL_FUNCTION_KW'):
-            self.addRule("expr ::= call_kw36", nop_func)
-            values = 'expr ' * token.attr
-            rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
-            self.add_unique_rule(rule, token.kind, token.attr, customize)
+            if is_pypy:
+                # PYPY doesn't follow CPython 3.6 CALL_FUNCTION_KW conventions
+                super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
+            else:
+                self.addRule("expr ::= call_kw36", nop_func)
+                values = 'expr ' * token.attr
+                rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
+                self.add_unique_rule(rule, token.kind, token.attr, customize)
         elif opname == 'CALL_FUNCTION_EX_KW':
             # Note: this doesn't exist in 3.7 and later
             self.addRule("""expr        ::= call_ex_kw4
@@ -406,7 +423,7 @@ class Python36Parser(Python35Parser):
                             """, nop_func)
             pass
         else:
-            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token)
+            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
 
     def reduce_is_invalid(self, rule, ast, tokens, first, last):
         invalid = super(Python36Parser,
@@ -443,7 +460,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 3.6:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

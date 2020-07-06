@@ -43,7 +43,9 @@ class MailboxOwnerHelper:
             unclaimed_mailboxes.append(mailbox)
         mailbox_handles = [self._create_mailbox_handle(mailbox) for mailbox in unclaimed_mailboxes]
         door_handles = self._create_plexdoor_handles(plex_door_infos)
-        routes = routing_utils.sorted_estimated_distances_between_multiple_handles(mailbox_handles, door_handles, routing.PathPlanContext())
+        path_plan_context = routing.PathPlanContext()
+        path_plan_context.set_key_mask(routing.FOOTPRINT_KEY_ON_LOT | routing.FOOTPRINT_KEY_OFF_LOT)
+        routes = routing_utils.sorted_estimated_distances_between_multiple_handles(mailbox_handles, door_handles, path_plan_context)
         for estimated_distance in routes:
             mbox_handle = estimated_distance[0]
             door_handle = estimated_distance[1]

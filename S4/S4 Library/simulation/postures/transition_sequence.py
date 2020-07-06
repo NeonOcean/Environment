@@ -953,8 +953,9 @@ class TransitionSequenceController:
                             if carry_object.is_sim:
                                 sims_to_update_intended_location.add(carry_object)
                 self.shutdown()
-                for sim in sims_to_update_intended_location:
-                    sim.routing_component.on_intended_location_changed(sim.intended_location)
+                if not (hasattr(self.interaction, 'suppress_transition_ops_after_death') and self.interaction.suppress_transition_ops_after_death):
+                    for sim in sims_to_update_intended_location:
+                        sim.routing_component.on_intended_location_changed(sim.intended_location)
                 if not self.any_derailed:
                     self.cancel_incompatible_sis_given_final_posture_states()
                 callback_utils.invoke_callbacks(callback_utils.CallbackEvent.TRANSITION_SEQUENCE_EXIT)
@@ -1335,7 +1336,6 @@ class TransitionSequenceController:
         ray_projection_distance = 0.5
         pool = pool_utils.get_pool_by_block_id(sim.block_id)
         pool_center = pool.center_point
-        zone = services.current_zone()
         for sub_constraint in constraint:
             sub_routing_surfaces = sub_constraint.get_all_valid_routing_surfaces()
             if not sub_routing_surfaces:
@@ -1346,14 +1346,14 @@ class TransitionSequenceController:
                         continue
                     for polygon in sub_constraint.geometry.polygon:
                         for polygon_corner in polygon:
-                            if build_buy.is_location_pool(zone.id, polygon_corner, sub_surface.secondary_id):
+                            if build_buy.is_location_pool(polygon_corner, sub_surface.secondary_id):
                                 continue
                             polygon_corner_2d = sims4.math.Vector2(polygon_corner.x, polygon_corner.z)
                             v = pool_center - polygon_corner_2d
                             u = sims4.math.vector_normalize(v)
                             new_point = polygon_corner_2d + ray_projection_distance*u
                             new_position = sims4.math.Vector3(new_point.x, 0, new_point.y)
-                            if not build_buy.is_location_pool(zone.id, new_position, sub_surface.secondary_id):
+                            if not build_buy.is_location_pool(new_position, sub_surface.secondary_id):
                                 new_routing_location = routing.Location(new_position, sims4.math.Quaternion.ZERO(), sub_surface)
                                 if routing.test_connectivity_pt_pt(sim.routing_location, new_routing_location, sim.routing_context):
                                     return True
@@ -2852,10 +2852,12 @@ class TransitionSequenceController:
                 for si in sim.si_state.sis_actor_gen():
                     if si.target is vehicle:
                         if si.affordance is vehicle_component.drive_affordance:
-                            location = Location(Transform(Vector3(*redeploy_node.position), Quaternion(*redeploy_node.orientation)), redeploy_node.routing_surface_id)
-                            result = vehicle_component.push_auto_deploy_affordance(sim, location)
-                            if not result:
-                                return False
+                            footprint = vehicle.footprint_polygon
+                            if not footprint.contains(path.start_location.position):
+                                location = Location(Transform(Vector3(*redeploy_node.position), Quaternion(*redeploy_node.orientation)), redeploy_node.routing_surface_id)
+                                result = vehicle_component.push_auto_deploy_affordance(sim, location)
+                                if not result:
+                                    return False
                             self.derail(DerailReason.MUST_EXIT_MOBILE_POSTURE_OBJECT, sim)
                             si.cancel(FinishingType.DISPLACED, 'Vehicle Dismount for Portal.')
                             return True

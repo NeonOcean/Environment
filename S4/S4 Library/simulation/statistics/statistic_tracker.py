@@ -22,8 +22,8 @@ class StatisticTracker(statistics.base_statistic_tracker.BaseStatisticTracker):
                     statistic_data.name_hash = stat.guid64
                     statistic_data.value = stat.get_saved_value()
                     save_list.append(statistic_data)
-                except Exception:
-                    logger.exception('Exception thrown while trying to save stat {}', stat, owner='rez')
+                except Exception as e:
+                    logger.exception('Exception {} thrown while trying to save stat {}', e, stat, owner='rez')
         return save_list
 
     def load(self, statistics, skip_load=False):
@@ -57,7 +57,7 @@ class StatisticTracker(statistics.base_statistic_tracker.BaseStatisticTracker):
     def remove_statistic(self, stat_type, on_destroy=False):
         if self.has_statistic(stat_type):
             stat = self._statistics[stat_type]
-            if stat.apply_value_to_object_cost and stat in self._monetary_value_statistics:
+            if stat is not None and stat.apply_value_to_object_cost and stat in self._monetary_value_statistics:
                 self._monetary_value_statistics.remove(stat)
         super().remove_statistic(stat_type, on_destroy)
 

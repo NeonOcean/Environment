@@ -3,7 +3,7 @@ from careers.career_enums import CareerCategory, WORK_CAREER_CATEGORIES
 from careers.career_ops import CareerTimeOffReason
 from date_and_time import TimeSpan, DateAndTime
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
-from drama_scheduler.drama_node import BaseDramaNode, DramaNodeUiDisplayType
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeUiDisplayType, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from holidays.holiday_globals import HolidayState, HolidayTuning
 from sims4.localization import TunableLocalizedStringFactory
@@ -70,11 +70,11 @@ class HolidayDramaNode(BaseDramaNode):
         if self._state == HolidayState.SHUTDOWN or holiday_service is None:
             return CareerTimeOffReason.NO_TIME_OFF
         take_time_off = False
-        if career_category == CareerCategory.School or career_category == CareerCategory.UniversityCourse:
+        if career_category == CareerCategory.School:
             take_time_off = holiday_service.get_holiday_time_off_school(self.holiday_id)
         elif career_category in WORK_CAREER_CATEGORIES:
             take_time_off = holiday_service.get_holiday_time_off_work(self.holiday_id)
-        elif career_category == CareerCategory.Volunteer:
+        elif career_category == CareerCategory.Volunteer or career_category == CareerCategory.UniversityCourse:
             take_time_off = False
         else:
             logger.error('Unexpected CareerCategory {} when determining if a holiday should give Sims time off.', career_category)
@@ -289,6 +289,7 @@ class HolidayDramaNode(BaseDramaNode):
             self._holiday_start_time = services.time_service().sim_now
         else:
             self._run_pre_holiday()
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def load(self, drama_node_proto, schedule_alarm=True):
         super_success = super().load(drama_node_proto, schedule_alarm=schedule_alarm)

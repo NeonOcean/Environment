@@ -45,6 +45,7 @@ class Club:
         self.leader = leader
         self.leader_id = leader_id
         self.members = []
+        self.club_joined_drama_node_ids = []
         self._recent_member_ids = set(recent_member_ids) if recent_member_ids is not None else set()
         self.member_ids = member_ids
         self.encouragement_commodity = encouragement_commodity
@@ -164,16 +165,16 @@ class Club:
         persistence_service = services.get_persistence_service()
         household_manager = services.household_manager()
         try:
-            venue_key = build_buy.get_current_venue(zone_id)
+            venue_tuning_id = build_buy.get_current_venue(zone_id)
         except RuntimeError:
             return False
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_type = venue_manager.get(venue_key)
-        if venue_type is None:
+        venue_tuning = venue_manager.get(venue_tuning_id)
+        if venue_tuning is None:
             return False
-        if not venue_type.allowed_for_clubs:
+        if not venue_tuning.allowed_for_clubs:
             return False
-        if venue_type.is_residential:
+        if venue_tuning.is_residential or venue_tuning.is_university_housing:
             zone_data = persistence_service.get_zone_proto_buff(zone_id)
             if zone_data is None:
                 return False
@@ -227,7 +228,7 @@ class Club:
         if not current_region.is_region_compatible(hangout_region):
             return False
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_type = venue_manager.get(build_buy.get_current_venue(zone_id))
+        venue_tuning = venue_manager.get(build_buy.get_current_venue(zone_id))
 
         def on_response(dialog):
             if not dialog.accepted:
@@ -244,7 +245,7 @@ class Club:
         lot_name = zone_data.name
         sender_sim_info = self.leader if sender_sim_info is DEFAULT else sender_sim_info
         flavor_text = flavor_text(sim_info, sender_sim_info, self)
-        additional_tokens = (lot_name, venue_type.club_gathering_text(), flavor_text)
+        additional_tokens = (lot_name, venue_tuning.club_gathering_text(), flavor_text)
         self.show_club_notification(sim_info, ClubTunables.CLUB_GATHERING_DIALOG, target_sim_id=sender_sim_info.sim_id, additional_tokens=additional_tokens, on_response=on_response)
 
     def show_club_notification(self, sim_info, notification_type, target_sim_id=None, additional_tokens=(), on_response=None):
@@ -374,7 +375,9 @@ class Club:
                 additional_participants = {ParticipantType.AssociatedClub: (self,), ParticipantType.AssociatedClubLeader: (self.leader,)}
                 additional_localization_tokens = (self,)
                 resolver = SingleSimResolver(member, additional_participants, additional_localization_tokens)
-                services.drama_scheduler_service().schedule_node(self.CLUB_JOINED_DRAMA_NODE, resolver)
+                node_id = services.drama_scheduler_service().schedule_node(self.CLUB_JOINED_DRAMA_NODE, resolver)
+                if node_id is not None:
+                    self.club_joined_drama_node_ids.append(node_id)
             self.bucks_tracker.award_unlocked_perks(ClubTunables.CLUB_BUCKS_TYPE, member)
         return True
 
@@ -555,6 +558,9 @@ class Club:
         for rule in list(self.rules):
             self.remove_rule(rule)
         services.get_club_service().update_affordance_cache()
+        for drama_node_id in self.club_joined_drama_node_ids:
+            services.drama_scheduler_service().cancel_scheduled_node(drama_node_id)
+        self.club_joined_drama_node_ids.clear()
 
     def on_all_households_and_sim_infos_loaded(self, client):
         if self.member_ids is None:

@@ -48,13 +48,6 @@ class CareerService(Service):
     def save(self, object_list=None, zone_data=None, open_street_data=None, store_travel_group_placed_objects=False, save_slot_data=None):
         if self._career_list_seed is not None:
             save_slot_data.gameplay_data.career_choices_seed = self._career_list_seed
-        if game_services.service_manager.is_traveling:
-            manager = services.sim_info_manager()
-            for sim_info in manager.get_all():
-                tracker = sim_info.career_tracker
-                if tracker is not None:
-                    for career in tracker.careers.values():
-                        career.update_should_restore_state()
 
     def _remove_invalid_careers(self):
         for sim_info in services.sim_info_manager().get_all():
@@ -97,110 +90,26 @@ class CareerService(Service):
     def restore_career_state(self):
         try:
             manager = services.sim_info_manager()
-            zone = services.current_zone()
-            zone_id = zone.id
-            zone_restored_sis = zone.should_restore_sis()
             for sim_info in manager.get_all():
-                if zone_restored_sis and sim_info.has_loaded_si_state:
-                    continue
-                sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS_EXCEPT_UNINITIALIZED)
                 if sim_info.is_npc:
-                    if sim is not None:
-                        if sim_info.can_go_to_work(zone_id=zone_id):
-                            for career in sim_info.careers.values():
-                                (time_to_work, start_time, end_time) = career.get_next_work_time(check_if_can_go_now=True)
-                                if time_to_work is not None and time_to_work == TimeSpan.ZERO and career.should_restore_career_state:
-                                    sim.set_allow_route_instantly_when_hitting_marks(True)
-                                    career.start_new_career_session(start_time, end_time)
-                                    result = career.push_go_to_work_affordance()
-                                    if result:
-                                        manager.set_sim_to_skip_preroll(sim_info.id)
-                                    break
-                            career = sim_info.career_tracker.career_currently_within_hours
-                            if career is None:
-                                pass
-                            elif career.is_at_active_event:
-                                if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
-                                    career.end_career_event_without_payout()
-                                    if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                        career.leave_work(left_early=True)
-                                    if sim is not None:
-                                        if career.currently_at_work:
-                                            if career.push_go_to_work_affordance():
-                                                sim.set_allow_route_instantly_when_hitting_marks(True)
-                                                manager.set_sim_to_skip_preroll(sim_info.id)
-                                                if career.should_restore_career_state:
-                                                    if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                        career.send_uninstantiated_sim_home_for_work()
-                                                    else:
-                                                        career.attend_work()
-                                    elif career.should_restore_career_state:
-                                        if sim_info.household.home_zone_id != sim_info.zone_id:
-                                            career.send_uninstantiated_sim_home_for_work()
-                                        else:
-                                            career.attend_work()
-                            else:
-                                if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                    career.leave_work(left_early=True)
-                                if sim is not None:
-                                    if career.currently_at_work:
-                                        if career.push_go_to_work_affordance():
-                                            sim.set_allow_route_instantly_when_hitting_marks(True)
-                                            manager.set_sim_to_skip_preroll(sim_info.id)
-                                            if career.should_restore_career_state:
-                                                if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                    career.send_uninstantiated_sim_home_for_work()
-                                                else:
-                                                    career.attend_work()
-                                elif career.should_restore_career_state:
-                                    if sim_info.household.home_zone_id != sim_info.zone_id:
-                                        career.send_uninstantiated_sim_home_for_work()
-                                    else:
-                                        career.attend_work()
-                else:
-                    career = sim_info.career_tracker.career_currently_within_hours
-                    if career is None:
-                        pass
-                    elif career.is_at_active_event:
+                    continue
+                career = sim_info.career_tracker.career_currently_within_hours
+                if career is None:
+                    continue
+                if career.currently_at_work:
+                    if career.is_at_active_event:
                         if not career.career_event_manager.is_valid_zone_id(sim_info.zone_id):
                             career.end_career_event_without_payout()
-                            if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                                career.leave_work(left_early=True)
-                            if sim is not None:
-                                if career.currently_at_work:
-                                    if career.push_go_to_work_affordance():
-                                        sim.set_allow_route_instantly_when_hitting_marks(True)
-                                        manager.set_sim_to_skip_preroll(sim_info.id)
-                                        if career.should_restore_career_state:
-                                            if sim_info.household.home_zone_id != sim_info.zone_id:
-                                                career.send_uninstantiated_sim_home_for_work()
-                                            else:
-                                                career.attend_work()
-                            elif career.should_restore_career_state:
-                                if sim_info.household.home_zone_id != sim_info.zone_id:
-                                    career.send_uninstantiated_sim_home_for_work()
-                                else:
-                                    career.attend_work()
-                    else:
-                        if career.currently_at_work and not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
-                            career.leave_work(left_early=True)
-                        if sim is not None:
                             if career.currently_at_work:
-                                if career.push_go_to_work_affordance():
-                                    sim.set_allow_route_instantly_when_hitting_marks(True)
-                                    manager.set_sim_to_skip_preroll(sim_info.id)
-                                    if career.should_restore_career_state:
-                                        if sim_info.household.home_zone_id != sim_info.zone_id:
-                                            career.send_uninstantiated_sim_home_for_work()
-                                        else:
-                                            career.attend_work()
-                        elif career.should_restore_career_state:
-                            if sim_info.household.home_zone_id != sim_info.zone_id:
-                                career.send_uninstantiated_sim_home_for_work()
-                            else:
-                                career.attend_work()
+                                if not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
+                                    career.leave_work(left_early=True)
+                    elif not career._rabbit_hole_id:
+                        career.put_sim_in_career_rabbit_hole()
+                if career.currently_at_work:
+                    if not sim_info.can_go_to_work(zone_id=sim_info.zone_id):
+                        career.leave_work(left_early=True)
         except:
-            logger.exception('Exception raised while trying to restore career interactions.', owner='tingyul')
+            logger.exception('Exception raised while trying to restore career state.', owner='rrodgers')
 
     def create_career_event_situations_during_zone_spin_up(self):
         try:

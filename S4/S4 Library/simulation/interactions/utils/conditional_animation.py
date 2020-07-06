@@ -1,7 +1,7 @@
 from animation.animation_utils import flush_all_animations
 from element_utils import maybe, build_critical_section
 
-def conditional_animation(interaction, value, xevt_id, animation):
+def conditional_animation(interaction, value, xevt_id, animation, **kwargs):
     target = interaction.target
     did_set = False
     kill_handler = False
@@ -14,7 +14,7 @@ def conditional_animation(interaction, value, xevt_id, animation):
         nonlocal did_set
         if did_set:
             return
-        target.set_state(value.state, value)
+        target.set_state(value.state, value, **kwargs)
         did_set = True
 
     if animation is None:

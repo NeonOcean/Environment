@@ -10,14 +10,15 @@ from relationships.global_relationship_tuning import RelationshipGlobalTuning
 from relationships.relationship_track import ObjectRelationshipTrack
 from sims4 import math
 from sims4.localization import TunableLocalizedStringFactory
-from sims4.tuning.tunable import Tunable, TunableVariant, TunableInterval, TunableEnumEntry, TunableReference, TunablePercent, TunableFactory, TunableRate, TunableList, OptionalTunable, TunableTuple, TunableRange, HasTunableSingletonFactory, TunableEnumFlags
+from sims4.tuning.tunable import Tunable, TunableVariant, TunableInterval, TunableEnumEntry, TunableReference, TunablePercent, TunableFactory, TunableRate, TunableList, OptionalTunable, TunableTuple, TunableRange, HasTunableSingletonFactory, TunableEnumFlags, TunablePackSafeReference
 from sims4.tuning.tunable_base import RateDescriptions
 from singletons import DEFAULT
 from statistics.skill import Skill, TunableSkillLootData, TunableVariantSkillLootData
-from statistics.statistic_enums import PeriodicStatisticBehavior
+from statistics.statistic_enums import PeriodicStatisticBehavior, StatisticLockAction
 from tunable_multiplier import TunableStatisticModifierCurve, TunableObjectCostModifierCurve
 from ui.ui_dialog_notification import UiDialogNotification
 import enum
+import objects.components.types
 import services
 import sims4.log
 import sims4.resources
@@ -352,6 +353,27 @@ class StatisticRemoveOp(StatisticOperation):
     def _apply(self, tracker, **kwargs):
         tracker.remove_statistic(self.stat)
 
+class StatisticLockOp(BaseLootOperation):
+    FACTORY_TUNABLES = {'stat': TunablePackSafeReference(description='\n            The statistic we are operating on.\n            ', manager=services.get_instance_manager(sims4.resources.Types.STATISTIC), class_restrictions=('Commodity',)), 'lock': Tunable(description='\n            Lock or unlock a statistic.\n            ', tunable_type=bool, default=True), 'lock_action': TunableEnumEntry(description='\n            Determine what to do with the value of a\n            statistic when we lock it.\n            ', tunable_type=StatisticLockAction, default=StatisticLockAction.DO_NOT_CHANGE_VALUE)}
+
+    def __init__(self, stat, lock, lock_action, **kwargs):
+        super().__init__(**kwargs)
+        self._stat = stat
+        self._lock = lock
+        self._lock_action = lock_action
+
+    def _apply_to_subject_and_target(self, subject, target, resolver):
+        if self._stat is None:
+            return
+        statistic_component = subject.get_component(objects.components.types.STATISTIC_COMPONENT)
+        if statistic_component is None:
+            logger.error('Trying to lock statistic {} on {}, but it has no Statistic Component.', self._stat, subject)
+            return
+        if self._lock:
+            statistic_component.lock_statistic(self._stat, self._lock_action)
+        else:
+            statistic_component.unlock_statistic(self._stat)
+
 class TransferType(enum.Int):
     ADDITIVE = 0
     SUBTRACTIVE = 1
@@ -456,7 +478,7 @@ class TunableStatisticChange(TunableVariant):
             kwargs['relationship_change'] = StatisticAddRelationship.TunableFactory(description='\n                Adds to the relationship score statistic for this Super Interaction\n                ', amount=gain_type, **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
             kwargs['relationship_set'] = StatisticSetRelationship.TunableFactory(description='\n                Sets the relationship score statistic to a specific value.\n                ', **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
             kwargs['random_relationship_set'] = RandomSimStatisticAddRelationship.TunableFactory(description='\n                Adds the relationship statistic score about an amount to a \n                random sim selected out of all the known sims for the Actor.\n                ', locked_args={'target_participant_type': ParticipantType.Actor, 'advertise': False, 'stat': None}, **RelationshipOperation.DEFAULT_PARTICIPANT_ARGUMENTS)
-        super().__init__(*args, description=description, statistic_change=StatisticChangeOp.TunableFactory(description='\n                Modify the value of a statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, amount=gain_type, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_add=StatisticAddOp.TunableFactory(description='\n                Attempt to add the specified statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_remove=StatisticRemoveOp.TunableFactory(description='\n                Attempt to remove the specified statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set=StatisticSetOp.TunableFactory(description='\n                Set a statistic to the provided value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_rank=StatisticSetRankOp.TunableFactory(description='\n                Set a Ranked Statistic to a specific rank level.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_max=StatisticSetMaxOp.TunableFactory(description='\n                Set a statistic to its maximum value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_min=StatisticSetMinOp.TunableFactory(description='\n                Set a statistic to its minimum value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_in_range=StatisticSetRangeOp.TunableFactory(description='\n                Set a statistic to a random value in the tuned range.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_transfer=StatisticTransferOp.TunableFactory(description='\n                Transfer a statistic value from one target to another.\n                ', locked_args=locked_args, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_remove_by_category=RemoveStatisticByCategory.TunableFactory(description='\n                Remove all statistics of a specific category.\n                '), statistic_change_by_category=ChangeStatisticByCategory.TunableFactory(description='\n                Change value of  all statistics of a specific category.\n                '), locked_args=variant_locked_args, **kwargs)
+        super().__init__(*args, description=description, statistic_change=StatisticChangeOp.TunableFactory(description='\n                Modify the value of a statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, amount=gain_type, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_add=StatisticAddOp.TunableFactory(description='\n                Attempt to add the specified statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_remove=StatisticRemoveOp.TunableFactory(description='\n                Attempt to remove the specified statistic.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set=StatisticSetOp.TunableFactory(description='\n                Set a statistic to the provided value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_rank=StatisticSetRankOp.TunableFactory(description='\n                Set a Ranked Statistic to a specific rank level.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_max=StatisticSetMaxOp.TunableFactory(description='\n                Set a statistic to its maximum value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_min=StatisticSetMinOp.TunableFactory(description='\n                Set a statistic to its minimum value.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_set_in_range=StatisticSetRangeOp.TunableFactory(description='\n                Set a statistic to a random value in the tuned range.\n                ', locked_args=locked_args, statistic_override=statistic_override, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_transfer=StatisticTransferOp.TunableFactory(description='\n                Transfer a statistic value from one target to another.\n                ', locked_args=locked_args, **StatisticOperation.DEFAULT_PARTICIPANT_ARGUMENTS), statistic_lock=StatisticLockOp.TunableFactory(description='\n                Lock or Unlock a statistic.\n                '), statistic_remove_by_category=RemoveStatisticByCategory.TunableFactory(description='\n                Remove all statistics of a specific category.\n                '), statistic_change_by_category=ChangeStatisticByCategory.TunableFactory(description='\n                Change value of  all statistics of a specific category.\n                '), locked_args=variant_locked_args, **kwargs)
 
 class TunableProgressiveStatisticChange(TunableVariant):
 

@@ -62,8 +62,10 @@ def start_services(save_slot_data):
         from narrative.narrative_service import NarrativeService
         from organizations.organization_service import OrganizationService
         from services.object_lost_and_found_service import ObjectLostAndFoundService
+        from civic_policies.street_civic_policy_service import StreetService
+        from venues.venue_service import VenueGameService
         from global_policies.global_policy_service import GlobalPolicyService
-        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), GlobalPolicyService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService(), LandlordService(), RoommateService(), OrganizationService()]
+        service_list = [BusinessService(), CallToActionService(), GameClock(), TimeService(), ConfigService(), CheatService(), EventManagerService(), ClientManager(manager_id=MGR_CLIENT), UtilitiesManager(), HouseholdManager(manager_id=MGR_HOUSEHOLD), RelationshipService(), RelgraphService.get_relgraph_service(), AgingService(), SimInfoManager(manager_id=MGR_SIM_INFO), CurfewService(), SicknessService(), HiddenSimService(), HolidayService(), SeasonService(), WeatherService(), NarrativeService(), GlobalPolicyService(), ClubService(), RabbitHoleService(), LotDecorationService(), StyleService(), TutorialService(), TrendService(), ObjectLostAndFoundService(), LandlordService(), RoommateService(), OrganizationService(), StreetService(), VenueGameService()]
         for service in service_list:
             if service is not None:
                 service_manager.register_service(service)

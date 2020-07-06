@@ -48,12 +48,12 @@ class SimRouteVisualizer:
                 vector = sims4.math.vector_cross(sims4.math.Vector3.Y_AXIS(), vector)
                 if vector.magnitude() != 0:
                     vector = sims4.math.vector_normalize(vector)
-                    tunnel_p1 = cur_pos + vector*self.TUNNEL_OFFSET
-                    tunnel_p2 = prev_pos + vector*self.TUNNEL_OFFSET
-                    tunnel_p3 = cur_pos + vector*-self.TUNNEL_OFFSET
-                    tunnel_p4 = prev_pos + vector*-self.TUNNEL_OFFSET
-                    verticies_left.append(tunnel_p1)
-                    verticies_right.append(tunnel_p3)
+                tunnel_p1 = cur_pos + vector*self.TUNNEL_OFFSET
+                tunnel_p2 = prev_pos + vector*self.TUNNEL_OFFSET
+                tunnel_p3 = cur_pos + vector*-self.TUNNEL_OFFSET
+                tunnel_p4 = prev_pos + vector*-self.TUNNEL_OFFSET
+                verticies_left.append(tunnel_p1)
+                verticies_right.append(tunnel_p3)
                 if index == 1:
                     context.add_circle(prev_pos, radius=0.15, color=Color.GREEN)
                     context.add_circle(prev_pos, radius=0.18, color=Color.GREEN)

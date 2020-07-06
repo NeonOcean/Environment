@@ -1,20 +1,26 @@
+import build_buy
 import services
+import sims4.log
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.test_events import TestEvent
+from objects.components.inventory_enums import StackScheme
 from protocolbuffers import SimObjectAttributes_pb2
 from sims.sim_info_lod import SimInfoLODLevel
 from sims.sim_info_tracker import SimInfoTracker
-import sims4.log
 from sims4.utils import classproperty
 logger = sims4.log.Logger('FavoritesTracker', default_owner='trevor')
 OBJ_ID = 0
 DEF_ID = 1
+KEY_ID = 0
+CUSTOM_KEY_ID = 1
+STACK_TYPE_ID = 2
 
 class FavoritesTracker(SimInfoTracker):
 
     def __init__(self, sim_info):
         self._owner = sim_info
         self._favorites = None
+        self._favorite_stacks = []
 
     @classproperty
     def _tracker_lod_threshold(cls):
@@ -23,6 +29,10 @@ class FavoritesTracker(SimInfoTracker):
     @property
     def favorites(self):
         return self._favorites
+
+    @property
+    def favorite_stacks(self):
+        return self._favorite_stacks
 
     def has_favorite(self, tag):
         return self._favorites and tag in self._favorites
@@ -86,10 +96,50 @@ class FavoritesTracker(SimInfoTracker):
         (_, fav_def_id) = self.get_favorite(tag)
         return fav_def_id
 
+    def set_favorite_stack(self, obj):
+        key = self._get_stack_key(obj)
+        if key is None or key in self._favorite_stacks:
+            return
+        self._favorite_stacks.append(key)
+
+    def unset_favorite_stack(self, obj):
+        if len(self._favorite_stacks) == 0:
+            return
+        key = self._get_stack_key(obj)
+        if key is None or key not in self._favorite_stacks:
+            return
+        self._favorite_stacks.remove(key)
+
+    def is_favorite_stack(self, obj):
+        key = self._get_stack_key(obj)
+        return key is not None and key in self._favorite_stacks
+
+    def _get_stack_key(self, obj):
+        inv_component = obj.inventoryitem_component
+        if inv_component is None:
+            return
+        stack_scheme = inv_component.stack_scheme
+        custom_key = None
+        if inv_component.stack_scheme_object_state is not None:
+            state_value = obj.state_component.get_state(inv_component.stack_scheme_object_state)
+            if obj.state_component.state_value_active(state_value):
+                custom_key = state_value.guid64
+        if stack_scheme == StackScheme.NONE:
+            key = obj.id
+        elif stack_scheme == StackScheme.VARIANT_GROUP:
+            key = build_buy.get_variant_group_id(obj.definition.id)
+        elif stack_scheme == StackScheme.DEFINITION:
+            key = obj.definition.id
+        else:
+            key = stack_scheme
+        return [key, custom_key, stack_scheme]
+
     def clean_up(self):
         if self._favorites is not None:
             self._favorites = None
             services.get_event_manager().unregister_single_event(self, TestEvent.ObjectDestroyed)
+        if len(self._favorite_stacks) > 0:
+            self._favorite_stacks = []
 
     def handle_event(self, _, event, resolver):
         if event == TestEvent.ObjectDestroyed:
@@ -106,15 +156,51 @@ class FavoritesTracker(SimInfoTracker):
 
     def save(self):
         data = SimObjectAttributes_pb2.PersistableFavoritesTracker()
-        if self._favorites is None:
+        if self._favorites is not None:
+            for (tag, (object_id, object_def_id)) in self._favorites.items():
+                with ProtocolBufferRollback(data.favorites) as entry:
+                    entry.favorite_type = tag
+                    if object_id is not None:
+                        entry.favorite_id = object_id
+                    if object_def_id is not None:
+                        entry.favorite_def_id = object_def_id
+        if not len(self._favorite_stacks):
             return data
-        for (tag, (object_id, object_def_id)) in self._favorites.items():
-            with ProtocolBufferRollback(data.favorites) as entry:
-                entry.favorite_type = tag
-                if object_id is not None:
-                    entry.favorite_id = object_id
-                if object_def_id is not None:
-                    entry.favorite_def_id = object_def_id
+        sim = self._owner.get_sim_instance()
+        if sim is None:
+            logger.warn('Failed to get sim {}. Unable to save stack favorites.', sim)
+            return data
+        inventory = sim.inventory_component
+        inventory_manager = services.inventory_manager()
+        zone = services.current_zone()
+        for key_data in self._favorite_stacks:
+            key = key_data[KEY_ID]
+            custom_key = key_data[CUSTOM_KEY_ID]
+            stack_type = key_data[STACK_TYPE_ID]
+            if stack_type == StackScheme.NONE:
+                obj = zone.find_object(key)
+                if obj is None:
+                    continue
+                if obj.get_sim_owner_id() != sim.id and obj.get_household_owner_id() != sim.household_id:
+                    continue
+            elif inventory is None:
+                logger.warn('Sim {} has no inventory component. Unable to save stack data: {}.', sim, key_data)
+            else:
+                stack_id = inventory_manager.get_stack_id_from_key(key, custom_key, stack_type)
+                if len(inventory.get_stack_items(stack_id)) == 0:
+                    continue
+                stack_msg = data.stack_favorites.add()
+                if key is not None:
+                    stack_msg.key = key
+                if custom_key is not None:
+                    stack_msg.custom_key = custom_key
+                stack_msg.stack_scheme = stack_type
+            stack_msg = data.stack_favorites.add()
+            if key is not None:
+                stack_msg.key = key
+            if custom_key is not None:
+                stack_msg.custom_key = custom_key
+            stack_msg.stack_scheme = stack_type
         return data
 
     def load(self, data):
@@ -127,3 +213,12 @@ class FavoritesTracker(SimInfoTracker):
             if favorite_def_id is 0:
                 favorite_def_id = None
             self.set_favorite(favorite.favorite_type, favorite_id, favorite_def_id)
+        for stack_favorite in data.stack_favorites:
+            key = stack_favorite.key
+            if key is 0:
+                key = None
+            custom_key = stack_favorite.custom_key
+            if custom_key is 0:
+                custom_key = None
+            stack_scheme = stack_favorite.stack_scheme
+            self._favorite_stacks.append([key, custom_key, stack_scheme])

@@ -34,7 +34,6 @@ class LightningStrike:
         lot_center = services.active_lot().center
         zone = services.current_zone()
         max_dist = math.sqrt(max((lot_center - spawn_point.get_approximate_center()).magnitude_squared() for spawn_point in zone.spawn_points_gen()))
-        zone_id = zone.id
 
         def _get_random_position_and_routing_surface():
             theta = random.random()*sims4.math.TWO_PI
@@ -48,7 +47,7 @@ class LightningStrike:
         count = 20
         (position, routing_surface) = _get_random_position_and_routing_surface()
         while count:
-            while not build_buy.is_location_outside(zone_id, position, routing_surface.secondary_id):
+            while not build_buy.is_location_outside(position, routing_surface.secondary_id):
                 (position, routing_surface) = _get_random_position_and_routing_surface()
                 count -= 1
         if not count:
@@ -130,13 +129,18 @@ class LightningStrike:
             fire_service = services.get_fire_service()
             fire_service.add_delayed_scorch_mark(position, obj_to_strike.routing_surface, clock.interval_in_real_seconds(lightning_strike_tuning.scorch_mark_delay))
         effect = lightning_strike_tuning.effect(obj_to_strike)
+        weather_aware_component = obj_to_strike.weather_aware_component
+        if weather_aware_component is not None:
+            lightning_effect_override = weather_aware_component.lightning_effect_override
+            if lightning_effect_override is not None:
+                effect = lightning_effect_override(obj_to_strike)
         effect.start_one_shot()
         broadcaster_request = lightning_strike_tuning.broadcaster(obj_to_strike)
         broadcaster_request.start_one_shot()
         loot_ops_list = LootOperationList(SingleObjectResolver(obj_to_strike), lightning_strike_tuning.generic_loot_on_strike)
         loot_ops_list.apply_operations()
-        if obj_to_strike.weather_aware_component is not None:
-            obj_to_strike.weather_aware_component.on_struck_by_lightning()
+        if weather_aware_component is not None:
+            weather_aware_component.on_struck_by_lightning()
 
     @staticmethod
     def _get_sim_for_lightning_strike():

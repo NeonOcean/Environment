@@ -10,8 +10,10 @@ from protocolbuffers import Consts_pb2
 from protocolbuffers.DistributorOps_pb2 import SetWhimBucks
 from rewards.reward_enums import RewardDestination, RewardType
 from rewards.tunable_reward_base import TunableRewardBase
+from sims4.common import is_available_pack
 from sims4.localization import LocalizationHelperTuning
 from sims4.resources import Types
+from sims4.tuning.dynamic_enum import _get_pack_from_enum_value
 from sims4.tuning.tunable import TunableVariant, TunableReference, Tunable, TunableTuple, TunableCasPart, TunableMagazineCollection, TunableLiteralOrRandomValue, TunableEnumEntry, TunableRange, AutoFactoryInit, TunableFactory
 from sims4.utils import constproperty
 import build_buy
@@ -107,9 +109,11 @@ class TunableRewardCASPart(TunableRewardBase):
     def reward_type():
         return RewardType.CAS_PART
 
-    def open_reward(self, sim_info, **kwargs):
+    def open_reward(self, sim_info, reward_source=None, **kwargs):
         household = sim_info.household
         household.add_cas_part_to_reward_inventory(self._cas_part)
+        if reward_source is not None and self._cas_part is not None:
+            self._send_unlock_telemetry(sim_info, self._cas_part, reward_source.guid64)
 
     def valid_reward(self, sim_info):
         return not sim_info.household.part_in_reward_inventory(self._cas_part)
@@ -167,7 +171,10 @@ class TunableRewardBuildBuyUnlockBase(TunableRewardBase):
     def get_resource_key(self):
         return NotImplementedError
 
-    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, **kwargs):
+    def get_id_for_telemetry(self):
+        return self.instance.id
+
+    def open_reward(self, sim_info, reward_destination=RewardDestination.HOUSEHOLD, reward_source=None, **kwargs):
         key = self.get_resource_key()
         if key is not None:
             if reward_destination == RewardDestination.SIM:
@@ -180,6 +187,8 @@ class TunableRewardBuildBuyUnlockBase(TunableRewardBase):
             sim_info.household.add_build_buy_unlock(key)
         else:
             logger.warn('Invalid Build Buy unlock tuned. No reward given.')
+        if self.instance is not None and reward_source is not None:
+            self._send_unlock_telemetry(sim_info, self.get_id_for_telemetry(), reward_source.guid64)
 
 class TunableBuildBuyObjectDefinitionUnlock(TunableRewardBuildBuyUnlockBase):
 
@@ -217,6 +226,9 @@ class TunableBuildBuyMagazineCollectionUnlock(TunableRewardBuildBuyUnlockBase):
         else:
             return
 
+    def get_id_for_telemetry(self):
+        return self.instance
+
 class TunableSetClubGatheringVibe(TunableRewardBase):
     FACTORY_TUNABLES = {'vibe_to_set': TunableEnumEntry(description='\n            The vibe that the club gathering will be set to.\n            ', tunable_type=ClubGatheringVibe, default=ClubGatheringVibe.NO_VIBE)}
 
@@ -253,13 +265,15 @@ class TunableRewardDisplayText(TunableRewardBase):
         return True
 
 class TunableRewardBucks(AutoFactoryInit, TunableRewardBase):
-    FACTORY_TUNABLES = {'bucks_type': TunableEnumEntry(description='\n            The type of Bucks to grant.\n            ', tunable_type=BucksType, default=BucksType.INVALID, invalid_enums=(BucksType.INVALID,)), 'amount': TunableRange(description='\n            The amount of Bucks to award. Must be a positive value.\n            ', tunable_type=int, default=10, minimum=1)}
+    FACTORY_TUNABLES = {'bucks_type': TunableEnumEntry(description='\n            The type of Bucks to grant.\n            ', tunable_type=BucksType, default=BucksType.INVALID, invalid_enums=(BucksType.INVALID,), pack_safe=True), 'amount': TunableRange(description='\n            The amount of Bucks to award. Must be a positive value.\n            ', tunable_type=int, default=10, minimum=1)}
 
     @constproperty
     def reward_type():
         return RewardType.BUCKS
 
     def open_reward(self, sim_info, **kwargs):
+        if self.bucks_type is None or not (self.bucks_type == BucksType.INVALID or not is_available_pack(_get_pack_from_enum_value(int(self.bucks_type)))):
+            return
         if sim_info.is_npc:
             return
         tracker = BucksUtils.get_tracker_for_bucks_type(self.bucks_type, sim_info.id, add_if_none=True)

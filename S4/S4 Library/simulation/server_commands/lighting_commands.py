@@ -1,3 +1,5 @@
+from build_buy import get_room_id
+from objects.components.lighting_component import LightingComponent
 from objects.components.types import LIGHTING_COMPONENT
 from objects.lighting.lighting_dialog import UiDialogLightColorAndIntensity
 from objects.lighting.lighting_utils import all_lights_gen, lights_in_target_room_gen
@@ -52,3 +54,14 @@ def show_light_editor(light_object_id:int, light_target_type:int=0, _connection=
     intensity = light_object.get_user_intensity_overrides()
     dialog = UiDialogLightColorAndIntensity(light_object, r, g, b, intensity, on_update=_on_update)
     dialog.show_dialog()
+
+@sims4.commands.Command('lighting.auto_room_light_status', command_type=sims4.commands.CommandType.Live)
+def auto_room_light_status(room_id:int, on:bool, _connection=None):
+    zone_id = services.current_zone_id()
+    for obj in services.object_manager().get_all_objects_with_component_gen(LIGHTING_COMPONENT):
+        if obj.get_light_dimmer_value() != LightingComponent.LIGHT_AUTOMATION_DIMMER_VALUE:
+            continue
+        obj_room_id = get_room_id(zone_id, obj.position, obj.level)
+        if obj_room_id != room_id:
+            continue
+        obj.on_light_changed(on)

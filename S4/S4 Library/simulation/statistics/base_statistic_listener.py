@@ -24,7 +24,7 @@ class BaseStatisticCallbackListener:
         return self._stat_type
 
     def __repr__(self):
-        return standard_repr(self, stat=self.statistic_type.__name__, threshold=self._threshold, callback=self._callback.__name__)
+        return standard_repr(self, stat=self.statistic_type.__name__, threshold=self._threshold, callback=self._callback)
 
     def __eq__(self, other):
         if other is None:

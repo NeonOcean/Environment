@@ -1,4 +1,4 @@
-# (C) Copyright 2017, 2019 by Rocky Bernstein
+# (C) Copyright 2017, 2019, 2020 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -16,19 +16,24 @@
 """
 CPython 2.0 bytecode opcodes
 
-This is similar to the opcode portion in Python 2.0's dis.py library.
+This is similar to (but better than) the opcode portion in Python 2.0's dis.py library.
 """
 
 import xdis.opcodes.opcode_21 as opcode_21
 from xdis.opcodes.base import (
     init_opdata,
+    extended_format_MAKE_FUNCTION_older,
+    extended_format_RETURN_VALUE,
     finalize_opcodes,
+    format_CALL_FUNCTION_pos_name_encoded,
+    format_MAKE_FUNCTION_default_argc,
     format_extended_arg,
     rm_op,
     update_pj2,
 )
 
 version = 2.0
+python_implementation = "CPython"
 
 l = locals()
 init_opdata(l, opcode_21, version)
@@ -42,6 +47,17 @@ rm_op(l, "STORE_DEREF", 137)
 
 update_pj2(globals(), l)
 
-opcode_arg_fmt = {"EXTENDED_ARG": format_extended_arg}
-
 finalize_opcodes(l)
+
+opcode_arg_fmt = {
+    "CALL_FUNCTION": format_CALL_FUNCTION_pos_name_encoded,
+    "CALL_FUNCTION_KW": format_CALL_FUNCTION_pos_name_encoded,
+    "CALL_FUNCTION_VAR_KW": format_CALL_FUNCTION_pos_name_encoded,
+    "EXTENDED_ARG": format_extended_arg,
+    "MAKE_FUNCTION": format_MAKE_FUNCTION_default_argc,
+}
+
+opcode_extended_fmt = {
+    "MAKE_FUNCTION": extended_format_MAKE_FUNCTION_older,
+    "RETURN_VALUE": extended_format_RETURN_VALUE,
+}

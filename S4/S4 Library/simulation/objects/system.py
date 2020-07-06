@@ -66,7 +66,7 @@ def c_api_start_delaying_posture_graph_adds():
 def c_api_stop_delaying_posture_graph_adds():
     pass
 
-def create_object(definition_or_id, obj_id=0, init=None, post_add=None, loc_type=None, content_source=ContentSource.DEFAULT, **kwargs):
+def create_object(definition_or_id, obj_id=0, init=None, post_add=None, loc_type=None, disable_object_commodity_callbacks=False, content_source=ContentSource.DEFAULT, **kwargs):
     from objects.base_object import BaseObject
     from objects.object_enums import ItemLocation
     added_to_object_manager = False
@@ -74,15 +74,13 @@ def create_object(definition_or_id, obj_id=0, init=None, post_add=None, loc_type
     if loc_type is None:
         loc_type = ItemLocation.ON_LOT
     try:
-        zone_id = services.current_zone_id()
-        zone_id = 0 if zone_id is None else zone_id
         from objects.definition import Definition
         if isinstance(definition_or_id, Definition):
-            fallback_definition_id = build_buy.get_vetted_object_defn_guid(zone_id, obj_id, definition_or_id.id)
+            fallback_definition_id = build_buy.get_vetted_object_defn_guid(obj_id, definition_or_id.id)
             if fallback_definition_id != definition_or_id.id:
                 definition_or_id = fallback_definition_id
         else:
-            definition_or_id = build_buy.get_vetted_object_defn_guid(zone_id, obj_id, definition_or_id)
+            definition_or_id = build_buy.get_vetted_object_defn_guid(obj_id, definition_or_id)
         if definition_or_id is None:
             return
         obj = create_script_object(definition_or_id, **kwargs)
@@ -98,6 +96,10 @@ def create_object(definition_or_id, obj_id=0, init=None, post_add=None, loc_type
         obj.item_location = ItemLocation(loc_type) if loc_type is not None else ItemLocation.INVALID_LOCATION
         obj.id = obj_id
         obj.content_source = content_source
+        if (disable_object_commodity_callbacks or services.current_zone().suppress_object_commodity_callbacks) and not obj.is_sim:
+            commodity_tracker = obj.commodity_tracker
+            if commodity_tracker is not None:
+                commodity_tracker.set_callback_alarm_calculation_supression(True)
         if loc_type == ItemLocation.ON_LOT or (loc_type == ItemLocation.FROM_WORLD_FILE or (loc_type == ItemLocation.FROM_OPEN_STREET or loc_type == ItemLocation.HOUSEHOLD_INVENTORY)) or loc_type == ItemLocation.FROM_CONDITIONAL_LAYER:
             obj.object_manager_for_create.add(obj)
         elif loc_type == ItemLocation.SIM_INVENTORY or loc_type == ItemLocation.OBJECT_INVENTORY:

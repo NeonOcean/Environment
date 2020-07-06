@@ -53,8 +53,8 @@ def get_venue_instance_from_pick_location(pick):
         persistence_service = services.get_persistence_service()
         lot_owner_info = persistence_service.get_lot_proto_buff(lot_id)
         if lot_owner_info is not None:
-            venue_key = lot_owner_info.venue_key
-            venue_instance = services.get_instance_manager(sims4.resources.Types.VENUE).get(venue_key)
+            venue_tuning_id = lot_owner_info.venue_key
+            venue_instance = services.get_instance_manager(sims4.resources.Types.VENUE).get(venue_tuning_id)
             return venue_instance
 
 class TerrainInteractionMixin:
@@ -252,7 +252,7 @@ class GoHereSuperInteraction(TerrainSuperInteraction):
         location = sim.sim_info.startup_sim_location
         target = objects.terrain.TerrainPoint(location)
         pick_type = PickType.PICK_TERRAIN
-        if build_buy.is_location_pool(sim.zone_id, location.transform.translation, location.level):
+        if build_buy.is_location_pool(location.transform.translation, location.level):
             pick_type = PickType.PICK_POOL_SURFACE
         pick = PickInfo(pick_type=pick_type, target=target, location=location.transform.translation, routing_surface=location.routing_surface)
         context = InteractionContext(sim, source, priority, pick=pick, restored_from_load=True)
@@ -627,10 +627,10 @@ class _LocationPoint(ProxyObject):
         return False
 
     def is_outside(self):
-        return build_buy.is_location_outside(services.current_zone_id(), self.position, self.level)
+        return build_buy.is_location_outside(self.position, self.level)
 
     def is_on_natural_ground(self):
-        return build_buy.is_location_natural_ground(services.current_zone_id(), self.position, self.level)
+        return build_buy.is_location_natural_ground(self.position, self.level)
 
     @caches.cached(maxsize=10)
     def is_on_active_lot(self, tolerance=0):

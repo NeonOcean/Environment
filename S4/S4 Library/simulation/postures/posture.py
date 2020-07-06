@@ -531,6 +531,17 @@ class Posture(HasTunableReference, metaclass=TunedInstanceMetaclass, manager=ser
     def _add_posture_transition(source_posture, dest_posture, transition_data):
         Posture._posture_transitions[(source_posture, dest_posture)] = transition_data
 
+    def has_linked_sim_pushed_cancel(self, carry_cancel_override=None):
+        linked_posture = self.linked_posture
+        if linked_posture is not None:
+            linked_sim = linked_posture.sim
+            for linked_interaction in linked_posture.owning_interactions:
+                linked_cancel_aops_context_postures = linked_interaction.get_cancel_replacement_aops_contexts_postures(carry_cancel_override=carry_cancel_override)
+                for (linked_on_cancel_aop, linked_context, linked_possible_posture) in linked_cancel_aops_context_postures:
+                    if linked_possible_posture is linked_posture and not linked_sim.queue.needs_cancel_aop(linked_on_cancel_aop, linked_context):
+                        return True
+        return False
+
     @flexmethod
     def get_provided_postures(cls, inst, surface_target=DEFAULT, concrete=False, species=None):
         if inst is None:

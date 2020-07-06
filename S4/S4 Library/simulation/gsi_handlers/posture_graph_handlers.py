@@ -7,6 +7,7 @@ import algos
 import postures
 import sims4.log
 from sims4.utils import setdefault_callable
+from routing import GoalFailureType
 logger = sims4.log.Logger('GSI')
 with sims4.reload.protected(globals()):
     gsi_path_id = UniqueIdGenerator()
@@ -44,7 +45,7 @@ trans_path_archive_schema.add_field('archive_id', label='ID', hidden=True)
 trans_path_archive_schema.add_field('sim_name', label='Sim Name', width=150, hidden=True)
 trans_path_archive_schema.add_field('interaction', label='Interaction', width=150)
 trans_path_archive_schema.add_field('path_success', label='Success', width=65)
-trans_path_archive_schema.add_field('path_progress', label='Progress', width=65)
+trans_path_archive_schema.add_field('path_progress', label='Progress', width=150)
 trans_path_archive_schema.add_field('path', label='Chosen Path', width=450)
 trans_path_archive_schema.add_field('destSpec', label='Dest Spec', width=350)
 trans_path_archive_schema.add_field('pathCost', label='Cost')
@@ -97,6 +98,7 @@ with trans_path_archive_schema.add_has_many('all_goal_costs', GsiGridSchema) as 
     sub_schema.add_field('cost', label='Cost', type=GsiFieldVisualizers.FLOAT)
     sub_schema.add_field('slot_params', label='Slot Parameters', width=3)
     sub_schema.add_field('source_dest_id', label='Set Id', type=GsiFieldVisualizers.INT)
+    sub_schema.add_field('error', label='Error', width=2)
 with trans_path_archive_schema.add_has_many('heuristics', GsiGridSchema) as sub_schema:
     sub_schema.add_field('build_pass', label='Pass', width=0.15)
     sub_schema.add_field('node', label='Node', width=5)
@@ -255,7 +257,7 @@ def log_possible_goal(sim, path_spec, goal, cost, type_str, source_dest_id):
             slot_params += '=' + str(param_value) + '\n'
     else:
         slot_params = '<no slot params>'
-    entry = {'build_pass': transition_log.current_pass, 'path': str(path_spec), 'location': '{} {}'.format(goal.location.transform, goal.location.routing_surface), 'type': type_str, 'cost': cost, 'slot_params': slot_params, 'source_dest_id': source_dest_id}
+    entry = {'build_pass': transition_log.current_pass, 'path': str(path_spec), 'location': '{} {}'.format(goal.location.transform, goal.location.routing_surface), 'type': type_str, 'cost': cost, 'slot_params': slot_params, 'source_dest_id': source_dest_id, 'error': goal.failure_reason.name}
     transition_log.all_goal_costs.append(entry)
 
 def archive_path(sim, best_path_spec, path_success, path_progress, interaction=None):
@@ -289,7 +291,7 @@ def log_path_data_to_gsi(sim, interaction=None):
     transition_log = get_sim_transition_log(sim, interaction=interaction)
     if transition_log is None:
         return
-    archive_data = {'archive_id': gsi_path_id(), 'sim_name': sim.full_name, 'interaction': transition_log.cur_posture_interaction, 'path': transition_log.path, 'path_success': transition_log.path_success, 'path_progress': int(transition_log.path_progress), 'pathCost': transition_log.path_cost, 'destSpec': str(transition_log.dest_spec), 'path_costs': transition_log.path_cost_log, 'goal_costs': _convert_goal_dict_to_json(transition_log.path_goal_costs), 'all_handles': transition_log.all_handles, 'all_possible_paths': transition_log.all_possible_paths, 'connected_destinations': transition_log.all_goals, 'all_constraints': transition_log.possible_constraints, 'sources_and_dests': transition_log.sources_and_destinations, 'templates': transition_log.transition_templates, 'posture_state': str(sim.posture_state), 'all_goal_costs': transition_log.all_goal_costs, 'tried_destinations': transition_log.tried_destinations, 'heuristics': transition_log.heuristic_fn_costs}
+    archive_data = {'archive_id': gsi_path_id(), 'sim_name': sim.full_name, 'interaction': transition_log.cur_posture_interaction, 'path': transition_log.path, 'path_success': transition_log.path_success, 'path_progress': str(transition_log.path_progress), 'pathCost': transition_log.path_cost, 'destSpec': str(transition_log.dest_spec), 'path_costs': transition_log.path_cost_log, 'goal_costs': _convert_goal_dict_to_json(transition_log.path_goal_costs), 'all_handles': transition_log.all_handles, 'all_possible_paths': transition_log.all_possible_paths, 'connected_destinations': transition_log.all_goals, 'all_constraints': transition_log.possible_constraints, 'sources_and_dests': transition_log.sources_and_destinations, 'templates': transition_log.transition_templates, 'posture_state': str(sim.posture_state), 'all_goal_costs': transition_log.all_goal_costs, 'tried_destinations': transition_log.tried_destinations, 'heuristics': transition_log.heuristic_fn_costs}
     archiver.archive(data=archive_data, object_id=sim.id)
     if sim.transition_path_logging:
         log_transition_path_automation(sim, archive_data)
@@ -300,7 +302,6 @@ def archive_canceled_transition(sim, interaction, finishing_type, test_result):
         return
     transition_log.path = 'CANCELED: Finishing Type: {}, Result: {}'.format(finishing_type, test_result)
     transition_log.path_success = False
-    transition_log.path_progress = int(postures.posture_graph.TransitionSequenceStage.COMPLETE) + 1
     transition_log.cur_posture_interaction = format_interaction_for_transition_log(interaction)
     log_path_data_to_gsi(sim, interaction=interaction)
 
@@ -309,7 +310,6 @@ def archive_derailed_transition(sim, interaction, reason, test_result):
     if transition_log is None:
         return
     transition_log.path = 'DERAILED: {} Result: {}'.format(reason, test_result)
-    transition_log.path_progress = int(postures.posture_graph.TransitionSequenceStage.COMPLETE) + 1
     transition_log.cur_posture_interaction = format_interaction_for_transition_log(interaction)
     log_path_data_to_gsi(sim, interaction=interaction)
 

@@ -1,7 +1,7 @@
 import random
 from buffs.tunable import TunablePackSafeBuffReference
 from event_testing.tests_with_data import TunableParticipantRanInteractionTest
-from sims4.tuning.tunable import TunableList, TunableRegionDescription, TunableRange, TunablePercent, TunableReference
+from sims4.tuning.tunable import Tunable, TunableList, TunableRegionDescription, TunableRange, TunablePercent, TunableReference
 from sims4.tuning.tunable_base import GroupNames
 from situations.bouncer.bouncer_types import RequestSpawningOption, BouncerRequestPriority
 from situations.situation_complex import SituationComplexCommon, CommonSituationState, SituationState, SituationStateData
@@ -19,8 +19,9 @@ class _FireOutState(SituationState):
             if self.owner._fire_brigade_put_out_fire:
                 for sim_info in services.active_household().instanced_sims_gen():
                     sim_info.add_buff_from_op(self.owner.neighor_saved_me_buff.buff_type, self.owner.neighor_saved_me_buff.buff_reason)
-        for fire_brigade_volunteer in self.owner.get_fire_brigade_sim_infos():
-            services.get_zone_situation_manager().create_visit_situation(fire_brigade_volunteer)
+        if self.owner.visit_afterwards:
+            for fire_brigade_volunteer in self.owner.get_fire_brigade_sim_infos():
+                services.get_zone_situation_manager().create_visit_situation(fire_brigade_volunteer)
         self.owner._self_destruct()
 
 class _FindFireState(CommonSituationState):
@@ -45,7 +46,7 @@ class _FindFireState(CommonSituationState):
                 break
 
 class FireBrigadeSituation(SituationComplexCommon):
-    INSTANCE_TUNABLES = {'_find_fire_state': _FindFireState.TunableFactory(description='\n            The situation state used to put the fire brigade volunteers in\n            the role that directs them to put out active fires.\n            ', tuning_group=SituationComplexCommon.SITUATION_STATE_GROUP), 'fire_panic_interactions': TunableList(description='\n            A list of interactions that, if completed by the fire brigade volunteer,\n            marks that the volunteers have helped to put out the fire. If the volunteer\n            completes a fire-panic-interaction by the time the situation ends\n            every instanced member of the active household will get the \n            helped-by-neighbor buff.\n            ', tunable=TunableParticipantRanInteractionTest(), tuning_group=GroupNames.SITUATION), 'eligible_regions': TunableList(description='\n            The list of regions in which the fire brigade may appear. If\n            nothing is tuned, every region will be valid.\n            ', tunable=TunableRegionDescription(description='\n                A region where the fire brigade is permitted to appear.\n                ', pack_safe=True), tuning_group=GroupNames.SITUATION), 'number_of_volunteers': TunableRange(description='\n            The number of brigade volunteers the situation will attempt\n            to get when creating the fire service.\n            ', tunable_type=int, default=2, minimum=0, tuning_group=GroupNames.SITUATION), 'neighor_saved_me_buff': TunablePackSafeBuffReference(description='\n            The buff given to all members of the active household once the fire\n            situation has finished. The buff is given only if a fire brigade\n            member helped put out the fire.                    \n            ', tuning_group=GroupNames.SITUATION), 'brigade_chance': TunablePercent(description='\n            The base chance that a volunteer brigade will appear when the \n            fire service begins.\n            ', default=80, tuning_group=GroupNames.SITUATION), 'fire_brigade_job': TunableReference(description='\n            The job that a fire brigade volunteer will use.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION_JOB), tuning_group=GroupNames.ROLES)}
+    INSTANCE_TUNABLES = {'_find_fire_state': _FindFireState.TunableFactory(description='\n            The situation state used to put the fire brigade volunteers in\n            the role that directs them to put out active fires.\n            ', tuning_group=SituationComplexCommon.SITUATION_STATE_GROUP), 'fire_panic_interactions': TunableList(description='\n            A list of interactions that, if completed by the fire brigade volunteer,\n            marks that the volunteers have helped to put out the fire. If the volunteer\n            completes a fire-panic-interaction by the time the situation ends\n            every instanced member of the active household will get the \n            helped-by-neighbor buff.\n            ', tunable=TunableParticipantRanInteractionTest(), tuning_group=GroupNames.SITUATION), 'number_of_volunteers': TunableRange(description='\n            The number of brigade volunteers the situation will attempt\n            to get when creating the fire service.\n            ', tunable_type=int, default=2, minimum=0, tuning_group=GroupNames.SITUATION), 'neighor_saved_me_buff': TunablePackSafeBuffReference(description='\n            The buff given to all members of the active household once the fire\n            situation has finished. The buff is given only if a fire brigade\n            member helped put out the fire.                    \n            ', tuning_group=GroupNames.SITUATION), 'visit_afterwards': Tunable(description='\n            Boolean to control whether sim will visit after the fire is out or not.             \n            ', tunable_type=bool, default=False), 'fire_brigade_job': TunableReference(description='\n            The job that a fire brigade volunteer will use.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION_JOB), tuning_group=GroupNames.ROLES)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -85,18 +86,6 @@ class FireBrigadeSituation(SituationComplexCommon):
         for volunteer in fire_brigade_volunteers:
             guest_list.add_guest_info(SituationGuestInfo(volunteer.sim_info.sim_id, cls.fire_brigade_job, RequestSpawningOption.DONT_CARE, BouncerRequestPriority.EVENT_VIP, expectation_preference=True))
         return guest_list
-
-    @classmethod
-    def should_create_volunteer_brigade(cls):
-        if not cls.eligible_regions:
-            return False
-        if random.random() > cls.brigade_chance:
-            return False
-        current_region = services.current_region()
-        for region_id in cls.eligible_regions:
-            if current_region is Region.REGION_DESCRIPTION_TUNING_MAP.get(region_id):
-                return True
-        return False
 
     def advance_to_post_fire(self):
         self._change_state(_FireOutState())

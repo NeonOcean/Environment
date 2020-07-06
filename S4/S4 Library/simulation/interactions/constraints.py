@@ -589,7 +589,7 @@ class Constraint(ImmutableType, InternMixin):
             pool_routing_surface = pool.provided_routing_surface
             pool_level_id = pool_routing_surface.secondary_id
             if pool_level_id == level_id:
-                if build_buy.is_location_pool(zone_id, pool.position, pool_level_id):
+                if build_buy.is_location_pool(pool.position, pool_level_id):
                     if pool.bounding_polygon is None:
                         logger.error('Pool {} does not have a bounding polygon. Location: {}', pool, pool._location)
                     else:
@@ -2060,6 +2060,17 @@ class RequiredSlot:
         if anim_overrides_target is not None:
             if anim_overrides_target.params:
                 locked_params += anim_overrides_target.params
+        if target.anim_boundary_conditions_check_carry:
+            left_target = sim.posture_state.left.target
+            right_target = sim.posture_state.right.target
+            if left_target:
+                carried_object_name = asm.get_actor_name(left_target)
+                if carried_object_name is not None:
+                    locked_params += {('carryTrack', carried_object_name): 'left'}
+            if right_target:
+                carried_object_name = asm.get_actor_name(right_target)
+                if carried_object_name is not None:
+                    locked_params += {('carryTrack', carried_object_name): 'right'}
         containment_slot_to_slot_data_entry = asm.get_boundary_conditions_list(sim, state_name, locked_params=locked_params, from_state_name=initial_state_name, posture=posture, base_object_name=base_object_name)
         if exit_slot_start_state is not None:
             containment_slot_to_slot_data_exit = asm.get_boundary_conditions_list(sim, exit_slot_end_state, locked_params=locked_params, from_state_name=exit_slot_start_state, entry=False, posture=posture, base_object_name=base_object_name)
@@ -2823,7 +2834,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         def create_new_liability(self, interaction, *args, **kwargs):
             return super().create_new_liability(interaction, self.jig, *args, constraint=self.constraint, ignore_sim=self.sim, **kwargs)
 
-    def __init__(self, jig_definition, stay_outside=False, is_soft_constraint=False, face_participant=None, sim=None, target=None, ignore_sim=True, object_id=None, should_transfer_liability=True, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, jig_model_suite_state_index=None, force_pool_surface_water_depth=None, **kwargs):
+    def __init__(self, jig_definition, stay_outside=False, is_soft_constraint=False, face_participant=None, sim=None, target=None, ignore_sim=True, object_id=None, should_transfer_liability=True, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, jig_model_suite_state_index=None, force_pool_surface_water_depth=None, stay_in_lot=False, **kwargs):
         super().__init__(**kwargs)
         self._jig_definition = jig_definition
         self._ignore_sim = ignore_sim
@@ -2842,6 +2853,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         else:
             self._jig_model_suite_state_index = jig_model_suite_state_index
         self._force_pool_surface_water_depth = force_pool_surface_water_depth
+        self._stay_in_lot = stay_in_lot
 
     def _intersect(self, other_constraint):
         (early_out, kwargs) = self._intersect_kwargs(other_constraint)
@@ -2863,7 +2875,7 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         if self._face_participant is not None:
             participant_to_face = interaction.get_participant(self._face_participant.participant_to_face)
             facing_radius = self._face_participant.radius
-        fgl_context = interactions.utils.routing.get_fgl_context_for_jig_definition(self._jig_definition, sim, ignore_sim=self._ignore_sim, fallback_routing_surface=fallback_routing_surface, stay_outside=self._stay_outside, object_id=self._object_id, participant_to_face=participant_to_face, facing_radius=facing_radius, stay_on_world=self._stay_on_world, use_intended_location=self._use_intended_location, model_suite_state_index=self._model_suite_state_index, force_pool_surface_water_depth=self._force_pool_surface_water_depth, min_water_depth=self._min_water_depth, max_water_depth=self._max_water_depth)
+        fgl_context = interactions.utils.routing.get_fgl_context_for_jig_definition(self._jig_definition, sim, ignore_sim=self._ignore_sim, fallback_routing_surface=fallback_routing_surface, stay_outside=self._stay_outside, object_id=self._object_id, participant_to_face=participant_to_face, facing_radius=facing_radius, stay_on_world=self._stay_on_world, use_intended_location=self._use_intended_location, model_suite_state_index=self._model_suite_state_index, force_pool_surface_water_depth=self._force_pool_surface_water_depth, min_water_depth=self._min_water_depth, max_water_depth=self._max_water_depth, stay_in_lot=self._stay_in_lot)
         chosen_routing_surface = fgl_context.search_strategy.start_routing_surface
         (translation, orientation) = find_good_location(fgl_context)
         if translation is None or orientation is None:
@@ -2905,13 +2917,13 @@ class ObjectJigConstraint(SmallAreaConstraint, HasTunableSingletonFactory):
         return True
 
 class JigConstraint(ObjectJigConstraint):
-    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False), 'use_intended_location': Tunable(description='\n            The jig constraint will be placed at the intended location if \n            checked.  Useful to disable for TeleportStyleInteractions which\n            want to place the jig somewhere near the Sim rather than where\n            they are going.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            Counters are an example of objects that use a suite of models.\n            ', tunable_type=int, default=0, minimum=0)}
+    FACTORY_TUNABLES = {'jig': TunableReference(description='\n            The jig defining the constraint.\n            ', manager=services.definition_manager()), 'is_soft_constraint': Tunable(description='\n            If checked, then this constraint is merely a suggestion for the Sim.\n            Should FGL succeed and a good location is found for the jig, the Sim\n            will have to route to it in order to run the interaction. However,\n            should the jig be unable to be placed, then this constraint is\n            ignored and the Sim will be able to run the interaction from\n            wherever.\n            \n            If unchecked, then if the jig cannot be placed, a Nowhere constraint\n            is generated and the Sim will be unable to perform the interaction.\n            ', tunable_type=bool, default=False), 'stay_outside': Tunable(description='\n            Whether the jig can only be placed outside.\n            ', tunable_type=bool, default=False), 'face_participant': OptionalTunable(description='\n            If enabled, allows you to tune a participant and a radius around\n            the participant that the jig will face when placed. Keep in mind,\n            this does limit the possibilities for jig placement.\n            ', tunable=TunableTuple(description='\n                The participant to face and radius around that participant to\n                place the jig.\n                ', participant_to_face=TunableEnumEntry(description='\n                    The participant of the interaciton the jig should face when placed.\n                    ', tunable_type=ParticipantType, default=ParticipantType.Object), radius=Tunable(description='\n                    The valid radius around the provided participant where the\n                    jig should be placed.\n                    ', tunable_type=float, default=0))), 'stay_on_world': Tunable(description='\n            Jig placement will only consider positions on the world surface.\n            ', tunable_type=bool, default=False), 'use_intended_location': Tunable(description='\n            The jig constraint will be placed at the intended location if \n            checked.  Useful to disable for TeleportStyleInteractions which\n            want to place the jig somewhere near the Sim rather than where\n            they are going.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            Counters are an example of objects that use a suite of models.\n            ', tunable_type=int, default=0, minimum=0), 'stay_in_lot': Tunable(description='\n            Jig placement will only consider positions on the active lot.\n            ', tunable_type=bool, default=False)}
 
-    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, model_suite_state_index, use_intended_location, sim=None, target=None, **kwargs):
-        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, jig_model_suite_state_index=model_suite_state_index, use_intended_location=use_intended_location, **kwargs)
+    def __init__(self, jig, is_soft_constraint, stay_outside, face_participant, stay_on_world, model_suite_state_index, use_intended_location, stay_in_lot, sim=None, target=None, **kwargs):
+        super().__init__(jig, stay_outside=stay_outside, is_soft_constraint=is_soft_constraint, face_participant=face_participant, stay_on_world=stay_on_world, jig_model_suite_state_index=model_suite_state_index, use_intended_location=use_intended_location, stay_in_lot=stay_in_lot, **kwargs)
 
     def create_constraint(self, *args, **kwargs):
-        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, self._model_suite_state_index, self._use_intended_location, *args, **kwargs)
+        return JigConstraint(self._jig_definition, self._is_soft_constraint, self._stay_outside, self._face_participant, self._stay_on_world, self._model_suite_state_index, self._use_intended_location, self._stay_in_lot, *args, **kwargs)
 
 class ObjectPlacementConstraint(ObjectJigConstraint):
     FACTORY_TUNABLES = {'description': '\n            A constraint defined by a location on a specific jig object,\n            which will be placed when the constraint is bound and will\n            live for the duration of the interaction owning the constraint.\n            ', 'use_intended_location': Tunable(description='\n            If enabled, we will use the intended location of the relative\n            object when placing this object. That means we use their intended\n            location to start the FGL search from, and the routing surface to\n            start with.\n            ', tunable_type=bool, default=True), 'model_suite_state_index': TunableRange(description='\n            For object definitions that use a suite of models (each w/ its own\n            model, rig, slots, slot resources, and footprint), switch the index\n            used in the suite.  For jigs, this changes the footprint used.\n            For object definitions that use a suite of models\n            ', tunable_type=int, default=0, minimum=0), 'force_pool_surface_water_depth': OptionalTunable(description='\n            (float) If provided, and the starting point for the FGL is not already on\n            the pool (or ocean) surface, water depths greater than this value\n            will force the use of the pool routing surface.\n            ', tunable=TunableTuple(description='\n                Settings for forced use of pool routing surface.\n                ', water_depth=Tunable(description='\n                    Value of the min water depth allowed.\n                    ', tunable_type=float, default=-1.0), model_suite_state_index=OptionalTunable(description='\n                    For object definitions that use a suite of models (each w/ its own\n                    model, rig, slots, slot resources, and footprint), switch the index\n                    used in the suite.  For jigs, this changes the footprint used.\n                    For object definitions that use a suite of models\n                    ', tunable=TunableRange(description='\n                        Index to use.\n                        ', tunable_type=int, default=0, minimum=0)))), 'min_water_depth': OptionalTunable(description='\n            (float) If provided, minimum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the min water depth allowed.\n                ', tunable_type=float, default=0.0)), 'max_water_depth': OptionalTunable(description='\n            (float) If provided, maximum water depth where the object can be placed\n            ', tunable=Tunable(description='\n                Value of the max water depth allowed.\n                ', tunable_type=float, default=0.0))}
@@ -3041,23 +3053,35 @@ class PortalConstraint(HasTunableSingletonFactory, AutoFactoryInit):
     PORTAL_DIRECTION_BACK = 1
     PORTAL_LOCATION_ENTRY = 0
     PORTAL_LOCATION_EXIT = 1
-    FACTORY_TUNABLES = {'portal_type': TunableReference(description='\n            A reference to the type of portal to use for the constraint.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('PortalData',)), 'portal_direction': TunableVariant(description='\n            Choose between the There and Back of the portal. This will not work\n            properly if the portal is missing a Back and Back is specified here.\n            ', locked_args={'there': PORTAL_DIRECTION_THERE, 'back': PORTAL_DIRECTION_BACK}, default='there'), 'portal_location': TunableVariant(description='\n            Choose between the entry and exit of a portal direction.\n            ', locked_args={'entry': PORTAL_LOCATION_ENTRY, 'exit': PORTAL_LOCATION_EXIT}, default='entry'), 'sub_constraint': OptionalTunable(description='\n            If enabled, specify a specific type of constraint to create at the\n            location of the portal.\n            \n            If disabled then the constraint will just be a location constraint\n            at the location of the portal.\n            ', tunable=TunableVariant(description='\n                The types of constraints that can be created at the location\n                of the portal.\n                ', circle=TunableCircle(description='\n                    A circle constraint that is created at the location of the\n                    portal.\n                    ', radius=3), cone=TunableCone(description='\n                    A cone constraint that is created at the location of the \n                    portal.\n                    ', min_radius=0, max_radius=1, angle=sims4.math.PI), default='circle'))}
+    FACTORY_TUNABLES = {'portals': TunableList(description='\n            List of portal data to be used in this constraint.\n            ', tunable=TunableTuple(portal_type=TunableReference(description='\n                    A reference to the type of portal to use for the constraint.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.SNIPPET), class_restrictions=('PortalData',)), portal_direction=TunableVariant(description='\n                    Choose between the There and Back of the portal. This will not work\n                    properly if the portal is missing a Back and Back is specified here.\n                    ', locked_args={'there': PORTAL_DIRECTION_THERE, 'back': PORTAL_DIRECTION_BACK}, default='there'), portal_location=TunableVariant(description='\n                    Choose between the entry and exit of a portal direction.\n                    ', locked_args={'entry': PORTAL_LOCATION_ENTRY, 'exit': PORTAL_LOCATION_EXIT}, default='entry'), sub_constraint=OptionalTunable(description='\n                    If enabled, specify a specific type of constraint to create at the\n                    location of the portal.\n                    \n                    If disabled then the constraint will just be a location constraint\n                    at the location of the portal.\n                    ', tunable=TunableVariant(description='\n                        The types of constraints that can be created at the location\n                        of the portal.\n                        ', circle=TunableCircle(description='\n                            A circle constraint that is created at the location of the\n                            portal.\n                            ', radius=3), cone=TunableCone(description='\n                            A cone constraint that is created at the location of the \n                            portal.\n                            ', min_radius=0, max_radius=1, angle=sims4.math.PI), default='circle')), sub_constraint_offset=TunableVector3(description='\n                    Translation offset applied to the sub constraint, relative to the target object.\n                    ', default=sims4.math.Vector3.ZERO()), require_position_los=Tunable(description="\n                    If checked, the Sim will require line of sight to the portal location for a Position constraint.\n                    Positions where a Sim can't see the portal (e.g. there's a wall in the way) won't be valid.\n                    This value won't be used for any tuned sub constraints.\n                    ", tunable_type=bool, default=True)))}
 
-    def _build_location_constraint(self, location):
-        return Position(location.position, routing_surface=location.routing_surface)
+    def _build_location_constraint(self, location, require_position_los):
+        los_reference_point = DEFAULT if require_position_los else None
+        return Position(location.position, routing_surface=location.routing_surface, los_reference_point=los_reference_point)
 
-    def _build_sub_constraint(self, sim, target, location):
-        return self.sub_constraint.create_constraint(sim, target=target, target_position=location.position, routing_surface=location.routing_surface)
+    def _build_sub_constraint(self, portal_data, sim, target, location):
+        if portal_data.sub_constraint is None:
+            return
+        target_position = location.position + target.transform.orientation.transform_vector(portal_data.sub_constraint_offset)
+        return portal_data.sub_constraint.create_constraint(sim, target=target, target_position=target_position, routing_surface=location.routing_surface)
 
     def create_constraint(self, sim, target=None, **kwargs):
-        if target is None:
-            return Nowhere('Trying to create a portal constraint without specifying the portal object.')
+        if target is None or target.is_in_inventory() or target.is_sim:
+            error_message = 'Trying to create a portal constraint without specifying a valid portal object'
+            logger.error(error_message, owner='bnguyen')
+            return Nowhere(error_message)
         portal_component = target.get_component(PORTAL_COMPONENT)
         if portal_component is None:
-            return Nowhere("Trying to create a portal constraint using {} which doesn't have a portal component.".format(target))
-        location = portal_component.get_portal_location_by_type(self.portal_type, self.portal_direction, self.portal_location)
-        if location is None:
-            return Nowhere('Unable to find a matching portal location as tuned on object {} with type {}'.format(target, self.portal_type))
-        if self.sub_constraint is None:
-            return self._build_location_constraint(location)
-        return self._build_sub_constraint(sim, target, location)
+            error_message = "Trying to create a portal constraint using {} which doesn't have a portal component.".format(target)
+            logger.error(error_message, owner='bnguyen')
+            return Nowhere(error_message)
+        constraints = []
+        for portal_data in self.portals:
+            location = portal_component.get_portal_location_by_type(portal_data.portal_type, portal_data.portal_direction, portal_data.portal_location)
+            if location is None:
+                continue
+            if portal_data.sub_constraint is None:
+                constraints.append(self._build_location_constraint(location, portal_data.require_position_los))
+            else:
+                constraints.append(self._build_sub_constraint(portal_data, sim, target, location))
+        return create_constraint_set(constraints)

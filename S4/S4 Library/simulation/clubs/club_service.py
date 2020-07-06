@@ -143,26 +143,19 @@ class ClubService(Service):
             return
         if zone_id != current_zone_id:
             for sim_info in invited_sims:
-                career = sim_info.career_tracker.get_at_work_career()
-                if career is not None:
-                    career_interaction = career.get_interaction()
+                rabbit_hole_service = services.get_rabbit_hole_service()
+                rabbit_hole_id = rabbit_hole_service.get_head_rabbit_hole_id(sim_info.id)
+                if rabbit_hole_id is not None:
 
-                    def on_response(left_work_early):
+                    def on_response(chose_leave_rabbit_hole=None):
                         nonlocal invited_sims
-                        if not left_work_early:
+                        if not chose_leave_rabbit_hole:
                             if sim_info.sim_id == host_sim_id:
                                 return
                             invited_sims = tuple(s for s in invited_sims if s is not sim_info)
+                        self.start_gathering(club, start_source=start_source, host_sim_id=host_sim_id, invited_sims=invited_sims, zone_id=zone_id, ignore_zone_validity=ignore_zone_validity, **kwargs)
 
-                        def _rerequest_gathering(*_, **__):
-                            self.start_gathering(club, start_source=start_source, host_sim_id=host_sim_id, invited_sims=invited_sims, zone_id=zone_id, ignore_zone_validity=ignore_zone_validity, **kwargs)
-
-                        if career_interaction is None:
-                            _rerequest_gathering()
-                        else:
-                            career_interaction.add_exit_function(_rerequest_gathering)
-
-                    career.leave_work_early(on_response=on_response)
+                    rabbit_hole_service.try_remove_sim_from_rabbit_hole(sim_info.id, rabbit_hole_id, callback=on_response)
                     return
         init_writer = PropertyStreamWriter()
         init_writer.write_uint64(ClubGatheringKeys.ASSOCIATED_CLUB_ID, club.id)
@@ -594,7 +587,7 @@ class ClubService(Service):
         new_club = Club(club_id, name, icon, description, encouragement_commodity, discouragement_commodity, encouragement_buff, discouragement_buff, social_encouragement_buff, leader=leader, leader_id=leader_id, member_ids=member_ids, recent_member_ids=recent_member_ids, membership_criteria=membership_criteria, rules=club_rules, hangout_setting=hangout_setting, hangout_venue=hangout_venue, hangout_zone_id=hangout_zone_id, invite_only=invite_only, uniform_male_child=uniform_male_child, associated_color=associated_color, uniform_female_child=uniform_female_child, uniform_male_adult=uniform_male_adult, uniform_female_adult=uniform_female_adult, club_seed=club_seed, bucks_tracker_data=bucks_tracker_data, male_adult_mannequin=male_adult_mannequin, male_child_mannequin=male_child_mannequin, female_adult_mannequin=female_adult_mannequin, female_child_mannequin=female_child_mannequin, outfit_setting=outfit_setting, associated_style=associated_style)
         if refresh_cache:
             self.update_affordance_cache()
-        self.add_club(new_club, from_load=from_load)
+        self.add_club(new_club, from_load=from_load, suppress_telemetry=club_seed is not None)
         if members is not None:
             for member in members:
                 new_club.add_member(member)
@@ -602,18 +595,19 @@ class ClubService(Service):
                 new_club.reassign_leader()
         return new_club
 
-    def add_club(self, club, from_load=False):
+    def add_club(self, club, from_load=False, suppress_telemetry=False):
         if club in self._clubs:
             logger.error('Attempting to double-add a club to the ClubService: {}', club)
             return
         self._clubs.add(club)
         self._club_static_commodities.add(club.encouragement_commodity)
         self._club_static_commodities.add(club.discouragement_commodity)
+        suppress_telemetry = suppress_telemetry or from_load
         if not from_load:
-            club.bucks_tracker.try_modify_bucks(ClubTunables.CLUB_BUCKS_TYPE, ClubTunables.INITIAL_AMOUNT_OF_CLUB_BUCKS, reason=None if from_load else 'Creating Club')
+            club.bucks_tracker.try_modify_bucks(ClubTunables.CLUB_BUCKS_TYPE, ClubTunables.INITIAL_AMOUNT_OF_CLUB_BUCKS, reason=None if from_load else 'Creating Club', suppress_telemetry=suppress_telemetry)
             if club.club_seed is not None:
                 for perk in club.club_seed.unlocked_rewards:
-                    club.bucks_tracker.unlock_perk(perk)
+                    club.bucks_tracker.unlock_perk(perk, suppress_telemetry=suppress_telemetry)
             else:
                 for perk in club_tuning.ClubTunables.DEFAULT_USER_CLUB_PERKS:
                     club.bucks_tracker.unlock_perk(perk)
@@ -700,15 +694,15 @@ class ClubService(Service):
         current_region = services.current_region()
         available_lots = []
         for zone_data in persistence_service.zone_proto_buffs_gen():
-            venue_type = venue_manager.get(build_buy.get_current_venue(zone_data.zone_id))
-            if not venue_type is None:
-                if not venue_type.allowed_for_clubs:
+            venue_tuning = venue_manager.get(build_buy.get_current_venue(zone_data.zone_id))
+            if not venue_tuning is None:
+                if not venue_tuning.allowed_for_clubs:
                     continue
                 neighborhood_data = persistence_service.get_neighborhood_proto_buff(zone_data.neighborhood_id)
                 region_instance = Region.REGION_DESCRIPTION_TUNING_MAP.get(neighborhood_data.region_id)
                 if not home_region.is_region_compatible(region_instance) and not current_region.is_region_compatible(region_instance):
                     continue
-                if venue_type.is_residential:
+                if venue_tuning.is_residential or venue_tuning.is_university_housing:
                     lot_data = persistence_service.get_lot_data_from_zone_data(zone_data)
                     if lot_data is None:
                         continue
@@ -721,7 +715,7 @@ class ClubService(Service):
                         location_data.world_id = zone_data.world_id
                         location_data.lot_template_id = zone_data.lot_template_id
                         location_data.lot_description_id = zone_data.lot_description_id
-                        location_data.venue_type = get_protobuff_for_key(venue_type.resource_key)
+                        location_data.venue_type = get_protobuff_for_key(venue_tuning.resource_key)
                         available_lots.append(location_data)
                 else:
                     location_data = Lot_pb2.LotInfoItem()
@@ -730,7 +724,7 @@ class ClubService(Service):
                     location_data.world_id = zone_data.world_id
                     location_data.lot_template_id = zone_data.lot_template_id
                     location_data.lot_description_id = zone_data.lot_description_id
-                    location_data.venue_type = get_protobuff_for_key(venue_type.resource_key)
+                    location_data.venue_type = get_protobuff_for_key(venue_tuning.resource_key)
                     available_lots.append(location_data)
         op = SendClubBuildingInfo(criterias, available_lots)
         Distributor.instance().add_op_with_no_owner(op)

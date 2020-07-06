@@ -131,7 +131,7 @@ def get_situation_data(session_id:int=0, sim_id:OptionalTargetParam=None, *situa
                     with ProtocolBufferRollback(situation_data.rewards) as reward_msg:
                         level = instance.get_level_data(medal)
                         reward_msg.level = int(medal)
-                        if level is not None and level.reward is not None:
+                        if level is not None and level.reward is not None and level.reward.reward_description is not None:
                             reward_msg.display_name.extend([level.reward.reward_description])
                 jobs = list(instance.get_tuned_jobs())
                 jobs.sort(key=lambda job: job.guid64)
@@ -182,7 +182,11 @@ def get_sims_for_job(session_id:int, sim_id:OptionalTargetParam, situation_type:
 
     results = services.sim_filter_service().submit_filter(job_type.filter, None, requesting_sim_info=sim.sim_info, start_time=situation_start_time, end_time=situation_end_time, allow_yielding=False, gsi_source_fn=get_sim_filter_gsi_name)
     if job_type.additional_filter_for_user_selection or job_type.additional_filter_list_for_user_selection:
-        sim_constraints = {result.sim_info.id for result in results}
+        conflicting_career_track_ids = {}
+        sim_constraints = set()
+        for result in results:
+            sim_constraints.add(result.sim_info.id)
+            conflicting_career_track_ids[result.sim_info.id] = result.conflicting_career_track_id
         results = []
         if job_type.additional_filter_for_user_selection:
             or_results = services.sim_filter_service().submit_filter(job_type.additional_filter_for_user_selection, None, requesting_sim_info=sim.sim_info, start_time=situation_start_time, end_time=situation_end_time, sim_constraints=sim_constraints, allow_yielding=False, gsi_source_fn=get_sim_filter_gsi_name)
@@ -199,6 +203,9 @@ def get_sims_for_job(session_id:int, sim_id:OptionalTargetParam, situation_type:
                     sim_constraints = sim_constraints.difference(used_ids)
                     if not sim_constraints:
                         break
+        for result in results:
+            if result.conflicting_career_track_id is None:
+                result.conflicting_career_track_id = conflicting_career_track_ids[result.sim_info.id]
     msg = Situations_pb2.SituationJobSims()
     msg.situation_session_id = session_id
     msg.job_resource_id = job_type.guid
@@ -250,12 +257,12 @@ def get_valid_situation_locations(sim_id:OptionalTargetParam, situation_type:Tun
                 location_data.world_id = zone_data.world_id
                 location_data.lot_template_id = zone_data.lot_template_id
                 location_data.lot_description_id = zone_data.lot_description_id
-                venue_type_id = build_buy.get_current_venue(zone_id)
-                venue_instance = venue_manager.get(venue_type_id)
+                venue_tuning_id = build_buy.get_current_venue(zone_id)
+                venue_tuning = venue_manager.get(venue_tuning_id)
                 send_lot_owner = True
-                if venue_instance is not None:
-                    location_data.venue_type_name = venue_instance.display_name
-                    send_lot_owner = venue_instance.is_residential
+                if venue_tuning is not None:
+                    location_data.venue_type_name = venue_tuning.display_name
+                    send_lot_owner = venue_tuning.is_residential or venue_tuning.is_university_housing
                 if lot_data.lot_owner:
                     if send_lot_owner:
                         household_id = lot_data.lot_owner[0].household_id
@@ -298,13 +305,13 @@ def create_situation_with_predefined_guest_list(situation_type:TunableInstancePa
         sims4.commands.output('Insufficient funds to create situation', _connection)
 
 @sims4.commands.Command('situations.create_for_venue', command_type=sims4.commands.CommandType.DebugOnly)
-def create_situation_for_venue_type(situation_type:TunableInstanceParam(sims4.resources.Types.SITUATION), venue_type:TunableInstanceParam(sims4.resources.Types.VENUE), opt_sim:OptionalTargetParam=None, _connection=None):
+def create_situation_for_venue_type(situation_type:TunableInstanceParam(sims4.resources.Types.SITUATION), venue_tuning:TunableInstanceParam(sims4.resources.Types.VENUE), opt_sim:OptionalTargetParam=None, _connection=None):
     sim = get_optional_target(opt_sim, _connection)
-    if not services.current_zone().venue_service.has_zone_for_venue_type((venue_type,)):
-        sims4.commands.output('There are no zones that support the venue type provided, {}.'.format(venue_type), _connection)
+    if not services.current_zone().venue_service.has_zone_for_venue_type((venue_tuning,)):
+        sims4.commands.output('There are no zones that support the venue tuning provided, {}.'.format(venue_tuning), _connection)
         return False
     situation_manager = services.get_zone_situation_manager()
-    (zone_id, _) = services.current_zone().venue_service.get_zone_and_venue_type_for_venue_types((venue_type,))
+    (zone_id, _) = services.current_zone().venue_service.get_zone_and_venue_type_for_venue_types((venue_tuning,))
     guest_list = SituationGuestList(False, sim.id)
     situation_id = situation_manager.create_situation(situation_type, guest_list=guest_list, user_facing=True, zone_id=zone_id)
     if situation_id is None:

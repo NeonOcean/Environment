@@ -16,7 +16,7 @@
 """Isolate Python version-specific semantic actions here.
 """
 
-from uncompyle6.semantics.consts import TABLE_R, TABLE_DIRECT
+from uncompyle6.semantics.consts import PRECEDENCE, TABLE_R, TABLE_DIRECT
 
 from uncompyle6.parsers.treenode import SyntaxTree
 from uncompyle6.scanners.tok import Token
@@ -27,29 +27,39 @@ def customize_for_version(self, is_pypy, version):
         ########################
         # PyPy changes
         #######################
-        TABLE_DIRECT.update(
-            {
-                "assert2_pypy": ("%|assert %c, %c\n", (1, "assert_expr"), 4),
-                "assert_pypy": ("%|assert %c\n", (1, "assert_expr")),
-                "assign2_pypy": ("%|%c, %c = %c, %c\n", 3, 2, 0, 1),
-                "assign3_pypy": ("%|%c, %c, %c = %c, %c, %c\n", 5, 4, 3, 0, 1, 2),
-                "try_except_pypy": ("%|try:\n%+%c%-%c\n\n", 1, 2),
-                "tryfinallystmt_pypy": ("%|try:\n%+%c%-%|finally:\n%+%c%-\n\n", 1, 3),
-            }
-        )
+        TABLE_DIRECT.update({
+            'assert_pypy':	( '%|assert %c\n' ,     (1, 'assert_expr') ),
+            # This is as a result of an if transoration
+            'assert0_pypy':	( '%|assert %c\n' ,     (0, 'assert_expr') ),
+
+            'assert_not_pypy':	( '%|assert not %c\n' , (1, 'assert_exp') ),
+            'assert2_not_pypy':	( '%|assert not %c, %c\n' , (1, 'assert_exp'),
+                                  (4, 'expr') ),
+            'assert2_pypy':	( '%|assert %c, %c\n' , (1, 'assert_expr'),
+                                  (4, 'expr') ),
+            'try_except_pypy':	   ( '%|try:\n%+%c%-%c\n\n', 1, 2 ),
+            'tryfinallystmt_pypy': ( '%|try:\n%+%c%-%|finally:\n%+%c%-\n\n', 1, 3 ),
+            'assign3_pypy':        ( '%|%c, %c, %c = %c, %c, %c\n', 5, 4, 3, 0, 1, 2 ),
+            'assign2_pypy':        ( '%|%c, %c = %c, %c\n', 3, 2, 0, 1),
+            })
     else:
         ########################
         # Without PyPy
         #######################
-        TABLE_DIRECT.update(
-            {
-                "assert": ("%|assert %c\n", (0, "assert_expr")),
-                "assert2": ("%|assert %c, %c\n", (0, "assert_expr"), 3),
-                "assign2": ("%|%c, %c = %c, %c\n", 3, 4, 0, 1),
-                "assign3": ("%|%c, %c, %c = %c, %c, %c\n", 5, 6, 7, 0, 1, 2),
-                "try_except": ("%|try:\n%+%c%-%c\n\n", 1, 3),
-            }
-        )
+        TABLE_DIRECT.update({
+            # "assert" and "assert_expr" are added via transform rules.
+            "assert": ("%|assert %c\n", 0),
+            "assert2": ("%|assert %c, %c\n", 0, 3),
+
+            # Created only via transformation
+            "assertnot": ("%|assert not %p\n", (0, PRECEDENCE['unary_not'])),
+            "assert2not": ( "%|assert not %p, %c\n" ,
+                            (0, PRECEDENCE['unary_not']), 3 ),
+
+            "assign2": ("%|%c, %c = %c, %c\n", 3, 4, 0, 1),
+            "assign3": ("%|%c, %c, %c = %c, %c, %c\n", 5, 6, 7, 0, 1, 2),
+            "try_except": ("%|try:\n%+%c%-%c\n\n", 1, 3),
+        })
     if version >= 3.0:
         if version >= 3.2:
             TABLE_DIRECT.update(
@@ -62,6 +72,9 @@ def customize_for_version(self, is_pypy, version):
         TABLE_DIRECT.update(
             {"except_cond3": ("%|except %c, %c:\n", (1, "expr"), (-2, "store"))}
         )
+        if version <= 2.6:
+            TABLE_DIRECT["testtrue_then"] = TABLE_DIRECT["testtrue"]
+
         if 2.4 <= version <= 2.6:
             TABLE_DIRECT.update({"comp_for": (" for %c in %c", 3, 1)})
         else:
@@ -125,7 +138,6 @@ def customize_for_version(self, is_pypy, version):
                 }
             )
             if version == 2.4:
-
                 def n_iftrue_stmt24(node):
                     self.template_engine(("%c", 0), node)
                     self.default(node)

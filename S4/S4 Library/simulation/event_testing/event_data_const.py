@@ -16,6 +16,7 @@ class DataType(enum.Int, export=False):
     ClubBucks = 10
     TimeInClubGatherings = 11
     Mood = 12
+    BucksData = 13
 
 class RelationshipData(enum.Int, export=False):
     CurrentRelationships = 0

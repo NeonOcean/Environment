@@ -8,8 +8,8 @@ class PrepTaskTrackerMixin:
         super().__init__(*args, **kwargs)
         self._prep_task_tracker = None
 
-    def prep_time_start(self, owning_sim_info, prep_tasks, gig_uid, audio_on_task_complete):
-        if self._prep_task_tracker is not None:
+    def prep_time_start(self, owning_sim_info, prep_tasks, gig_uid, audio_on_task_complete, from_load=False):
+        if not from_load and self._prep_task_tracker is not None:
             logger.error('Attempting to start prep task time when tracker is already populated.')
             self._prep_task_tracker.on_prep_time_end()
             self._prep_task_tracker.cleanup_prep_statistics()

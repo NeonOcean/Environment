@@ -28,7 +28,7 @@ from sims4.tuning.geometric import TunableVector2
 from sims4.tuning.instances import HashedTunedInstanceMetaclass
 from sims4.tuning.tunable import HasTunableReference, OptionalTunable, Tunable, TunableColor, TunableEnumEntry, TunableInterval, TunableList, TunableMapping, TunableRange, TunableReference, TunableResourceKey, TunableSet, TunableSimMinute, TunableSingletonFactory, TunableThreshold, TunableTuple, TunableVariant
 from sims4.tuning.tunable_base import ExportModes
-from sims4.utils import classproperty, constproperty
+from sims4.utils import classproperty, constproperty, flexproperty
 from singletons import DEFAULT
 from statistics.commodity_messages import send_sim_alert_update_message, send_sim_commodity_progress_update_message
 from statistics.continuous_statistic_tuning import TunedContinuousStatistic
@@ -147,22 +147,14 @@ class TunableCommodityState(TunableSingletonFactory):
 class TunableCommodityDistress(TunableTuple):
 
 	def __init__ (self, **kwargs):
-		super().__init__(description = '\n            The behaviors that show that the commodity is in distress.\n            ',
-						 threshold_value = Tunable(description = '\n                Threshold for below which the Sim is in commodity distress.\n                ', tunable_type = int, default = -80),
-						 buff = TunableBuffReference(description = '\n                Buff that gets added to the Sim when they are in the commodity\n                distress state.\n                ', allow_none = True),
-						 distress_interactions = TunableList(description = '\n                A list of interactions to be pushed on the sim when the commodity\n                reaches distress.\n                ', tunable = TunableReference(description = '\n                    The interaction to be pushed on the sim when the\n                    commodity reaches Distress.\n                    ', manager = services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe = True)),
-						 priority = Tunable(description = '\n                The relative priority of the override interaction being run over\n                others.\n                ', tunable_type = int, default = 0),
-						 skewer_alert = OptionalTunable(description = "\n                If enabled, distress will cause an alert to appear on the Sim's\n                skewer portrait.\n                ", tunable = TunableEnumEntry(description = '\n                    The alert we want to show on the skewer when this Sim is in\n                    distress. When distress ends, we will revert back to\n                    AlertType of NONE.\n                    ', tunable_type = SkewerAlertType, default = SkewerAlertType.PET_DISTRESS, invalid_enums = SkewerAlertType.NONE)),
-						 **kwargs)
+		super().__init__(description = '\n            The behaviors that show that the commodity is in distress.\n            ', threshold_value = Tunable(description = '\n                Threshold for below which the Sim is in commodity distress.\n                ', tunable_type = int, default = -80), buff = TunableBuffReference(description = '\n                Buff that gets added to the Sim when they are in the commodity\n                distress state.\n                ', allow_none = True), distress_interactions = TunableList(description = '\n                A list of interactions to be pushed on the sim when the commodity\n                reaches distress.\n                ', tunable = TunableReference(description = '\n                    The interaction to be pushed on the sim when the\n                    commodity reaches Distress.\n                    ', manager = services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe = True)),
+						 priority = Tunable(description = '\n                The relative priority of the override interaction being run over\n                others.\n                ', tunable_type = int, default = 0), skewer_alert = OptionalTunable(description = "\n                If enabled, distress will cause an alert to appear on the Sim's\n                skewer portrait.\n                ", tunable = TunableEnumEntry(description = '\n                    The alert we want to show on the skewer when this Sim is in\n                    distress. When distress ends, we will revert back to\n                    AlertType of NONE.\n                    ', tunable_type = SkewerAlertType, default = SkewerAlertType.PET_DISTRESS, invalid_enums = SkewerAlertType.NONE)), **kwargs)
 
 class TunableCommodityFailure(TunableTuple):
 
 	def __init__ (self, **kwargs):
-		super().__init__(description = '\n            The behaviors for the commodity failing.\n            ',
-						 threshold = TunableThreshold(description = '\n                Threshold for which the sim experiences motive failure.\n                ', value = Tunable(description = '\n                    The value of the threshold that the commodity is compared\n                    against.\n                    ', tunable_type = int, default = -100)),
-						 failure_interactions = TunableList(description = "\n                 A list of interactions to be pushed when the Sim's\n                 commodity fails. Only the first one whose test passes will\n                 run.\n                 ", tunable = TunableReference(description = '\n                     The interaction to be pushed on the sim when the\n                     commodity fails.\n                     ', manager = services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe = True)),
-						 repeat_interval = OptionalTunable(description = '\n                If enabled, then the commodity failure interactions are executed\n                at this interval, even if they have failed before.\n                ', tunable = TunableSimMinute(description = '\n                    The interval at which the commodity failure interactions are\n                    executed.\n                    ', default = 12)),
-						 skewer_alert = OptionalTunable(description = "\n                If enabled, distress will cause an alert to appear on the Sim's\n                skewer portrait.\n                ", tunable = TunableEnumEntry(description = '\n                    The alert we want to show on the skewer when this Sim is in\n                    distress. When distress ends, we will revert back to\n                    AlertType of NONE.\n                    ', tunable_type = SkewerAlertType, default = SkewerAlertType.PET_DISTRESS, invalid_enums = SkewerAlertType.NONE)),
+		super().__init__(description = '\n            The behaviors for the commodity failing.\n            ', threshold = TunableThreshold(description = '\n                Threshold for which the sim experiences motive failure.\n                ', value = Tunable(description = '\n                    The value of the threshold that the commodity is compared\n                    against.\n                    ', tunable_type = int, default = -100)), failure_interactions = TunableList(description = "\n                 A list of interactions to be pushed when the Sim's\n                 commodity fails. Only the first one whose test passes will\n                 run.\n                 ", tunable = TunableReference(description = '\n                     The interaction to be pushed on the sim when the\n                     commodity fails.\n                     ', manager = services.get_instance_manager(sims4.resources.Types.INTERACTION), pack_safe = True)),
+						 repeat_interval = OptionalTunable(description = '\n                If enabled, then the commodity failure interactions are executed\n                at this interval, even if they have failed before.\n                ', tunable = TunableSimMinute(description = '\n                    The interval at which the commodity failure interactions are\n                    executed.\n                    ', default = 12)), skewer_alert = OptionalTunable(description = "\n                If enabled, distress will cause an alert to appear on the Sim's\n                skewer portrait.\n                ", tunable = TunableEnumEntry(description = '\n                    The alert we want to show on the skewer when this Sim is in\n                    distress. When distress ends, we will revert back to\n                    AlertType of NONE.\n                    ', tunable_type = SkewerAlertType, default = SkewerAlertType.PET_DISTRESS, invalid_enums = SkewerAlertType.NONE)),
 						 **kwargs)
 
 class TunableArrowData(TunableTuple):
@@ -197,11 +189,9 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 		'auto_satisfy_curve_tuning': TunableList(description = '\n                A list of Vector2 points that define the auto-satisfy curve for\n                this commodity.\n                ', tunable = TunableVector2(description = '\n                    Point on a Curve\n                    ', default = sims4.math.Vector2(0, 0))),
 		'auto_satisfy_curve_random_time_offset': TunableSimMinute(description = '\n                An amount of time that when auto satisfy curves are being used\n                will modify the time current time being used to plus or minus\n                a random number between this value.\n                ', default = 120),
 		'maximum_auto_satisfy_time': TunableSimMinute(description = '\n                The maximum amount of time that the auto satisfy curves will\n                interpolate the values based on the current one before just\n                setting to the maximum value.\n                ', default = 1440),
-		'initial_tuning': TunableTuple(description = ' \n                The Initial value for this commodity. Can either be a single\n                value, range, or use auto satisfy curve to determine initial\n                value.  Use auto satisfy curve will take precedence over range\n                value and range value will take precedence over single value\n                range.\n                ',
-									   _use_auto_satisfy_curve_as_initial_value = Tunable(description = "\n                    If checked, when we first add this commodity to a sim (sims only),\n                    the initial value of the commodity will be set according to\n                    the auto-satisfy curves defined by this commodity's tuning as\n                    opposed to the tuned initial value.    \n                    ", tunable_type = bool, needs_tuning = True, default = False),
+		'initial_tuning': TunableTuple(description = ' \n                The Initial value for this commodity. Can either be a single\n                value, range, or use auto satisfy curve to determine initial\n                value.  Use auto satisfy curve will take precedence over range\n                value and range value will take precedence over single value\n                range.\n                ', _use_auto_satisfy_curve_as_initial_value = Tunable(description = "\n                    If checked, when we first add this commodity to a sim (sims only),\n                    the initial value of the commodity will be set according to\n                    the auto-satisfy curves defined by this commodity's tuning as\n                    opposed to the tuned initial value.    \n                    ", tunable_type = bool, needs_tuning = True, default = False),
 									   _use_stat_value_on_init = Tunable(description = '\n                    If enabled, we will use the initial tuning to set the\n                    commodity in the place of other systems (like states).\n                    Otherwise, those states or systems will set the initial\n                    value of the statistic (a state linked to this stat for\n                    example, will set the statistic to whatever default tuning\n                    is on the state). \n                    TLDR: If checked, the commodity sets the\n                    state. Otherwise, the state sets up this commodity. \n                    Note:\n                    If unchecked, we error if any initial values are tuned as\n                    they imply that we want to use them.\n                    ', tunable_type = bool, default = False),
-									   _value_range = OptionalTunable(description = '\n                    If enabled then when we first add this commodity to a Sim the\n                    initial value of the commodity will be set to a random value\n                    within this interval.\n                    ', tunable = TunableInterval(description = '\n                        An interval that will be used for the initial value of this\n                        commodity.\n                        ', tunable_type = int, default_lower = 0, default_upper = 100)),
-									   _value = Tunable(description = '\n                    The initial value for this stat.', tunable_type = float, default = 0.0)),
+									   _value_range = OptionalTunable(description = '\n                    If enabled then when we first add this commodity to a Sim the\n                    initial value of the commodity will be set to a random value\n                    within this interval.\n                    ', tunable = TunableInterval(description = '\n                        An interval that will be used for the initial value of this\n                        commodity.\n                        ', tunable_type = int, default_lower = 0, default_upper = 100)), _value = Tunable(description = '\n                    The initial value for this stat.', tunable_type = float, default = 0.0)),
 		'weight': Tunable(description = "\n                The weight of the Skill with regards to autonomy.  It's ignored \n                for the purposes of sorting stats, but it's applied when scoring \n                the actual statistic operation for the SI.\n                ", tunable_type = float, default = 0.5),
 		'states': TunableList(description = "\n                Commodity states based on thresholds.  This should be ordered\n                from lowest to highest value. If the higher the value the worse the\n                commodity gets, check the field 'States Ordered Best To Worst'.\n                ", tunable = TunableCommodityState()),
 		'commodity_distress': OptionalTunable(TunableCommodityDistress()),
@@ -290,6 +280,7 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 	def __init__ (self, tracker, core = False):
 		self._allow_convergence_callback_to_activate = False
 		self._buff_handle = None
+		self._min_value_final = self.min_value_tuning
 		super().__init__(tracker, self.get_initial_value())
 		self._core = core
 		self._buff_handle = None
@@ -307,8 +298,13 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 		self._suppress_client_updates = False
 		self.force_apply_buff_on_start_up = False
 		self.force_buff_reason = None
-		if tracker is not None and not tracker.load_in_progress:
-			if self.tracker.simulation_level == CommodityTrackerSimulationLevel.REGULAR_SIMULATION:
+		if tracker is not None and not tracker.recovery_add_in_progress:
+			self.init_appropriate_simulation()
+
+	def init_appropriate_simulation (self):
+		tracker = self.tracker
+		if tracker is not None and not tracker.should_suppress_calculations():
+			if tracker.simulation_level == CommodityTrackerSimulationLevel.REGULAR_SIMULATION:
 				activate_convergence_callback = self._default_convergence_value != self.get_value()
 				self.on_initial_startup(apply_state_enter_loot = True, activate_convergence_callback = activate_convergence_callback)
 			else:
@@ -357,10 +353,14 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 		if self._buff_handle is None:
 			return
 		tracker = self.tracker
-		if tracker is None or tracker.load_in_progress:
+		if tracker is None or tracker.should_suppress_calculations():
 			return
 		if tracker.simulation_level == CommodityTrackerSimulationLevel.REGULAR_SIMULATION:
 			self._update_buff(self._get_change_rate_without_decay())
+
+	def on_recovery (self):
+		super().on_recovery()
+		self.init_appropriate_simulation()
 
 	@classmethod
 	def added_by_default (cls, min_range = None, max_range = None):
@@ -848,6 +848,19 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 				self.add_callback_listener(self._convergence_callback_data)
 			self._allow_convergence_callback_to_activate = False
 
+	def remove_min_value_override (self):
+		self._min_value_final = self.min_value_tuning
+
+	def set_min_value_override (self, value_override):
+		if value_override >= self.max_value:
+			logger.error('Trying to set min value override {} on commodity {} but the value is bigger than max value {}.', value_override, self, self.max_value)
+			return
+		has_min_value_override = self._min_value_final != self.min_value_tuning
+		if has_min_value_override:
+			logger.error('Trying to set min value override {} on commodity {} but the min value has been overridden to {}. Try to remove min value override before applying new one.', value_override, self, self._min_value_final)
+			return
+		self._min_value_final = value_override
+
 	def set_value (self, value, from_load = False, **kwargs):
 		if from_load:
 			super().set_value(value, from_load = from_load, **kwargs)
@@ -931,8 +944,10 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 	def max_value (cls):
 		return cls.max_value_tuning
 
-	@classproperty
-	def min_value (cls):
+	@flexproperty
+	def min_value (cls, inst):
+		if inst:
+			return inst._min_value_final
 		return cls.min_value_tuning
 
 	@classproperty
@@ -965,7 +980,7 @@ class Commodity(HasTunableReference, TunedContinuousStatistic, metaclass = Hashe
 	def _clamp (self, value = None):
 		if value is None:
 			value = self._value
-		self._value = sims4.math.clamp(self.min_value_tuning, value, self.max_value_tuning)
+		self._value = sims4.math.clamp(self.min_value, value, self.max_value_tuning)
 
 	def save_statistic (self, commodities, skills, ranked_statistics, tracker):
 		message = protocols.Commodity()

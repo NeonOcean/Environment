@@ -1,5 +1,6 @@
 import operator
 import random
+from event_testing.resolver import SingleObjectResolver
 from objects.client_object_mixin import ClientObjectMixin
 from objects.definition_manager import TunableDefinitionList
 from objects.puddles import PuddleLiquid, PuddleSize, create_puddle
@@ -9,6 +10,7 @@ from sims4.tuning.tunable_base import GroupNames
 from singletons import DEFAULT
 from statistics.commodity import Commodity
 from statistics.statistic import Statistic
+from tunable_multiplier import TunableMultiplier
 import build_buy
 import objects.game_object
 import objects.system
@@ -20,7 +22,7 @@ logger = sims4.log.Logger('Puddles')
 class Puddle(objects.game_object.GameObject):
     WEED_DEFINITIONS = TunableDefinitionList(description='\n        Possible weed objects which can be spawned by evaporation.')
     PLANT_DEFINITIONS = TunableDefinitionList(description='\n        Possible plant objects which can be spawned by evaporation.')
-    INSTANCE_TUNABLES = {'indoor_evaporation_time': TunableInterval(description='\n            Number of SimMinutes this puddle should take to evaporate when \n            created indoors.\n            ', tunable_type=TunableSimMinute, default_lower=200, default_upper=300, minimum=1, tuning_group=GroupNames.DEPRECATED), 'outdoor_evaporation_time': TunableInterval(description='\n            Number of SimMinutes this puddle should take to evaporate when \n            created outdoors.\n            ', tunable_type=TunableSimMinute, default_lower=30, default_upper=60, minimum=1, tuning_group=GroupNames.DEPRECATED), 'evaporation_outcome': TunableTuple(nothing=TunableRange(int, 5, minimum=1, description='Relative chance of nothing.'), weeds=TunableRange(int, 2, minimum=0, description='Relative chance of weeds.'), plant=TunableRange(int, 1, minimum=0, description='Relative chance of plant.'), tuning_group=GroupNames.PUDDLES), 'intial_stat_value': TunableTuple(description='\n            This is the starting value for the stat specified.  This controls \n            how long it takes to mop this puddle.\n            ', stat=Statistic.TunableReference(description='\n                The stat used for mopping puddles.\n                '), value=Tunable(description='\n                The initial value this puddle should have for the mopping stat.\n                The lower the value (-100,100), the longer it takes to mop up.\n                ', tunable_type=int, default=-20), tuning_group=GroupNames.PUDDLES), 'evaporation_data': TunableTuple(description='\n            This is the information for evaporation.  This controls how long this\n            puddle takes to evaporate.\n            ', commodity=Commodity.TunableReference(description='\n                The commodity used for evaporation.\n                '), initial_value=TunableInterval(description='\n                Initial value of this commodity.  Time it takes to evaporate\n                will be based on how fast this commodity decays.\n                (Based on loot given in weather aware component)\n                ', tunable_type=float, default_lower=30, default_upper=60, minimum=1), tuning_group=GroupNames.PUDDLES), 'puddle_liquid': TunableEnumEntry(description='\n        The liquid that the puddle is made of.\n        ', tunable_type=PuddleLiquid, default=PuddleLiquid.INVALID, invalid_enums=(PuddleLiquid.INVALID,), tuning_group=GroupNames.PUDDLES), 'puddle_size': TunableEnumEntry(description='\n        The size of the puddle.\n        ', tunable_type=PuddleSize, default=PuddleSize.NoPuddle, invalid_enums=(PuddleSize.NoPuddle,), tuning_group=GroupNames.PUDDLES)}
+    INSTANCE_TUNABLES = {'indoor_evaporation_time': TunableInterval(description='\n            Number of SimMinutes this puddle should take to evaporate when \n            created indoors.\n            ', tunable_type=TunableSimMinute, default_lower=200, default_upper=300, minimum=1, tuning_group=GroupNames.DEPRECATED), 'outdoor_evaporation_time': TunableInterval(description='\n            Number of SimMinutes this puddle should take to evaporate when \n            created outdoors.\n            ', tunable_type=TunableSimMinute, default_lower=30, default_upper=60, minimum=1, tuning_group=GroupNames.DEPRECATED), 'evaporation_outcome': TunableTuple(nothing=TunableRange(int, 5, minimum=1, description='Relative chance of nothing.'), weeds=TunableRange(int, 2, minimum=0, description='Relative chance of weeds.'), plant=TunableRange(int, 1, minimum=0, description='Relative chance of plant.'), tuning_group=GroupNames.PUDDLES), 'intial_stat_value': TunableTuple(description='\n            This is the starting value for the stat specified.  This controls \n            how long it takes to mop this puddle.\n            ', stat=Statistic.TunableReference(description='\n                The stat used for mopping puddles.\n                '), value=Tunable(description='\n                The initial value this puddle should have for the mopping stat.\n                The lower the value (-100,100), the longer it takes to mop up.\n                ', tunable_type=int, default=-20), tuning_group=GroupNames.PUDDLES), 'evaporation_data': TunableTuple(description='\n            This is the information for evaporation.  This controls how long this\n            puddle takes to evaporate.\n            ', commodity=Commodity.TunableReference(description='\n                The commodity used for evaporation.\n                '), initial_value=TunableInterval(description='\n                Initial value of this commodity.  Time it takes to evaporate\n                will be based on how fast this commodity decays.\n                (Based on loot given in weather aware component)\n                ', tunable_type=float, default_lower=30, default_upper=60, minimum=1), tuning_group=GroupNames.PUDDLES), 'puddle_liquid': TunableEnumEntry(description='\n        The liquid that the puddle is made of.\n        ', tunable_type=PuddleLiquid, default=PuddleLiquid.INVALID, invalid_enums=(PuddleLiquid.INVALID,), tuning_group=GroupNames.PUDDLES), 'puddle_size': TunableEnumEntry(description='\n        The size of the puddle.\n        ', tunable_type=PuddleSize, default=PuddleSize.NoPuddle, invalid_enums=(PuddleSize.NoPuddle,), tuning_group=GroupNames.PUDDLES), 'puddle_grow_chance': TunableMultiplier.TunableFactory(description='\n        The chance of puddle to grow.\n        ', tuning_group=GroupNames.PUDDLES)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -80,6 +82,10 @@ class Puddle(objects.game_object.GameObject):
     def try_grow_puddle(self):
         if self.puddle_size == PuddleSize.LargePuddle:
             return
+        resolver = SingleObjectResolver(self)
+        chance = self.puddle_grow_chance.get_multiplier(resolver)
+        if random.random() > chance:
+            return
         else:
             if self.puddle_size == PuddleSize.MediumPuddle:
                 puddle = create_puddle(PuddleSize.LargePuddle, puddle_liquid=self.puddle_liquid)
@@ -119,6 +125,6 @@ class Puddle(objects.game_object.GameObject):
                     obj.fade_in()
         self.destroy(self, cause='Puddle is evaporating.', fade_duration=ClientObjectMixin.FADE_DURATION)
 
-    def load_object(self, object_data):
-        super().load_object(object_data)
+    def load_object(self, object_data, **kwargs):
+        super().load_object(object_data, **kwargs)
         self.start_evaporation()

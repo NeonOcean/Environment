@@ -68,7 +68,7 @@ class GreetedStatus(enum.Int, export=False):
     WAITING_TO_BE_GREETED = 1
     NOT_APPLICABLE = 3
 
-class SituationSerializationOption(enum.Int, export=False):
+class SituationSerializationOption(enum.Int):
     DONT = 0
     LOT = 1
     OPEN_STREETS = 2

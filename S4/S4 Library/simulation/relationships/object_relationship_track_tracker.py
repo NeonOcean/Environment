@@ -32,14 +32,15 @@ class RelationshipTrackTrackerMixin:
         if self._statistics is None:
             return
         for track in self._statistics.values():
-            if track.decay_only_affects_played_sims:
-                logger.debug('    Updating track {} for {}', track, self._rel_data)
-                track.reset_decay_alarm(use_cached_time=True)
+            if track is not None:
+                if track.decay_only_affects_played_sims:
+                    logger.debug('    Updating track {} for {}', track, self._rel_data)
+                    track.reset_decay_alarm(use_cached_time=True)
 
     def are_all_tracks_that_cause_culling_at_convergence(self):
         if self._statistics is None:
             return True
-        tracks_that_cause_culling_at_convergence = [track for track in self._statistics.values() if track.causes_delayed_removal_on_convergence]
+        tracks_that_cause_culling_at_convergence = [track for track in self._statistics.values() if track is not None if track.causes_delayed_removal_on_convergence]
         if not tracks_that_cause_culling_at_convergence:
             return False
         for track in tracks_that_cause_culling_at_convergence:
@@ -83,6 +84,9 @@ class ObjectRelationshipTrackTracker(BaseStatisticTracker, RelationshipTrackTrac
                 if sim_info_a is not None:
                     modified_amount = stat_type.tested_initial_modifier.get_max_modifier(SingleSimResolver(sim_info_a))
         super().set_value(stat_type, value + modified_amount, **kwargs)
+
+    def should_suppress_calculations(self):
+        return self.load_in_progress
 
     def get_statistic(self, stat_type, add=False):
         if stat_type is None:

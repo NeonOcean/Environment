@@ -177,7 +177,7 @@ class AspirationTracker(data_tracker.EventDataTracker, SimInfoTracker):
                 reward_payout = aspiration_track.reward.give_reward(sim_info)
             else:
                 reward_payout = ()
-            reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text() for reward in reward_payout))
+            reward_text = LocalizationHelperTuning.get_bulleted_list(None, *(reward.get_display_text(SingleSimResolver(sim_info)) for reward in reward_payout))
             dialog = aspiration_track.notification(sim_info, SingleSimResolver(sim_info))
             dialog.show_dialog(icon_override=IconInfoData(icon_resource=aspiration_track.icon), secondary_icon_override=IconInfoData(obj_instance=sim_info), additional_tokens=(reward_text,), event_id=completed_aspiration_id)
 

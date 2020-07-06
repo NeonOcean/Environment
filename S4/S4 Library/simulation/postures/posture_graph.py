@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple, defaultdict
 from contextlib import contextmanager
+from itertools import chain
 from platform import node
 import collections
 import functools
@@ -8,7 +9,6 @@ import operator
 import time
 import weakref
 import xml.etree
-from autonomy.autonomy_preference import AutonomyPreferenceType
 from caches import BarebonesCache
 from sims4 import reload
 from sims4.callback_utils import CallableTestList
@@ -30,6 +30,7 @@ import sims4.math
 import sims4.reload
 from animation.posture_manifest import SlotManifestEntry, AnimationParticipant
 from animation.posture_manifest_constants import SWIM_AT_NONE_CONSTRAINT, STAND_AT_NONE_CONSTRAINT
+from autonomy.autonomy_preference import AutonomyPreferenceType
 from balloon.passive_balloons import PassiveBalloons
 from element_utils import build_element, maybe
 from event_testing.results import TestResult
@@ -61,7 +62,7 @@ from postures.posture_state_spec import create_body_posture_state_spec
 from postures.posture_tuning import PostureTuning
 from relationships.global_relationship_tuning import RelationshipGlobalTuning
 from reservation.reservation_handler_multi import ReservationHandlerMulti
-from routing import SurfaceType
+from routing import SurfaceType, GoalFailureType, GoalType
 from routing.connectivity import RoutingHandle
 from routing.formation.formation_tuning import FormationTuning
 from routing.formation.formation_type_base import FormationRoutingType
@@ -1371,7 +1372,7 @@ class PathSpec:
             current_position_on_active_lot = services.active_lot().is_position_on_lot(sim.position)
             if current_position_on_active_lot and not sim.is_outside:
                 level = sim.routing_surface.secondary_id
-                if not sim.intended_position_on_active_lot or build_buy.is_location_outside(sim.zone_id, sim.intended_position, level):
+                if not sim.intended_position_on_active_lot or build_buy.is_location_outside(sim.intended_position, level):
                     sim.preload_outdoor_streetwear_change(final_si, preload_outfit_set)
         sim.set_preload_outfits(preload_outfit_set)
         return True
@@ -2405,7 +2406,7 @@ class PostureGraphService(Service):
         allow_carried = False
         sim_routing_context = sim.get_routing_context()
         if is_complete:
-            if source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and source[SURFACE_INDEX][SURFACE_TARGET_INDEX] is None and not source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].is_vehicle:
+            if source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].mobile and (source[SURFACE_INDEX][SURFACE_TARGET_INDEX] is None and not source[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].is_vehicle) and all(dest[BODY_INDEX][BODY_TARGET_INDEX] != source[BODY_INDEX][BODY_TARGET_INDEX] for dest in destinations):
                 return
             search_destinations = set(destinations) - self._graph.all_mobile_nodes_at_none
             if not search_destinations:
@@ -2520,6 +2521,12 @@ class PostureGraphService(Service):
             if not dest[BODY_INDEX][BODY_POSTURE_TYPE_INDEX].is_vehicle:
                 cost += constraint.constraint_cost(node_target.position, node_target.orientation)
         if not any(c.cost for c in constraint):
+            return cost
+        if interaction.is_putdown:
+            if not constraint.valid:
+                return sims4.math.MAX_FLOAT
+            if dest.surface_target is None or getattr(constraint, 'geometry', None):
+                cost += constraint.cost
             return cost
         participant_type = interaction.get_participant_type(sim)
         animation_resolver_fn = interaction.get_constraint_resolver(None)
@@ -2763,9 +2770,10 @@ class PostureGraphService(Service):
                     if source_spec.body_posture.unconstrained:
                         if source_spec.body_target is not None:
                             if not source_spec.body_target.is_part:
-                                new_body = PostureAspectBody((source_spec.body_posture, None))
-                                new_surface = PostureAspectSurface((None, None, None))
-                                source_spec = source_spec.clone(body=new_body, surface=new_surface)
+                                if source_spec.body_target.parts:
+                                    new_body = PostureAspectBody((source_spec.body_posture, None))
+                                    new_surface = PostureAspectSurface((None, None, None))
+                                    source_spec = source_spec.clone(body=new_body, surface=new_surface)
                 if source_spec not in self._graph:
                     if services.current_zone().is_zone_shutting_down:
                         return []
@@ -2780,7 +2788,9 @@ class PostureGraphService(Service):
                         adjacent_source_parts = source_node.body_target.adjacent_parts_gen()
                     else:
                         adjacent_source_parts = ()
-                for node in self._graph.get_matching_nodes_gen(destination_specs, slot_types, constraint=final_constraint):
+                body_target_node_distances = None
+                matching_node_constraint = constraint if interaction.is_putdown else final_constraint
+                for node in self._graph.get_matching_nodes_gen(destination_specs, slot_types, constraint=matching_node_constraint):
                     if node.get_core_objects() & excluded_objects:
                         continue
                     if not destination_test(sim, node, destination_specs, var_map_all, valid_destination_test, interaction):
@@ -2806,27 +2816,14 @@ class PostureGraphService(Service):
                             if obj is not None:
                                 if obj.is_part:
                                     obj = obj.part_owner
-                                if not interaction.is_object_valid(obj, distance_estimator):
+                                (valid, distance) = interaction.evaluate_putdown_distance(obj, distance_estimator)
+                                if not valid:
                                     continue
-                            elif additional_template_list and not interaction.is_putdown:
-                                compatible = True
-                                for (carry_si, additional_templates) in additional_template_list.items():
-                                    if carry_si not in guaranteed_sis:
-                                        continue
-                                    compatible = self.any_template_passes_destination_test(additional_templates, carry_si, sim, node)
-                                    if compatible:
-                                        break
-                                if not compatible:
-                                    pass
-                                else:
-                                    if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                        gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                                    destination_nodes[node] = destination_specs
-                            else:
-                                if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                    gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
-                                destination_nodes[node] = destination_specs
-                        elif additional_template_list and not interaction.is_putdown:
+                                if distance is not None:
+                                    if body_target_node_distances is None:
+                                        body_target_node_distances = {}
+                                    body_target_node_distances[node] = distance
+                        if additional_template_list and not interaction.is_putdown:
                             compatible = True
                             for (carry_si, additional_templates) in additional_template_list.items():
                                 if carry_si not in guaranteed_sis:
@@ -2844,6 +2841,12 @@ class PostureGraphService(Service):
                             if gsi_handlers.posture_graph_handlers.archiver.enabled:
                                 gsi_handlers.posture_graph_handlers.add_source_or_dest(sim, destination_specs, var_map_all, 'destination', node)
                             destination_nodes[node] = destination_specs
+                if interaction.is_putdown:
+                    if body_target_node_distances is not None:
+                        nodes_to_remove = interaction.get_distant_nodes_to_remove(body_target_node_distances)
+                        if nodes_to_remove:
+                            for distant_node in nodes_to_remove:
+                                del destination_nodes[distant_node]
                 if destination_nodes:
                     found_destination_node = True
                 else:
@@ -3217,6 +3220,15 @@ class PostureGraphService(Service):
         return (sim_position_constraint, None, None)
 
     @staticmethod
+    def _get_new_goal_error_info():
+        if False and gsi_handlers.posture_graph_handlers.archiver.enabled:
+            return []
+
+    @staticmethod
+    def _goal_failure_set(goals):
+        return set([goal.failure_reason.name for goal in goals])
+
+    @staticmethod
     def append_handles(sim, handle_dict, invalid_handle_dict, invalid_los_dict, routing_data, target_path, var_map, dest_spec, cur_path_id, final_constraint, entry=True, path_type=PathType.LEFT, goal_height_limit=None, perform_los_check=True):
         (routing_constraint, locked_params, target) = routing_data
         if routing_constraint is None:
@@ -3258,10 +3270,11 @@ class PostureGraphService(Service):
                 else:
                     single_goal_only = False
                 for_source = path_type == PathType.LEFT and len(target_path) == 1
-                routing_goals = connectivity_handle.get_goals(relative_object=target, for_source=for_source, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override, perform_los_check=perform_los_check)
+                goal_error_info = PostureGraphService._get_new_goal_error_info()
+                routing_goals = connectivity_handle.get_goals(relative_object=target, for_source=for_source, single_goal_only=single_goal_only, for_carryable=for_carryable, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override, perform_los_check=perform_los_check, out_result_info=goal_error_info)
                 if not routing_goals:
                     if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'no goals generated', path_type)
+                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, str(goal_error_info), path_type)
                         yield_to_irq()
                         valid_goals = []
                         invalid_goals = []
@@ -3269,6 +3282,60 @@ class PostureGraphService(Service):
                         ignore_los_for_vehicle = sim.posture.is_vehicle and sim.posture.target is target
                         for goal in routing_goals:
                             if not single_goal_only and not (goal.requires_los_check and (target is not None and not target.is_sim) and not ignore_los_for_vehicle):
+                                if goal.failure_reason != GoalFailureType.NoError and blocking_obj_id is not None:
+                                    if goal.failure_reason == GoalFailureType.LOSBlocked:
+                                        invalid_los_goals.append(goal)
+                                    else:
+                                        invalid_goals.append(goal)
+                                else:
+                                    if top_level_parent is not target and not top_level_parent.is_sim:
+                                        ignored_objects = (top_level_parent,)
+                                    else:
+                                        ignored_objects = ()
+                                    (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
+                                    if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
+                                        invalid_goals.append(goal)
+                                    elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
+                                        invalid_los_goals.append(goal)
+                                    else:
+                                        goal.path_id = cur_path_id
+                                        valid_goals.append(goal)
+                                    goal.path_id = cur_path_id
+                                    valid_goals.append(goal)
+                            else:
+                                goal.path_id = cur_path_id
+                                valid_goals.append(goal)
+                        if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
+                            failure_set = PostureGraphService._goal_failure_set(invalid_goals)
+                            failure_set.union(PostureGraphService._goal_failure_set(invalid_los_goals))
+                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, str(failure_set), path_type)
+                        if invalid_goals:
+                            invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
+                        if invalid_los_goals:
+                            invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
+                        if not valid_goals:
+                            pass
+                        else:
+                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
+                                valid_str = '{} usable, {}'.format(len(valid_goals), PostureGraphService._goal_failure_set(valid_goals))
+                                if goal_error_info:
+                                    valid_str += '; rejected {}, {}'.format(len(goal_error_info), goal_error_info)
+                                gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, valid_str, path_type)
+                            handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
+                else:
+                    yield_to_irq()
+                    valid_goals = []
+                    invalid_goals = []
+                    invalid_los_goals = []
+                    ignore_los_for_vehicle = sim.posture.is_vehicle and sim.posture.target is target
+                    for goal in routing_goals:
+                        if not single_goal_only and not (goal.requires_los_check and (target is not None and not target.is_sim) and not ignore_los_for_vehicle):
+                            if goal.failure_reason != GoalFailureType.NoError and blocking_obj_id is not None:
+                                if goal.failure_reason == GoalFailureType.LOSBlocked:
+                                    invalid_los_goals.append(goal)
+                                else:
+                                    invalid_goals.append(goal)
+                            else:
                                 if top_level_parent is not target and not top_level_parent.is_sim:
                                     ignored_objects = (top_level_parent,)
                                 else:
@@ -3281,46 +3348,15 @@ class PostureGraphService(Service):
                                 else:
                                     goal.path_id = cur_path_id
                                     valid_goals.append(goal)
-                            else:
-                                goal.path_id = cur_path_id
-                                valid_goals.append(goal)
-                        if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
-                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
-                        if invalid_goals:
-                            invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
-                        if invalid_los_goals:
-                            invalid_los_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_los_goals, routing_constraint, final_constraint)
-                        if not valid_goals:
-                            pass
-                        else:
-                            if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                                gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
-                            handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
-                else:
-                    yield_to_irq()
-                    valid_goals = []
-                    invalid_goals = []
-                    invalid_los_goals = []
-                    ignore_los_for_vehicle = sim.posture.is_vehicle and sim.posture.target is target
-                    for goal in routing_goals:
-                        if not single_goal_only and not (goal.requires_los_check and (target is not None and not target.is_sim) and not ignore_los_for_vehicle):
-                            if top_level_parent is not target and not top_level_parent.is_sim:
-                                ignored_objects = (top_level_parent,)
-                            else:
-                                ignored_objects = ()
-                            (result, blocking_obj_id) = target.check_line_of_sight(goal.location.transform, verbose=True, for_carryable=for_carryable, ignored_objects=ignored_objects)
-                            if result == routing.RAYCAST_HIT_TYPE_IMPASSABLE:
-                                invalid_goals.append(goal)
-                            elif result == routing.RAYCAST_HIT_TYPE_LOS_IMPASSABLE:
-                                invalid_los_goals.append(goal)
-                            else:
                                 goal.path_id = cur_path_id
                                 valid_goals.append(goal)
                         else:
                             goal.path_id = cur_path_id
                             valid_goals.append(goal)
                     if gsi_handlers.posture_graph_handlers.archiver.enabled and (invalid_goals or invalid_los_goals):
-                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, 'LOS Failure', path_type)
+                        failure_set = PostureGraphService._goal_failure_set(invalid_goals)
+                        failure_set.union(PostureGraphService._goal_failure_set(invalid_los_goals))
+                        gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, str(failure_set), path_type)
                     if invalid_goals:
                         invalid_handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, invalid_goals, routing_constraint, final_constraint)
                     if invalid_los_goals:
@@ -3329,7 +3365,10 @@ class PostureGraphService(Service):
                         pass
                     else:
                         if gsi_handlers.posture_graph_handlers.archiver.enabled:
-                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, True, path_type)
+                            valid_str = '{} usable, {}'.format(len(valid_goals), PostureGraphService._goal_failure_set(valid_goals))
+                            if goal_error_info:
+                                valid_str += '; rejected {}, {}'.format(len(goal_error_info), goal_error_info)
+                            gsi_handlers.posture_graph_handlers.log_transition_handle(sim, connectivity_handle, connectivity_handle.polygons, target_path, valid_str, path_type)
                         handle_dict[connectivity_handle] = (target_path, target_path.cost, var_map, dest_spec, valid_goals, routing_constraint, final_constraint)
             if gsi_handlers.posture_graph_handlers.archiver.enabled:
                 if not connectivity_handles:

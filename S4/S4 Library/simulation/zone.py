@@ -7,13 +7,17 @@ from protocolbuffers import FileSerialization_pb2 as serialization
 from protocolbuffers.Consts_pb2 import MGR_OBJECT, MGR_SITUATION, MGR_PARTY, MGR_SOCIAL_GROUP, MGR_TRAVEL_GROUP
 from animation import get_throwaway_animation_context
 from animation.animation_drift_monitor import animation_drift_monitor_on_zone_shutdown
+from build_buy import get_object_in_household_inventory
 from careers.career_service import CareerService
 from clock import ClockSpeedMode
 from crafting.photography_service import PhotographyService
 from date_and_time import DateAndTime, TimeSpan, MILLISECONDS_PER_SECOND
+from distributor.rollback import ProtocolBufferRollback
 from event_testing import test_events
 from interactions.constraints import create_constraint_set, Constraint
+from objects.components.types import AUTONOMY_MARKER_COMPONENT
 from objects.object_enums import ResetReason
+from objects.system import create_object
 from sims.rebate_manager import RebateCategoryEnum
 from sims.royalty_tracker import RoyaltyAlarmManager
 from sims4 import protocol_buffer_utils, reload
@@ -48,7 +52,6 @@ import sims4.random
 import tag
 import telemetry_helper
 import zone_types
-from objects.components.types import AUTONOMY_MARKER_COMPONENT
 with sims4.reload.protected(globals()):
     gc_count_log = None
 TELEMETRY_GROUP_GCSTATS = 'GCST'
@@ -79,6 +82,7 @@ class Zone:
         self._world_spawn_point_locators = []
         self._world_spawn_points = {}
         self._dynamic_spawn_points = {}
+        self.zone_architectural_stat_effects = collections.defaultdict(int)
         self._spawn_points_changed_callbacks = CallableList()
         self._zone_state = zone_types.ZoneState.ZONE_INIT
         self._zone_state_callbacks = {}
@@ -108,6 +112,7 @@ class Zone:
         self._should_perform_deferred_front_door_check = False
         self._gc_full_count = 0
         self.is_active_lot_clearing = False
+        self.suppress_object_commodity_callbacks = False
 
     def __repr__(self):
         return '<Zone ID: {0:#x}>'.format(self.id)
@@ -557,13 +562,18 @@ class Zone:
         if callback in self._zone_state_callbacks[callback_type]:
             self._zone_state_callbacks[callback_type].remove(callback)
 
-    def find_object(self, obj_id, include_props=False):
+    def find_object(self, obj_id, include_props=False, include_household=False):
         obj = self.object_manager.get(obj_id)
         if obj is None:
             obj = self.inventory_manager.get(obj_id)
         if obj is None:
             if include_props:
                 obj = self.prop_manager.get(obj_id)
+        if obj is None:
+            if include_household:
+                household_id = self.lot.owner_household_id
+                if household_id != 0:
+                    obj = get_object_in_household_inventory(obj_id, household_id)
         return obj
 
     def spawn_points_gen(self):
@@ -785,6 +795,18 @@ class Zone:
             self.objects_to_fixup_post_bb = weakref.WeakSet()
         self.objects_to_fixup_post_bb.add(obj)
 
+    def _revert_zone_architectural_stat_effects(self):
+        statistic_manager = services.statistic_manager()
+        for (stat_id, stat_value) in self.zone_architectural_stat_effects.items():
+            stat = statistic_manager.get(stat_id)
+            if stat is None:
+                continue
+            tracker = self.lot.get_tracker(stat)
+            if tracker is None:
+                continue
+            tracker.add_value(stat, -stat_value)
+        self.zone_architectural_stat_effects.clear()
+
     def _add_expenditures_and_do_post_bb_fixup(self):
         if self.objects_to_fixup_post_bb is not None:
             household = self.lot.get_household()
@@ -805,7 +827,7 @@ class Zone:
         zone_data_msg.ClearField('gameplay_zone_data')
         gameplay_zone_data = zone_data_msg.gameplay_zone_data
         gameplay_zone_data.lot_owner_household_id_on_save = self.lot.owner_household_id
-        gameplay_zone_data.venue_type_id_on_save = self.venue_service.venue.guid64 if self.venue_service.venue is not None else 0
+        gameplay_zone_data.venue_type_id_on_save = self.venue_service.active_venue.guid64 if self.venue_service.active_venue is not None else 0
         gameplay_zone_data.active_household_id_on_save = services.active_household_id()
         travel_group = self.travel_group_manager.get_travel_group_by_zone_id(self.id)
         gameplay_zone_data.active_travel_group_id_on_save = travel_group.id if travel_group is not None else 0
@@ -817,6 +839,10 @@ class Zone:
         else:
             gameplay_zone_data.clock_speed_mode = ClockSpeedMode.NORMAL
         self.lot.save(gameplay_zone_data)
+        for (stat_id, value) in self.zone_architectural_stat_effects.items():
+            with ProtocolBufferRollback(gameplay_zone_data.architectural_statistics) as entry:
+                entry.name_hash = stat_id
+                entry.value = value
         num_spawn_points = len(self._world_spawn_points)
         spawn_point_ids = [0]*num_spawn_points
         for (spawn_point_id, spawn_point) in self._world_spawn_points.items():
@@ -848,7 +874,7 @@ class Zone:
         game_service_manager = game_services.service_manager
         game_service_manager.save_all_services(persistence_service, object_list=object_list, zone_data=zone_data_msg, open_street_data=open_street_data, store_travel_group_placed_objects=store_travel_group_placed_objects, save_slot_data=save_slot_data)
         self.service_manager.save_all_services(persistence_service, object_list=object_list, zone_data=zone_data_msg, open_street_data=open_street_data, store_travel_group_placed_objects=store_travel_group_placed_objects, save_slot_data=save_slot_data)
-        zone_objects_message.objects = object_list
+        zone_objects_message.objects.append(object_list)
         if add_proto_to_persistence:
             services.get_persistence_service().add_open_street_proto_buff(open_street_data)
         persistence_module.run_persistence_operation(persistence_module.PersistenceOpType.kPersistenceOpSaveZoneObjects, zone_objects_message, 0, None)
@@ -879,6 +905,10 @@ class Zone:
             spawn_point.on_add()
         self._world_spawn_point_locators = None
         self.lot.load(gameplay_zone_data)
+        for stat in gameplay_zone_data.architectural_statistics:
+            self.zone_architectural_stat_effects[stat.name_hash] = stat.value
+        if self.zone_architectural_stat_effects:
+            self._revert_zone_architectural_stat_effects()
         for spawn_point in self._world_spawn_points.values():
             if spawn_point.has_tag(SpawnPoint.ARRIVAL_SPAWN_POINT_TAG):
                 if spawn_point.lot_id == self.lot.lot_id:
@@ -926,7 +956,7 @@ class Zone:
         zone_data_proto = self._get_zone_proto()
         if zone_data_proto is None:
             return
-        venue_instance = self.venue_service.venue
+        venue_instance = self.venue_service.active_venue
         if venue_instance is None or not venue_instance.requires_front_door:
             return
         gameplay_zone_data = zone_data_proto.gameplay_zone_data
@@ -950,18 +980,17 @@ class Zone:
             for inv_obj in inventory:
                 inv_obj.set_household_owner_id(household_id)
 
-    def venue_type_changed_between_save_and_load(self):
+    def venue_changed_between_save_and_load(self):
         zone_data_proto = self._get_zone_proto()
-        if zone_data_proto is None or self.venue_service.venue is None:
+        if zone_data_proto is None or self.venue_service.active_venue is None:
             return False
-        else:
-            gameplay_zone_data = zone_data_proto.gameplay_zone_data
-            if not protocol_buffer_utils.has_field(gameplay_zone_data, 'venue_type_id_on_save'):
-                return False
-        return False
+        gameplay_zone_data = zone_data_proto.gameplay_zone_data
+        if not protocol_buffer_utils.has_field(gameplay_zone_data, 'venue_type_id_on_save'):
+            return False
+        return gameplay_zone_data.venue_type_id_on_save != self.venue_service.active_venue.guid64
 
     def should_restore_sis(self):
-        if self.time_has_passed_in_world_since_zone_save() or (self.venue_type_changed_between_save_and_load() or (self.lot_owner_household_changed_between_save_and_load() or self.active_household_changed_between_save_and_load())) or self.is_first_visit_to_zone:
+        if self.time_has_passed_in_world_since_zone_save() or (self.venue_changed_between_save_and_load() or (self.lot_owner_household_changed_between_save_and_load() or self.active_household_changed_between_save_and_load())) or self.is_first_visit_to_zone:
             return False
         return True
 

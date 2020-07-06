@@ -1,15 +1,20 @@
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableList, TunableInterval, TunableEnumEntry
 from situations.bouncer.bouncer_types import BouncerExclusivityCategory
+from situations.complex.staffed_object_situation_mixin import StaffedObjectSituationMixin
 from situations.situation import Situation
 from situations.situation_complex import SituationComplexCommon, TunableSituationJobAndRoleState, CommonSituationState, SituationStateData, CommonInteractionCompletedSituationState
 from situations.situation_types import SituationCreationUIOption
 from tag import Tag
-import services
 import sims4.log
 logger = sims4.log.Logger('SalesTableVendorSituation', default_owner='rmccord')
 
 class SalesTableSetupState(CommonInteractionCompletedSituationState):
+
+    def _additional_tests(self, sim_info, event, resolver):
+        if resolver.interaction.is_finishing_naturally:
+            return self.owner.is_sim_in_situation(sim_info.get_sim_instance())
+        return False
 
     def _on_interaction_of_interest_complete(self, **kwargs):
         self.owner._change_state(self.owner.tend_state())
@@ -21,6 +26,11 @@ class TendSalesTableState(CommonSituationState):
         self.owner._change_state(self.owner.teardown_state())
 
 class SalesTableTeardownState(CommonInteractionCompletedSituationState):
+
+    def _additional_tests(self, sim_info, event, resolver):
+        if resolver.interaction.is_finishing_naturally:
+            return self.owner.is_sim_in_situation(sim_info.get_sim_instance())
+        return False
 
     def _on_interaction_of_interest_complete(self, **kwargs):
         self.owner._self_destruct()
@@ -51,3 +61,6 @@ class SalesTableVendorSituation(SalesTableVendorSituationMixin, SituationComplex
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
 
 lock_instance_tunables(SalesTableVendorSituation, exclusivity=BouncerExclusivityCategory.WALKBY, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE, _implies_greeted_status=False)
+
+class StaffedSalesTableVendorSituation(StaffedObjectSituationMixin, SalesTableVendorSituation):
+    pass

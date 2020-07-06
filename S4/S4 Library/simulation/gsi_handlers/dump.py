@@ -45,48 +45,47 @@ def save_dump_to_location(location, filename=None, console_output=None, compress
 
 def get_dump_gen(console_output):
     GsiSchema = sims4.gsi.schema.GsiSchema
-    for zone_id in services._zone_manager:
-        zone = services.get_zone(zone_id)
-        if zone is None or not zone.is_instantiated:
-            logger.warn("[cgast] Trying to dump GSI Data for zone {} but it's not instantiated.", zone_id)
-        else:
-            sim_info_manager = services.sim_info_manager()
-            sim_ids = set()
-            for sim_info in list(sim_info_manager.objects):
-                sim_ids.add(sim_info.sim_id)
-            for (entry, dispatch_data) in sims4.gsi.dispatcher.dispatch_table.items():
-                schema = dispatch_data[1]
-                if not schema is None:
-                    if 'exclude_from_dump' in schema:
-                        continue
-                    schema = schema.output
-                    if not (not isinstance(schema, GsiSchema) or not not 'is_global_cheat' in schema) and schema['is_global_cheat']:
-                        continue
-                    if entry == 'command':
-                        continue
+    zone = services.current_zone()
+    if not zone:
+        return
+    zone_id = zone.id
+    sim_info_manager = services.sim_info_manager()
+    sim_ids = set()
+    for sim_info in list(sim_info_manager.objects):
+        sim_ids.add(sim_info.sim_id)
+    for (entry, dispatch_data) in sims4.gsi.dispatcher.dispatch_table.items():
+        schema = dispatch_data[1]
+        if not schema is None:
+            if 'exclude_from_dump' in schema:
+                continue
+            schema = schema.output
+            if not (not isinstance(schema, GsiSchema) or not not 'is_global_cheat' in schema) and schema['is_global_cheat']:
+                continue
+            if entry == 'command':
+                continue
 
-                    def schema_entry_gen():
-                        if 'sim_specific' in schema and schema['sim_specific']:
-                            for sim_id in sim_ids:
-                                new_entry = _build_dump_entry(entry, schema, {'sim_id': sim_id, 'zone_id': zone_id, 'uncompress': 'false'})
-                                if new_entry is not None:
-                                    yield new_entry
-                                elif console_output is not None:
-                                    try:
-                                        console_output('Failed to collect data for {} on Sim ID {}'.format(entry, sim_id))
-                                    except:
-                                        pass
-                        else:
-                            new_entry = _build_dump_entry(entry, schema, {'zone_id': zone_id, 'uncompress': 'false'})
-                            if new_entry is not None:
-                                yield new_entry
-                            elif console_output is not None:
-                                try:
-                                    console_output('Failed to collect data for {}'.format(entry))
-                                except:
-                                    pass
+            def schema_entry_gen():
+                if 'sim_specific' in schema and schema['sim_specific']:
+                    for sim_id in sim_ids:
+                        new_entry = _build_dump_entry(entry, schema, {'sim_id': sim_id, 'zone_id': zone_id, 'uncompress': 'false'})
+                        if new_entry is not None:
+                            yield new_entry
+                        elif console_output is not None:
+                            try:
+                                console_output('Failed to collect data for {} on Sim ID {}'.format(entry, sim_id))
+                            except:
+                                pass
+                else:
+                    new_entry = _build_dump_entry(entry, schema, {'zone_id': zone_id, 'uncompress': 'false'})
+                    if new_entry is not None:
+                        yield new_entry
+                    elif console_output is not None:
+                        try:
+                            console_output('Failed to collect data for {}'.format(entry))
+                        except:
+                            pass
 
-                    yield (entry, schema, schema_entry_gen)
+            yield (entry, schema, schema_entry_gen)
 
 def _build_dump_entry(entry, schema, params):
     string_params = {key: str(value) for (key, value) in params.items()}

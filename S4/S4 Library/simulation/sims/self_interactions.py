@@ -261,15 +261,16 @@ class GoHomeTravelInteraction(TravelMixin, TravelInteraction):
         if self.to_zone_id == services.current_zone_id():
             yield
         additional_sims = list(self._care_dependents)
-        drama_scheduler = services.drama_scheduler_service()
-        if drama_scheduler is not None:
-            drama_nodes = drama_scheduler.get_running_nodes_by_drama_node_type(DramaNodeType.TUTORIAL)
-            if drama_nodes:
-                tutorial_drama_node = drama_nodes[0]
-                housemate_sim_info = tutorial_drama_node.get_housemate_sim_info()
-                housemate_sim = housemate_sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
-                if housemate_sim is not None and housemate_sim is not self.sim:
-                    additional_sims.append(housemate_sim)
+        if self.sim.is_selectable:
+            drama_scheduler = services.drama_scheduler_service()
+            if drama_scheduler is not None:
+                drama_nodes = drama_scheduler.get_running_nodes_by_drama_node_type(DramaNodeType.TUTORIAL)
+                if drama_nodes:
+                    tutorial_drama_node = drama_nodes[0]
+                    housemate_sim_info = tutorial_drama_node.get_housemate_sim_info()
+                    housemate_sim = housemate_sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+                    if housemate_sim is not None and housemate_sim is not self.sim:
+                        additional_sims.append(housemate_sim)
         selectable_sim_infos = services.get_selectable_sims()
         selectable_sims = selectable_sim_infos.get_instanced_sims(allow_hidden_flags=ALL_HIDDEN_REASONS)
         if self.sim.is_human:

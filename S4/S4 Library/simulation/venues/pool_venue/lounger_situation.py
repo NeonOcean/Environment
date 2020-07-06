@@ -10,7 +10,7 @@ class _LoungerSituationState(SituationState):
     pass
 
 class PoolVenueLoungerSituation(SituationComplexCommon):
-    INSTANCE_TUNABLES = {'lounger_job_and_role': TunableSituationJobAndRoleState(description='\n            The job and role for Pool Venue lounger.\n            '), 'duration_randomizer': TunableSimMinute(description="\n            A random time between 0 and this tuned time will be added to the\n            situation's duration.\n            ", default=10, minimum=0)}
+    INSTANCE_TUNABLES = {'lounger_job_and_role': TunableSituationJobAndRoleState(description='\n            The job and role for Pool Venue lounger.\n            ')}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
 
     @classmethod
@@ -28,10 +28,5 @@ class PoolVenueLoungerSituation(SituationComplexCommon):
     def start_situation(self):
         super().start_situation()
         self._change_state(_LoungerSituationState())
-
-    def _get_duration(self):
-        if self._seed.duration_override is not None:
-            return self._seed.duration_override
-        return self.duration + random.randint(0, self.duration_randomizer)
 
 lock_instance_tunables(PoolVenueLoungerSituation, exclusivity=BouncerExclusivityCategory.NORMAL, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE, _implies_greeted_status=False)

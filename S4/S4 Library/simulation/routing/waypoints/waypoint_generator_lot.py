@@ -66,7 +66,7 @@ class _WaypointGeneratorLotPoints(_WaypointGeneratorBase):
                 block_id = get_block_id(zone_id, constraint.average_position, level)
                 object_constraints[block_id].append(constraint)
         plex_id = services.get_plex_service().get_active_zone_plex_id() or plex_enums.INVALID_PLEX_ID
-        block_data = get_all_block_polygons(services.current_zone_id(), plex_id)
+        block_data = get_all_block_polygons(plex_id)
         polygons = defaultdict(list)
         if self._routing_surface.secondary_id == 0:
             polygons[0] = self._get_polygons_for_lot()

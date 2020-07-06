@@ -5,7 +5,7 @@ from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
 from distributor.shared_messages import create_icon_info_msg, IconInfoData
 from distributor.system import Distributor
-from drama_scheduler.drama_node import BaseDramaNode, DramaNodeScoringBucket, CooldownOption
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeScoringBucket, CooldownOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from drama_scheduler.festival_contest_drama_node_mixin import FestivalContestDramaNodeMixin
 from event_testing.resolver import GlobalResolver
@@ -135,7 +135,7 @@ class FestivalDramaNode(BaseDramaNode):
     def _run(self):
         self._setup_pre_festival_alarm()
         services.get_event_manager().process_events_for_household(TestEvent.FestivalStarted, services.active_household())
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def resume(self):
         now = services.time_service().sim_now
@@ -203,7 +203,7 @@ class FestivalDramaNode(BaseDramaNode):
         context = interactions.context.InteractionContext(active_sim, interactions.context.InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, insert_strategy=interactions.context.QueueInsertStrategy.NEXT, pick=pick)
         active_sim.push_super_affordance(FestivalDramaNode.GO_TO_FESTIVAL_INTERACTION, None, context)
 
-lock_instance_tunables(FestivalDramaNode, allow_during_work_hours=False, cooldown_option=CooldownOption.ON_RUN)
+lock_instance_tunables(FestivalDramaNode, allow_during_work_hours=False)
 MajorOrganizationEventDisplayMixin = get_display_mixin(has_description=True, has_icon=True, has_tooltip=True, use_string_tokens=True, export_modes=ExportModes.All, enabled_by_default=True)
 
 class MajorOrganizationEventDramaNode(FestivalContestDramaNodeMixin, MajorOrganizationEventDisplayMixin, FestivalDramaNode):

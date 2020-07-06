@@ -70,7 +70,10 @@ class BringHereInteraction(SimInfoInteraction):
         for pet in offlot_pets:
             if pet.zone_id not in caretaker_zone_ids:
                 sim_infos_to_bring.append(pet)
-        services.current_zone().venue_service.venue.summon_npcs(tuple(sim_infos_to_bring), NPCSummoningPurpose.BRING_PLAYER_SIM_TO_LOT)
+        daycare_service = services.daycare_service()
+        if daycare_service.is_sim_info_at_daycare(self._sim_info):
+            daycare_service.remove_sim_info_from_daycare(self._sim_info)
+        services.current_zone().venue_service.active_venue.summon_npcs(tuple(sim_infos_to_bring), NPCSummoningPurpose.BRING_PLAYER_SIM_TO_LOT)
 
 class SwitchToZoneInteraction(SimInfoInteraction):
 

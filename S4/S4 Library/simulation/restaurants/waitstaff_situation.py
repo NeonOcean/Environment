@@ -67,7 +67,7 @@ class _WaitstaffTakeOrderForTableState(_WaitstaffSituationStateBase):
 
     @property
     def resulting_order_status(self):
-        return OrderStatus.ORDER_TAKEN
+        return OrderStatus.ORDER_GIVEN_TO_CHEF
 
     def on_activate(self, reader=None):
         if self.owner._current_order is None:
@@ -92,14 +92,11 @@ class _WaitstaffTakeOrderForTableState(_WaitstaffSituationStateBase):
 
 class _WaitstaffDeliverOrderToChefState(_WaitstaffSituationStateBase):
 
-    def __init__(self, *args, expedited=False, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._expedited = expedited
 
     def on_activate(self, reader=None):
         super().on_activate(reader)
-        if self._expedited:
-            self.owner.expedite_current_order()
 
     @property
     def resulting_order_status(self):
@@ -150,8 +147,9 @@ class _WaitstaffDeliverOrderToTableState(_WaitstaffSituationStateBase):
                 return
             if resolver(self._resubmit_order_interactions):
                 if self.owner._current_order is not None:
-                    self.owner._try_change_order_status(OrderStatus.ORDER_TAKEN)
-                    self._change_state(self.owner.deliver_order_to_chef_state(expedited=True))
+                    self.owner._current_order.expedited = True
+                    self.owner._try_change_order_status(OrderStatus.ORDER_GIVEN_TO_CHEF)
+                    self._change_state(self.owner.deliver_order_to_chef_state())
                 return
             if resolver(self._must_exit_naturally_interactions):
                 if not resolver.interaction.is_finishing_naturally:
@@ -328,9 +326,6 @@ class WaitstaffSituation(BusinessEmployeeSituationMixin, StaffedObjectSituationM
     def give_chef_feedback(self, to_chef, from_sim, is_compliment):
         chef_feedback_info = ChefFeedbackInfo(from_sim, is_compliment)
         self._chef_feedback[to_chef].append(chef_feedback_info)
-
-    def expedite_current_order(self):
-        self._current_order.expedite = True
 
     def _try_change_order_status(self, order_status):
         if self._current_order is None or order_status is None:

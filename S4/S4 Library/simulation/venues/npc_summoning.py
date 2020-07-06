@@ -41,10 +41,10 @@ class CreateAndAddToSituation(HasTunableSingletonFactory, AutoFactoryInit):
 class AddToBackgroundSituation(HasTunableSingletonFactory, AutoFactoryInit):
 
     def __call__(self, sim_infos, purpose=None, host_sim_info=None):
-        venue_type = services.get_current_venue()
-        if venue_type is None or venue_type.active_background_event_id is None:
+        venue = services.get_current_venue()
+        if venue is None or venue.active_background_event_id is None:
             return
-        situation = services.get_zone_situation_manager().get(venue_type.active_background_event_id)
+        situation = services.get_zone_situation_manager().get(venue.active_background_event_id)
         if situation is not None:
             for sim_info in sim_infos:
                 situation.invite_sim_to_job(sim_info)

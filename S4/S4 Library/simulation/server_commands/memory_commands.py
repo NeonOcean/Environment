@@ -180,7 +180,8 @@ def py_tree_dump(file_name=None, _connection=None):
     output = sims4.commands.CheatOutput(_connection)
     labeled_roots = get_labeled_roots()
     labeled_roots.insert(0, ('Integers', list(range(-5, 257))))
-    file_name = write_out_py_tree_dump(labeled_roots, file_name, 'python_tree_dump', None, bfs=True, include_cycles=False)
+    output('Starting Tree Dump...')
+    file_name = write_out_py_tree_dump(labeled_roots, file_name, 'python_tree_dump', None, cheat_output=output, bfs=True, include_cycles=False)
     output_str = "Wrote Python heap tree: '{}'".format(file_name)
     output(output_str)
 
@@ -203,15 +204,19 @@ def py_gc_collect_dump(file_name=None, _connection=None):
     output(output_str)
     gc.garbage.clear()
 
-def write_out_py_tree_dump(labeled_roots, file_name, default_name_base, allowed_ids, bfs=True, include_cycles=False):
+def write_out_py_tree_dump(labeled_roots, file_name, default_name_base, allowed_ids, cheat_output=None, bfs=True, include_cycles=False):
     if file_name is None:
         current_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.gmtime())
         file_name = '{}-{}.mem'.format(default_name_base, current_time)
+    if cheat_output is not None:
+        cheat_output('    Getting object tree.')
     try:
         sims4.log.Logger.suppress = True
         root = sizeof.get_object_tree(labeled_roots, allowed_ids=allowed_ids, bfs=bfs, include_cycles=include_cycles)
     finally:
         sims4.log.Logger.suppress = False
+    if cheat_output is not None:
+        cheat_output('    Finished Getting Tree.  Writing to file.')
     with open(file_name, 'wb') as fd:
         sizeof.write_object_tree(root, fd)
     del root

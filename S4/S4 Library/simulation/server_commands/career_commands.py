@@ -9,6 +9,7 @@ from rewards.reward_enums import RewardType
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, TunableInstanceParam, RequiredTargetParam, OptionalSimInfoParam
 from sims.sim_info_lod import SimInfoLODLevel
 from sims4.localization import LocalizationHelperTuning
+import distributor
 import interactions
 import random
 import services
@@ -65,7 +66,7 @@ def send_to_work(sim_id:int=None, career_uid:int=None, _connection=None):
         logger.error('invalid sim Id passed to careers.send_to_work')
         return False
     career = sim_info.career_tracker.get_career_by_uid(career_uid)
-    career.push_go_to_work_affordance()
+    career.put_sim_in_career_rabbit_hole()
 
 @sims4.commands.Command('careers.leave_work', command_type=sims4.commands.CommandType.Live)
 def leave_work(sim_id:int=None, career_uid:int=None, _connection=None):
@@ -212,6 +213,17 @@ def add_career_performance(opt_sim:OptionalTargetParam=None, amount:int=None, ca
         if career is not None:
             performance_stat = sim.statistic_tracker.get_statistic(career.current_level_tuning.performance_stat)
             performance_stat.add_value(amount)
+
+@sims4.commands.Command('careers.update_find_career_interaction_availability', command_type=sims4.commands.CommandType.Live)
+def update_find_career_interaction_availability(sim:RequiredTargetParam=None, _connection=None):
+    client = services.client_manager().get(_connection)
+    sim = sim.get_target()
+    context = client.create_interaction_context(sim)
+    aop = Career.FIND_JOB_PHONE_INTERACTION.generate_aop(sim, context)
+    test_result = aop.test(context)
+    tooltip = None if test_result.tooltip is None else test_result.tooltip(sim)
+    op = distributor.ops.UpdateFindCareerInteractionAvailability(test_result.result, tooltip)
+    distributor.system.Distributor.instance().add_op(sim.sim_info, op)
 
 @sims4.commands.Command('careers.find_career', command_type=sims4.commands.CommandType.Live)
 def find_career(sim:RequiredTargetParam=None, _connection=None):

@@ -22,6 +22,8 @@ This is similar to the opcode portion in Python 2.1's dis.py library.
 import xdis.opcodes.opcode_22 as opcode_22
 from xdis.opcodes.base import (
     init_opdata,
+    extended_format_MAKE_FUNCTION_older,
+    extended_format_RETURN_VALUE,
     finalize_opcodes,
     format_extended_arg,
     rm_op,
@@ -29,6 +31,7 @@ from xdis.opcodes.base import (
 )
 
 version = 2.1
+python_implementation = "CPython"
 
 l = locals()
 init_opdata(l, opcode_22, version)
@@ -44,6 +47,13 @@ rm_op(l, "FOR_ITER", 93)
 
 update_pj2(globals(), l)
 
-opcode_arg_fmt = {"EXTENDED_ARG": format_extended_arg}
-
 finalize_opcodes(l)
+
+opcode_arg_fmt = {
+    "EXTENDED_ARG": format_extended_arg
+}
+
+opcode_extended_fmt = {
+    "MAKE_FUNCTION": extended_format_MAKE_FUNCTION_older,
+    "RETURN_VALUE": extended_format_RETURN_VALUE,
+}

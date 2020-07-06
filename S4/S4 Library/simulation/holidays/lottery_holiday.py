@@ -1,7 +1,7 @@
 import random
 from protocolbuffers import Consts_pb2
 from date_and_time import create_date_and_time
-from drama_scheduler.drama_node import BaseDramaNode
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeRunOutcome
 from event_testing.resolver import SingleSimResolver
 from event_testing.test_events import TestEvent
 from interactions.utils.loot import LootActions
@@ -96,7 +96,7 @@ class LotteryDramaNode(BaseDramaNode):
 
     def _run(self):
         self._setup_lottery()
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def resume(self):
         self._setup_lottery()

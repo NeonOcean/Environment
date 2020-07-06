@@ -18,10 +18,15 @@ class ReservationHandlerBasic(_ReservationHandler):
             return ReservationResult.TRUE
         return ReservationResult(False, '{} disallows any other reservation type: ({})', self, other_reservation_handler, result_obj=self.sim)
 
-    def begin_reservation(self, *args, **kwargs):
+    def begin_reservation(self, *args, _may_reserve_already_run=False, **kwargs):
         if self.target.parts is not None:
             logger.error("\n                {} is attempting to execute a basic reservation on {}, which has parts. This is not allowed.\n                {} and its associated postures need to be allowed to run on the object's individual parts in order\n                for this to work properly.\n                ", self.sim, self.target, self.reservation_interaction.get_interaction_type() if self.reservation_interaction is not None else 'The reservation owner')
-        return super().begin_reservation(*args, **kwargs)
+        if not _may_reserve_already_run:
+            result = self.may_reserve(_from_reservation_call=True)
+            if not result:
+                return result
+        super().begin_reservation(*args, _may_reserve_already_run=True, **kwargs)
+        return ReservationResult.TRUE
 
 class _ReservationHandlerMultiTarget(_ReservationHandler):
 
@@ -42,18 +47,23 @@ class _ReservationHandlerMultiTarget(_ReservationHandler):
                 return reserve_result
         return ReservationResult.TRUE
 
-    def begin_reservation(self, *_, **__):
+    def begin_reservation(self, *_, _may_reserve_already_run=False, **__):
+        if not _may_reserve_already_run:
+            result = self.may_reserve(_from_reservation_call=True)
+            if not result:
+                return result
         handler_type = self._get_reservation_handler_type()
         for target in self._get_reservation_targets():
             part_handler = handler_type(self._sim, target, reservation_interaction=self._reservation_interaction)
-            part_handler.begin_reservation()
+            part_handler.begin_reservation(_may_reserve_already_run=True)
             self._part_handlers.append(part_handler)
+        return ReservationResult.TRUE
 
     def end_reservation(self, *_, **__):
         for part_handler in self._part_handlers:
             part_handler.end_reservation()
 
-    def may_reserve(self, **kwargs):
+    def may_reserve(self, _from_reservation_call=False, **kwargs):
         handler_type = self._get_reservation_handler_type()
         for target in self._get_reservation_targets():
             part_handler = handler_type(self._sim, target, **kwargs)

@@ -215,9 +215,9 @@ class Baby(GameObject, HasSimInfoBasicMixin):
             mood_msg.mood_intensity = 1
             distributor.shared_messages.add_object_message(self, MSG_SIM_MOOD_UPDATE, mood_msg, False)
 
-    def load_object(self, object_data):
+    def load_object(self, object_data, **kwargs):
         self._sim_info = services.sim_info_manager().get(self.sim_id)
-        super().load_object(object_data)
+        super().load_object(object_data, **kwargs)
         if self._sim_info is not None:
             services.daycare_service().refresh_daycare_status(self._sim_info)
 

@@ -774,14 +774,24 @@ class RoommateService(Service):
         persistence_service = services.get_persistence_service()
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
         for (zone_id, household_data) in self._zone_to_roommates.copy().items():
-            venue = venue_manager.get(build_buy.get_current_venue(zone_id))
-            if not venue.is_university_housing:
-                if not household_data.household_id != persistence_service.get_household_id_from_zone_id(zone_id):
-                    if household_data.household_id == 0:
-                        for sim_id in tuple(household_data.sim_ids):
-                            self._remove_roommate(sim_id)
-                for sim_id in tuple(household_data.sim_ids):
-                    self._remove_roommate(sim_id)
+            try:
+                venue = venue_manager.get(build_buy.get_current_venue(zone_id))
+            except RuntimeError:
+                venue = None
+            if not venue is None:
+                if not venue.is_university_housing:
+                    if not household_data.household_id != persistence_service.get_household_id_from_zone_id(zone_id):
+                        if household_data.household_id == 0:
+                            for sim_id in tuple(household_data.sim_ids):
+                                self._remove_roommate(sim_id)
+                    for sim_id in tuple(household_data.sim_ids):
+                        self._remove_roommate(sim_id)
+            if not household_data.household_id != persistence_service.get_household_id_from_zone_id(zone_id):
+                if household_data.household_id == 0:
+                    for sim_id in tuple(household_data.sim_ids):
+                        self._remove_roommate(sim_id)
+            for sim_id in tuple(household_data.sim_ids):
+                self._remove_roommate(sim_id)
         services.get_event_manager().register_single_event(self, TestEvent.SimDeathTypeSet)
         household = services.active_household()
         if household is None:

@@ -40,6 +40,16 @@ class SchedulingZoneDirectorMixin:
         self._situation_shift_ideal_situations = {}
         self._situations_on_load_ids = []
 
+    def get_all_situations(self):
+        situations = []
+        situation_manager = services.get_zone_situation_manager()
+        for shift_situations in self._situation_shifts_to_situation_ids.values():
+            for situation_id in shift_situations:
+                situation = situation_manager.get(situation_id)
+                if situation is not None:
+                    situations.append(situation)
+        return situations
+
     def can_schedule_situation(self, situation, limit_based_on_sims=False, number_of_sims_desired=0, **kwargs):
         if services.game_clock_service().clock_speed == clock.ClockSpeedMode.SUPER_SPEED3 and not situation.allowed_in_super_speed_3:
             return False

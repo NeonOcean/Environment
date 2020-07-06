@@ -1,92 +1,22 @@
-import routing
 import sims4.log
 from postures.base_postures import MobilePosture
-from postures.posture_specs import get_origin_spec, get_origin_spec_carry
-from protocolbuffers import Routing_pb2
+from postures.posture_specs import get_origin_spec_carry, get_origin_spec
 from routing import Location
-from routing.portals.portal_data_base import _PortalTypeDataBase
-from routing.portals.portal_enums import PathSplitType
+from routing.portals.portal_data_ladders import _PortalTypeDataLadders
+from routing.portals.portal_enums import LadderType
 from routing.portals.portal_location import _PortalLocation
-from routing.portals.portal_tuning import PortalType, PortalFlags
+from routing.portals.portal_tuning import PortalFlags
 from routing.route_enums import RouteEventType
 from routing.route_events.route_event import RouteEvent
 from routing.route_events.route_event_provider import RouteEventProviderMixin
-from sims4 import hash_util
 from sims4.tuning.tunable import TunableRange, TunableTuple
 logger = sims4.log.Logger('OceanLaddersPortalData', default_owner='trevor')
 
-class _PortalTypeDataOceanLadders(RouteEventProviderMixin, _PortalTypeDataBase):
+class _PortalTypeDataOceanLadders(RouteEventProviderMixin, _PortalTypeDataLadders):
     FACTORY_TUNABLES = {'climb_up_locations': TunableTuple(description='\n            Location tunables for climbing up the ladder.\n            ', location_start=_PortalLocation.TunableFactory(description='\n                The location at the bottom of the ladder where climbing up starts.\n                '), location_end=_PortalLocation.TunableFactory(description='\n                The location at the top of the ladder where climbing up ends.\n                ')), 'climb_down_locations': TunableTuple(description='\n            Location tunables for climbing down the ladder.\n            ', location_start=_PortalLocation.TunableFactory(description='\n                The location at the top of the ladder where climbing down starts.\n                '), location_end=_PortalLocation.TunableFactory(description='\n                The location at the bottom of the ladder where climbing down ends.\n                ')), 'climb_up_route_event': RouteEvent.TunableReference(description="\n            The route event to set a posture while climing up the ladder portal.\n            Currently, only Set Posture is supported. If any other route events\n            are tuned here there's a good chance they won't work as expected.\n            "), 'climb_down_route_event': RouteEvent.TunableReference(description="\n            The route even tto set a posture while climbing down the ladder portal.\n            Currently, only Set Posture is supported. If any other route events\n            are tuned here there's a good chance they won't work as expected.\n            "), 'posture_start': MobilePosture.TunableReference(description='\n            Define the entry posture as you cross through this portal. e.g. For\n            the pool, the start posture is stand.\n            '), 'posture_end': MobilePosture.TunableReference(description='\n            Define the exit posture as you cross through this portal.\n            '), 'route_event_time_offset': TunableRange(description='\n            The amount of time after the start of the ladder portal to schedule \n            the route event. \n            ', tunable_type=float, default=0.5, minimum=0, maximum=1)}
-    LADDER_RUNG_DISTANCE = 0.25
-    LADDER_UP_START_CYCLE = 'ladder_up_start'
-    LADDER_UP_CLIMB_CYCLE = 'ladder_up_cycle_r'
-    LADDER_UP_STOP_CYCLE = 'ladder_up_stop'
-    LADDER_DOWN_START_CYCLE = 'ladder_down_start'
-    LADDER_DOWN_CLIMB_CYCLE = 'ladder_down_cycle_r'
-    LADDER_DOWN_STOP_CYCLE = 'ladder_down_stop'
-    WALKSTYLE_DURATION = 'duration'
-    WALKSTYLE_WALK = sims4.hash_util.hash32('Walk')
-    WALKSTYLE_SWIM = sims4.hash_util.hash32('Swim')
-
-    @property
-    def portal_type(self):
-        return PortalType.PortalType_Animate
-
-    @property
-    def requires_los_between_points(self):
-        return False
-
-    @property
-    def outfit_change(self):
-        pass
-
-    @property
-    def lock_portal_on_use(self):
-        return False
-
-    def get_additional_required_portal_flags(self, entry_location, exit_location):
-        return PortalFlags.STAIRS_PORTAL_LONG
-
-    def split_path_on_portal(self):
-        return PathSplitType.PathSplitType_LadderSplit
-
-    def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
-        op = Routing_pb2.RouteLadderData()
-        op.traversing_up = not is_mirrored
-        op.step_count = 0
-        node_data = Routing_pb2.RouteNodeData()
-        node_data.type = Routing_pb2.RouteNodeData.DATA_LADDER
-        node_data.data = op.SerializeToString()
-        node_data.do_stop_transition = True
-        node_data.do_start_transition = True
-        return node_data
 
     def get_portal_duration(self, portal_instance, is_mirrored, _, age, gender, species):
-        if is_mirrored:
-            walkstyle = self.WALKSTYLE_WALK
-            start_cycle = self.LADDER_DOWN_START_CYCLE
-            stop_cycle = self.LADDER_DOWN_STOP_CYCLE
-            climb_cycle = self.LADDER_DOWN_CLIMB_CYCLE
-        else:
-            walkstyle = self.WALKSTYLE_SWIM
-            start_cycle = self.LADDER_UP_START_CYCLE
-            stop_cycle = self.LADDER_UP_STOP_CYCLE
-            climb_cycle = self.LADDER_UP_CLIMB_CYCLE
-        walkstyle_info_dict = routing.get_walkstyle_info_full(walkstyle, age, gender, species)
-        walkstyle_duration = self._get_duration_for_cycle(start_cycle, walkstyle_info_dict) + self._get_duration_for_cycle(climb_cycle, walkstyle_info_dict)*self._get_num_rungs(portal_instance.obj) + self._get_duration_for_cycle(stop_cycle, walkstyle_info_dict)
-        return walkstyle_duration
-
-    def _get_num_rungs(self, ladder):
-        rung_start = self.climb_up_locations.location_start(ladder).position.y
-        rung_end = self.climb_up_locations.location_end(ladder).position.y - self.LADDER_RUNG_DISTANCE
-        return (rung_end - rung_start)//self.LADDER_RUNG_DISTANCE + 1
-
-    def _get_duration_for_cycle(self, clip, walkstyle_info_dict):
-        builder_name = hash_util.hash32(clip)
-        if builder_name not in walkstyle_info_dict:
-            logger.error("Can't find the ladder clip {} in the  walkstyle info.", clip)
-            return 0
-        return walkstyle_info_dict[builder_name][self.WALKSTYLE_DURATION]
+        return self._calculate_walkstyle_duration(portal_instance, is_mirrored, age, gender, species, self.WALKSTYLE_SWIM, self.WALKSTYLE_WALK)
 
     def get_portal_locations(self, obj):
         up_start = self.climb_up_locations.location_start(obj)
@@ -114,3 +44,13 @@ class _PortalTypeDataOceanLadders(RouteEventProviderMixin, _PortalTypeDataBase):
         if is_mirrored:
             return (end_posture, start_posture)
         return (start_posture, end_posture)
+
+    def _get_route_ladder_data(self, is_mirrored):
+        op = super()._get_route_ladder_data(is_mirrored)
+        op.ladder_type = LadderType.LADDER_OCEAN
+        return op
+
+    def _get_num_rungs(self, ladder):
+        rung_start = self.climb_up_locations.location_start(ladder).position.y
+        rung_end = self.climb_up_locations.location_end(ladder).position.y - self.ladder_rung_distance
+        return (rung_end - rung_start)//self.ladder_rung_distance + 1

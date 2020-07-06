@@ -1,7 +1,8 @@
+from event_testing.resolver import DoubleSimResolver
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable_base import GroupNames
 from situations.situation_complex import SituationStateData
-from situations.situation_types import SituationCreationUIOption, GreetedStatus
+from situations.situation_types import SituationCreationUIOption
 from situations.visiting.visiting_situation_common import VisitingNPCSituation
 import role.role_state
 import sims4.tuning.tunable
@@ -26,6 +27,13 @@ class GreetedNPCVisitingPlayerSituation(VisitingNPCSituation):
     def start_situation(self):
         super().start_situation()
         self._change_state(GreetedNPCVisitingPlayerState())
+
+    def _resolve_sim_job_headline(self, sim, sim_job):
+        resolver = DoubleSimResolver(sim.sim_info, self._guest_list.host_sim_info)
+        tokens = sim_job.tooltip_name_text_tokens.get_tokens(resolver)
+        if self.is_user_facing and self.manager.is_distributed(self) or sim_job.user_facing_sim_headline_display_override:
+            sim.sim_info.sim_headline = sim_job.tooltip_name(*tokens)
+        return tokens
 
 lock_instance_tunables(GreetedNPCVisitingPlayerSituation, exclusivity=situations.bouncer.bouncer_types.BouncerExclusivityCategory.VISIT, creation_ui_option=SituationCreationUIOption.NOT_AVAILABLE, _implies_greeted_status=True)
 

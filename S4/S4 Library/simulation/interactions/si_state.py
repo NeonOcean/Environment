@@ -124,7 +124,7 @@ class SIState:
         cancel_constraints = set()
         if posture is sim.posture_state.body:
             participant_type = interaction.get_participant_type(sim)
-            for (cancel_aop, _, _) in posture.source_interaction._get_cancel_replacement_aops_contexts_postures():
+            for (cancel_aop, _, _) in posture.source_interaction.get_cancel_replacement_aops_contexts_postures():
                 cancel_constraints.add(cancel_aop.constraint_intersection(sim=sim, participant_type=participant_type, posture_state=None))
         else:
             hand = Hand.LEFT if posture is sim.posture_state.left else Hand.RIGHT

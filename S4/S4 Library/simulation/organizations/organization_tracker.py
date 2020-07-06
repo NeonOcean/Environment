@@ -34,11 +34,12 @@ class OrganizationTracker(SimInfoTracker):
         self._organization_status = {}
         self._organization_active_tasks = {}
         self._completed_tasks = []
+        self._unenrolled_org_ids = []
 
     def send_organization_update_message(self, update_type, org_id):
         degree_tracker = self._sim_info.degree_tracker
         if degree_tracker is None:
-            logger.error('The degree tracker for ({}) is None and cannot be. Org Update message failed.', self._sim_info)
+            return
         send_organization_update_op = SendOrganizationUpdateOp(update_type, org_id, self.get_task_objective_ids(org_id), degree_tracker.is_current_student())
         distributor = Distributor.instance()
         distributor.add_op(self._sim_info, send_organization_update_op)
@@ -71,6 +72,7 @@ class OrganizationTracker(SimInfoTracker):
                         active_task_info.aspiration = timed_aspiration_data.task.guid64
                         active_task_info.completed = timed_aspiration_data.completed
                         active_task_info.end_time = timed_aspiration_data.end_time.absolute_ticks()
+        data.unenrolled_org_ids.extend(self._unenrolled_org_ids)
         return data
 
     def load(self, data=None):
@@ -89,6 +91,7 @@ class OrganizationTracker(SimInfoTracker):
                 if task_data_org_info.completed:
                     organization_task = AspirationOrganizationTaskData(None, task, org_id=org_id)
                     self._completed_tasks.append((organization_task, timed_aspiration_data))
+        self._unenrolled_org_ids.extend(data.unenrolled_org_ids)
 
     def activate_organization_tasks(self):
         if not self._completed_tasks:
@@ -202,7 +205,17 @@ class OrganizationTracker(SimInfoTracker):
         for (org_id, org_status) in self._organization_status.items():
             if org_status == ACTIVE:
                 if org_id in valid_organization_ids:
+                    self._unenrolled_org_ids.append(org_id)
                     self.leave_organization(org_id)
+
+    def reactivate_organizations(self, university):
+        valid_organization_ids = [organization.guid64 for organization in university.organizations]
+        if not self._unenrolled_org_ids:
+            return
+        for org_id in self._unenrolled_org_ids:
+            if org_id in valid_organization_ids:
+                self.join_organization(org_id)
+        self._unenrolled_org_ids = []
 
     def leave_organization(self, organization_id):
         if self.get_organization_status(organization_id) != ACTIVE:

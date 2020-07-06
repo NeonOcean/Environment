@@ -3,6 +3,7 @@ from _weakrefset import WeakSet
 from collections import Counter
 from contextlib import contextmanager
 import collections
+from objects.gallery_tuning import ContentSource
 from protocolbuffers import FileSerialization_pb2 as file_serialization, GameplaySaveData_pb2 as gameplay_serialization, SimObjectAttributes_pb2 as protocols
 from crafting.crafting_cache import CraftingObjectCache
 from distributor.rollback import ProtocolBufferRollback
@@ -10,7 +11,7 @@ from indexed_manager import IndexedManager, CallbackTypes
 from objects import components
 from objects.attractors.attractor_manager_mixin import AttractorManagerMixin
 from objects.components.inventory_enums import StackScheme
-from objects.components.types import PORTAL_COMPONENT
+from objects.components.types import PORTAL_COMPONENT, INVENTORY_ITEM_COMPONENT
 from objects.object_enums import ItemLocation
 from objects.water_terrain_objects import WaterTerrainObjectCache
 from sims4.callback_utils import CallableList
@@ -190,6 +191,12 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
         for game_object in all_objects:
             game_object.on_client_connect(client)
 
+    def on_all_households_and_sim_infos_loaded(self, _):
+        for game_object in self.objects:
+            inventory_item_component = game_object.get_component(INVENTORY_ITEM_COMPONENT)
+            if inventory_item_component is not None:
+                inventory_item_component.refresh_decay_modifiers()
+
     def move_to_world(self, obj, object_manager):
         logger.assert_raise(isinstance(object_manager, ObjectManager), 'Trying to move object to a non-object manager: {}', object_manager, owner='tingyul')
         logger.assert_raise(obj.id, 'Attempting to move an object that was never added or has already been removed', owner='tingyul')
@@ -211,17 +218,25 @@ class InventoryManager(DistributableObjectManager, GameObjectManagerMixin):
             return self._get_new_stack_id()
         if stack_scheme == StackScheme.VARIANT_GROUP:
             variant_group_id = build_buy.get_variant_group_id(obj.definition.id)
-            key = variant_group_id if custom_key is None else (variant_group_id, custom_key)
+            return self.get_stack_id_from_key(variant_group_id, custom_key, stack_scheme)
+        if stack_scheme == StackScheme.DEFINITION:
+            definition_id = obj.definition.id
+            return self.get_stack_id_from_key(definition_id, custom_key, stack_scheme)
+        return self.get_stack_id_from_key(stack_scheme, custom_key, stack_scheme)
+
+    def get_stack_id_from_key(self, key, custom_key, stack_scheme):
+        if stack_scheme == StackScheme.NONE:
+            logger.error('Attempting to get stack id from key {} with StackScheme.NONE', key)
+            return
+        key = key if custom_key is None else (key, custom_key)
+        if stack_scheme == StackScheme.VARIANT_GROUP:
             if key not in self._variant_group_stack_id_map:
                 self._variant_group_stack_id_map[key] = self._get_new_stack_id()
             return self._variant_group_stack_id_map[key]
         if stack_scheme == StackScheme.DEFINITION:
-            definition_id = obj.definition.id
-            key = definition_id if custom_key is None else (definition_id, custom_key)
             if key not in self._definition_stack_id_map:
                 self._definition_stack_id_map[key] = self._get_new_stack_id()
             return self._definition_stack_id_map[key]
-        key = stack_scheme if custom_key is None else (stack_scheme, custom_key)
         if key not in self._dynamic_stack_scheme_id_map:
             self._dynamic_stack_scheme_id_map[key] = self._get_new_stack_id()
         return self._dynamic_stack_scheme_id_map[key]
@@ -242,6 +257,7 @@ BED_PREFIX_FILTER = ('buycat', 'buycatee', 'buycatss', 'func')
 class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, AttractorManagerMixin):
     FIREMETER_DISPOSABLE_OBJECT_CAP = Tunable(int, 5, description='Number of disposable objects a lot can have at any given moment.')
     BED_TAGS = TunableTuple(description='\n        Tags to check on an object to determine what type of bed an object is.\n        ', beds=TunableSet(description='\n            Tags that consider an object as a bed other than double beds.\n            ', tunable=TunableEnumWithFilter(tunable_type=tag.Tag, default=tag.Tag.INVALID, filter_prefixes=BED_PREFIX_FILTER)), double_beds=TunableSet(description='\n            Tags that consider an object as a double bed\n            ', tunable=TunableEnumWithFilter(tunable_type=tag.Tag, default=tag.Tag.INVALID, filter_prefixes=BED_PREFIX_FILTER)), kid_beds=TunableSet(description='\n            Tags that consider an object as a kid bed\n            ', tunable=TunableEnumWithFilter(tunable_type=tag.Tag, default=tag.Tag.INVALID, filter_prefixes=BED_PREFIX_FILTER)), other_sleeping_spots=TunableSet(description='\n            Tags that considered sleeping spots.\n            ', tunable=TunableEnumWithFilter(tunable_type=tag.Tag, default=tag.Tag.INVALID, filter_prefixes=BED_PREFIX_FILTER)))
+    HOUSEHOLD_INVENTORY_OBJECT_TAGS = TunableTags(description='\n        List of tags to apply to every household inventory proxy object.\n        ')
     INVALID_UNPARENTED_OBJECT_TAGS = TunableTags(description='\n        Objects with these tags should not exist without a parent. An obvious\n        case is for transient objects. They should only exist as a carried object,\n        thus parented to a sim, when loading into a save game.\n        ')
 
     def __init__(self, *args, **kwargs):
@@ -587,10 +603,15 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
     def on_front_door_candidates_changed(self):
         self._front_door_candidates_changed_callback()
 
+    def cleanup_build_buy_transient_objects(self):
+        household_inventory_proxy_objects = self.get_objects_matching_tags(self.HOUSEHOLD_INVENTORY_OBJECT_TAGS)
+        for obj in household_inventory_proxy_objects:
+            self.remove(obj)
+
     def get_objects_matching_tags(self, tags:set, match_any=False):
         matching_objects = None
         for tag in tags:
-            objs = frozenset(self._tag_to_object_list[tag]) if tag in self._tag_to_object_list else EMPTY_SET
+            objs = self._tag_to_object_list[tag] if tag in self._tag_to_object_list else set()
             if matching_objects is None:
                 matching_objects = objs
             elif match_any:
@@ -599,8 +620,8 @@ class ObjectManager(DistributableObjectManager, GameObjectManagerMixin, Attracto
                 matching_objects &= objs
                 if not matching_objects:
                     break
-        if matching_objects is not None:
-            return matching_objects
+        if matching_objects:
+            return frozenset(matching_objects)
         return EMPTY_SET
 
     def get_num_objects_matching_tags(self, tags:set, match_any=False):

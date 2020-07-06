@@ -170,13 +170,16 @@ class BroadcasterService(Service):
         for (cluster_request_key, cluster_request) in self._cluster_requests.items():
             is_cluster_dirty = cluster_request.is_dirty()
             for broadcaster in self._get_broadcasters_for_cluster_request_gen(*cluster_request_key):
-                broadcaster.regenerate_constraint()
+                if self._is_valid_broadcaster(broadcaster):
+                    broadcaster.regenerate_constraint()
             for cluster in cluster_request.get_clusters_gen():
-                broadcaster_iter = cluster.objects_gen()
-                master_broadcaster = next(broadcaster_iter)
-                master_broadcaster.set_linked_broadcasters(list(broadcaster_iter))
+                linkable_broadcasters_iter = (b for b in cluster.objects_gen() if self._is_valid_broadcaster(b))
+                master_broadcaster = next(linkable_broadcasters_iter, None)
+                if master_broadcaster is None:
+                    continue
+                master_broadcaster.set_linked_broadcasters(linkable_broadcasters_iter)
                 yield master_broadcaster
-            yield from cluster_request.get_rejects()
+            yield from (b for b in cluster_request.get_rejects() if self._is_valid_broadcaster(b))
         for broadcaster in self._active_broadcasters:
             if not broadcaster.should_cluster():
                 if self._is_valid_broadcaster(broadcaster):

@@ -58,7 +58,7 @@ class PickTerrainTest(HasTunableSingletonFactory, AutoFactoryInit, BaseTest):
                 return TestResult.TRUE
             return TestResult(False, 'Pick Terrain is in the street, but not expected.')
         if self.terrain_location == PickTerrainType.IS_OUTSIDE:
-            is_outside = is_location_outside(context.sim.zone_id, context.pick.location, context.pick.level)
+            is_outside = is_location_outside(pick_info.location, pick_info.level)
             if is_outside:
                 return TestResult.TRUE
             return TestResult(False, 'Pick Terrain is not outside')

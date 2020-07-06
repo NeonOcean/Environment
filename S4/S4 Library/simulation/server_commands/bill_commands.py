@@ -75,7 +75,8 @@ def force_bills_due(_connection=None):
         previous_send_notification = bills_manager.bill_notifications_enabled
         bills_manager.bill_notifications_enabled = False
         bills_manager.allow_bill_delivery()
-        bills_manager.trigger_bill_notifications_from_delivery()
+        if bills_manager.current_payment_owed is not None:
+            bills_manager.trigger_bill_notifications_from_delivery()
         bills_manager.bill_notifications_enabled = previous_send_notification
 
 @sims4.commands.Command('bills.put_bills_in_hidden_inventory')

@@ -1,6 +1,7 @@
 import _trace
 import builtins
 import datetime
+import inspect
 import os
 import re
 import sys
@@ -31,6 +32,8 @@ ASSERT_RESULT_RETRY = 2
 ASSERT_RESULT_IGNORE = 3
 ASSERT_RESULT_DISABLE = 5
 CONSOLE_COLORS = {(LEVEL_INFO, 'Status'): ConsoleColor.GREEN, (LEVEL_INFO, 'Always'): ConsoleColor.BLUE, LEVEL_WARN: ConsoleColor.YELLOW, LEVEL_ERROR: ConsoleColor.RED, LEVEL_EXCEPTION: ConsoleColor.YELLOW | ConsoleColor.BG_DARK_RED}
+DEFAULT_STACK_TRACE_BLACKLIST = frozenset({'log.py', 'gsi_dump_handlers.py', 'developer_commands.py', 'dump.py'})
+DEFAULT_STACK_TRACE_VARIABLE_STR_SIZE_LIMIT = 1024
 sim_error_dialog_enabled = True
 sim_error_dialog_ignore = set()
 callback_on_error_or_exception = None
@@ -148,11 +151,18 @@ def exception(group, message, *args, exc=None, log_current_callstack=True, frame
         message += headline
     message_base = message
     tbx = tb.split('\n', 1)
+    tbxx = tbx[1].rsplit('\n', 2)
     message += '\n' + tbx[0] + '\n'
     if log_current_callstack:
         message += log_current_callstack_prefix
-        message += ''.join(traceback.format_stack(frame))
-    message += tbx[1]
+        last_tb = exc_tb
+        while last_tb.tb_next:
+            last_tb = last_tb.tb_next
+        message = generate_message_with_callstack(message, frame=last_tb.tb_frame)
+    else:
+        message += tbxx[0]
+    message += tbxx[1]
+    exc_tb = None
     blank_line(group, level, frame, ring_bell=ring_bell_on_exception)
     _trace.trace(TYPE_LOG, message, group, level, get_log_zone(), frame, color=get_console_color(level, group))
     call_callback_on_error_or_exception(message)
@@ -198,21 +208,51 @@ def sim_error_dialog(message, exc_tb, exc_tb_text, level=LEVEL_EXCEPTION):
     elif result == ASSERT_RESULT_IGNORE:
         sim_error_dialog_ignore.add(exc_loc)
 
-def generate_message_with_callstack(message, *args, frame=DEFAULT, owner=None):
+def generate_message_with_callstack(message, *args, frame=DEFAULT, owner=None, std_format=False, blacklist=DEFAULT_STACK_TRACE_BLACKLIST, variable_size_limit=DEFAULT_STACK_TRACE_VARIABLE_STR_SIZE_LIMIT):
     if owner:
         message = ('[{owner}] ' + message).format(*args, owner=owner)
     elif args:
         message = message.format(*args)
     if frame is DEFAULT:
         frame = sys._getframe(1)
-    tb = traceback.format_stack(frame)
-    tb = ''.join(tb)
-    return '{0}\n{1}'.format(message, tb)
+    if std_format:
+        tb = traceback.format_stack(frame)
+        tb = ''.join(tb)
+        return '{0}\n{1}'.format(message, tb)
+    stack = []
+    while frame:
+        stack.append(frame)
+        frame = frame.f_back
+    stack.reverse()
+    for frame in stack:
+        co_filename = frame.f_code.co_filename
+        if blacklist and any(blacklisted_string in co_filename for blacklisted_string in blacklist):
+            continue
+        message += '\n  File "{}", line {}, in {}'.format(co_filename, frame.f_lineno, frame.f_code.co_name)
+        longest_key = sorted([len(key) for key in frame.f_locals.keys()], reverse=True)
+        if not longest_key:
+            continue
+        longest_key_format = '\n    {:>' + str(longest_key[0]) + '} : '
+        message += ' ['
+        for (key, value) in frame.f_locals.items():
+            message += longest_key_format.format(key)
+            try:
+                value_str = str(value)
+                if variable_size_limit is not None:
+                    if len(value_str) > variable_size_limit:
+                        value_str = '"' + value_str[:variable_size_limit] + '..."'
+                message += value_str + ','
+            except:
+                message += '<error formatting>,'
+        message = message[:-1]
+        message += ']'
+    message += '\n'
+    return message
 
 def callstack(group, message, *args, level=LEVEL_DEBUG, frame=DEFAULT, owner=None):
     if frame is DEFAULT:
         frame = sys._getframe(1)
-    msg = generate_message_with_callstack(message, *args, frame=frame, owner=owner)
+    msg = generate_message_with_callstack(message, *args, frame=frame, owner=owner, std_format=level < LEVEL_ERROR)
     _trace.trace(TYPE_LOG, msg, group, level, get_log_zone(), frame, color=get_console_color(level, group))
 
 vars(builtins)['_macro_should_trace'] = should_trace
@@ -409,8 +449,7 @@ class _BaseLogger:
         return self.log(message, *args, exc=exc, **kwargs)
 
     def callstack(self, message, *args, **kwargs):
-        message += '\n{}'
-        args += (''.join(traceback.format_stack()),)
+        message = generate_message_with_callstack(message, *args, **kwargs)
         return self.log(message, *args, **kwargs)
 
     def assert_log(self, condition, message, *args, level=LEVEL_ERROR, **kwargs):

@@ -1,4 +1,4 @@
-# (C) Copyright 2018-2019 by Rocky Bernstein
+# (C) Copyright 2018-2020 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -29,8 +29,8 @@ there). Details of the format may change between Python versions.
 
 import types, struct
 
-from xdis import PYTHON_VERSION, PYTHON3
-from xdis.code import Code2, Code2Compat, Code3, Code3Compat
+from xdis.version_info import PYTHON_VERSION, PYTHON3
+from xdis.codetype import Code2, Code3
 
 try:
     intern
@@ -97,6 +97,9 @@ class _Marshaller:
         self.python_version = python_version
 
     def dump(self, x):
+        if isinstance(x, types.CodeType) and PYTHON_VERSION != self.version:
+            raise RuntimeError("code type passed for version %s but we are running version %s" %
+                               (PYTHON_VERSION, self.version))
         try:
             self.dispatch[type(x)](self, x)
         except KeyError:
@@ -328,13 +331,14 @@ class _Marshaller:
         return
 
     dispatch[Code2] = dump_code2
-    dispatch[Code2Compat] = dump_code2
 
     # FIXME: will probably have to adjust similar to how we
     # adjusted dump_code2
     def dump_code3(self, x):
         self._write(TYPE_CODE)
         self.w_long(x.co_argcount)
+        if hasattr(x, "co_posonlyargcount"):
+            self.w_long(x.co_posonlyargcount)
         self.w_long(x.co_kwonlyargcount)
         self.w_long(x.co_nlocals)
         self.w_long(x.co_stacksize)
@@ -351,7 +355,6 @@ class _Marshaller:
         self.dump(x.co_lnotab)
 
     dispatch[Code3] = dump_code3
-    dispatch[Code3Compat] = dump_code3
 
     try:
         if PYTHON3:
@@ -948,9 +951,10 @@ class _FastUnmarshaller:
         firstlineno = _r_long(self)
         lnotab = self.load()
         if PYTHON3:
+            if isinstance(name, bytes):
+                name = name.decode()
             return Code2(
                 argcount,
-                0,
                 nlocals,
                 stacksize,
                 flags,
@@ -1029,23 +1033,40 @@ def dumps(x, version=version, python_version=None):
     m = _Marshaller(buffer.append, python_version=python_version)
     m.dump(x)
     if python_version:
-        is_python3 = python_version >= "3.0"
+        is_python3 = python_version >= 3.0
     else:
         is_python3 = PYTHON3
 
     if is_python3:
+        if PYTHON_VERSION >= 3.0:
+            # Python 3.x handling  Python 3.x
+            buf = []
+            for b in buffer:
+                if isinstance(b, str) and PYTHON3:
+                    s2b = bytes(ord(b[j]) for j in range(len(b)))
+                    buf.append(s2b)
+                elif isinstance(b, bytearray):
+                    buf.append(str(b))
+                else:
+                    buf.append(b)
+            return b"".join(buf)
+        else:
+            # Python 2.x handling Python 3.x
+            buf = b""
+            for b in buffer:
+                buf += b.decode(errors="ignore")
+                pass
+            return buf
+    else:
+        # Python 2 or 3 handling Python 2.x
         buf = []
         for b in buffer:
-            if isinstance(b, str) and PYTHON3:
-                s2b = bytes(ord(b[j]) for j in range(len(b)))
-                buf.append(s2b)
-            elif isinstance(b, bytearray):
-                buf.append(str(b))
+            if isinstance(b, bytes):
+                buf.append(b.decode())
             else:
                 buf.append(b)
-        return b"".join(buf)
-    else:
-        return "".join(buffer)
+
+        return "".join(buf)
 
 
 @builtinify

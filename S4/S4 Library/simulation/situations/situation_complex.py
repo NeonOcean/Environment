@@ -131,11 +131,16 @@ class SituationState:
     def _get_role_state_overrides(self, sim, job_type, role_state_type, role_affordance_target):
         return (role_state_type, role_affordance_target)
 
-    def _create_or_load_alarm(self, alarm_name, minutes, callback, repeating=False, use_sleep_time=False, should_persist=True, reader=None):
+    def _create_or_load_alarm(self, alarm_name, minutes, callback, **kwargs):
+        self._create_or_load_alarm_with_timespan(alarm_name, clock.interval_in_sim_minutes(minutes), callback, **kwargs)
+
+    def _create_or_load_alarm_with_timespan(self, alarm_name, time_span, callback, repeating=False, use_sleep_time=False, should_persist=True, reader=None):
         if reader is not None:
             if should_persist:
-                minutes = reader.read_float(alarm_name, minutes)
-        alarm_handle = alarms.add_alarm(self, clock.interval_in_sim_minutes(minutes), callback, repeating=repeating, use_sleep_time=use_sleep_time)
+                minutes = reader.read_float(alarm_name, None)
+                if minutes is not None:
+                    time_span = clock.interval_in_sim_minutes(minutes)
+        alarm_handle = alarms.add_alarm(self, time_span, callback, repeating=repeating, use_sleep_time=use_sleep_time)
         self._alarms[alarm_name] = _StateAlarm(alarm_handle, should_persist)
 
     def _cancel_alarm(self, alarm_name):

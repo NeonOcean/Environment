@@ -85,26 +85,31 @@ class HolidayService(Service):
         resolver = DataResolver(None)
         season_service = services.season_service()
         current_season_length = season_service.season_length_option
-        season_data = {season_type: season_content for (season_type, season_content) in season_service.get_four_seasons()}
         drama_scheduler = services.drama_scheduler_service()
         (season, day) = self._holiday_times[current_season_length].get_holiday_data(holiday_id)
         if season is None:
             logger.error('Trying to schedule holiday of id {} which is not actually scheduled to run at any time.')
             return
-        holiday_start_time = season_data[season].start_time + create_time_span(days=day)
-        drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
+        for (season_type, season_content) in season_service.get_seasons_for_scheduling():
+            if season_type != season:
+                continue
+            holiday_start_time = season_content.start_time + create_time_span(days=day)
+            drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
 
     def _schedule_all_holidays(self, holiday_ids_to_ignore=()):
         resolver = DataResolver(None)
         season_service = services.season_service()
         current_season_length = season_service.season_length_option
-        season_data = {season_type: season_content for (season_type, season_content) in season_service.get_four_seasons()}
         drama_scheduler = services.drama_scheduler_service()
+        season_data = defaultdict(list)
+        for (season_type, season_content) in season_service.get_seasons_for_scheduling():
+            season_data[season_type].append(season_content)
         for (season, day, holiday_id) in self._holiday_times[current_season_length].holidays_to_schedule_gen():
             if holiday_id in holiday_ids_to_ignore:
                 continue
-            holiday_start_time = season_data[season].start_time + create_time_span(days=day)
-            drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
+            for season_content in season_data[season]:
+                holiday_start_time = season_content.start_time + create_time_span(days=day)
+                drama_scheduler.schedule_node(HolidayService.CUSTOM_HOLIDAY_DRAMA_NODE, resolver, specific_time=holiday_start_time, holiday_id=holiday_id)
 
     def on_season_content_changed(self):
         drama_scheduler = services.drama_scheduler_service()

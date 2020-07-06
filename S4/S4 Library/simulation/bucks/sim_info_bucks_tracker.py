@@ -15,8 +15,8 @@ class SimInfoBucksTracker(BucksTrackerBase):
         op = SetBuckFunds(bucks_type, self._bucks[bucks_type], sim_id=self._owner.id)
         Distributor.instance().add_op_with_no_owner(op)
 
-    def unlock_perk(self, perk, unlocked_by=None):
-        super().unlock_perk(perk, unlocked_by=unlocked_by)
+    def unlock_perk(self, perk, unlocked_by=None, suppress_telemetry=False):
+        super().unlock_perk(perk, unlocked_by=unlocked_by, suppress_telemetry=suppress_telemetry)
         self._owner.trait_tracker.update_day_night_tracking_state(force_update=True)
 
     def lock_perk(self, perk, refund_cost=False, distribute=True):

@@ -81,7 +81,7 @@ class EventDataTracker:
         self._event_trackers[objective].clear()
         del self._event_trackers[objective]
 
-    def handle_event(self, milestone, event, resolver):
+    def handle_event(self, milestone, event, resolver, debug_objectives_to_force_complete=None):
         if not self._should_handle_event(milestone, event, resolver):
             return
         log_enabled = archiver.enabled and not resolver.on_zone_load
@@ -93,10 +93,15 @@ class EventDataTracker:
             objectives_completed = 0
             for objective in milestone.objectives:
                 milestone_event_data = None
-                if not self.objective_completed(objective):
+                if self.objective_completed(objective):
+                    objectives_completed += 1
+                else:
                     if log_enabled:
                         milestone_event_data = self.gsi_event_data(milestone, objective, True, 'Objective Completed')
-                    test_result = objective.run_test(event, resolver, self)
+                    if debug_objectives_to_force_complete and objective in debug_objectives_to_force_complete:
+                        test_result = objective.increment_data(resolver, self)
+                    else:
+                        test_result = objective.run_test(event, resolver, self)
                     if test_result:
                         self.complete_objective(objective)
                         objectives_completed += 1
@@ -106,13 +111,9 @@ class EventDataTracker:
                         if log_enabled:
                             milestone_event_data['test_result'] = test_result.reason
                             milestone_event_data['completed'] = False
+                            milestone_process_data.append(milestone_event_data)
                         if isinstance(test_result, TestResultNumeric):
                             self.update_objective(objective, test_result.current_value, test_result.goal_value, test_result.is_money)
-                else:
-                    objectives_completed += 1
-                if log_enabled:
-                    if milestone_event_data is not None:
-                        milestone_process_data.append(milestone_event_data)
             if objectives_completed >= self.required_completion_count(milestone):
                 self.complete_milestone(milestone, resolver.sim_info)
                 milestone_was_completed = True

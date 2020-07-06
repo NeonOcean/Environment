@@ -102,6 +102,7 @@ class ClientObjectMixin:
         self._swapping_from_parent = None
         self._on_children_changed = None
         self.allow_opacity_change = True
+        self._wind_speed_effect = None
 
     def get_create_op(self, *args, **kwargs):
         additional_ops = list(self.get_additional_create_ops_gen())
@@ -1139,3 +1140,11 @@ class ClientObjectMixin:
     @scratched.setter
     def scratched(self, scratched):
         self._scratched = scratched
+
+    @distributor.fields.Field(op=distributor.ops.SetWindSpeedEffect, default=None)
+    def wind_speed_level(self):
+        return self._wind_speed_effect
+
+    @wind_speed_level.setter
+    def wind_speed_level(self, value):
+        self._wind_speed_effect = value.wind_speed

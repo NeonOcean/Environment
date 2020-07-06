@@ -1720,10 +1720,10 @@ class InteractionQueue(HasTunableFactory, AutoFactoryInit):
             if not success:
                 interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='InteractionQueue: failed to append interaction')
                 return success
-            if interaction.is_user_directed:
-                self._on_user_driven_action()
             interaction_id_to_insert_after = insert_after_interaction.id if insert_after_interaction is not None else None
             interaction.on_added_to_queue(interaction_id_to_insert_after=interaction_id_to_insert_after)
+            if interaction.is_user_directed:
+                self._on_user_driven_action()
             if interaction.context.must_run_next:
                 if self._must_run_next_interaction is not None:
                     self._must_run_next_interaction.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='must_run_next inserted again: {} canceled by {}'.format(self._must_run_next_interaction, interaction))

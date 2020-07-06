@@ -60,7 +60,7 @@ class _WaypointGeneratorPacing(_WaypointGeneratorBase):
         handles = object_radius_constraint.get_connectivity_handles(routing_agent)
         for handle in handles:
             area_goals.extend(handle.get_goals(relative_object=self._target, always_reject_invalid_goals=True))
-        area_goals = [goal for goal in area_goals if is_location_outside(goal.location.routing_surface.primary_id, goal.position, goal.location.routing_surface.secondary_id)]
+        area_goals = [goal for goal in area_goals if is_location_outside(goal.position, goal.location.routing_surface.secondary_id)]
         if not (self.outside_only and area_goals):
             yield Circle(target_position, self.constraint_parameters.object_constraint_radius, routing_surface=self._start_constraint.routing_surface, los_reference_point=self._los_reference_point, min_water_depth=water_constraint.get_min_water_depth(), max_water_depth=water_constraint.get_max_water_depth())
             return

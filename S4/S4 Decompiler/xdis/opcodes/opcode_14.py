@@ -1,4 +1,4 @@
-# (C) Copyright 2018-2019 by Rocky Bernstein
+# (C) Copyright 2018-2020 by Rocky Bernstein
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -21,12 +21,13 @@ opcodes in Python's dis.py library.
 """
 
 # This is used from outside this module
-from xdis.bytecode import findlabels
+from xdis.cross_dis import findlabels
 
 import xdis.opcodes.opcode_15 as opcode_15
 from xdis.opcodes.base import (
     init_opdata,
     def_op,
+    extended_format_RETURN_VALUE,
     name_op,
     varargs_op,
     finalize_opcodes,
@@ -36,6 +37,7 @@ from xdis.opcodes.base import (
 )
 
 version = 1.4
+python_implementation = "CPython"
 
 l = locals()
 init_opdata(l, opcode_15, version)
@@ -57,7 +59,6 @@ opcode_arg_fmt = {"EXTENDED_ARG": format_extended_arg}
 
 finalize_opcodes(l)
 
-
 def findlinestarts(co, dup_lines=False):
     code = co.co_code
     n = len(code)
@@ -73,3 +74,7 @@ def findlinestarts(co, dup_lines=False):
             offset += 2
             pass
         pass
+
+opcode_extended_fmt = {
+    "RETURN_VALUE": extended_format_RETURN_VALUE,
+}

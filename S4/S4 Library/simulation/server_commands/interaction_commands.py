@@ -194,7 +194,7 @@ def should_generate_pie_menu(client, sim, shift_held):
 def _get_targets_from_pick(sim, pick_target, pick_type:PickType, position, level:int, zone_id:int, lot_id:int, is_routable:bool, preferred_objects=()):
     potential_targets = []
     pool_block_id = 0
-    if sim is not None and pick_type not in PICK_NEVER_USE_POOL and build_buy.is_location_pool(zone_id, position, level):
+    if sim is not None and pick_type not in PICK_NEVER_USE_POOL and build_buy.is_location_pool(position, level):
         routing_surface = routing.SurfaceIdentifier(zone_id, level, routing.SurfaceType.SURFACETYPE_POOL)
         pool_block_id = build_buy.get_block_id(sim.zone_id, position, level - 1)
     else:

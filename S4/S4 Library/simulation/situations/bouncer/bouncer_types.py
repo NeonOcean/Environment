@@ -52,6 +52,7 @@ class BouncerExclusivityCategory(enum.IntFlags):
     NEUTRAL_UNPOSSESSABLE = 8388608
     NORMAL_UNPOSSESSABLE = 16777216
     ROOMMATE = 33554432
+    FIRE_BRIGADE = 67108864
 
 class BouncerExclusivityOption(enum.Int):
     NONE = 0

@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2018 Rocky Bernstein
+#  Copyright (c) 2016-2018, 2020 Rocky Bernstein
 """
 spark grammar differences over Python2.5 for Python 2.4.
 """
@@ -38,8 +38,23 @@ class Python24Parser(Python25Parser):
         _ifstmts_jump24 ::= c_stmts_opt JUMP_FORWARD POP_TOP
 
         # Python 2.5+ omits POP_TOP POP_BLOCK
-        while1stmt ::= SETUP_LOOP l_stmts_opt JUMP_BACK POP_TOP POP_BLOCK COME_FROM
-        while1stmt ::= SETUP_LOOP l_stmts_opt JUMP_BACK POP_TOP POP_BLOCK
+        while1stmt ::= SETUP_LOOP l_stmts_opt JUMP_BACK
+                       POP_TOP POP_BLOCK COME_FROM
+        while1stmt ::= SETUP_LOOP l_stmts_opt JUMP_BACK
+                       POP_TOP POP_BLOCK
+
+        continue   ::= JUMP_BACK JUMP_ABSOLUTE
+
+        # Python 2.4
+        # The following has no "JUMP_BACK" after l_stmts because
+        # l_stmts ends in a "break", "return", or "continue"
+        while1stmt ::= SETUP_LOOP l_stmts
+                       POP_TOP POP_BLOCK
+
+        # The following has a "COME_FROM" at the end which comes from
+        # a "break" inside "l_stmts".
+        while1stmt ::= SETUP_LOOP l_stmts COME_FROM JUMP_BACK
+                       POP_TOP POP_BLOCK COME_FROM
 
         # Python 2.5+:
         #  call_stmt ::= expr POP_TOP
@@ -56,6 +71,12 @@ class Python24Parser(Python25Parser):
         kv2    ::= DUP_TOP expr expr ROT_THREE STORE_SUBSCR
         '''
 
+    def remove_rules_24(self):
+        self.remove_rules("""
+        expr ::= if_exp
+        """)
+
+
     def customize_grammar_rules(self, tokens, customize):
         self.remove_rules("""
         gen_comp_body ::= expr YIELD_VALUE POP_TOP
@@ -67,11 +88,12 @@ class Python24Parser(Python25Parser):
         with_cleanup  ::= LOAD_FAST DELETE_FAST WITH_CLEANUP END_FINALLY
         with_cleanup  ::= LOAD_NAME DELETE_NAME WITH_CLEANUP END_FINALLY
         withasstmt    ::= expr setupwithas store suite_stmts_opt POP_BLOCK LOAD_CONST COME_FROM with_cleanup
-        withstmt      ::= expr setupwith SETUP_FINALLY suite_stmts_opt POP_BLOCK LOAD_CONST COME_FROM with_cleanup
-        stmt ::= withstmt
+        with          ::= expr setupwith SETUP_FINALLY suite_stmts_opt POP_BLOCK LOAD_CONST COME_FROM with_cleanup
+        stmt ::= with
         stmt ::= withasstmt
         """)
         super(Python24Parser, self).customize_grammar_rules(tokens, customize)
+        self.remove_rules_24()
         if self.version == 2.4:
             self.check_reduce['nop_stmt'] = 'tokens'
 

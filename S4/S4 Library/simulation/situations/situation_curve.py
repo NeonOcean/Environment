@@ -1,7 +1,7 @@
 import operator
 from event_testing.resolver import GlobalResolver
 from event_testing.tests import TunableTestSet
-from scheduler import TunableDayAvailability
+from scheduler_utils import TunableDayAvailability
 from sims4 import random
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableTuple, TunableMapping, Tunable, TunableLiteralOrRandomValue, TunedIntervalLiteral, TunableFactory, TunedInterval
 from situations.situation import Situation

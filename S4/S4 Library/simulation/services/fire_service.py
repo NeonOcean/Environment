@@ -2,7 +2,7 @@ import itertools
 import random
 import weakref
 from protocolbuffers import Consts_pb2
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, SingleObjectResolver, GlobalResolver
 from event_testing.results import TestResult
 from event_testing.test_events import TestEvent
 from event_testing.tests import TunableTestSet
@@ -25,11 +25,13 @@ from sims4.localization import TunableLocalizedStringFactory
 from sims4.localization.localization_tunables import LocalizedStringHouseholdNameSelector
 from sims4.service_manager import Service
 from sims4.tuning.geometric import TunableVector2
-from sims4.tuning.tunable import TunableReference, Tunable, TunableRange, TunableInterval, TunableList, TunablePercent, TunableEnumEntry
+from sims4.tuning.tunable import TunableReference, Tunable, TunableRange, TunableInterval, TunableList, TunablePercent, TunableEnumEntry, TunableTuple
 from singletons import DEFAULT
 from situations import situation_complex
 from situations.situation import Situation
 from situations.situation_guest_list import SituationGuestList, SituationGuestInfo, SituationInvitationPurpose
+from tunable_multiplier import TunableMultiplier
+from tunable_utils.tested_list import TunableTestedList
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet, UiDialogNotification
 from vfx import PlayEffect
 import alarms
@@ -52,6 +54,7 @@ class FireService(Service):
     FIRE_OBJECT_DEF = TunableReference(manager=services.definition_manager())
     FIRE_OBJECT_FIRE_STATE = ObjectState.TunableReference(description='The ObjectState used to track a fire objects progress. Do not Tune.')
     FIRE_OBJECT_EXTINGUISHED_STATE_VALUE = ObjectStateValue.TunableReference(description='The ObjectStateValue a fire object has when the fire has been extinguished or just burnt out. Do Not Tune.')
+    FIRE_OBJECT_SPREAD_CHANCE = TunableMultiplier.TunableFactory(description='\n        Tested multipliers applied on a fire object to decide how likely this\n        fire object to spread.\n        ')
     FIRE_SPREAD_INTIAL_TIME_IN_SIM_MINUTES = Tunable(description='\n        Initial time in sim minutes to wait when a fire first breaks out on a \n        lot before trying to spread the fire.\n        ', tunable_type=int, default=15)
     FIRE_SPREAD_REPEATING_TIME_IN_SIM_MINUTES = Tunable(description='\n        How long in Sim minutes to wait between each check for whether or\n        not fire should spread.\n        ', tunable_type=int, default=15)
     FIRE_SPREAD_CHANCE = TunableRange(description='\n        A value between 0 - 1 that is how likely fire is to spread once \n        the spread timer goes off.\n        ', minimum=0, maximum=1, tunable_type=float, default=0.9)
@@ -67,7 +70,7 @@ class FireService(Service):
     FIRE_SIM_ON_FIRE_CHANCE = SuccessChance.TunableFactory(description='\n        The chance that a sim will catch on fire, modified by tested multipliers.\n        ')
     FIRE_CAN_SPREAD_TO_SIM_TESTS = TunableTestSet(description='\n        A tunable set of tests which Sims are required to pass in order for\n        fire to be placed at their location. If the tests fail fire will fail\n        to spread to their location and they will not catch fire as a result.\n        ')
     FIRE_SITUATION = TunableReference(description='\n        A reference to the fire situation to use on Sims that are on a lot\n        with a fire.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))
-    FIRE_BRIGADE_SITUATION = TunableReference(description='\n        A reference to a fire brigade situation that has a tunable chance of \n        getting spun up when a fire occurs. This summons a volunteer\n        fire brigade that will attempt to put out the fire.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION))
+    FIRE_BRIGADE_SITUATION = TunableTestedList(description='\n        A tested list of fire brigade situations that have a tunable chance of \n        getting spun up when a fire occurs. This summons a volunteer\n        fire npc that will attempt to put out the fire.\n        ', tunable_type=TunableTuple(situation=TunableReference(description='\n                situation that will get created.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION)), chance=TunablePercent(description='\n                The base chance that the situation will appear when the \n                fire service begins.\n                ', default=80)))
     FIRE_JOB = TunableReference(description='\n        A reference to the fire job that Sims will have in the fire situation\n        while there is a fire on the lot.\n        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION_JOB))
     FIRE_PANIC_BUFFS = TunableList(TunableReference(manager=services.get_instance_manager(sims4.resources.Types.BUFF)), description='\n                                       A List of Buffs that indicate a Sim is\n                                       in a panic state because of fire. This\n                                       will be used to limit their behaviors\n                                       while they are aware of a fire on the\n                                       lot.\n                                       ')
     SAVE_LOCK_TOOLTIP = TunableLocalizedStringFactory(description='The tooltip/message to show when the player tries to save the game while a fire situation is happening')
@@ -108,7 +111,6 @@ class FireService(Service):
         super().__init__(**kwargs)
         self._fire_objects = weakref.WeakSet()
         self._situation_ids = {}
-        self._fire_brigade_situation_sim_ids = []
         self._fire_brigade_situation_id = None
         self._fire_spread_alarm = None
         self._fire_quadtree = None
@@ -144,6 +146,30 @@ class FireService(Service):
     @property
     def flammable_objects_quadtree(self):
         return self._flammable_objects_quadtree
+
+    @property
+    def fire_brigade_situation_id(self):
+        if self._fire_brigade_situation_id is not None:
+            return self._fire_brigade_situation_id
+        situation_manager = services.get_zone_situation_manager()
+        if situation_manager is None:
+            return
+        for possible_situation in self.FIRE_BRIGADE_SITUATION:
+            situation = situation_manager.get_situation_by_type(possible_situation.item.situation)
+            if situation is None:
+                continue
+            self._fire_brigade_situation_id = situation.id
+            return self._fire_brigade_situation_id
+
+    def is_sim_in_fire_brigade_situation(self, sim, situation_manager=None):
+        if situation_manager is None:
+            situation_manager = services.current_zone().situation_manager
+        fire_brigade_situation_id = self.fire_brigade_situation_id
+        if fire_brigade_situation_id is not None:
+            fire_brigade_situation = situation_manager.get(fire_brigade_situation_id)
+            if fire_brigade_situation is not None and fire_brigade_situation.is_sim_in_situation(sim):
+                return True
+        return False
 
     def has_toddler_to_save_for_sim(self, saver_sim_info):
         if self._toddlers_to_save:
@@ -260,7 +286,8 @@ class FireService(Service):
         if not services.active_lot().is_position_on_lot(transform.translation):
             logger.info('Trying to spawn fire on a lot other than the active lot.')
             return False
-        if not services.venue_service().venue.allows_fire:
+        venue = services.venue_service().active_venue
+        if venue is None or not venue.allows_fire:
             logger.info("Trying to spawn a fire on a venue that doesn't allow fire.")
             return False
         elif run_placement_tests and not self._placement_tests(transform.translation, routing_surface):
@@ -328,6 +355,10 @@ class FireService(Service):
         for attempt in range(self.MAX_NUM_ATTEMPTS_TO_PLACE_FIRE):
             logger.debug('Attempt {} to spread fire.', attempt)
             fire_object = random.choice(fire_object_list)
+            resolver = SingleObjectResolver(fire_object)
+            chance = self.FIRE_OBJECT_SPREAD_CHANCE.get_multiplier(resolver)
+            if random.random() > chance:
+                continue
             distance_in_radii = self.FIRE_PLACEMENT_RANGE.random_float()*self.FIRE_QUADTREE_RADIUS
             new_position = fire_object.position + fire_object.forward*distance_in_radii
             new_position.y = terrain.get_terrain_height(new_position.x, new_position.z, fire_object.routing_surface)
@@ -342,7 +373,7 @@ class FireService(Service):
     def _placement_tests(self, new_position, surface_id=None, fire_object=None):
         zone_id = services.current_zone_id()
         if surface_id is not None:
-            if not build_buy.has_floor_at_location(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id) or build_buy.is_location_pool(zone_id, new_position, surface_id.secondary_id + 1):
+            if not build_buy.has_floor_at_location(new_position, surface_id.secondary_id) or build_buy.is_location_pool(new_position, surface_id.secondary_id) or build_buy.is_location_pool(new_position, surface_id.secondary_id + 1):
                 logger.debug("failed to place fire at a location because there is no floor or it's pool.")
                 return False
             if terrain.get_water_depth(new_position.x, new_position.z) > 0:
@@ -501,7 +532,6 @@ class FireService(Service):
             self._alerted_sims = False
             self._advance_situations_to_postfire()
             self._advance_fire_brigade_to_postfire()
-            self._fire_brigade_situation_sim_ids = []
             self._fire_brigade_situation_id = None
             self._award_insurance_money()
             services.get_persistence_service().unlock_save(self)
@@ -573,24 +603,29 @@ class FireService(Service):
         self._reset_situations_to_unaware()
         situation_manager = services.current_zone().situation_manager
         for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-            self._create_fire_situation_on_sim(sim, situation_manager=situation_manager)
+            if not self.is_sim_in_fire_brigade_situation(sim, situation_manager=situation_manager):
+                self._create_fire_situation_on_sim(sim, situation_manager=situation_manager)
 
     def _start_fire_brigade_situation(self):
-        if self.FIRE_BRIGADE_SITUATION is None:
+        if self.fire_brigade_situation_id is not None:
             return
-        if not self.FIRE_BRIGADE_SITUATION.should_create_volunteer_brigade():
-            return
+        sim_info = services.active_sim_info()
         situation_manager = services.current_zone().situation_manager
-        guest_list = self.FIRE_BRIGADE_SITUATION.get_predefined_guest_list()
-        situation_id = situation_manager.create_situation(self.FIRE_BRIGADE_SITUATION, guest_list=guest_list, user_facing=False)
-        self._fire_brigade_situation_id = situation_id
-        for x in guest_list.invited_guest_infos_gen():
-            self._fire_brigade_situation_sim_ids.append(x.sim_id)
+        if sim_info is None:
+            resolver = GlobalResolver()
+        else:
+            resolver = SingleSimResolver(sim_info)
+        for fire_brigade_situation in self.FIRE_BRIGADE_SITUATION(resolver=resolver):
+            if random.random() > fire_brigade_situation.chance:
+                continue
+            guest_list = fire_brigade_situation.situation.get_predefined_guest_list()
+            situation_id = situation_manager.create_situation(fire_brigade_situation.situation, guest_list=guest_list, user_facing=False)
+            self._fire_brigade_situation_id = situation_id
+            if situation_id:
+                break
 
     def _create_fire_situation_on_sim(self, sim, situation_manager=None):
         if sim.id in self._situation_ids:
-            return
-        if sim.id in self._fire_brigade_situation_sim_ids:
             return
         if situation_manager is None:
             situation_manager = services.current_zone().situation_manager
@@ -649,11 +684,14 @@ class FireService(Service):
                 self.unregister_for_panic_callback()
                 for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
                     if sim_on_lot is not sim:
-                        self._push_fire_reaction_affordance(sim_on_lot, resolver.interaction.target)
+                        if not self.is_sim_in_fire_brigade_situation(sim):
+                            self._push_fire_reaction_affordance(sim_on_lot, resolver.interaction.target)
         if event is TestEvent.SimActiveLotStatusChanged and resolver.get_resolved_arg('on_active_lot'):
             sim = sim_info.get_sim_instance()
             if sim is not None:
-                self._create_fire_situation_on_sim(sim)
+                situation_manager = services.get_zone_situation_manager()
+                if not self.is_sim_in_fire_brigade_situation(sim, situation_manager=situation_manager):
+                    self._create_fire_situation_on_sim(sim, situation_manager=situation_manager)
 
     def _advance_situations_to_postfire(self):
         self._toddlers_to_save = None
@@ -666,9 +704,9 @@ class FireService(Service):
                         situation.advance_to_post_fire()
 
     def _advance_fire_brigade_to_postfire(self):
-        if self._fire_brigade_situation_id is None:
+        if self.fire_brigade_situation_id is None:
             return
-        fire_brigade_situation = services.get_zone_situation_manager().get(self._fire_brigade_situation_id)
+        fire_brigade_situation = services.get_zone_situation_manager().get(self.fire_brigade_situation_id)
         if fire_brigade_situation is None:
             return
         fire_brigade_situation.advance_to_post_fire()
@@ -780,14 +818,14 @@ class FireService(Service):
             if fires_in_range:
                 deactivated_fire_alarm.set_state(self.FIRE_ALARM_ACTIVE_STATE.state, self.FIRE_ALARM_ACTIVE_STATE)
                 self._activated_fire_alarms.add(deactivated_fire_alarm)
-        if not self._alerted_sims:
-            if self._activated_fire_alarms:
+        if self._activated_fire_alarms:
+            self._start_fire_brigade_situation()
+            if not self._alerted_sims:
                 self.alert_all_sims()
                 fire_object = next(iter(self._fire_objects))
                 for sim_on_lot in services.sim_info_manager().instanced_sims_on_active_lot_gen():
-                    if sim_on_lot.sim_id in self._fire_brigade_situation_sim_ids:
-                        continue
-                    self._push_fire_reaction_affordance(sim_on_lot, fire_object)
+                    if not self.is_sim_in_fire_brigade_situation(sim_on_lot):
+                        self._push_fire_reaction_affordance(sim_on_lot, fire_object)
 
     def activate_sprinkler_system(self):
         object_manager = services.object_manager()
@@ -880,7 +918,7 @@ class FireService(Service):
     def _spawn_sprinkler(self, fire):
         zone_id = services.current_zone_id()
         new_level = fire.location.level + 1
-        if not build_buy.has_floor_at_location(zone_id, fire.position, new_level):
+        if not build_buy.has_floor_at_location(fire.position, new_level):
             return
         sprinkler_head = system.create_object(self.SPRINKLER_HEAD_OBJECT_DEF)
         fire_location = fire.location
@@ -907,28 +945,31 @@ class FireService(Service):
         if self.fire_is_active:
             return
         zone_id = services.current_zone_id()
-        list_result = build_buy.list_floor_features(zone_id, build_buy.FloorFeatureType.BURNT)
+        list_result = build_buy.list_floor_features(build_buy.FloorFeatureType.BURNT)
         if list_result:
             with build_buy.floor_feature_update_context(zone_id, build_buy.FloorFeatureType.BURNT):
                 for tile in list_result:
-                    if build_buy.is_location_natural_ground(zone_id, tile[0], tile[1]):
+                    if build_buy.is_location_natural_ground(tile[0], tile[1]):
                         build_buy.remove_floor_feature(build_buy.FloorFeatureType.BURNT, tile[0], tile[1])
 
     def find_cleanable_scorch_mark_locations_within_radius(self, location, level, radius):
         found_scorch_marks = set()
-        zone_id = services.current_zone_id()
         radius_squared = radius*radius
-        all_scorch_marks = build_buy.list_floor_features(zone_id, build_buy.FloorFeatureType.BURNT)
+        all_scorch_marks = build_buy.list_floor_features(build_buy.FloorFeatureType.BURNT)
+        if all_scorch_marks is None:
+            return found_scorch_marks
         for scorch_mark in all_scorch_marks:
             scorch_level = scorch_mark[1]
             if scorch_level == level:
-                if not build_buy.is_location_natural_ground(zone_id, scorch_mark[0], scorch_level):
+                if not build_buy.is_location_natural_ground(scorch_mark[0], scorch_level):
                     scorch_location = scorch_mark[0]
                     if (location - scorch_location).magnitude_squared() <= radius_squared:
                         found_scorch_marks.add(scorch_location)
         return found_scorch_marks
 
     def increment_insurance_claim(self, value, burnt_object):
+        if burnt_object.manager_id == 0:
+            return
         if household_manager.HouseholdManager.get_active_sim_home_zone_id() == burnt_object.zone_id:
             if not self.fire_is_active:
                 return

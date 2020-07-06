@@ -1,11 +1,11 @@
 from interactions.utils.loot_basic_op import BaseTargetedLootOperation
 import sims4.log
-from sims4.tuning.tunable import Tunable
+from sims4.tuning.tunable import Tunable, TunableVariant, TunableTuple
 from tag import TunableTag
 logger = sims4.log.Logger('FavoritesLoot', default_owner='trevor')
 
 class SetFavoriteLootOp(BaseTargetedLootOperation):
-    FACTORY_TUNABLES = {'favorite_type': TunableTag(description='\n            The tag that represents this type of favorite.\n            ', filter_prefixes=('Func',)), 'unset': Tunable(description='\n            If checked, this will unset the target as the favorite instead of setting\n            it.\n            ', tunable_type=bool, default=False)}
+    FACTORY_TUNABLES = {'favorite_type': TunableVariant(description="\n            The type of favorite action to apply.\n            \n            Preferred Object: Sets the object as a sim's preferred object\n            to use for a specific func tag.\n            Favorite Stack: Sets the object's stack of the sim's favorites\n            in their inventory.\n            ", preferred_object=TunableTuple(description='\n                Data for setting this item as preferred.\n                ', tag=TunableTag(description='\n                    The tag that represents this type of favorite.\n                    ', filter_prefixes=('Func',))), locked_args={'favorite_stack': None}, default='preferred_object'), 'unset': Tunable(description='\n            If checked, this will unset the target as the favorite instead of setting\n            it.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, favorite_type, unset, **kwargs):
         super().__init__(**kwargs)
@@ -23,7 +23,14 @@ class SetFavoriteLootOp(BaseTargetedLootOperation):
         if favorites_tracker is None:
             logger.error('Trying to set a favorite for Sim {} but they have no favorites tracker.', subject)
             return
+        if self._favorite_type is not None:
+            if self._unset:
+                favorites_tracker.unset_favorite(self._favorite_type.tag, target.id, target.definition.id)
+            else:
+                favorites_tracker.set_favorite(self._favorite_type.tag, target.id, target.definition.id)
+            return
         if self._unset:
-            favorites_tracker.unset_favorite(self._favorite_type, target.id, target.definition.id)
+            favorites_tracker.unset_favorite_stack(target)
         else:
-            favorites_tracker.set_favorite(self._favorite_type, target.id, target.definition.id)
+            favorites_tracker.set_favorite_stack(target)
+        target.inventoryitem_component.get_inventory().push_inventory_item_stack_update_msg(target)

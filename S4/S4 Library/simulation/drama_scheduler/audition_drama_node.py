@@ -7,7 +7,7 @@ from date_and_time import DateAndTime, TimeSpan
 from distributor.ops import GenericProtocolBufferOp
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
 from distributor.system import Distributor
-from drama_scheduler.drama_node import BaseDramaNode
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.resolver import SingleSimResolver
 from event_testing.tests import TunableTestSet
@@ -25,6 +25,7 @@ import services
 import sims4.log
 AUDITION_TIME_TOKEN = 'audition_time'
 GIG_TIME_TOKEN = 'gig_time'
+RABBIT_HOLE_ID_TOKEN = 'rabbit_hole_id'
 logger = sims4.log.Logger('AuditionDramaNode', default_owner='bosee')
 
 class AuditionDramaNode(BaseDramaNode):
@@ -34,6 +35,7 @@ class AuditionDramaNode(BaseDramaNode):
         super().__init__(*args, **kwargs)
         self._calculated_audition_time = None
         self._calculated_gig_time = None
+        self._rabbit_hole_id = None
 
     @classproperty
     def drama_node_type(cls):
@@ -53,7 +55,7 @@ class AuditionDramaNode(BaseDramaNode):
     def create_picker_row(self, owner=None, **kwargs):
         now_time = services.game_clock_service().now()
         min_audition_time = now_time + self.audition_prep_time()
-        possible_audition_times = self.get_final_times_based_on_schedule(anchor_time=min_audition_time, scheduled_time_only=True)
+        possible_audition_times = self.get_final_times_based_on_schedule(self.min_and_max_times, anchor_time=min_audition_time, scheduled_time_only=True)
         audition_time = min_audition_time
         if possible_audition_times is not None:
             now = services.time_service().sim_now
@@ -92,19 +94,21 @@ class AuditionDramaNode(BaseDramaNode):
         services.calendar_service().remove_on_calendar(self.uid)
         self._send_career_ui_update(is_add=False)
         rabbit_hole_service = services.get_rabbit_hole_service()
-        if rabbit_hole_service.is_in_rabbit_hole(self._receiver_sim_info.id):
-            rabbit_hole_service.remove_rabbit_hole_expiration_callback(self._receiver_sim_info, self._on_sim_return)
+        if self._rabbit_hole_id and rabbit_hole_service.is_in_rabbit_hole(self._receiver_sim_info.id, rabbit_hole_id=self._rabbit_hole_id):
+            rabbit_hole_service.remove_rabbit_hole_expiration_callback(self._receiver_sim_info.id, self._rabbit_hole_id, self._on_sim_return)
         super().cleanup(from_service_stop=from_service_stop)
 
     def resume(self):
-        if not services.get_rabbit_hole_service().is_in_rabbit_hole(self._receiver_sim_info.id):
+        if self._rabbit_hole_id and not services.get_rabbit_hole_service().is_in_rabbit_hole(self._receiver_sim_info.id, rabbit_hole_id=self._rabbit_hole_id):
             services.drama_scheduler_service().complete_node(self.uid)
 
     def _run(self):
         rabbit_hole_service = services.get_rabbit_hole_service()
-        rabbit_hole_service.put_sim_in_managed_rabbithole(self._receiver_sim_info, self.audition_rabbit_hole)
-        rabbit_hole_service.set_rabbit_hole_expiration_callback(self._receiver_sim_info, self._on_sim_return)
-        return False
+        self._rabbit_hole_id = rabbit_hole_service.put_sim_in_managed_rabbithole(self._receiver_sim_info, self.audition_rabbit_hole)
+        if self._rabbit_hole_id is None:
+            self._on_sim_return(canceled=True)
+        rabbit_hole_service.set_rabbit_hole_expiration_callback(self._receiver_sim_info.id, self._rabbit_hole_id, self._on_sim_return)
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def _on_sim_return(self, canceled=False):
         receiver_sim_info = self._receiver_sim_info
@@ -141,13 +145,19 @@ class AuditionDramaNode(BaseDramaNode):
             writer.write_uint64(AUDITION_TIME_TOKEN, self._calculated_audition_time)
         if self._calculated_gig_time is not None:
             writer.write_uint64(GIG_TIME_TOKEN, self._calculated_gig_time)
+        if self._rabbit_hole_id is not None:
+            writer.write_uint64(RABBIT_HOLE_ID_TOKEN, self._rabbit_hole_id)
 
     def _load_custom_data(self, reader):
         self._calculated_audition_time = DateAndTime(reader.read_uint64(AUDITION_TIME_TOKEN, None))
         self._calculated_gig_time = DateAndTime(reader.read_uint64(GIG_TIME_TOKEN, None))
+        self._rabbit_hole_id = reader.read_uint64(RABBIT_HOLE_ID_TOKEN, None)
         rabbit_hole_service = services.get_rabbit_hole_service()
-        if rabbit_hole_service.is_in_rabbit_hole(self._receiver_sim_info.id):
-            rabbit_hole_service.set_rabbit_hole_expiration_callback(self._receiver_sim_info, self._on_sim_return)
+        if not self._rabbit_hole_id:
+            rabbit_hole_service = services.get_rabbit_hole_service()
+            self._rabbit_hole_id = services.get_rabbit_hole_service().get_rabbit_hole_id_by_type(self._receiver_sim_info.id, self.audition_rabbit_hole)
+        if self._rabbit_hole_id and rabbit_hole_service.is_in_rabbit_hole(self._receiver_sim_info.id, rabbit_hole_id=self._rabbit_hole_id):
+            rabbit_hole_service.set_rabbit_hole_expiration_callback(self._receiver_sim_info.id, self._rabbit_hole_id, self._on_sim_return)
         self._send_career_ui_update()
         return True
 

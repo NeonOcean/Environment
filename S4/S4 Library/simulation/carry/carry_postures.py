@@ -351,7 +351,7 @@ class CarryingObject(CarryPosture):
         logger.debug('snap_to_good_location_on_floor could not find good location for {}.', target)
         clear_transform = starting_transform
         clear_routing_surface = starting_routing_surface
-        if not (is_lot_clearing or not build_buy.has_floor_at_location(services.current_zone_id(), starting_transform.translation, starting_routing_surface.secondary_id)):
+        if not (is_lot_clearing or not build_buy.has_floor_at_location(starting_transform.translation, starting_routing_surface.secondary_id)):
             clear_routing_surface = routing.SurfaceIdentifier(services.current_zone_id(), 0, routing.SurfaceType.SURFACETYPE_WORLD)
             ground_position = sims4.math.Vector3(starting_transform.translation.x, starting_transform.translation.y, starting_transform.translation.z)
             ground_position.y = services.terrain_service.terrain_object().get_routing_surface_height_at(starting_transform.translation.x, starting_transform.translation.z, clear_routing_surface)

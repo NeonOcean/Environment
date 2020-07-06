@@ -119,8 +119,8 @@ class Python26Parser(Python2Parser):
         ifelsestmtc ::= testexpr c_stmts_opt ja_cf_pop    else_suitec
 
         # Semantic actions want suite_stmts_opt to be at index 3
-        withstmt ::= expr setupwith SETUP_FINALLY suite_stmts_opt
-                     POP_BLOCK LOAD_CONST COME_FROM WITH_CLEANUP END_FINALLY
+        with        ::= expr setupwith SETUP_FINALLY suite_stmts_opt
+                        POP_BLOCK LOAD_CONST COME_FROM WITH_CLEANUP END_FINALLY
 
         # Semantic actions want store to be at index 2
         withasstmt ::= expr setupwithas store suite_stmts_opt
@@ -169,6 +169,7 @@ class Python26Parser(Python2Parser):
         # Semantic actions want the else to be at position 3
         ifelsestmt     ::= testexpr_then c_stmts_opt jf_cf_pop else_suite come_froms
         ifelsestmt     ::= testexpr_then c_stmts_opt filler else_suitel come_froms POP_TOP
+        ifelsestmt     ::= testexpr c_stmts_opt jf_cf_pop else_suite
 
         # We have no jumps to jumps, so no "come_froms" but a single "COME_FROM"
         ifelsestmt     ::= testexpr      c_stmts_opt jf_cf_pop else_suite COME_FROM
@@ -231,7 +232,10 @@ class Python26Parser(Python2Parser):
 
         comp_for ::= SETUP_LOOP expr for_iter store comp_iter jb_pb_come_from
 
-        comp_body ::= gen_comp_body
+        comp_iter   ::= comp_if_not
+        comp_if_not ::= expr jmp_true comp_iter
+
+        comp_body   ::= gen_comp_body
 
         for_block ::= l_stmts_opt _come_froms POP_TOP JUMP_BACK
 
@@ -254,15 +258,15 @@ class Python26Parser(Python2Parser):
                          POP_TOP jb_pb_come_from
 
         generator_exp ::= LOAD_GENEXPR MAKE_FUNCTION_0 expr GET_ITER CALL_FUNCTION_1 COME_FROM
-        list_if ::= list_if ::= expr jmp_false_then list_iter
+        list_if ::= expr jmp_false_then list_iter
         '''
 
     def p_ret26(self, args):
         '''
         ret_and      ::= expr jmp_false ret_expr_or_cond COME_FROM
         ret_or       ::= expr jmp_true ret_expr_or_cond COME_FROM
-        ret_cond     ::= expr jmp_false_then expr RETURN_END_IF POP_TOP ret_expr_or_cond
-        ret_cond     ::= expr jmp_false_then expr ret_expr_or_cond
+        if_exp_ret   ::= expr jmp_false_then expr RETURN_END_IF POP_TOP ret_expr_or_cond
+        if_exp_ret   ::= expr jmp_false_then expr ret_expr_or_cond
 
         return_if_stmt ::= ret_expr RETURN_END_IF POP_TOP
         return ::= ret_expr RETURN_VALUE POP_TOP
@@ -282,11 +286,11 @@ class Python26Parser(Python2Parser):
         kvlist ::= kvlist kv3
 
         # Note: preserve positions 0 2 and 4 for semantic actions
-        conditional_not    ::= expr jmp_true  expr jf_cf_pop expr COME_FROM
-        conditional        ::= expr jmp_false expr jf_cf_pop expr come_from_opt
-        conditional        ::= expr jmp_false expr ja_cf_pop expr
+        if_exp_not         ::= expr jmp_true  expr jf_cf_pop expr COME_FROM
+        if_exp             ::= expr jmp_false expr jf_cf_pop expr come_from_opt
+        if_exp             ::= expr jmp_false expr ja_cf_pop expr
 
-        expr               ::= conditional_not
+        expr               ::= if_exp_not
 
         and                ::= expr JUMP_IF_FALSE POP_TOP expr JUMP_IF_FALSE POP_TOP
 
@@ -310,27 +314,27 @@ class Python26Parser(Python2Parser):
         compare_chained2   ::= expr COMPARE_OP return_lambda
 
         return_if_lambda   ::= RETURN_END_IF_LAMBDA POP_TOP
-        stmt               ::= if_expr_lambda
-        stmt               ::= conditional_not_lambda
-        if_expr_lambda     ::= expr jmp_false_then expr return_if_lambda
+        stmt               ::= if_exp_lambda
+        stmt               ::= if_exp_not_lambda
+        if_exp_lambda      ::= expr jmp_false_then expr return_if_lambda
                                return_stmt_lambda LAMBDA_MARKER
-        conditional_not_lambda ::=
+        if_exp_not_lambda ::=
                                expr jmp_true_then expr return_if_lambda
                                return_stmt_lambda LAMBDA_MARKER
 
-        # if_expr_true are for conditions which always evaluate true
+        # if_exp_true are for conditions which always evaluate true
         # There is dead or non-optional remnants of the condition code though,
         # and we use that to match on to reconstruct the source more accurately
-        expr               ::= if_expr_true
-        if_expr_true       ::= expr jf_pop expr COME_FROM
+        expr               ::= if_exp_true
+        if_exp_true        ::= expr jf_pop expr COME_FROM
 
         # This comes from
         #   0 or max(5, 3) if 0 else 3
         # where there seems to be an additional COME_FROM at the
         # end. Not sure if this is appropriately named or
         # is the best way to handle
-        expr               ::= conditional_false
-        conditional_false  ::= conditional COME_FROM
+        expr               ::= if_exp_false
+        if_exp_false  ::= if_exp COME_FROM
 
         """
 
@@ -341,9 +345,10 @@ class Python26Parser(Python2Parser):
                 WITH_CLEANUP END_FINALLY
         """)
         super(Python26Parser, self).customize_grammar_rules(tokens, customize)
-        if self.version >= 2.6:
-            self.check_reduce['and'] = 'AST'
+        self.check_reduce['and'] = 'AST'
         self.check_reduce['assert_expr_and'] = 'AST'
+        self.check_reduce["ifstmt"] = "tokens"
+        self.check_reduce["ifelsestmt"] = "AST"
         self.check_reduce['list_for'] = 'AST'
         self.check_reduce['try_except'] = 'tokens'
         self.check_reduce['tryelsestmt'] = 'AST'
@@ -364,10 +369,10 @@ class Python26Parser(Python2Parser):
             if ast[1] is None:
                 return False
 
-            # For now, we won't let the 2nd 'expr' be a "conditional_not"
+            # For now, we won't let the 2nd 'expr' be a "if_exp_not"
             # However in < 2.6 where we don't have if/else expression it *can*
             # be.
-            if self.version >= 2.6 and ast[2][0] == 'conditional_not':
+            if self.version >= 2.6 and ast[2][0] == "if_exp_not":
                 return True
 
             test_index = last
@@ -380,8 +385,19 @@ class Python26Parser(Python2Parser):
             # or that it jumps to the same place as the end of "and"
             jmp_false = ast[1][0]
             jmp_target = jmp_false.offset + jmp_false.attr + 3
+
             return not (jmp_target == tokens[test_index].offset or
                         tokens[last].pattr == jmp_false.pattr)
+
+        elif rule == ("ifstmt", ("testexpr", "_ifstmts_jump")):
+            for i in range(last-1, last-4, -1):
+                t = tokens[i]
+                if t == "JUMP_FORWARD":
+                    return t.attr > tokens[min(last, len(tokens)-1)].off2int()
+                elif t not in ("POP_TOP", "COME_FROM"):
+                    break
+                pass
+            pass
         elif rule == (
                 'list_for',
                 ('expr', 'for_iter', 'store', 'list_iter',
@@ -467,7 +483,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 2.6:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

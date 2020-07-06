@@ -277,6 +277,9 @@ class SimSpawnerService(sims4.service_manager.Service):
             request.log_to_gsi('Listener Submitted')
         logger.debug('Listener Submitted: {}', request)
 
+    def is_registered_sim_spawned_callback(self, callback):
+        return callback in self._sim_spawned_callbacks
+
     def register_sim_spawned_callback(self, callback):
         self._sim_spawned_callbacks.register(callback)
 
@@ -451,7 +454,7 @@ class SimSpawnerService(sims4.service_manager.Service):
         success = sims.sim_spawner.SimSpawner.spawn_sim(request._sim_info, sim_position=place_strategy.position, sim_location=place_strategy.location, sim_spawner_tags=place_strategy.spawner_tags, spawn_point_option=place_strategy.spawn_point_option, saved_spawner_tags=place_strategy.saved_spawner_tags, spawn_action=place_strategy.spawn_action, from_load=request._from_load, spawn_point=place_strategy.spawn_point, spawn_at_lot=place_strategy.spawn_at_lot)
         if success:
             sim_info = request._sim_info
-            if services.get_rabbit_hole_service().will_override_spin_up_action(sim_info):
+            if services.get_rabbit_hole_service().will_override_spin_up_action(sim_info.id):
                 services.sim_info_manager().schedule_sim_spin_up_action(sim_info, SimZoneSpinUpAction.NONE)
             else:
                 services.sim_info_manager().schedule_sim_spin_up_action(sim_info, request._spin_up_action)

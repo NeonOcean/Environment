@@ -12,7 +12,7 @@ class Error(Exception):
 class TypeTransformationError(Error):
     pass
 
-class FFDescriptorBase(object):
+class DescriptorBase(object):
 
     def __init__(self, options, options_class_name):
         self._options = options

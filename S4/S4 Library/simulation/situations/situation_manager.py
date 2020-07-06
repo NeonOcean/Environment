@@ -209,7 +209,7 @@ class SituationManager(DistributableObjectManager):
         self._debug_sims.add(sim_id)
 
     def _determine_player_greeted_status_during_zone_spin_up(self):
-        if not services.current_zone().venue_service.venue.requires_visitation_rights:
+        if not services.current_zone().venue_service.active_venue.requires_visitation_rights:
             return GreetedStatus.NOT_APPLICABLE
         active_household = services.active_household()
         if active_household is None:
@@ -229,7 +229,7 @@ class SituationManager(DistributableObjectManager):
         return cur_status
 
     def get_npc_greeted_status_during_zone_fixup(self, sim_info):
-        if not services.current_zone().venue_service.venue.requires_visitation_rights:
+        if not services.current_zone().venue_service.active_venue.requires_visitation_rights:
             return GreetedStatus.NOT_APPLICABLE
         if sim_info.lives_here:
             return GreetedStatus.NOT_APPLICABLE
@@ -322,7 +322,11 @@ class SituationManager(DistributableObjectManager):
             for situation in self.running_situations():
                 if type(situation) is seed.situation_type:
                     return
-        situation = seed.situation_type(seed)
+        try:
+            situation = seed.situation_type(seed)
+        except ValueError:
+            logger.exception('Failed to initialize situation: {}', seed.situation_type)
+            return
         try:
             if seed.is_loadable:
                 if not situation.load_situation():
@@ -461,23 +465,23 @@ class SituationManager(DistributableObjectManager):
         self._callbacks[situation_id][situation_callback_option] = callable_list
 
     def create_greeted_npc_visiting_npc_situation(self, npc_sim_info):
-        services.current_zone().venue_service.venue.summon_npcs((npc_sim_info,), venues.venue_constants.NPCSummoningPurpose.PLAYER_BECOMES_GREETED)
+        services.current_zone().venue_service.active_venue.summon_npcs((npc_sim_info,), venues.venue_constants.NPCSummoningPurpose.PLAYER_BECOMES_GREETED)
 
     def _create_greeted_player_visiting_npc_situation(self, sim=None):
         if sim is None:
             guest_list = situations.situation_guest_list.SituationGuestList()
         else:
             guest_list = situations.situation_guest_list.SituationGuestList(host_sim_id=sim.id)
-        greeted_situation_type = services.current_zone().venue_service.venue.player_greeted_situation_type
+        greeted_situation_type = services.current_zone().venue_service.active_venue.player_greeted_situation_type
         if greeted_situation_type is None:
             return
         self._player_greeted_situation_id = self.create_situation(greeted_situation_type, user_facing=False, guest_list=guest_list)
 
     def _create_player_waiting_to_be_greeted_situation(self):
-        self._player_waiting_to_be_greeted_situation_id = self.create_situation(services.current_zone().venue_service.venue.player_ungreeted_situation_type, user_facing=False)
+        self._player_waiting_to_be_greeted_situation_id = self.create_situation(services.current_zone().venue_service.active_venue.player_ungreeted_situation_type, user_facing=False)
 
     def make_player_waiting_to_be_greeted_during_zone_spin_up(self):
-        waiting_situation_type = services.current_zone().venue_service.venue.player_ungreeted_situation_type
+        waiting_situation_type = services.current_zone().venue_service.active_venue.player_ungreeted_situation_type
         for situation in self.running_situations():
             if type(situation) is waiting_situation_type:
                 self._player_waiting_to_be_greeted_situation_id = situation.id
@@ -486,7 +490,7 @@ class SituationManager(DistributableObjectManager):
             self._create_player_waiting_to_be_greeted_situation()
 
     def make_player_greeted_during_zone_spin_up(self):
-        greeted_situation_type = services.current_zone().venue_service.venue.player_greeted_situation_type
+        greeted_situation_type = services.current_zone().venue_service.active_venue.player_greeted_situation_type
         for situation in self.running_situations():
             if type(situation) is greeted_situation_type:
                 self._player_greeted_situation_id = situation.id
@@ -671,7 +675,7 @@ class SituationManager(DistributableObjectManager):
             if self._perf_test_cheat_enabled:
                 self.create_visit_situation_for_unexpected(sim)
             else:
-                services.current_zone().venue_service.venue.summon_npcs((sim.sim_info,), NPCSummoningPurpose.DEFAULT)
+                services.current_zone().venue_service.active_venue.summon_npcs((sim.sim_info,), NPCSummoningPurpose.DEFAULT)
         self._bouncer._on_end_sim_creation_notification(sim)
         self._sim_being_created = None
 

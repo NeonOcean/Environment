@@ -39,7 +39,7 @@ class InviteToSituation(situations.situation_complex.SituationComplexCommon):
 
     def on_arrived(self):
         zone = services.current_zone()
-        venue = zone.venue_service.venue
+        venue = zone.venue_service.active_venue
         for sim_info in self._seed.invited_sim_infos_gen():
             if sim_info.is_npc:
                 venue.summon_npcs((sim_info,), self.purpose)

@@ -297,9 +297,11 @@ class BuffComponent(objects.components.Component, AffordanceCacheMixin, componen
             if buff_entry.commodity is not None:
                 tracker = self.owner.get_tracker(buff_entry.commodity)
                 commodity_inst = tracker.get_statistic(buff_entry.commodity)
+                if commodity_inst is not None and commodity_inst.state_backed and not on_destroy:
+                    logger.warn('By removing buff {}, we are attempting to remove the commodity {},                                      which is backed by a state. This may lead to undesired behavior.                                      Please consider setting the commodity value rather than removing the buff.', buff_entry, commodity_inst, owner='miking')
                 if commodity_inst is not None and commodity_inst.core:
                     if not on_destroy:
-                        logger.callstack('Attempting to explicitly remove the buff {}, which is given by a core commodity.                                           This would result in the removal of a core commodity and will be ignored.', buff_entry, owner='tastle', level=sims4.log.LEVEL_ERROR)
+                        logger.callstack('Attempting to explicitly remove the buff {}, which is given by a core commodity.                                           This would result in the removal of a core commodity and will be ignored.                                           Please consider setting the commodity value rather than removing the buff.', buff_entry, owner='tastle', level=sims4.log.LEVEL_ERROR)
                     return
                 tracker.remove_statistic(buff_entry.commodity, on_destroy=on_destroy)
             elif buff_entry.buff_type in self._active_buffs:

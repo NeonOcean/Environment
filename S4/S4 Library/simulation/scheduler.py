@@ -1,11 +1,15 @@
 import collections
 import functools
 import random
+from careers.career_enums import CareerShiftType
 from date_and_time import TimeSpan, create_time_span
 from distributor.rollback import ProtocolBufferRollback
-from sims4.tuning.tunable import TunableList, Tunable, TunableFactory, TunableReference, TunableSingletonFactory, AutoFactoryInit, HasTunableSingletonFactory, HasTunableFactory, TunableEnumEntry
-from tunable_time import Days, TunableTimeOfDay
-from careers.career_enums import CareerShiftType
+from event_testing.resolver import GlobalResolver
+from event_testing.tests import TunableTestSet
+from scheduler_utils import TunableDayAvailability
+from sims4.tuning.tunable import TunableList, Tunable, TunableFactory, TunableReference, AutoFactoryInit, HasTunableSingletonFactory, HasTunableFactory, TunableEnumEntry, TunableTuple, TunableVariant, TunableRange
+from tunable_multiplier import TunableMultiplier
+from tunable_time import TunableTimeOfDay
 import alarms
 import date_and_time
 import services
@@ -13,33 +17,17 @@ import sims4.resources
 logger = sims4.log.Logger('Scheduler')
 AlarmData = collections.namedtuple('AlarmData', ('start_time', 'end_time', 'entry', 'is_random'))
 
-def convert_string_to_enum(**day_availability_mapping):
-    day_availability_dict = {}
-    for day in Days:
-        name = '{} {}'.format(int(day), day.name)
-        available = day_availability_mapping[name]
-        day_availability_dict[day] = available
-    return day_availability_dict
-
-class TunableAvailableDays(TunableSingletonFactory):
-    FACTORY_TYPE = staticmethod(convert_string_to_enum)
-
-def TunableDayAvailability():
-    day_availability_mapping = {}
-    for day in Days:
-        name = '{} {}'.format(int(day), day.name)
-        day_availability_mapping[name] = Tunable(bool, False)
-    day_availability = TunableAvailableDays(description='Which days of the week to include', **day_availability_mapping)
-    return day_availability
-
 class ScheduleEntry(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'days_available': TunableDayAvailability(), 'start_time': TunableTimeOfDay(default_hour=9), 'duration': Tunable(description='\n            Duration of this work session in hours.\n            ', tunable_type=float, default=1.0), 'random_start': Tunable(description='\n            If checked, this schedule will have a random start time in the tuned\n            window each time.\n            ', tunable_type=bool, default=False), 'schedule_shift_type': TunableEnumEntry(description='\n            Shift Type for the schedule, this will be used for validations.\n            ', tunable_type=CareerShiftType, default=CareerShiftType.ALL_DAY)}
 
     @TunableFactory.factory_option
-    def schedule_entry_data(tuning_name='schedule_entry_tuning', tuning_type=None):
+    def schedule_entry_data(tuning_name='schedule_entry_tuning', tuning_type=None, additional_tuning_name='additional_tuning', additional_tuning_type=None):
+        value = {}
         if tuning_type is not None:
-            return {tuning_name: tuning_type}
-        return {}
+            value[tuning_name] = tuning_type
+        if additional_tuning_type is not None:
+            value[additional_tuning_name] = additional_tuning_type
+        return value
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -248,8 +236,52 @@ class WeeklySchedule(HasTunableFactory):
 class SituationWeeklySchedule(WeeklySchedule):
 
     @TunableFactory.factory_option
-    def schedule_entry_data(pack_safe=False):
-        return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of the\n                week to a start_time and duration.\n                ', tunable=ScheduleEntry.TunableFactory(schedule_entry_data={'tuning_name': 'situation', 'tuning_type': TunableReference(description='\n                            The situation to start according to the tuned schedule.\n                            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION), pack_safe=pack_safe)}))}
+    def schedule_entry_data(pack_safe=False, affected_object_cap=False):
+        schedule_entry_tuning = {'tuning_name': 'situation', 'tuning_type': TunableReference(description='\n                The situation to start according to the tuned schedule.\n                ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION), pack_safe=pack_safe)}
+        if affected_object_cap:
+            schedule_entry_tuning['additional_tuning_name'] = 'affected_object_cap'
+            schedule_entry_tuning['additional_tuning_type'] = TunableRange(description='\n                Specify the maximum number of objects on the zone lot that \n                can schedule the situations.\n                ', tunable_type=int, minimum=1, default=1)
+        return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of the\n                week to a start_time and duration.\n                ', tunable=ScheduleEntry.TunableFactory(schedule_entry_data=schedule_entry_tuning))}
+
+class WeightedSituationsWeeklySchedule(WeeklySchedule):
+
+    @TunableFactory.factory_option
+    def schedule_entry_data(pack_safe=False, affected_object_cap=False):
+        schedule_entry_tuning = {'tuning_name': 'weighted_situations', 'tuning_type': TunableList(description='\n                A weighted list of situations to be used at the scheduled time.\n                ', tunable=TunableTuple(situation=TunableReference(description='\n                        The situation to start according to the tuned schedule.\n                        ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION), pack_safe=pack_safe), params=TunableTuple(description='\n                        Situation creation parameters.\n                        ', user_facing=Tunable(description="\n                            If enabled, we will start the situation as user facing.\n                            Note: We can only have one user facing situation at a time,\n                            so make sure you aren't tuning multiple user facing\n                            situations to occur at once.\n                            ", tunable_type=bool, default=False)), weight_multipliers=TunableMultiplier.TunableFactory(description="\n                        Tunable tested multiplier to apply to weight.\n                        \n                        *IMPORTANT* The only participants that work are ones\n                        available globally, such as Lot and ActiveHousehold. Only\n                        use these participant types or use tests that don't rely\n                        on any, such as testing all objects via Object Criteria\n                        test or testing active zone with the Zone test.\n                        "), tests=TunableTestSet(description="\n                        A set of tests that must pass for the situation and weight\n                        pair to be available for selection.\n                        \n                        *IMPORTANT* The only participants that work are ones\n                        available globally, such as Lot and ActiveHousehold. Only\n                        use these participant types or use tests that don't rely\n                        on any, such as testing all objects via Object Criteria\n                        test or testing active zone with the Zone test.\n                        ")))}
+        if affected_object_cap:
+            schedule_entry_tuning['additional_tuning_name'] = 'affected_object_cap'
+            schedule_entry_tuning['additional_tuning_type'] = TunableRange(description='\n                Specify the maximum number of objects on the zone lot that \n                can schedule the situations.\n                ', tunable_type=int, minimum=1, default=1)
+        return {'schedule_entries': TunableList(description='\n                A list of event schedules. Each event is a mapping of days of the\n                week to a start_time and duration.\n                ', tunable=ScheduleEntry.TunableFactory(schedule_entry_data=schedule_entry_tuning))}
+
+    @staticmethod
+    def get_weighted_situations(cls, predicate=lambda _: True):
+        resolver = GlobalResolver()
+
+        def get_weight(item):
+            if not predicate(item.situation):
+                return 0
+            if not item.tests.run_tests(resolver):
+                return 0
+            return item.weight_multipliers.get_multiplier(resolver)*item.situation.weight_multipliers.get_multiplier(resolver)
+
+        weighted_situations = tuple((get_weight(item), (item.situation, dict(item.params.items()))) for item in cls.weighted_situations)
+        return weighted_situations
+
+    @staticmethod
+    def get_situation_and_params(cls, predicate=lambda _: True, additional_situations=None):
+        weighted_situations = WeightedSituationsWeeklySchedule.get_weighted_situations(cls, predicate=predicate)
+        if additional_situations is not None:
+            weighted_situations = tuple(weighted_situations) + tuple(additional_situations)
+        situation_and_params = sims4.random.weighted_random_item(weighted_situations)
+        if situation_and_params is not None:
+            return situation_and_params
+        return (None, {})
+
+class SituationWeeklyScheduleVariant(TunableVariant):
+
+    def __init__(self, *args, pack_safe=False, affected_object_cap=False, **kwargs):
+        schedule_entry_data = {'pack_safe': pack_safe, 'affected_object_cap': affected_object_cap}
+        super().__init__(*args, situation=SituationWeeklySchedule.TunableFactory(schedule_entry_data=schedule_entry_data), weighted_situations=WeightedSituationsWeeklySchedule.TunableFactory(schedule_entry_data=schedule_entry_data), default='situation', **kwargs)
 
 class ObjectLayerWeeklySchedule(WeeklySchedule):
 

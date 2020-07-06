@@ -113,16 +113,22 @@ def tank_commodities(opt_sim:OptionalTargetParam=None, _connection=None):
         sim.commodity_tracker.debug_set_all_to_min()
 
 @sims4.commands.Command('stats.set_stat', 'stats.set_commodity', command_type=sims4.commands.CommandType.Cheat)
-def set_statisitic(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), value:float=None, opt_sim:OptionalSimInfoParam=None, _connection=None):
+def set_statisitic(stat_type:TunableInstanceParam(sims4.resources.Types.STATISTIC, exact_match=True), value:float=None, opt_sim:OptionalSimInfoParam=None, opt_target_type=None, _connection=None):
     if stat_type is None:
         sims4.commands.output('Invalid stat type used for stats.set_stat.', _connection)
         return
     if value is None:
         sims4.commands.output('Invalid value set for stats.set_stat.', _connection)
         return
-    target_object = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection, notify_failure=False)
-    if target_object is None:
-        target_object = get_optional_target(OptionalTargetParam(str(opt_sim.target_id)), _connection=_connection, notify_failure=False)
+    if opt_target_type is not None:
+        target_object = None
+        if opt_target_type == 'Lot':
+            current_zone = services.current_zone()
+            target_object = current_zone.lot
+    else:
+        target_object = get_optional_target(opt_sim, target_type=OptionalSimInfoParam, _connection=_connection, notify_failure=False)
+        if target_object is None:
+            target_object = get_optional_target(OptionalTargetParam(str(opt_sim.target_id)), _connection=_connection, notify_failure=False)
     if target_object is not None:
         tracker = target_object.get_tracker(stat_type)
         tracker.set_value(stat_type, value)

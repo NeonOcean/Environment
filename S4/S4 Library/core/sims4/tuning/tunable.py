@@ -1083,12 +1083,12 @@ class TunableEnumWithFilter(TunableEnumEntry):
 class TunableEnumSet(TunableSet):
     __slots__ = ('_enum_type', 'allow_empty_set')
 
-    def __init__(self, enum_type, enum_default=None, invalid_enums=(), default_enum_list=frozenset(), allow_empty_set=False, pack_safe=False, **kwargs):
+    def __init__(self, enum_type, enum_default=None, invalid_enums=(), default_enum_list=frozenset(), allow_empty_set=False, pack_safe=False, binary_type=None, **kwargs):
         if enum_default is None:
             single_default = enum_type.names[0]
         else:
             single_default = enum_default
-        super().__init__(TunableEnumEntry(enum_type, default=single_default, invalid_enums=invalid_enums, pack_safe=pack_safe), **kwargs)
+        super().__init__(TunableEnumEntry(enum_type, default=single_default, invalid_enums=invalid_enums, pack_safe=pack_safe, binary_type=binary_type), **kwargs)
         self._enum_type = enum_type
         self.allow_empty_set = allow_empty_set
         self._default = default_enum_list
@@ -1260,7 +1260,7 @@ class TunableReference(_TunableHasPackSafeMixin, Tunable):
                         elif issubclass(value, c):
                             break
                     else:
-                        raise ValueError('TunableReference is set to a value that is not allowed by its class restriction.')
+                        raise ValueError('TunableReference in {} is set to a value that is not allowed by its class restriction.'.format(source))
             except UnavailablePackSafeResourceError as e:
                 raise e
             except KeyError as e:

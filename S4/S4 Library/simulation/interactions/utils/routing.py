@@ -209,6 +209,11 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                 continue
             si.animation_context.set_all_prop_visibility(False, held_only=True)
 
+    def _archive_sim_route(self):
+        if self.actor.is_sim:
+            interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
+            gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
+
     def _run_gen(self, timeline):
         if self.actor.is_sim:
             self._hide_held_props()
@@ -219,9 +224,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             routing_surface = final_path_node.routing_surface_id
             final_position.y = services.terrain_service.terrain_object().get_routing_surface_height_at(final_position.x, final_position.z, routing_surface)
             self.actor.location = sims4.math.Location(sims4.math.Transform(final_position, final_orientation), routing_surface)
-            if gsi_handlers.routing_handlers.sim_route_archiver.enabled and self.actor.is_sim:
-                interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
-                gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
+            if gsi_handlers.routing_handlers.sim_route_archiver.enabled:
+                self._archive_sim_route()
             return True
             yield
         time_debt = 0
@@ -247,9 +251,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                             result = yield from element_utils.run_child(timeline, build_critical_section(sequence, flush_all_animations))
                         finally:
                             animation_interaction.on_removed_from_queue()
-                            if self.actor.is_sim:
-                                interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
-                                gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
+                            if gsi_handlers.routing_handlers.sim_route_archiver.enabled and self.actor.is_sim:
+                                self._archive_sim_route()
                         return result
                         yield
             current_zone = services.current_zone()
@@ -329,6 +332,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
                             self._sleep_element = elements.SoftSleepElement(next_interval)
                             yield from element_utils.run_child(timeline, self._sleep_element)
                             self._sleep_element = None
+                        if gsi_handlers.routing_handlers.sim_route_archiver.enabled:
+                            self._archive_sim_route()
                         if self.canceled:
                             if not self.canceled_msg_sent:
                                 cancellation_info = self.choose_cancellation_time()
@@ -375,12 +380,8 @@ class FollowPath(distributor.ops.ElementDistributionOpMixin, elements.Subclassab
             return True
             yield
         finally:
-            if self.actor.is_sim:
-                if gsi_handlers.routing_handlers.sim_route_archiver.enabled:
-                    interaction = self.actor.transition_controller.interaction if self.actor.transition_controller is not None else None
-                    gsi_handlers.routing_handlers.archive_sim_route(self.actor.sim_info, interaction, self.path)
-                if accumulator.MAXIMUM_TIME_DEBT > 0:
-                    accumulator.set_time_debt((self.actor,), new_time_debt)
+            if self.actor.is_sim and accumulator.MAXIMUM_TIME_DEBT > 0:
+                accumulator.set_time_debt((self.actor,), new_time_debt)
 
     def _soft_stop(self):
         self.canceled = True
@@ -803,7 +804,7 @@ class PoolSurfaceOverride:
         self.water_depth = water_depth
         self.model_suite_state_index = model_suite_state_index
 
-def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ignore_sim=True, max_dist=None, height_tolerance=None, stay_outside=False, stay_in_connectivity_group=True, ignore_restrictions=False, fallback_routing_surface=None, object_id=None, participant_to_face=None, facing_radius=None, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, force_pool_surface_water_depth=None, min_water_depth=None, max_water_depth=None, fallback_starting_position=None, fallback_min_water_depth=None, fallback_max_water_depth=None):
+def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ignore_sim=True, max_dist=None, height_tolerance=None, stay_outside=False, stay_in_connectivity_group=True, ignore_restrictions=False, fallback_routing_surface=None, object_id=None, participant_to_face=None, facing_radius=None, stay_on_world=False, use_intended_location=True, model_suite_state_index=None, force_pool_surface_water_depth=None, min_water_depth=None, max_water_depth=None, fallback_starting_position=None, fallback_min_water_depth=None, fallback_max_water_depth=None, stay_in_lot=False):
     max_facing_angle_diff = sims4.math.PI*2
     if max_dist is None:
         max_dist = FGLTuning.MAX_FGL_DISTANCE
@@ -880,6 +881,11 @@ def get_fgl_context_for_jig_definition(jig_definition, sim, target_sim=None, ign
         search_flags |= placement.FGLSearchFlag.STAY_IN_CONNECTED_CONNECTIVITY_GROUP
     if stay_outside:
         search_flags |= placement.FGLSearchFlag.STAY_OUTSIDE
+    if stay_in_lot:
+        search_flags |= placement.FGLSearchFlag.STAY_IN_LOT
+        lot = services.current_zone().lot
+        if not lot.is_position_on_lot(starting_position):
+            starting_position = lot.get_random_point()
     if object_id is not None:
         search_flags |= placement.FGLSearchFlag.SHOULD_TEST_BUILDBUY
     if participant_to_face is not None and facing_radius is not None:

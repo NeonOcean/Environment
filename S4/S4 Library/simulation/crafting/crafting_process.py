@@ -1,7 +1,18 @@
 import functools
 import random
+import weakref
 from protocolbuffers import Sims_pb2, Consts_pb2
+from sims4 import localization
+from sims4.localization import LocalizationHelperTuning
+from sims4.repr_utils import standard_repr
+from sims4.utils import classproperty, staticproperty, constproperty
+from singletons import DEFAULT
+import algos
+import sims4.log
+import sims4.reload
+import sims4.resources
 from autonomy.autonomy_modifier import UNLIMITED_AUTONOMY_RULE
+from bucks.bucks_utils import BucksUtils
 from carry.carry_interactions import CarryCancelInteraction
 from crafting import crafting_handlers
 from crafting.crafting_ingredients import IngredientTuning
@@ -23,21 +34,14 @@ from objects.components.name_component import NameComponent
 from objects.components.statistic_component import StatisticComponent
 from sims.funds import get_funds_for_source
 from sims.sim_info_name_data import SimInfoNameData
-from sims4.localization import LocalizationHelperTuning
-from sims4.repr_utils import standard_repr
-from sims4.utils import classproperty, staticproperty, constproperty
-from singletons import DEFAULT
-import algos
 import autonomy
 import distributor
 import gsi_handlers
 import mtx
 import objects.components.types
 import services
-import sims4.log
-import sims4.reload
-import sims4.resources
 import telemetry_helper
+from distributor.rollback import ProtocolBufferRollback
 _normal_logger = sims4.log.Logger('Crafting')
 logger = _normal_logger
 TELEMETRY_GROUP_CRAFTING = 'CRAF'
@@ -164,7 +168,7 @@ class CraftingProcess(ComponentContainer):
         autonomy_distance_estimation_behavior = autonomy.autonomy_request.AutonomyDistanceEstimationBehavior.ALLOW_UNREACHABLE_LOCATIONS if use_large_cost else autonomy.autonomy_request.AutonomyDistanceEstimationBehavior.FULL
         return autonomy.autonomy_request.AutonomyRequest(sim, commodity_list=None, static_commodity_list=(CraftingTuning.STATIC_CRAFTING_COMMODITY,), skipped_static_commodities=None, object_list=required_objects, affordance_list=affordance_list, channel=None, context=context, autonomy_mode=mode, ignore_user_directed_and_autonomous=True, is_script_request=True, consider_scores_of_zero=True, ignore_lockouts=ignore_lockouts, apply_opportunity_cost=False, record_test_result=_record_test_result, distance_estimation_behavior=autonomy_distance_estimation_behavior, off_lot_autonomy_rule_override=UNLIMITED_AUTONOMY_RULE, autonomy_mode_label_override='CraftingRequest', **kwargs)
 
-    def __init__(self, sim=None, crafter=None, recipe:Recipe=None, cost=None, paying_sim=None, reserved_ingredients=None, original_target=None, orderer_ids=None, ingredient_quality_bonus=None, funds_source=None):
+    def __init__(self, sim=None, crafter=None, recipe:Recipe=None, cost=None, paying_sim=None, reserved_ingredients=None, original_target=None, orderer_ids=None, ingredient_quality_bonus=None, funds_source=None, bucks_cost=None):
         super().__init__()
         self.add_component(StatisticComponent(self))
         self.add_component(NameComponent(self, allow_name=True, allow_description=True))
@@ -174,7 +178,13 @@ class CraftingProcess(ComponentContainer):
         self._cost = cost
         self._paying_sim = paying_sim
         self._funds_source = funds_source
+        self._refund_bucks_on_cancel = None
         self._reserved_ingredients = reserved_ingredients if reserved_ingredients is not None else []
+        if reserved_ingredients is None:
+            self._generic_recipe_ingredients = []
+        else:
+            self._generic_recipe_ingredients = [ingredient.definition.id for ingredient in reserved_ingredients]
+        self._explicit_refund_required = False
         self._crafter_sim_id = None
         self._crafter_info_data = None
         self.crafter = crafter
@@ -200,6 +210,7 @@ class CraftingProcess(ComponentContainer):
         self.ready_to_serve = False
         self.linked_process = None
         self.show_crafted_by_text = True
+        self._bucks_cost = bucks_cost
 
     def __repr__(self):
         return standard_repr(self, recipe=self.recipe)
@@ -209,8 +220,15 @@ class CraftingProcess(ComponentContainer):
         if self._original_target_ref is not None:
             return self._original_target_ref()
 
+    @staticmethod
+    def _get_bucks_available(bucks_type, paying_sim):
+        tracker = BucksUtils.get_tracker_for_bucks_type(bucks_type, owner_id=paying_sim.id)
+        if tracker is None:
+            return 0
+        return tracker.get_bucks_amount_for_type(bucks_type)
+
     @classmethod
-    def recipe_test(cls, target, context, recipe, crafting_sim, price, paying_sim=None, build_error_list=True, first_phase=DEFAULT, from_resume=False, from_autonomy=False, funds_source=None):
+    def recipe_test(cls, target, context, recipe, crafting_sim, price, paying_sim=None, build_error_list=True, first_phase=DEFAULT, from_resume=False, from_autonomy=False, funds_source=None, discounted_bucks_prices=None, check_bucks_costs=True):
         enabled = True
         error_list = []
         if crafting_sim is None:
@@ -228,6 +246,24 @@ class CraftingProcess(ComponentContainer):
             if source_funds.money < price:
                 enabled = False
                 error_list.append(CraftingTuning.INSUFFICIENT_FUNDS_TOOLTIP(paying_sim))
+            if check_bucks_costs:
+                show_insufficient_bucks = False
+                insufficient_bucks = []
+                for (bucks_type, bucks_price) in recipe.crafting_bucks_price.items():
+                    amount = discounted_bucks_prices.get(bucks_type) if discounted_bucks_prices is not None else bucks_price
+                    if amount is None:
+                        logger.warn('Recipe {} has a tuned bucks price for {}, but could not determine if this value was discounted/multiplied against a resolver. Using the tuned value as a fallback.', recipe.__name__, bucks_type)
+                        amount = bucks_price
+                    available = CraftingProcess._get_bucks_available(bucks_type, paying_sim)
+                    if available < amount:
+                        show_insufficient_bucks = True
+                        if bucks_type in BucksUtils.BUCK_TYPE_TO_DISPLAY_DATA:
+                            insufficient_bucks.append(BucksUtils.BUCK_TYPE_TO_DISPLAY_DATA[bucks_type].ui_name(amount))
+                if show_insufficient_bucks:
+                    enabled = False
+                    header = CraftingTuning.INSUFFICIENT_BUCKS_TOOLTIP(paying_sim)
+                    bucks_loc_string = LocalizationHelperTuning.get_bulleted_list(header, *insufficient_bucks)
+                    error_list.append(bucks_loc_string)
             first_phases = set(recipe.first_phases)
         if not first_phases:
             logger.error('No first phases defined in recipe tuning: {}', recipe.__name__)
@@ -290,13 +326,15 @@ class CraftingProcess(ComponentContainer):
                     error_list.append(skill_result.tooltip(crafting_sim, target))
         utility_info = recipe.utility_info
         if utility_info is not None:
-            household = services.owning_household_of_active_lot()
-            if household is not None:
-                utility_result = services.utilities_manager(household.id).test_utility_info(utility_info)
-                if not utility_result:
-                    if utility_result.tooltip is not None:
-                        error_list.append(utility_result.tooltip())
-                    enabled = False
+            utilities_manager = services.utilities_manager()
+            utility_result = utilities_manager.test_utility_info(utility_info, resolver_target, resolver)
+            if utility_result:
+                if target.utilities_component is not None:
+                    utility_result = target.utilities_component.test_utility_info(utility_info)
+            if not utility_result:
+                if utility_result.tooltip is not None:
+                    error_list.append(utility_result.tooltip())
+                enabled = False
         if not (from_resume and recipe.additional_tests_ignored_on_resume):
             additional_tests = recipe.additional_tests
             if additional_tests:
@@ -310,6 +348,17 @@ class CraftingProcess(ComponentContainer):
                 else:
                     return RecipeTestResult(enabled=enabled, visible=True, errors=error_list, influence_by_active_mood=additional_result.influence_by_active_mood)
         return RecipeTestResult(enabled=enabled, visible=True, errors=error_list)
+
+    def get_ingredients_object_definitions(self):
+        if self._generic_recipe_ingredients:
+            definition_manager = services.definition_manager()
+            ingredients_list = []
+            for ingredient_id in list(dict.fromkeys(self._generic_recipe_ingredients)):
+                ingredient_definition = definition_manager.get(ingredient_id)
+                if ingredient_definition is not None:
+                    ingredients_list.append(ingredient_definition)
+            return ingredients_list
+        return []
 
     @classmethod
     def phase_completable(cls, phase, sim, context, crafting_ico, from_autonomy=False):
@@ -362,19 +411,51 @@ class CraftingProcess(ComponentContainer):
             context = context._clone()
             if context.carry_target != target:
                 context.carry_target = None
-            (scored_interactions, _, autonomy_requests) = self._find_phase_affordances([self.phase], sim, context, target, display_errors=False)
+            (scored_interactions, _, _) = self._find_phase_affordances([self.phase], sim, context, target, display_errors=False)
             if not scored_interactions:
                 return TestResult(False, 'Crafting cannot currently find any valid interaction for resume')
         return TestResult.TRUE
 
+    def check_is_affordable(self):
+        if not self._paying_sim.family_funds.can_afford(self._cost):
+            return False
+        for (bucks_type, _) in self.recipe.crafting_bucks_refund_amounts.items():
+            amount = self._bucks_cost[bucks_type]
+            available = self._get_bucks_available(bucks_type, self._paying_sim)
+            if available < amount:
+                return False
+        return True
+
+    def clear_refundables(self):
+        self._explicit_refund_required = False
+        if self._refund_bucks_on_cancel:
+            self._refund_bucks_on_cancel = None
+        for ingredient in self._reserved_ingredients:
+            ingredient.destroy(source=self, cause='Consuming ingredients required to finish crafting')
+        self._reserved_ingredients.clear()
+
     def pay_for_item(self):
-        if self._cost is not None and self._paying_sim is not None:
-            if self._funds_source is None:
-                self._paying_sim.household.funds.try_remove(self._cost, Consts_pb2.TELEMETRY_INTERACTION_COST)
-            else:
-                self._funds_source.try_remove_funds(self._paying_sim, self._cost)
+        if self._paying_sim is not None:
+            if self._cost is not None:
+                if self._funds_source is None:
+                    self._paying_sim.household.funds.try_remove(self._cost, Consts_pb2.TELEMETRY_INTERACTION_COST)
+                else:
+                    self._funds_source.try_remove_funds(self._paying_sim, self._cost)
+            for (bucks_type, refund_on_cancel) in self.recipe.crafting_bucks_refund_amounts.items():
+                amount = self._bucks_cost[bucks_type]
+                if amount == 0:
+                    continue
+                tracker = BucksUtils.get_tracker_for_bucks_type(bucks_type, owner_id=self._paying_sim.id, add_if_none=True)
+                if tracker is not None:
+                    if tracker.try_modify_bucks(bucks_type, -amount):
+                        if refund_on_cancel:
+                            if self._refund_bucks_on_cancel is None:
+                                self._refund_bucks_on_cancel = []
+                            self._refund_bucks_on_cancel.append((self._paying_sim.id, bucks_type, amount))
+                            self._explicit_refund_required = True
         self._cost = None
         self._paying_sim = None
+        self._bucks_cost = None
         if self._reserved_ingredients:
             with telemetry_helper.begin_hook(crafting_telemetry_writer, TELEMETRY_HOOK_INGREDIENTS_USED, sim_info=self.crafter.sim_info if self.crafter is not None else None) as hook:
                 hook.write_int(TELEMETRY_FIELD_INGREDIENTS_QUANTITY, len(self._reserved_ingredients))
@@ -405,19 +486,33 @@ class CraftingProcess(ComponentContainer):
                         chosen_balloon.distribute()
             self._reserved_ingredients.clear()
             return
-        for ingredient in self._reserved_ingredients:
-            ingredient.destroy(source=self, cause='Consuming ingredients required to start crafting')
-        self._reserved_ingredients.clear()
+        if not (self._reserved_ingredients and self.recipe.use_ingredients and self.recipe.use_ingredients.return_on_cancel):
+            return_on_cancel = self.recipe.use_ingredients and self.recipe.use_ingredients.return_on_cancel
+            if return_on_cancel:
+                self._explicit_refund_required = True
+            else:
+                for ingredient in self._reserved_ingredients:
+                    ingredient.destroy(source=self, cause='Consuming ingredients required to start crafting')
+                self._reserved_ingredients.clear()
 
-    def refund_payment(self):
+    def refund_payment(self, explicit=False):
+        if self._explicit_refund_required and not explicit:
+            return
         self._cost = None
         self._paying_sim = None
-        if not self.crafter.is_being_destroyed:
+        if self._refund_bucks_on_cancel:
+            for (sim_id, bucks_type, amount) in self._refund_bucks_on_cancel:
+                tracker = BucksUtils.get_tracker_for_bucks_type(bucks_type, owner_id=sim_id, add_if_none=True)
+                if tracker is not None:
+                    tracker.try_modify_bucks(bucks_type, amount)
+            self._refund_bucks_on_cancel = None
+        if self.crafter is not None and not self.crafter.is_being_destroyed:
             for ingredient in self._reserved_ingredients:
                 inventory = ingredient.get_inventory()
                 if inventory is not None:
                     if not inventory.try_move_hidden_object_to_inventory(ingredient, count=ingredient.stack_count()):
                         break
+            self._reserved_ingredients.clear()
 
     def change_crafter(self, crafter):
         if self.crafter is crafter:
@@ -509,6 +604,10 @@ class CraftingProcess(ComponentContainer):
     def id(self):
         pass
 
+    @property
+    def recipe_ingredients_used(self):
+        return self._generic_recipe_ingredients
+
     def get_crafter_sim_info(self):
         if self._crafter_sim_id is None:
             return
@@ -521,6 +620,13 @@ class CraftingProcess(ComponentContainer):
                 return self.recipe.crafted_by_text(sim_info)
             elif self._crafter_info_data is not None:
                 return self.recipe.crafted_by_text(self._crafter_info_data)
+
+    def get_crafted_with_text(self):
+        if self.recipe.crafted_with_text and self.recipe.use_ingredients is not None and self._generic_recipe_ingredients:
+            ingredients_list_object_definitions = self.get_ingredients_object_definitions()
+            if ingredients_list_object_definitions:
+                ingredients_list_string = LocalizationHelperTuning.get_comma_separated_list(*tuple(LocalizationHelperTuning.get_object_name(obj_def) for obj_def in ingredients_list_object_definitions))
+                return self.recipe.crafted_with_text(ingredients_list_string)
 
     def remove_crafted_by_text(self):
         self.show_crafted_by_text = False
@@ -1055,6 +1161,8 @@ class CraftingProcess(ComponentContainer):
         new_process.ready_to_serve = self.ready_to_serve
         new_process.multiple_order_process = self.multiple_order_process
         new_process._reserved_ingredients = self._reserved_ingredients
+        new_process._refund_bucks_on_cancel = self._refund_bucks_on_cancel
+        new_process._generic_recipe_ingredients = self._generic_recipe_ingredients
         return new_process
 
     def save(self, crafting_process_msg):
@@ -1082,6 +1190,16 @@ class CraftingProcess(ComponentContainer):
             crafting_process_msg.inscription = self.inscription
         if self.crafted_value is not None:
             crafting_process_msg.crafted_value = self.crafted_value
+        if self._refund_bucks_on_cancel:
+            for (sim_id, bucks_type, amount) in self._refund_bucks_on_cancel:
+                with ProtocolBufferRollback(crafting_process_msg.bucks_refund_on_cancel) as entry:
+                    entry.sim_id = sim_id
+                    entry.bucks_type = bucks_type
+                    entry.amount = amount
+        if self._generic_recipe_ingredients:
+            for ingredient_id in self._generic_recipe_ingredients:
+                with ProtocolBufferRollback(crafting_process_msg.generic_recipe_ingredients) as ingredient:
+                    ingredient.ingredient_id = ingredient_id
         statistic_component = self.get_component(objects.components.types.STATISTIC_COMPONENT)
         statistic_tracker = statistic_component.get_statistic_tracker()
         if statistic_tracker is not None:
@@ -1113,6 +1231,16 @@ class CraftingProcess(ComponentContainer):
             self.inscription = crafting_process_message.inscription
         if crafting_process_message.HasField('crafted_value'):
             self.crafted_value = crafting_process_message.crafted_value
+        if crafting_process_message.bucks_refund_on_cancel:
+            self._refund_bucks_on_cancel = []
+            for data in crafting_process_message.bucks_refund_on_cancel:
+                self._refund_bucks_on_cancel.append((data.sim_id, data.bucks_type, data.amount))
+        else:
+            self._refund_bucks_on_cancel = None
+        if crafting_process_message.generic_recipe_ingredients:
+            self._generic_recipe_ingredients = []
+            for ingredient in crafting_process_message.generic_recipe_ingredients:
+                self._generic_recipe_ingredients.append(ingredient.ingredient_id)
         statistic_component = self.get_component(objects.components.types.STATISTIC_COMPONENT)
         statistic_tracker = statistic_component.get_statistic_tracker()
         if statistic_tracker is not None:

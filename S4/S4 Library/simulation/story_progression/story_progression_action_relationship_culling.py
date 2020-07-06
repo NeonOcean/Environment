@@ -43,6 +43,7 @@ class StoryProgressionRelationshipCulling(_StoryProgressionAction):
             hook.write_int('runp', metrics.rels_unplayed)
             hook.write_int('rbow', metrics.rel_bits_one_way)
             hook.write_int('rbbi', metrics.rel_bits_bi)
+            hook.write_float('avmr', metrics.avg_meaningful_rels)
 
     @classmethod
     def _add_relationship_data_to_list(cls, output_list, sim_info, rel_id, active_household_id, culled_status, reason=''):

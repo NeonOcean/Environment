@@ -40,6 +40,7 @@ class BaseStatistic(HasTunableLodMixin):
         self._statistic_multiplier_decrease = 1.0
         self._statistic_multipliers = None
         self._statistic_callback_listeners = []
+        self.state_backed = False
 
     def __repr__(self):
         statistic_type_name = type(self).__mro__[1].__name__
@@ -129,6 +130,9 @@ class BaseStatistic(HasTunableLodMixin):
         for callback_listener in self._statistic_callback_listeners:
             callback_listener.destroy()
         self._statistic_callback_listeners.clear()
+
+    def on_recovery(self):
+        pass
 
     @property
     def tracker(self):

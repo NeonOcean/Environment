@@ -40,3 +40,7 @@ class Fire(objects.game_object.GameObject):
     @property
     def persistence_group(self):
         return PersistenceGroups.NONE
+
+    @persistence_group.setter
+    def persistence_group(self, value):
+        pass

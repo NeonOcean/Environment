@@ -48,6 +48,8 @@ class _PickerPieMenuProxyInteraction(ProxyInteraction):
     @flexmethod
     def get_pie_menu_category(cls, inst, **kwargs):
         inst_or_cls = inst if inst is not None else cls
+        if inst_or_cls.pie_menu_option.force_pie_menu_category:
+            return inst_or_cls.pie_menu_option.pie_menu_category
         return inst_or_cls.picker_row_data.pie_menu_category or inst_or_cls.pie_menu_option.pie_menu_category
 
     @flexmethod

@@ -34,13 +34,14 @@ class _ReservationHandler(HasTunableFactory, AutoFactoryInit):
     def allows_reservation(self, other_reservation_handler):
         raise NotImplementedError
 
-    def begin_reservation(self, *_, **__):
+    def begin_reservation(self, *_, _may_reserve_already_run=False, **__):
         if self._target.is_sim:
             return ReservationResult.TRUE
-        result = self.may_reserve(_from_reservation_call=True)
-        if not result:
-            logger.warn('begin_reservation() called on target {} but may_reserve() failed. {} ', self._target, result)
-            return result
+        if not _may_reserve_already_run:
+            result = self.may_reserve(_from_reservation_call=True)
+            if not result:
+                logger.warn('begin_reservation() called on target {} but may_reserve() failed. {} ', self._target, result)
+                return result
         self._target.add_reservation_handler(self)
         return ReservationResult.TRUE
 

@@ -130,7 +130,6 @@ class TravelGroupManager(DistributableObjectManager):
         region_tuning = Region.REGION_DESCRIPTION_TUNING_MAP.get(neighborhood_protocol_buffer.region_id)
         if region_tuning is not None and region_tuning.store_travel_group_placed_objects:
             return
-        current_zone_id = zone.id
         household_manager = services.household_manager()
         save_game_protocol_buffer = services.get_persistence_service().get_save_game_data_proto()
         for clean_up_save_data in save_game_protocol_buffer.destination_clean_up_data:
@@ -146,7 +145,7 @@ class TravelGroupManager(DistributableObjectManager):
                         created_obj.load_object(obj_data)
                         build_buy.move_object_to_household_inventory(created_obj, failure_flags=HouseholdInventoryFlags.DESTROY_OBJECT)
 
-                    definition_id = build_buy.get_vetted_object_defn_guid(current_zone_id, obj_data.object_id, obj_data.guid or obj_data.type)
+                    definition_id = build_buy.get_vetted_object_defn_guid(obj_data.object_id, obj_data.guid or obj_data.type)
                     if definition_id is None:
                         continue
                     objects.system.create_object(definition_id, obj_id=obj_data.object_id, loc_type=obj_data.loc_type, post_add=post_create_old_object)

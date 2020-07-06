@@ -7,10 +7,10 @@ try:
     get_snowmask_value = _terrain.get_snowmask_value
     TERRAIN_TAG_REQUIRED_STRENGTH = 0.75
 
-    def is_terrain_tag_at_position(x, z, terrain_tags, level=0, required_strength=TERRAIN_TAG_REQUIRED_STRENGTH):
+    def is_terrain_tag_at_position(x, z, terrain_tags, level=0, required_strength=TERRAIN_TAG_REQUIRED_STRENGTH, test_floor_tiles=False):
         zone_id = services.current_zone().id
         terrain_tag_values = [terrain_tag.value for terrain_tag in terrain_tags]
-        return _terrain.is_terrain_tag_at_position(x, z, zone_id, terrain_tag_values, level, required_strength)
+        return _terrain.is_terrain_tag_at_position(x, z, zone_id, terrain_tag_values, level, required_strength, test_floor_tiles)
 
     def get_terrain_size(zone_id=None):
         if zone_id is None or zone_id == 0:

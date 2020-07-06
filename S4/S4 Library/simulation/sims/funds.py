@@ -24,6 +24,7 @@ class FundsSource(enum.Int):
     RETAIL = 1
     BUSINESS = 2
     STATISTIC = 3
+    BUCKS = 4
 
 class FundsTuning:
     UNAFFORDABLE_TOOLTIPS = TunableMapping(description='\n        A mapping of tooltips for each of the funds sources when an interaction\n        cannot be performed due to lack of such funds. Each tooltip takes the\n        same tokens as the interaction.\n        ', key_type=TunableEnumEntry(description='\n            The funds source.\n            ', tunable_type=FundsSource, default=FundsSource.HOUSEHOLD), value_type=TunableLocalizedStringFactory(description='\n            The tooltip to display when a Sim cannot run the specified\n            interaction due to lack of funds.\n            '))
@@ -37,6 +38,8 @@ def get_funds_for_source(funds_source, *, sim):
             return
         return business_manager.funds
     if funds_source == FundsSource.STATISTIC:
+        return
+    if funds_source == FundsSource.BUCKS:
         return
     raise NotImplementedError
 

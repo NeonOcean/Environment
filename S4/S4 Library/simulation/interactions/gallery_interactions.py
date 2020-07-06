@@ -1,7 +1,6 @@
 from distributor.system import Distributor
 from event_testing.results import TestResult
 from objects.terrain import TerrainImmediateSuperInteraction
-from venues.venue_constants import VenueTuning
 import distributor.ops
 import services
 import sims4.log
@@ -29,8 +28,8 @@ class MoveInFromGallerySuperInteraction(TerrainImmediateSuperInteraction):
             lot_data = persistence_service.get_lot_data_from_zone_data(zone_data)
             if lot_data is None:
                 return TestResult(False, 'Could not resolve lot data.')
-            venue_type = services.get_instance_manager(sims4.resources.Types.VENUE).get(lot_data.venue_key)
-            if venue_type is not VenueTuning.RESIDENTIAL_VENUE_TYPE:
+            venue_tuning = services.get_instance_manager(sims4.resources.Types.VENUE).get(lot_data.venue_key)
+            if not venue_tuning.is_residential:
                 return TestResult(False, 'Only residential venues are eligible.')
         return TestResult.TRUE
 

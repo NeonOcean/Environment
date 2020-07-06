@@ -111,6 +111,10 @@ class BaseObject(ComponentContainer):
         return self._has_placement_flag(build_buy.PlacementFlags.CEILING)
 
     @property
+    def non_deletable_by_user(self):
+        return self._has_placement_flag(build_buy.PlacementFlags.NON_DELETABLE_BY_USER)
+
+    @property
     def interaction_refs(self):
         if self._interaction_refs is None:
             return tuple()

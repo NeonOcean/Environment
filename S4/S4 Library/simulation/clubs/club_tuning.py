@@ -721,10 +721,10 @@ class ClubSeed(metaclass=TunedInstanceMetaclass, manager=services.get_instance_m
             return (ClubHangoutSetting.HANGOUT_NONE, None, 0)
 
     class _ClubHangoutVenue(HasTunableSingletonFactory, AutoFactoryInit):
-        FACTORY_TUNABLES = {'venue_type': TunableReference(manager=services.get_instance_manager(sims4.resources.Types.VENUE))}
+        FACTORY_TUNABLES = {'venue': TunableReference(manager=services.get_instance_manager(sims4.resources.Types.VENUE))}
 
         def get_hangout_data(self):
-            return (ClubHangoutSetting.HANGOUT_VENUE, self.venue_type, 0)
+            return (ClubHangoutSetting.HANGOUT_VENUE, self.venue, 0)
 
     class _ClubHangoutLot(HasTunableSingletonFactory, AutoFactoryInit):
         FACTORY_TUNABLES = {'lot': TunableLotDescription()}

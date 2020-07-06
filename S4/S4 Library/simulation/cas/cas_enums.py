@@ -175,3 +175,7 @@ class SimRegion(enum.Int):
     FORELEGS = 33
     HINDLEGS = 34
     INVALID = 64
+
+class CASBrandedLogoBackground(enum.Int):
+    LIGHT = 0
+    DARK = 1

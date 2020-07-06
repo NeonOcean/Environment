@@ -1,5 +1,5 @@
 from careers.career_enums import GigResult
-from careers.career_gig import Gig
+from careers.career_gig import Gig, TELEMETRY_GIG_PROGRESS_TIMEOUT, TELEMETRY_GIG_PROGRESS_COMPLETE
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import OptionalTunable, Tunable, TunablePercent, TunableTuple
@@ -22,10 +22,12 @@ class RabbitholeGig(Gig):
     def _determine_gig_outcome(self):
         if not self.has_attended_gig():
             self._gig_result = GigResult.CRITICAL_FAILURE
+            self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_TIMEOUT)
             return
         if self._gig_result == GigResult.CANCELED:
             self._gig_result = GigResult.FAILURE
             return
+        self._send_gig_telemetry(TELEMETRY_GIG_PROGRESS_COMPLETE)
         resolver = self.get_resolver_for_gig()
         if resolver(self.negative_mood_tuning.negative_mood_test) and random.random() <= self.negative_mood_tuning.failure_chance:
             self._gig_result = GigResult.FAILURE

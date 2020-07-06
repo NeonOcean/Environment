@@ -2,7 +2,7 @@
 # Python bytecode 3.7 (3394)
 # Decompiled from: Python 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
 # Embedded file name: T:\InGame\Gameplay\Scripts\Server\event_testing\test_variants.py
-# Size of source mod 2**32: 239646 bytes
+# Size of source mod 2**32: 244139 bytes
 from aspirations.aspiration_types import AspriationType
 from bucks.bucks_enums import BucksType
 from build_buy import FloorFeatureType
@@ -15,13 +15,14 @@ from interactions import ParticipantType, ParticipantTypeActorTargetSim, Partici
 from objects import ALL_HIDDEN_REASONS
 from objects.components.portal_locking_enums import LockPriority, LockType
 from sims.household_utilities.utility_types import Utilities
+from sims.sim_info_types import Gender
 from sims4.math import Operator
 from sims4.tuning.tunable import TunableFactory, TunableEnumEntry, TunableSingletonFactory, Tunable, OptionalTunable, TunableList, TunableTuple, TunableThreshold, TunableSet, TunableReference, TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, TunableInterval, TunableEnumFlags, TunableEnumSet, TunableRange, TunablePackSafeReference, TunableEnumWithFilter, TunableCasPart
 from sims4.utils import flexproperty
 from singletons import DEFAULT
 from tag import Tag
 from tunable_utils.tunable_white_black_list import TunableWhiteBlackList
-import build_buy, caches, clock, date_and_time, enum, event_testing.event_data_const, event_testing.test_base, objects.collection_manager, objects.components.statistic_types, scheduler, services, sims.bills_enums, sims.sim_info_types, sims4.tuning.tunable, snippets, tunable_time
+import build_buy, caches, clock, date_and_time, enum, event_testing.event_data_const, event_testing.test_base, objects.collection_manager, objects.components.statistic_types, scheduler_utils, services, sims.bills_enums, sims.sim_info_types, sims4.tuning.tunable, snippets, tunable_time
 logger = sims4.log.Logger('Tests')
 
 class CollectionThresholdTest(event_testing.test_base.BaseTest):
@@ -1438,20 +1439,29 @@ class BillsTest(event_testing.test_base.BaseTest):
        is_delinquent=Tunable(description='\n                Whether this AdditionalBillSource is required to be delinquent or not delinquent.\n                ',
        tunable_type=bool,
        default=True)))), 
-     'payment_due':OptionalTunable(Tunable(description='\n            Whether or not the participant is required to have a bill payment due.\n            ',
+     'payment_due':OptionalTunable(description='\n            Whether or not the participant is required to have a bill payment due.\n            ',
+       tunable=TunableTuple(description='\n                Whether or not the participant is required to have a bill payment due.\n                ',
+       is_due=Tunable(description="\n                    Whether this bill's payment is required to be due or not due.\n                    ",
        tunable_type=bool,
-       default=True)), 
+       default=True),
+       utility_consumption_threshold=OptionalTunable(description="\n                    Tests to see if the bill's net consumption of utilities passes the threshold. \n                    Only tested if the bill's payment is currently due (and is required to be due).\n                    ",
+       tunable=TunableThreshold(description='\n                        Minimum amount needed to pass this test (if bill is due).\n                        ')))), 
      'test_participant_owned_households':Tunable(description="\n            If checked, this test will check the delinquency states of all the\n            participant's households.  If unchecked, this test will check the\n            delinquency states of the owning household of the active lot.\n            ",
        tunable_type=bool,
-       default=False)}
+       default=False), 
+     'is_repo_man_due':OptionalTunable(description='\n            If enabled we will only pass this test if the bill is delinquent enough to require the repo man to\n            show up.\n            ',
+       tunable=Tunable(description='\n                Check if the repo man is due to collect bad bills or not.\n                ',
+       tunable_type=bool,
+       default=True))}
 
-    def __init__(self, participant, delinquency_states, additional_bills_delinquency_states, payment_due, test_participant_owned_households, **kwargs):
+    def __init__(self, participant, delinquency_states, additional_bills_delinquency_states, payment_due, test_participant_owned_households, is_repo_man_due, **kwargs):
         (super().__init__)(**kwargs)
         self.participant = participant
         self.delinquency_states = delinquency_states
         self.additional_bills_delinquency_states = additional_bills_delinquency_states
         self.payment_due = payment_due
         self.test_participant_owned_households = test_participant_owned_households
+        self.is_repo_man_due = is_repo_man_due
 
     def get_expected_args(self):
         return {'test_targets': self.participant}
@@ -1490,8 +1500,22 @@ class BillsTest(event_testing.test_base.BaseTest):
                     household_payment_due = household.bills_manager.mailman_has_delivered_bills()
                 else:
                     household_payment_due = False
-                if household_payment_due != self.payment_due:
+                if household_payment_due != self.payment_due.is_due:
                     return TestResult(False, "BillsTest: Participant's active bill status does not match the specified active bill status.", tooltip=(self.tooltip))
+                if self.payment_due.is_due:
+                    if household_payment_due:
+                        pass
+            if self.payment_due.utility_consumption_threshold is not None:
+                total_net_consumption = household.bills_manager.get_utility_bill_total_net_production()
+                if not self.payment_due.utility_consumption_threshold.compare(total_net_consumption):
+                    return TestResult(False, "BillsTest: Participant's net utility consumption did not pass the threshold.", tooltip=(self.tooltip))
+                if self.is_repo_man_due is not None:
+                    pass
+            if self.is_repo_man_due:
+                if not household.bills_manager.is_repo_man_due:
+                    return TestResult(False, 'Checking if the repo man is due and they are not.', tooltip=(self.tooltip))
+                elif household.bills_manager.is_repo_man_due:
+                    return TestResult(False, 'Checking if the repo man is not due and they are.', tooltip=(self.tooltip))
 
         return TestResult.TRUE
 
@@ -2059,7 +2083,7 @@ TunableUnlockedTest = TunableSingletonFactory.create_auto_factory(UnlockedTest)
 
 class DayTimeTest(event_testing.test_base.BaseTest):
     FACTORY_TUNABLES = {'description':'\n            Test to see if the current time falls within the tuned range\n            and/or is on a valid day.\n            ', 
-     'days_available':OptionalTunable(scheduler.TunableDayAvailability()), 
+     'days_available':OptionalTunable(scheduler_utils.TunableDayAvailability()), 
      'time_range':OptionalTunable(TunableTuple(description='\n            The time the test is valid.  If days_available is tuned and the\n            time range spans across two days with the second day tuned as\n            unavailable, the test will pass for that day until time range is\n            invalid.  Example: Time range 20:00 - 4:00, Monday is valid,\n            Tuesday is invalid.  Tuesday at 2:00 the test passes.  Tuesday at\n            4:01 the test fails.\n            ',
        begin_time=tunable_time.TunableTimeOfDay(default_hour=0),
        duration=tunable_time.TunableTimeOfDay(default_hour=1))), 
@@ -2463,8 +2487,142 @@ class CareerTimeUntilWorkTestFactory(SpecifiedCareerMixin, HasTunableSingletonFa
     def tuned_career(self):
         return self.career
 
-    def do_test(self, subjects, career_id, tooltip):
-        pass
+    def do_test--- This code section failed: ---
+
+3726       0  SETUP_LOOP          198  'to 198'
+           2  LOAD_FAST                'subjects'
+           4  GET_ITER         
+           6  FOR_ITER            196  'to 196'
+           8  STORE_FAST               'subject'
+
+3727      10  LOAD_FAST                'subject'
+          12  LOAD_ATTR                careers
+          14  LOAD_METHOD              get
+          16  LOAD_FAST                'career_id'
+          18  CALL_METHOD_1         1  ''
+          20  STORE_FAST               'this_career'
+
+3728      22  LOAD_FAST                'this_career'
+          24  LOAD_CONST               None
+          26  COMPARE_OP               is
+          28  POP_JUMP_IF_FALSE    50  'to 50'
+
+3729      30  LOAD_GLOBAL              TestResult
+          32  LOAD_CONST               False
+          34  LOAD_STR                 '{0} does not have the career needed for this interaction: {1}:{2}'
+          36  LOAD_FAST                'subject'
+          38  LOAD_FAST                'self'
+          40  LOAD_ATTR                career
+          42  LOAD_FAST                'self'
+          44  LOAD_ATTR                hours_till_work
+          46  CALL_FUNCTION_5       5  ''
+          48  RETURN_END_IF    
+        50_0  COME_FROM            28  '28'
+
+3730      50  LOAD_CONST               None
+          52  STORE_FAST               'hours'
+
+3731      54  LOAD_FAST                'this_career'
+          56  LOAD_ATTR                is_work_time
+          58  POP_JUMP_IF_FALSE   100  'to 100'
+
+3732      60  LOAD_FAST                'this_career'
+          62  LOAD_ATTR                start_time
+          64  LOAD_GLOBAL              services
+          66  LOAD_METHOD              time_service
+          68  CALL_METHOD_0         0  ''
+          70  LOAD_ATTR                sim_now
+          72  BINARY_SUBTRACT  
+          74  STORE_FAST               'elapsed'
+
+3733      76  LOAD_FAST                'elapsed'
+          78  LOAD_METHOD              in_hours
+          80  CALL_METHOD_0         0  ''
+          82  STORE_FAST               'hours'
+
+3734      84  LOAD_FAST                'hours'
+          86  LOAD_FAST                'self'
+          88  LOAD_ATTR                hours_till_work
+          90  LOAD_ATTR                lower_bound
+          92  COMPARE_OP               <
+          94  POP_JUMP_IF_FALSE   100  'to 100'
+
+3735      96  LOAD_CONST               None
+          98  STORE_FAST               'hours'
+       100_0  COME_FROM            94  '94'
+       100_1  COME_FROM            58  '58'
+
+3736     100  LOAD_FAST                'hours'
+         102  LOAD_CONST               None
+         104  COMPARE_OP               is
+         106  POP_JUMP_IF_FALSE   130  'to 130'
+
+3737     108  LOAD_FAST                'this_career'
+         110  LOAD_METHOD              get_next_work_time
+         112  CALL_METHOD_0         0  ''
+         114  UNPACK_SEQUENCE_3     3 
+         116  STORE_FAST               'time_span'
+         118  STORE_FAST               '_'
+         120  STORE_FAST               '_'
+
+3738     122  LOAD_FAST                'time_span'
+         124  LOAD_METHOD              in_hours
+         126  CALL_METHOD_0         0  ''
+         128  STORE_FAST               'hours'
+       130_0  COME_FROM           106  '106'
+
+3739     130  LOAD_FAST                'self'
+         132  LOAD_ATTR                hours_till_work
+         134  LOAD_ATTR                lower_bound
+         136  LOAD_FAST                'hours'
+         138  DUP_TOP          
+         140  ROT_THREE        
+         142  COMPARE_OP               <=
+         144  POP_JUMP_IF_FALSE   158  'to 158'
+         146  LOAD_FAST                'self'
+         148  LOAD_ATTR                hours_till_work
+         150  LOAD_ATTR                upper_bound
+         152  COMPARE_OP               <=
+         154  POP_JUMP_IF_FALSE   164  'to 164'
+         156  JUMP_BACK             6  'to 6'
+         158  POP_TOP          
+         160  JUMP_FORWARD        164  'to 164'
+
+3740     162  CONTINUE              6  'to 6'
+       164_0  COME_FROM           160  '160'
+       164_1  COME_FROM           154  '154'
+
+3741     164  LOAD_GLOBAL              TestResultNumeric
+         166  LOAD_CONST               False
+         168  LOAD_STR                 '{0} does not currently have the correct hours till work in career ({1},{2}) required to pass this test'
+
+3742     170  LOAD_FAST                'subject'
+         172  LOAD_FAST                'this_career'
+         174  LOAD_FAST                'self'
+         176  LOAD_ATTR                hours_till_work
+
+3743     178  LOAD_FAST                'hours'
+
+3744     180  LOAD_FAST                'self'
+         182  LOAD_ATTR                hours_till_work
+         184  LOAD_ATTR                lower_bound
+
+3745     186  LOAD_CONST               False
+
+3746     188  LOAD_FAST                'tooltip'
+         190  LOAD_CONST               ('current_value', 'goal_value', 'is_money', 'tooltip')
+         192  CALL_FUNCTION_KW_9     9  ''
+         194  RETURN_VALUE     
+         196  POP_BLOCK        
+       198_0  COME_FROM_LOOP        0  '0'
+
+3748     198  LOAD_GLOBAL              TestResult
+         200  LOAD_ATTR                TRUE
+         202  RETURN_VALUE     
+          -1  RETURN_LAST      
+
+Parse error at or near `JUMP_BACK' instruction at offset 156
+
 
 class CareerPTOAmountTestFactory(SpecifiedCareerMixin, HasTunableSingletonFactory, AutoFactoryInit):
     UNIQUE_TARGET_TRACKING_AVAILABLE = True
@@ -2563,7 +2721,7 @@ class CareerReferenceTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
        disabled_value=DEFAULT,
        disabled_name='all_careers',
        enabled_name='specific_career'), 
-     'blacklist':TunableSet(description="\n           Set of blacklist careers that won't be valid to test.\n           ",
+     'blacklist':TunableSet(description='\n           Should be called "Ignore List".  Set of careers that will be ignored\n           on the Sim.  If the Sim only had these careers, it would be like having no careers.\n           ',
        tunable=TunableReference(manager=(services.get_instance_manager(sims4.resources.Types.CAREER)),
        pack_safe=True)), 
      'user_level':OptionalTunable(TunableInterval(description='\n           Threshold test for the current user value of a career. If user_level\n           is set without career then it will pass if any of their careers \n           pass the threshold test. If set along with career then it will only\n           pass if the specified career passes the threshold test for user \n           level. \n           \n           The min and max for the user level are inclusive. So the Sim\n           can have any career level that meets the following equation and it\n           will pass.\n           \n           min <= current career level <= max.\n           ',
@@ -2577,10 +2735,10 @@ class CareerReferenceTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
        default=False)}
 
     def get_expected_args(self):
-        return {'career': event_testing.test_constants.FROM_EVENT_DATA}
+        return {}
 
     @caches.cached
-    def __call__(self, subjects, career=None, targets=None, tooltip=None):
+    def __call__(self, subjects, tooltip=None, **kwargs):
         for subject in subjects:
             if self.career is None:
                 return TestResult(False, '{0} is testing for a non-existant career, probably in a different pack.', subject)
@@ -2624,7 +2782,7 @@ class CareerReferenceTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
         if self.user_level:
             return self.user_level.lower_bound
         else:
-            return super().goal_value()
+            return 1
 
 
 class CareerTrackTestFactory(HasTunableSingletonFactory, AutoFactoryInit):
@@ -2879,7 +3037,7 @@ class TunableCareerTest(HasTunableSingletonFactory, AutoFactoryInit, event_testi
         if self.negate:
             if not result:
                 return TestResult.TRUE
-            return TestResult(False, 'Test passed but the result was negated.', tooltip=(self.tooltip))
+            return TestResult(False, 'Career test passed but the result was negated.', tooltip=(self.tooltip))
         else:
             return result
 
@@ -2949,7 +3107,7 @@ class RequiresVisitationRightsTest(HasTunableSingletonFactory, AutoFactoryInit, 
 
     @cached_test
     def __call__(self):
-        if services.current_zone().venue_service.venue.requires_visitation_rights != self.test_for_visitation_rights:
+        if services.current_zone().venue_service.active_venue.requires_visitation_rights != self.test_for_visitation_rights:
             if self.test_for_visitation_rights:
                 return TestResult(False, "The current lot's venue type doesn't require visitation rights.",
                   tooltip=(self.tooltip))
@@ -3091,6 +3249,9 @@ class DetectiveClueTest(HasTunableSingletonFactory, AutoFactoryInit, event_testi
 
 class FrontDoorTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
     test_events = ()
+    FACTORY_TUNABLES = {'invert': Tunable(description='\n            If checked, test will pass if there is NO front door\n            ',
+                 tunable_type=bool,
+                 default=False)}
 
     def get_expected_args(self):
         return {}
@@ -3098,7 +3259,11 @@ class FrontDoorTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.t
     @cached_test
     def __call__(self):
         door_service = services.get_door_service()
-        if door_service.has_front_door():
+        if self.invert:
+            if not door_service.has_front_door():
+                return TestResult.TRUE
+            return TestResult(False, 'Active lot has a front door.', tooltip=(self.tooltip))
+        elif door_service.has_front_door():
             return TestResult.TRUE
         else:
             return TestResult(False, 'Active lot has no front door.', tooltip=(self.tooltip))
@@ -3242,7 +3407,7 @@ class LotHasFloorFeatureTest(HasTunableSingletonFactory, AutoFactoryInit, event_
     def __call__(self):
         lot = services.active_lot()
         if lot is not None:
-            if build_buy.list_floor_features(lot.zone_id, self.terrain_feature):
+            if build_buy.list_floor_features(self.terrain_feature):
                 return TestResult.TRUE
             return TestResult(False, 'Active lot does not have the tuned floor feature.', tooltip=(self.tooltip))
         else:
@@ -3555,3 +3720,28 @@ class EventRanSuccessfullyTest(HasTunableSingletonFactory, AutoFactoryInit, even
 
     def __call__(self, *args, **kwargs):
         return TestResult.TRUE
+
+
+class StyleActiveTest(HasTunableSingletonFactory, AutoFactoryInit, event_testing.test_base.BaseTest):
+    FACTORY_TUNABLES = {'gender':TunableEnumEntry(description='\n            The gender to use when checking for the presence of a style/trend.\n            ',
+       tunable_type=Gender,
+       default=Gender.MALE), 
+     'negate':Tunable(description='\n            If checked then the result of the test will be negated.\n            ',
+       tunable_type=bool,
+       default=False)}
+
+    def get_expected_args(self):
+        return {}
+
+    def __call__(self, *args, **kwargs):
+        style_service = services.get_style_service()
+        if style_service is None:
+            return TestResult(False, "There is no active style service which likely means that the correct pack isn't loaded.", tooltip=(self.tooltip))
+        elif not style_service.has_active_style_outfit(self.gender):
+            if self.negate:
+                return TestResult.TRUE
+            return TestResult(False, 'The Style active test did not pass. There are currently zero style/trends active. Go create one.', tooltip=(self.tooltip))
+        elif self.negate:
+            return TestResult(False, 'The Style active test did not pass. The test is negated which means there is currently and active style/trend.', tooltip=(self.tooltip))
+        else:
+            return TestResult.TRUE

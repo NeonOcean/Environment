@@ -186,8 +186,6 @@ class Resolver:
             if career is not None:
                 return (career.sim_info.get_sim_instance() or career.sim_info,)
             return ()
-        elif participant_type == ParticipantType.AllInstancedSims:
-            return tuple(services.sim_info_manager().instanced_sims_gen())
         return ()
         if participant_type == ParticipantType.AllInstancedActiveHouseholdSims:
             active_household = services.active_household()
@@ -199,11 +197,24 @@ class Resolver:
             if career is not None:
                 return (career.sim_info.get_sim_instance() or career.sim_info,)
             return ()
-        elif participant_type == ParticipantType.AllInstancedSims:
-            return tuple(services.sim_info_manager().instanced_sims_gen())
         return ()
         if participant_type == ParticipantType.AllInstancedSims:
             return tuple(services.sim_info_manager().instanced_sims_gen())
+        if participant_type == ParticipantType.Street:
+            street = services.current_zone().street
+            street_service = services.street_service()
+            if street_service is None:
+                return ()
+            street_civic_policy_provider = street_service.get_provider(street)
+            if street_civic_policy_provider is None:
+                return ()
+            return (street_civic_policy_provider,)
+        if participant_type == ParticipantType.VenuePolicyProvider:
+            venue_service = services.venue_service()
+            if venue_service.source_venue is None or venue_service.source_venue.civic_policy_provider is None:
+                return ()
+            else:
+                return (venue_service.source_venue.civic_policy_provider,)
 
 class GlobalResolver(Resolver):
 
@@ -301,6 +312,12 @@ class InteractionResolver(Resolver):
                     if result is not None:
                         return (result,)
                 return ()
+            elif participant_type == ParticipantType.ObjectIngredients:
+                if self.target is not None and self.target.crafting_component:
+                    target_crafting_process = self.target.get_crafting_process()
+                    if target_crafting_process is not None:
+                        return tuple(target_crafting_process.get_ingredients_object_definitions())
+                return ()
             elif participant_type == ParticipantType.TargetSim:
                 if self.target is not None and self.target.is_sim:
                     result = _to_sim_info(self.target)
@@ -308,6 +325,12 @@ class InteractionResolver(Resolver):
                         return (result,)
                 return ()
             return ()
+            if participant_type == ParticipantType.TargetSim:
+                if self.target is not None and self.target.is_sim:
+                    result = _to_sim_info(self.target)
+                    if result is not None:
+                        return (result,)
+                return ()
             if participant_type == ParticipantType.ActorPostureTarget:
                 if self.interaction is not None:
                     return self.interaction.get_participants(participant_type=participant_type)
@@ -368,6 +391,10 @@ class InteractionResolver(Resolver):
             ValueError('Trying to use CustomSim without passing a custom_sim in InteractionResolver.')
         elif participant_type == ParticipantType.AllRelationships:
             return (ParticipantType.AllRelationships,)
+        if participant_type == ParticipantType.PickedItemId:
+            picked_item_ids = self.interaction_parameters.get('picked_item_ids')
+            if picked_item_ids is not None:
+                return picked_item_ids
         if self.interaction is not None:
             participants = self.interaction.get_participants(participant_type=participant_type, sim=self.context.sim, target=self.target, listener_filtering_enabled=False, **self.interaction_parameters)
         elif self.super_interaction is not None:
@@ -492,6 +519,11 @@ class SingleSimResolver(Resolver):
             return self._additional_participants[participant_type]
         if participant_type == ParticipantType.PickedZoneId:
             return frozenset()
+        if participant_type == ParticipantType.ActorLot:
+            sim_home_lot = self.sim_info_to_test.get_home_lot()
+            if sim_home_lot is None:
+                return ()
+            return (sim_home_lot,)
         result = self._get_participants_base(participant_type, **kwargs)
         if result is not None:
             return result
@@ -631,6 +663,13 @@ class SingleObjectResolver(Resolver):
     def get_participants(self, participant_type, **kwargs):
         if participant_type == ParticipantType.Object:
             return (self._obj,)
+        elif participant_type == ParticipantType.ObjectIngredients:
+            if self._obj.crafting_component:
+                crafting_process = self._obj.get_crafting_process()
+                if crafting_process is not None:
+                    return tuple(crafting_process.get_ingredients_object_definitions())
+            return ()
+        return ()
         if participant_type == ParticipantType.Actor:
             return (self._obj,)
         if participant_type == ParticipantType.StoredSim:
@@ -655,6 +694,10 @@ class SingleObjectResolver(Resolver):
             return tuple(self._obj.children_recursive_gen())
         if participant_type == ParticipantType.RandomInventoryObject:
             return (random.choice(tuple(self._obj.inventory_component.visible_storage)),)
+        if participant_type == ParticipantType.PickedObject or participant_type == ParticipantType.CarriedObject or participant_type == ParticipantType.LiveDragActor:
+            if self._obj.is_sim:
+                return (self._obj.sim_info,)
+            return (self._obj,)
         result = self._get_participants_base(participant_type, **kwargs)
         if result is not None:
             return result
@@ -725,6 +768,13 @@ class SingleActorAndObjectResolver(Resolver):
             return (self._sim_info,)
         if participant_type == ParticipantType.Object:
             return (self._obj,)
+        elif participant_type == ParticipantType.ObjectIngredients:
+            if self._obj.crafting_component:
+                crafting_process = self._obj.get_crafting_process()
+                if crafting_process is not None:
+                    return tuple(crafting_process.get_ingredients_object_definitions())
+            return ()
+        return ()
         if participant_type == ParticipantType.ObjectParent:
             if self._obj is None or self._obj.parent is None:
                 return ()
@@ -771,6 +821,13 @@ class DoubleSimAndObjectResolver(Resolver):
             return (self._target_sim_info.get_significant_other_sim_info(),)
         if participant_type == ParticipantType.Object:
             return (self._obj,)
+        elif participant_type == ParticipantType.ObjectIngredients:
+            if self._obj.crafting_component:
+                crafting_process = self._obj.get_crafting_process()
+                if crafting_process is not None:
+                    return tuple(crafting_process.get_ingredients_object_definitions())
+            return ()
+        return ()
         if participant_type == ParticipantType.ObjectParent:
             if self._obj is None or self._obj.parent is None:
                 return ()
@@ -805,4 +862,57 @@ class PhotoResolver(SingleActorAndObjectResolver):
     def get_participants(self, participant_type, **kwargs):
         if participant_type == ParticipantType.PhotographyTargets:
             return self._photo_targets
+        return super().get_participants(participant_type, **kwargs)
+
+class ZoneResolver(GlobalResolver):
+
+    def __init__(self, zone_id, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._zone_id = zone_id
+
+    def __repr__(self):
+        return 'ZoneResolver: zone_id: {}'.format(self._zone_id)
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == ParticipantType.PickedZoneId:
+            return (self._zone_id,)
+        return super().get_participants(participant_type, **kwargs)
+
+class StreetResolver(GlobalResolver):
+
+    def __init__(self, street, **kwargs):
+        super().__init__(**kwargs)
+        self._street = street
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == ParticipantType.Street:
+            street_service = services.street_service()
+            if street_service is None:
+                return ()
+            street_civic_policy_provider = street_service.get_provider(self._street)
+            if street_civic_policy_provider is None:
+                return ()
+            return (street_civic_policy_provider,)
+        return super().get_participants(participant_type, **kwargs)
+
+class VenuePolicyProviderResolver(GlobalResolver):
+
+    def __init__(self, venue_policy_provider, **kwargs):
+        super().__init__(**kwargs)
+        self._venue_policy_provider = venue_policy_provider
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == ParticipantType.VenuePolicyProvider:
+            return (self._venue_policy_provider,)
+        return super().get_participants(participant_type, **kwargs)
+
+class LotResolver(GlobalResolver):
+
+    def __init__(self, lot, **kwargs):
+        super().__init__(**kwargs)
+        self._lot = lot
+
+    def get_participants(self, participant_type, **kwargs):
+        if participant_type == ParticipantType.Lot:
+            return (self._lot,)
         return super().get_participants(participant_type, **kwargs)

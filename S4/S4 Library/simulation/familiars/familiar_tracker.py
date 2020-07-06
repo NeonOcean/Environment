@@ -237,7 +237,7 @@ class FamiliarTracker(SimInfoTracker):
                 pet_familiar = services.object_manager().get(self._active_familiar_obj_id)
                 if services.current_zone().is_zone_running:
                     if pet_familiar is None:
-                        services.current_zone().venue_service.venue.summon_npcs((pet_familiar_sim_info,), NPCSummoningPurpose.BRING_PLAYER_SIM_TO_LOT)
+                        services.current_zone().venue_service.active_venue.summon_npcs((pet_familiar_sim_info,), NPCSummoningPurpose.BRING_PLAYER_SIM_TO_LOT)
                     else:
                         context = InteractionContext(pet_familiar, InteractionContext.SOURCE_SCRIPT, Priority.Critical, insert_strategy=QueueInsertStrategy.NEXT)
                         pet_familiar.push_super_affordance(FamiliarTracker.PET_FAMILIAR_SET_ACTIVE_AFFORDANCE, None, context)

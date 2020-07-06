@@ -14,9 +14,9 @@ class PortalFlags(DynamicEnumFlags):
     SPECIES_DOG = 16
     SPECIES_CAT = 32
     SPECIES_SMALLDOG = 64
-    AGE_TODDLER = 1024
-    AGE_CHILD = 2048
-    AGE_TYAE = 4096
+    AGE_TODDLER = 128
+    AGE_CHILD = 256
+    AGE_TYAE = 512
 
 class PortalType(enum.Int, export=False):
     PortalType_Wormhole = 0

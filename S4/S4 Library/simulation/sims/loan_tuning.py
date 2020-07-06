@@ -28,6 +28,8 @@ class LoanTunables:
 
     @staticmethod
     def add_debt(sim_info, amount):
+        if amount == 0:
+            return
         sim_info_debt_stat = sim_info.statistic_tracker.get_statistic(LoanTunables.DEBT_STATISTIC, add=True)
         sim_info_debt_stat.add_value(amount)
         LoanTunables.send_loan_op(sim_info, -amount)

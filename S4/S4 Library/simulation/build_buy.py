@@ -1,15 +1,21 @@
 from contextlib import contextmanager
+from indexed_manager import ObjectIDError
 from objects import ALL_HIDDEN_REASONS
+from objects.object_enums import ItemLocation
+import id_generator
+import objects
+import protocolbuffers.FileSerialization_pb2 as file_serialization
+from protocolbuffers import FileSerialization_pb2
 from sims4.callback_utils import CallableList
 from sims4.log import Logger
 import enum
-import id_generator
-import protocolbuffers.FileSerialization_pb2 as file_serialization
 import pythonutils
-import routing
-import services
 import sims4.reload
 import sims4.utils
+import routing
+import services
+import venues
+from objects.gallery_tuning import ContentSource
 with sims4.reload.protected(globals()):
     _build_buy_enter_callbacks = CallableList()
     _build_buy_exit_callbacks = CallableList()
@@ -37,55 +43,11 @@ except ImportError:
             return []
 
         @staticmethod
-        def add_object_to_buildbuy_system(*_, **__):
-            pass
-
-        @staticmethod
-        def remove_object_from_buildbuy_system(*_, **__):
-            pass
-
-        @staticmethod
-        def invalidate_object_location(*_, **__):
-            pass
-
-        @staticmethod
-        def get_stair_count(*_, **__):
-            pass
-
-        @staticmethod
         def update_object_attributes(*_, **__):
             pass
 
         @staticmethod
         def test_location_for_object(*_, **__):
-            pass
-
-        @staticmethod
-        def has_floor_at_location(*_, **__):
-            pass
-
-        @staticmethod
-        def is_location_outside(*_, **__):
-            return True
-
-        @staticmethod
-        def is_location_natural_ground(*_, **__):
-            return True
-
-        @staticmethod
-        def is_location_pool(*_, **__):
-            return True
-
-        @staticmethod
-        def get_pool_edges(*_, **__):
-            return True
-
-        @staticmethod
-        def get_pool_size_at_location(*_, **__):
-            pass
-
-        @staticmethod
-        def get_all_block_polygons(*_, **__):
             pass
 
         @staticmethod
@@ -102,6 +64,10 @@ except ImportError:
 
         @staticmethod
         def get_block_id(*_, **__):
+            pass
+
+        @staticmethod
+        def get_room_id(*_, **__):
             pass
 
         @staticmethod
@@ -149,10 +115,6 @@ except ImportError:
             pass
 
         @staticmethod
-        def get_pool_polys(*_, **__):
-            pass
-
-        @staticmethod
         def get_current_venue(*_, **__):
             pass
 
@@ -189,20 +151,12 @@ except ImportError:
             pass
 
         @staticmethod
-        def list_floor_features(*_, **__):
-            pass
-
-        @staticmethod
         def scan_floor_features(*_, **__):
             pass
 
         @staticmethod
         def get_variant_group_id(*_, **__):
             pass
-
-        @staticmethod
-        def get_vetted_object_defn_guid(zone_id, obj_id, definition_id):
-            return definition_id
 
         @staticmethod
         def get_replacement_object(*_, **__):
@@ -237,15 +191,7 @@ except ImportError:
             pass
 
         @staticmethod
-        def get_location_plex_id(*_, **__):
-            pass
-
-        @staticmethod
-        def get_plex_outline(*_, **__):
-            pass
-
-        @staticmethod
-        def set_plex_visibility(*_, **__):
+        def conditional_layer_destroyed(*_, **__):
             pass
 
         @staticmethod
@@ -260,30 +206,25 @@ except ImportError:
         def get_active_lot_decoration(*_, **__):
             pass
 
+        @staticmethod
+        def get_venue_tier(*_, **__):
+            pass
+
 logger = Logger('BuildBuy')
 
 def remove_floor_feature(ff_type, pos, surface):
     zone_id = services.current_zone_id()
     set_floor_feature(zone_id, ff_type, pos, surface, 0)
 
-def remove_object_from_buildbuy_system(obj_id, zone_id, persist=True):
-    _buildbuy.remove_object_from_buildbuy_system(obj_id, zone_id, persist)
+def remove_object_from_buildbuy_system(obj_id, persist=True):
+    _buildbuy.remove_object_from_buildbuy_system(obj_id, services.current_zone_id(), persist)
 
 get_wall_contours = _buildbuy.get_wall_contours
-add_object_to_buildbuy_system = _buildbuy.add_object_to_buildbuy_system
-invalidate_object_location = _buildbuy.invalidate_object_location
-get_stair_count = _buildbuy.get_stair_count
 update_object_attributes = _buildbuy.update_object_attributes
 test_location_for_object = _buildbuy.test_location_for_object
-has_floor_at_location = _buildbuy.has_floor_at_location
-is_location_outside = _buildbuy.is_location_outside
-is_location_natural_ground = _buildbuy.is_location_natural_ground
-is_location_pool = _buildbuy.is_location_pool
-get_pool_size_at_location = _buildbuy.get_pool_size_at_location
-get_pool_edges = _buildbuy.get_pool_edges
-get_all_block_polygons = _buildbuy.get_all_block_polygons
 get_object_slotset = _buildbuy.get_object_slotset
 get_block_id = _buildbuy.get_block_id
+get_room_id = _buildbuy.get_room_id
 get_user_in_build_buy = _buildbuy.get_user_in_bb
 init_build_buy_force_exit = _buildbuy.init_bb_force_exit
 build_buy_force_exit = _buildbuy.bb_force_exit
@@ -295,7 +236,6 @@ get_object_can_depreciate = _buildbuy.get_object_can_depreciate
 get_household_inventory_value = _buildbuy.get_household_inventory_value
 get_object_has_tag = _buildbuy.get_object_has_tag
 get_object_all_tags = _buildbuy.get_object_all_tags
-get_pool_polys = _buildbuy.get_pool_polys
 get_current_venue_config = _buildbuy.get_current_venue_config
 update_gameplay_unlocked_products = _buildbuy.update_gameplay_unlocked_products
 has_floor_feature = _buildbuy.has_floor_feature
@@ -304,9 +244,7 @@ set_floor_feature = _buildbuy.set_floor_feature
 begin_update_floor_features = _buildbuy.begin_update_floor_features
 end_update_floor_features = _buildbuy.end_update_floor_features
 find_floor_feature = _buildbuy.find_floor_feature
-list_floor_features = _buildbuy.list_floor_features
 scan_floor_features = _buildbuy.scan_floor_features
-get_vetted_object_defn_guid = _buildbuy.get_vetted_object_defn_guid
 get_replacement_object = _buildbuy.get_replacement_object
 get_lowest_level_allowed = _buildbuy.get_lowest_level_allowed
 get_highest_level_allowed = _buildbuy.get_highest_level_allowed
@@ -315,16 +253,15 @@ load_conditional_objects = _buildbuy.load_conditional_objects
 mark_conditional_objects_loaded = _buildbuy.mark_conditional_objects_loaded
 set_client_conditional_layer_active = _buildbuy.set_client_conditional_layer_active
 get_variant_group_id = _buildbuy.get_variant_group_id
+conditional_layer_destroyed = _buildbuy.conditional_layer_destroyed
 is_household_inventory_available = _buildbuy.is_household_inventory_available
-get_location_plex_id = _buildbuy.get_location_plex_id
-get_plex_outline = _buildbuy.get_plex_outline
-set_plex_visibility = _buildbuy.set_plex_visibility
 request_season_weather_interpolation = _buildbuy.request_season_weather_interpolation
 set_active_lot_decoration = _buildbuy.set_active_lot_decoration
 get_active_lot_decoration = _buildbuy.get_active_lot_decoration
+get_venue_tier = _buildbuy.get_venue_tier
 
-def get_current_venue(zone_id):
-    return _buildbuy.get_current_venue(services.get_plex_service().get_master_zone_id(zone_id))
+def get_current_venue(zone_id, allow_ineligible=False):
+    return _buildbuy.get_current_venue(services.get_plex_service().get_master_zone_id(zone_id), allow_ineligible)
 
 def register_build_buy_enter_callback(callback):
     _build_buy_enter_callbacks.register(callback)
@@ -399,8 +336,8 @@ def remove_object_from_household_inventory(object_id, household):
     zone_id = services.current_zone_id()
     return _buildbuy.remove_object_from_household_inventory(object_id, household.id, zone_id, household.account.id)
 
-def object_exists_in_household_inventory(sim_id, household_id):
-    return _buildbuy.object_exists_in_household_inventory(sim_id, household_id)
+def object_exists_in_household_inventory(object_id, household_id):
+    return _buildbuy.object_exists_in_household_inventory(object_id, household_id)
 
 def get_object_ids_in_household_inventory(household_id):
     if is_household_inventory_available(household_id):
@@ -409,6 +346,104 @@ def get_object_ids_in_household_inventory(household_id):
         household_msg = services.get_persistence_service().get_household_proto_buff(household_id)
         if household_msg is not None and household_msg.inventory:
             return [object_data.object_id for object_data in household_msg.inventory.objects]
+
+def get_object_in_household_inventory(object_id, household_id):
+
+    def make_object(object_data):
+        def_id = get_vetted_object_defn_guid(object_id, object_data.guid)
+        definition = services.definition_manager().get(def_id, obj_state=object_data.state_index)
+
+        class HouseholdInventoryObject(definition.cls):
+
+            @property
+            def persistence_group(self):
+                return objects.persistence_groups.PersistenceGroups.NONE
+
+            @persistence_group.setter
+            def persistence_group(self, value):
+                pass
+
+            def save_object(self, object_list, *args, item_location=objects.object_enums.ItemLocation.ON_LOT, container_id=0, **kwargs):
+                pass
+
+            @property
+            def is_valid_posture_graph_object(self):
+                return False
+
+        try:
+            obj = objects.system.create_object(object_data.guid, cls_override=HouseholdInventoryObject, obj_id=object_id, obj_state=object_data.state_index, loc_type=ItemLocation.HOUSEHOLD_INVENTORY, content_source=ContentSource.HOUSEHOLD_INVENTORY_PROXY)
+            obj.append_tags(objects.object_manager.ObjectManager.HOUSEHOLD_INVENTORY_OBJECT_TAGS)
+            obj.attributes = object_data.SerializeToString()
+            obj.set_household_owner_id(household_id)
+        except ObjectIDError as exc:
+            obj = services.object_manager().get(object_id)
+            if obj is None:
+                logger.error('Failed to create or find proxy object for Household Inventory object {}\n{}', object_id, exc)
+        return obj
+
+    if is_household_inventory_available(household_id):
+        object_data_raw = _buildbuy.get_object_data_in_household_inventory(object_id, household_id)
+        if object_data_raw is None:
+            return
+        object_data = FileSerialization_pb2.ObjectData()
+        object_data.ParseFromString(object_data_raw)
+        if object_data is not None:
+            return make_object(object_data)
+    else:
+        household_msg = services.get_persistence_service().get_household_proto_buff(household_id)
+        if household_msg is not None:
+            if household_msg.inventory:
+                for object_data in household_msg.inventory:
+                    if object_data.object_id == object_id:
+                        return make_object(object_data)
+
+def is_location_outside(position, level):
+    return _buildbuy.is_location_outside(services.current_zone_id(), position, level)
+
+def is_location_natural_ground(position, level):
+    return _buildbuy.is_location_natural_ground(services.current_zone_id(), position, level)
+
+def has_floor_at_location(position, level):
+    return _buildbuy.has_floor_at_location(services.current_zone_id(), position, level)
+
+def is_location_pool(position, level):
+    return _buildbuy.is_location_pool(services.current_zone_id(), position, level)
+
+def get_pool_size_at_location(position, level):
+    return _buildbuy.get_pool_size_at_location(services.current_zone_id(), position, level)
+
+def get_pool_edges():
+    return _buildbuy.get_pool_edges(services.current_zone_id())
+
+def get_all_block_polygons(plex_id):
+    return _buildbuy.get_all_block_polygons(services.current_zone_id(), plex_id)
+
+def get_pool_polys(pool_block_id, level):
+    return _buildbuy.get_pool_polys(pool_block_id, services.current_zone_id(), level)
+
+def get_location_plex_id(position, level):
+    return _buildbuy.get_location_plex_id(services.current_zone_id(), position, level)
+
+def get_plex_outline(plex_id, level):
+    return _buildbuy.get_plex_outline(services.current_zone_id(), plex_id, level)
+
+def set_plex_visibility(plex_id, is_visible):
+    return _buildbuy.set_plex_visibility(services.current_zone_id(), plex_id, is_visible)
+
+def get_vetted_object_defn_guid(obj_id, definition_id):
+    return _buildbuy.get_vetted_object_defn_guid(services.current_zone_id(), obj_id, definition_id)
+
+def add_object_to_buildbuy_system(obj_id):
+    return _buildbuy.add_object_to_buildbuy_system(obj_id, services.current_zone_id())
+
+def invalidate_object_location(obj_id):
+    return _buildbuy.invalidate_object_location(obj_id, services.current_zone_id())
+
+def get_stair_count(obj_id):
+    return _buildbuy.get_stair_count(obj_id, services.current_zone_id())
+
+def list_floor_features(terrain_feature):
+    return _buildbuy.list_floor_features(services.current_zone_id(), terrain_feature)
 
 def __reload__(old_module_vars):
     pass
@@ -533,8 +568,22 @@ def c_api_buildbuy_session_begin(zone_id:int, account_id:int):
     update_gameplay_unlocked_products(resource_keys, zone_id, account_id)
     services.business_service().on_build_buy_enter()
     services.get_reset_and_delete_service().on_build_buy_enter()
+    services.object_manager(zone_id).cleanup_build_buy_transient_objects()
     _build_buy_enter_callbacks()
     return True
+
+def _sync_venue_service_to_zone_venue_type(zone_id):
+    active_venue_tuning_id = get_current_venue(zone_id)
+    logger.assert_raise(active_venue_tuning_id is not None, ' Venue is None in buildbuy for zone id:{}', zone_id, owner='shouse')
+    raw_active_venue_tuning_id = get_current_venue(zone_id, allow_ineligible=True)
+    logger.assert_raise(raw_active_venue_tuning_id is not None, ' Raw Venue is None in buildbuy for zone id:{}', zone_id, owner='shouse')
+    if not active_venue_tuning_id is None and not raw_active_venue_tuning_id is None:
+        active_venue_tuning = services.venue_manager().get(active_venue_tuning_id)
+        raw_active_venue_tuning = services.venue_manager().get(raw_active_venue_tuning_id)
+        source_venue_tuning = venues.venue_service.VenueService.get_variable_venue_source_venue(raw_active_venue_tuning)
+        services.current_zone().venue_service.on_change_venue_type_at_runtime(active_venue_tuning, source_venue_tuning, force_start_situations=True)
+        return True
+    return False
 
 @sims4.utils.exception_protected
 def buildbuy_session_end(zone_id):
@@ -545,11 +594,8 @@ def buildbuy_session_end(zone_id):
     posture_graph_service.on_exit_buildbuy()
     _build_buy_exit_callbacks()
     pythonutils.try_highwater_gc()
-    venue_type = get_current_venue(zone_id)
-    logger.assert_raise(venue_type is not None, ' Venue Type is None in buildbuy session end for zone id:{}', zone_id, owner='sscholl')
-    if venue_type is not None:
-        venue_tuning = services.venue_manager().get(venue_type)
-        services.current_zone().venue_service.change_venue_type_at_runtime(venue_tuning)
+    services.get_zone_modifier_service().check_for_and_apply_new_zone_modifiers(zone_id)
+    if _sync_venue_service_to_zone_venue_type(zone_id):
         zone_director = services.venue_service().get_zone_director()
         if zone_director is not None:
             zone_director.on_exit_buildbuy()
@@ -558,16 +604,20 @@ def buildbuy_session_end(zone_id):
         object_preference_tracker.validate_objects(zone_id)
     services.business_service().on_build_buy_exit()
     services.current_zone().on_build_buy_exit()
+    services.utilities_manager().on_build_buy_exit()
     services.get_reset_and_delete_service().on_build_buy_exit()
+    street_service = services.street_service()
+    if street_service is not None:
+        street = services.current_street()
+        if street is not None:
+            provider = street_service.get_provider(street)
+            if provider is not None:
+                provider.on_build_buy_exit()
     services.object_manager().clear_objects_to_ignore_portal_validation_cache()
 
 @sims4.utils.exception_protected
 def c_api_buildbuy_venue_type_changed(zone_id):
-    venue_type = get_current_venue(zone_id)
-    logger.assert_raise(venue_type is not None, ' Venue Type is None in buildbuy session end for zone id:{}', zone_id, owner='sscholl')
-    if venue_type is not None:
-        venue_tuning = services.venue_manager().get(venue_type)
-        services.current_zone().venue_service.change_venue_type_at_runtime(venue_tuning)
+    _sync_venue_service_to_zone_venue_type(zone_id)
 
 @sims4.utils.exception_protected
 def c_api_buildbuy_session_end(zone_id:int, account_id:int, pending_navmesh_rebuild:bool=False):
@@ -591,7 +641,7 @@ def c_api_buildbuy_get_save_object_data(zone_id:int, obj_id:int):
 
 @sims4.utils.exception_protected
 def c_api_buildbuy_lot_traits_changed(zone_id:int):
-    services.get_zone_modifier_service().on_zone_modifiers_updated(zone_id)
+    pass
 
 @sims4.utils.exception_protected
 def c_api_house_inv_obj_added(zone_id, household_id, obj_id, obj_def_id):
@@ -623,6 +673,11 @@ def c_api_set_object_location_ex(zone_id, obj_id, routing_surface, transform, pa
     parent = services.object_manager().get(parent_id) if parent_id else None
     obj.parent_type_info = parent_type_info
     obj.set_parent(parent, transform=transform, slot_hash=slot_hash, routing_surface=routing_surface)
+
+@sims4.utils.exception_protected
+def c_api_reset_sims_to_landing_strip(zone_id):
+    for sim in services.sim_info_manager().instanced_sims_on_active_lot_gen(allow_hidden_flags=ALL_HIDDEN_REASONS):
+        sim.fgl_reset_to_landing_strip()
 
 @sims4.utils.exception_protected
 def c_api_on_apply_blueprint_lot_begin(zone_id):

@@ -104,6 +104,12 @@ class UiDialogService(Service):
             return True
         return False
 
+    def dialog_pick_result_def_and_counts(self, dialog_id:int, picked_def_ids=[], picked_counts=[], ingredient_check=None) -> bool:
+        dialog = self._active_dialogs.get(dialog_id, None)
+        if dialog is not None and dialog.pick_definitions_and_counts(picked_def_ids, picked_counts, ingredient_check):
+            return True
+        return False
+
     def dialog_text_input(self, dialog_id:int, text_input_name, text_input_value) -> bool:
         dialog = self._active_dialogs.get(dialog_id, None)
         if dialog is not None and dialog.on_text_input(text_input_name, text_input_value):

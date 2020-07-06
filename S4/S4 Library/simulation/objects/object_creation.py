@@ -25,7 +25,7 @@ from postures import PostureTrackGroup, PostureTrack
 from sims4.random import weighted_random_item
 from sims4.tuning.tunable import HasTunableSingletonFactory, AutoFactoryInit, TunableReference, TunableList, TunableTuple, TunableEnumEntry, TunableVariant, OptionalTunable, Tunable, TunableSet, TunableRange, TunableFactory
 from singletons import DEFAULT
-from tag import Tag, TunableTags
+from tag import Tag, TunableTags, TunableTag
 from tunable_multiplier import TunableMultiplier
 from ui.ui_dialog_notification import UiDialogNotification
 logger = sims4.log.Logger('Creation')
@@ -60,41 +60,93 @@ class _ObjectDefinitionTested(CreationDataBase, HasTunableSingletonFactory, Auto
             return definition
         return self.fallback_definition
 
-class _RecipeDefinition(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+class _RecipeBase(HasTunableSingletonFactory, AutoFactoryInit):
     FACTORY_TUNABLES = {'show_crafted_by_text': Tunable(description='\n            Show crafted by text on the tooltip of item created by this recipe. \n            ', tunable_type=bool, default=True)}
+
+    def setup_created_object(self, resolver, created_object, chosen_creation_data=DEFAULT):
+        from crafting.crafting_process import CraftingProcess
+        if chosen_creation_data is DEFAULT or chosen_creation_data is None:
+            logger.warn('chosen_creation_data not passed in!')
+            return
+        crafter = resolver.get_participant(ParticipantType.Actor)
+        crafting_process = CraftingProcess(crafter=crafter, recipe=chosen_creation_data)
+        if not self.show_crafted_by_text:
+            crafting_process.remove_crafted_by_text()
+        crafting_process.setup_crafted_object(created_object, is_final_product=True)
+
+    def get_creation_params(self, resolver):
+        raise NotImplementedError
+
+    def get_definition(self, resolver):
+        raise NotImplementedError
+
+class _RecipeByTag(_RecipeBase, CreationDataBase):
+
+    @TunableFactory.factory_option
+    def recipe_factory_tuning(pack_safe=False):
+        return {'recipe_tag': TunableTag(description='\n                The recipe tag to use to create the object.\n                ', filter_prefixes=('Recipe',), pack_safe=pack_safe)}
+
+    def choose_recipe(self):
+        from crafting.recipe import get_recipes_matching_tag
+        filtered_defs = get_recipes_matching_tag(self.recipe_tag)
+        if not filtered_defs:
+            logger.warn('_RecipeByTag could not find a recipe with the tag {}.', self.recipe_tag, owner='skorman')
+            return
+        return random.choice(filtered_defs)
+
+    def get_creation_params(self, resolver):
+        recipe = self.choose_recipe()
+        return ObjectCreationParams(recipe.final_product.definition, {'chosen_creation_data': recipe})
+
+    def get_definition(self, resolver):
+        return self.get_creation_params(resolver).definition
+
+class _RecipeDefinition(_RecipeBase, CreationDataBase):
 
     @TunableFactory.factory_option
     def recipe_factory_tuning(pack_safe=False):
         return {'recipe': TunableReference(description='\n                The recipe to use to create the object.\n                ', manager=services.get_instance_manager(sims4.resources.Types.RECIPE), pack_safe=pack_safe)}
 
+    def get_creation_params(self, resolver):
+        return ObjectCreationParams(self.get_definition(resolver), {'chosen_creation_data': self.recipe})
+
     def get_definition(self, resolver):
         return self.recipe.final_product.definition
 
-    def setup_created_object(self, resolver, created_object, **__):
-        from crafting.crafting_process import CraftingProcess
-        crafter = resolver.get_participant(ParticipantType.Actor)
-        crafting_process = CraftingProcess(crafter=crafter, recipe=self.recipe)
-        if not self.show_crafted_by_text:
-            crafting_process.remove_crafted_by_text()
-        crafting_process.setup_crafted_object(created_object, is_final_product=True)
-
-class _RandomWeightedRecipe(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'weighted_recipes': TunableList(description='\n            A list of weighted list of recipes that can be available for recipe creation.\n            ', tunable=TunableTuple(description='\n                The weighted recipe.\n                ', recipe=_RecipeDefinition.TunableFactory(recipe_factory_tuning={'pack_safe': True}), weight=TunableMultiplier.TunableFactory()), minlength=1)}
+class _RandomRecipeBase:
 
     def get_definition(self, resolver):
-        logger.error('\n            get_definition is being called in _RandomWeightedRecipe, this should not be a standard behavior\n            when creating an object.  get_creation_params is the expected way to get the definition\n            ', owner='jdimailig')
+        logger.error('\n            get_definition is being called in _RandomRecipeBase, this \n            should not be a standard behavior when creating an object. \n            get_creation_params is the expected way to get the definition\n            ', owner='jdimailig')
         return self.get_creation_params(resolver).definition
-
-    def get_creation_params(self, resolver):
-        weighted_recipe_creation_data = list((weighted_recipe.weight.get_multiplier(resolver), weighted_recipe.recipe) for weighted_recipe in self.weighted_recipes)
-        chosen_creation_data = weighted_random_item(weighted_recipe_creation_data)
-        return ObjectCreationParams(chosen_creation_data.get_definition(resolver), {'chosen_creation_data': chosen_creation_data})
 
     def setup_created_object(self, resolver, created_object, chosen_creation_data=DEFAULT):
         if chosen_creation_data is DEFAULT:
             logger.error('chosen_creation_data not passed in!')
             return
-        chosen_creation_data.setup_created_object(resolver, created_object)
+        (recipe_factory, recipe) = chosen_creation_data
+        if recipe_factory is None or recipe is None:
+            return
+        recipe_factory.setup_created_object(resolver, created_object, chosen_creation_data=recipe)
+
+    def get_creation_params(self, resolver):
+        raise NotImplementedError
+
+class _RandomWeightedTaggedRecipe(_RandomRecipeBase, CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'weighted_recipe_tags': TunableList(description='\n            A list of weighted list of recipe tags that can be available for \n            recipe creation.\n            ', tunable=TunableTuple(description='\n                The weighted recipe tag.\n                ', recipe_tag=_RecipeByTag.TunableFactory(recipe_factory_tuning={'pack_safe': True}), weight=TunableMultiplier.TunableFactory()), minlength=1)}
+
+    def get_creation_params(self, resolver):
+        weighted_recipe_creation_data = list((weighted_recipe.weight.get_multiplier(resolver), weighted_recipe.recipe_tag) for weighted_recipe in self.weighted_recipe_tags)
+        recipe_factory = weighted_random_item(weighted_recipe_creation_data)
+        recipe = recipe_factory.choose_recipe()
+        return ObjectCreationParams(recipe.final_product.definition, {'chosen_creation_data': (recipe_factory, recipe)})
+
+class _RandomWeightedRecipe(_RandomRecipeBase, CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'weighted_recipes': TunableList(description='\n            A list of weighted list of recipes that can be available for recipe creation.\n            ', tunable=TunableTuple(description='\n                The weighted recipe.\n                ', recipe=_RecipeDefinition.TunableFactory(recipe_factory_tuning={'pack_safe': True}), weight=TunableMultiplier.TunableFactory()), minlength=1)}
+
+    def get_creation_params(self, resolver):
+        weighted_recipe_creation_data = list((weighted_recipe.weight.get_multiplier(resolver), weighted_recipe.recipe) for weighted_recipe in self.weighted_recipes)
+        recipe_factory = weighted_random_item(weighted_recipe_creation_data)
+        return ObjectCreationParams(recipe_factory.get_definition(resolver), {'chosen_creation_data': (recipe_factory, recipe_factory.recipe)})
 
 class _CloneObject(CreationDataBase, HasTunableSingletonFactory, AutoFactoryInit):
 
@@ -267,7 +319,7 @@ class _CraftableServing(CreationDataBase, GrabServingMixin, HasTunableSingletonF
 class TunableObjectCreationDataVariant(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), random_recipe=_RandomWeightedRecipe.TunableFactory(), serving=_CraftableServing.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), from_fishing_data=_CreateObjectFromFishingData.TunableFactory(), default='definition', **kwargs)
+        super().__init__(*args, definition=_ObjectDefinition.TunableFactory(), definition_tested=_ObjectDefinitionTested.TunableFactory(), recipe=_RecipeDefinition.TunableFactory(), recipe_by_tag=_RecipeByTag.TunableFactory(), random_recipe=_RandomWeightedRecipe.TunableFactory(), random_recipe_by_tags=_RandomWeightedTaggedRecipe.TunableFactory(), serving=_CraftableServing.TunableFactory(), clone_object=_CloneObject.TunableFactory(), create_photo_object=_CreatePhotoObject.TunableFactory(), random_by_tags=_RandomFromTags.TunableFactory(), from_stored_object_info=_CreateObjectFromStoredObjectInfo.TunableFactory(), from_fishing_data=_CreateObjectFromFishingData.TunableFactory(), default='definition', **kwargs)
 
 class ObjectCreationMixin:
     INVENTORY = 'inventory'
@@ -318,9 +370,9 @@ class ObjectCreationMixin:
             if not initial_state.tests is None:
                 if initial_state.tests.run_tests(self.resolver):
                     if created_object.has_state(initial_state.state.state):
-                        created_object.set_state(initial_state.state.state, initial_state.state)
+                        created_object.set_state(initial_state.state.state, initial_state.state, from_creation=True)
             if created_object.has_state(initial_state.state.state):
-                created_object.set_state(initial_state.state.state, initial_state.state)
+                created_object.set_state(initial_state.state.state, initial_state.state, from_creation=True)
         if self.temporary_tags is not None:
             created_object.append_tags(self.temporary_tags)
         if created_object.has_component(objects.components.types.CRAFTING_COMPONENT):
@@ -397,7 +449,7 @@ class ObjectCreationMixin:
                         notification.show_dialog()
                     return True
             sim = self.resolver.get_participant(ParticipantType.Actor)
-            if not (participant.inventory_component is not None and sim is None or not sim.is_sim):
+            if not (participant is not None and participant.inventory_component is not None and sim is None or not sim.is_sim):
                 owning_household = services.owning_household_of_active_lot()
                 if owning_household is not None:
                     for sim_info in owning_household.sim_info_gen():

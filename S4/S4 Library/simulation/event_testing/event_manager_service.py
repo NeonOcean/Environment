@@ -80,23 +80,23 @@ class EventManagerService(Service):
         logger.error('Cannot register {} due to absence of expected callback method.  Registered event_types: {}.', handler, event_types, owner='manus')
         return False
 
-    def register_tests(self, tuning_class_instance, tests):
+    def register_tests(self, handler, tests):
         for test in tests:
             test_events = test.get_test_events_to_register()
             if test_events:
-                self.register(tuning_class_instance, test_events)
+                self.register(handler, test_events)
             custom_keys = test.get_custom_event_registration_keys()
             for (test_event, custom_key) in custom_keys:
-                self.register_with_custom_key(tuning_class_instance, test_event, custom_key)
+                self.register_with_custom_key(handler, test_event, custom_key)
 
-    def unregister_tests(self, tuning_class_instance, tests):
+    def unregister_tests(self, handler, tests):
         for test in tests:
             test_events = test.get_test_events_to_register()
             if test_events:
-                self.unregister(tuning_class_instance, test_events)
+                self.unregister(handler, test_events)
             custom_keys = test.get_custom_event_registration_keys()
             for (test_event, custom_key) in custom_keys:
-                self.unregister_with_custom_key(tuning_class_instance, test_event, custom_key)
+                self.unregister_with_custom_key(handler, test_event, custom_key)
 
     def register_single_event(self, handler, event_type):
         logger.assert_raise(self._enabled, 'Attempting to register event:{} \n            with handler:{} when the EventManagerService is disabled.', str(event_type), str(handler), owner='sscholl')
@@ -117,6 +117,10 @@ class EventManagerService(Service):
             key = (event, None)
             if handler in self._test_event_callback_map[key]:
                 self._test_event_callback_map[key].remove(handler)
+
+    def is_registered_for_event(self, handler, event):
+        key = (event, None)
+        return handler in self._test_event_callback_map[key]
 
     def register_with_custom_key(self, handler, event_type, custom_key):
         if self._is_valid_handler(handler, (event_type,)):
@@ -158,16 +162,16 @@ class EventManagerService(Service):
         caches.clear_all_caches()
         with sims4.callback_utils.invoke_enter_exit_callbacks(CallbackEvent.ENTER_CONTENT_SET_GEN_OR_PROCESS_HOUSEHOLD_EVENTS, CallbackEvent.EXIT_CONTENT_SET_GEN_OR_PROCESS_HOUSEHOLD_EVENTS):
             callbacks = data_store_event_test_event_callback_map.get(event_type)
-            has_not_triggered_achievment_data_object = True
+            has_not_triggered_achievement_data_object = True
             for sim_info in household._sim_infos:
                 if sim_info == exclude_sim:
                     continue
                 if callbacks is not None:
                     self._process_data_map_for_aspiration(sim_info, event_type, callbacks, **kwargs)
-                if has_not_triggered_achievment_data_object:
+                if has_not_triggered_achievement_data_object:
                     if callbacks is not None:
                         self._process_data_map_for_achievement(sim_info, event_type, callbacks, **kwargs)
-                    has_not_triggered_achievment_data_object = False
+                    has_not_triggered_achievement_data_object = False
                 self._process_test_event(sim_info, event_type, **kwargs)
 
     def _process_data_map_for_aspiration(self, sim_info, event_type, callbacks, **kwargs):

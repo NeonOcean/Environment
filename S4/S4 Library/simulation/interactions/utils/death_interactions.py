@@ -106,6 +106,7 @@ class DeathSuperInteraction(SuperInteraction):
         self._priority = Priority.Critical
         self._run_priority = self._priority
         self._death_object_data = None
+        self.suppress_transition_ops_after_death = False
         self._has_completed_death = False
         self._has_finalized_death = False
 
@@ -166,7 +167,7 @@ class DeathSuperInteraction(SuperInteraction):
 
         return (_do,)
 
-    def _get_cancel_replacement_aops_contexts_postures(self, *args, **kwargs):
+    def get_cancel_replacement_aops_contexts_postures(self, *args, **kwargs):
         return []
 
     def run_death_behavior(self, death_object_data=None, from_reset=False):
@@ -193,6 +194,7 @@ class DeathSuperInteraction(SuperInteraction):
             si.set_target(None)
             si.remove_liability(RESERVATION_LIABILITY)
         self.sim.remove_from_client()
+        self.suppress_transition_ops_after_death = True
         self._removed_sim = self.sim
         self._client = self.sim.household.client
         if from_reset:

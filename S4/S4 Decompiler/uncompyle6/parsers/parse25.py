@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2018 Rocky Bernstein
+#  Copyright (c) 2016-2018, 2020 Rocky Bernstein
 """
 spark grammar differences over Python2.6 for Python 2.5.
 """
@@ -6,6 +6,7 @@ spark grammar differences over Python2.6 for Python 2.5.
 from uncompyle6.parser import PythonParserSingle
 from spark_parser import DEFAULT_DEBUG as PARSER_DEFAULT_DEBUG
 from uncompyle6.parsers.parse26 import Python26Parser
+from uncompyle6.parsers.reducecheck import (ifelsestmt)
 
 class Python25Parser(Python26Parser):
     def __init__(self, debug_parser=PARSER_DEFAULT_DEBUG):
@@ -25,11 +26,17 @@ class Python25Parser(Python26Parser):
         setupwithas ::= DUP_TOP LOAD_ATTR store LOAD_ATTR CALL_FUNCTION_0
                         setup_finally
         # opcode SETUP_WITH
-        setupwith ::= DUP_TOP LOAD_ATTR STORE_NAME LOAD_ATTR CALL_FUNCTION_0 POP_TOP
-        withstmt ::= expr setupwith SETUP_FINALLY suite_stmts_opt
-                     POP_BLOCK LOAD_CONST COME_FROM with_cleanup
+        setupwith ::= DUP_TOP LOAD_ATTR store LOAD_ATTR CALL_FUNCTION_0 POP_TOP
+        with      ::= expr setupwith SETUP_FINALLY suite_stmts_opt
+                      POP_BLOCK LOAD_CONST COME_FROM with_cleanup
+
+        # Semantic actions want store to be at index 2
+        withasstmt ::= expr setupwithas store suite_stmts_opt
+                       POP_BLOCK LOAD_CONST COME_FROM with_cleanup
+
 
         store ::= STORE_NAME
+        store ::= STORE_FAST
 
         # tryelsetmtl doesn't need COME_FROM since the jump might not
         # be the the join point at the end of the "try" but instead back to the
@@ -55,7 +62,7 @@ class Python25Parser(Python26Parser):
         # Remove grammar rules inherited from Python 2.6 or Python 2
         self.remove_rules("""
         setupwith  ::= DUP_TOP LOAD_ATTR ROT_TWO LOAD_ATTR CALL_FUNCTION_0 POP_TOP
-        withstmt   ::= expr setupwith SETUP_FINALLY suite_stmts_opt
+        with       ::= expr setupwith SETUP_FINALLY suite_stmts_opt
                        POP_BLOCK LOAD_CONST COME_FROM WITH_CLEANUP END_FINALLY
         withasstmt ::= expr setupwithas store suite_stmts_opt
                        POP_BLOCK LOAD_CONST COME_FROM WITH_CLEANUP END_FINALLY
@@ -65,7 +72,7 @@ class Python25Parser(Python26Parser):
         classdefdeco1 ::= expr classdefdeco2 CALL_FUNCTION_1
         classdefdeco2 ::= LOAD_CONST expr mkfunc CALL_FUNCTION_0 BUILD_CLASS
         kv3 ::= expr expr STORE_MAP
-        ret_cond ::= expr jmp_false_then expr RETURN_END_IF POP_TOP ret_expr_or_cond
+        if_exp_ret       ::= expr jmp_false_then expr RETURN_END_IF POP_TOP ret_expr_or_cond
         return_if_lambda ::= RETURN_END_IF_LAMBDA POP_TOP
         return_if_stmt   ::= ret_expr RETURN_END_IF POP_TOP
         return_if_stmts  ::= return_if_stmt
@@ -74,18 +81,18 @@ class Python25Parser(Python26Parser):
         return_stmt_lambda ::= ret_expr RETURN_VALUE_LAMBDA
         setupwithas      ::= DUP_TOP LOAD_ATTR ROT_TWO LOAD_ATTR CALL_FUNCTION_0 setup_finally
         stmt             ::= classdefdeco
-        stmt             ::= if_expr_lambda
-        stmt             ::= conditional_not_lambda
-        if_expr_lambda   ::= expr jmp_false_then expr return_if_lambda
+        stmt             ::= if_exp_lambda
+        stmt             ::= if_exp_not_lambda
+        if_exp_lambda    ::= expr jmp_false_then expr return_if_lambda
                                return_stmt_lambda LAMBDA_MARKER
-        conditional_not_lambda
-                           ::= expr jmp_true_then expr return_if_lambda
-                               return_stmt_lambda LAMBDA_MARKER
+        if_exp_not_lambda ::= expr jmp_true_then expr return_if_lambda
+                              return_stmt_lambda LAMBDA_MARKER
         """)
         super(Python25Parser, self).customize_grammar_rules(tokens, customize)
         if self.version == 2.5:
-            self.check_reduce['try_except'] = 'tokens'
-        self.check_reduce['aug_assign1'] = 'AST'
+            self.check_reduce["try_except"] = "tokens"
+        self.check_reduce["aug_assign1"] = "AST"
+        self.check_reduce["ifelsestmt"] = "AST"
 
     def reduce_is_invalid(self, rule, ast, tokens, first, last):
         invalid = super(Python25Parser,
@@ -93,15 +100,19 @@ class Python25Parser(Python26Parser):
                                                 tokens, first, last)
         if invalid or tokens is None:
             return invalid
-        if rule == ('aug_assign1', ('expr', 'expr', 'inplace_op', 'store')):
-            return ast[0][0] == 'and'
+        if rule == ("aug_assign1", ("expr", "expr", "inplace_op", "store")):
+            return ast[0][0] == "and"
+        lhs = rule[0]
+        n = len(tokens)
+        if lhs == "ifelsestmt":
+            return ifelsestmt(self, lhs, n, rule, ast, tokens, first, last)
         return False
 
 
 class Python25ParserSingle(Python26Parser, PythonParserSingle):
     pass
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Check grammar
     p = Python25Parser()
     p.check_grammar()

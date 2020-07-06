@@ -14,6 +14,7 @@ import objects.object_tests
 class LiveDragTuning:
     LIVE_DRAG_SELL_DIALOG = UiDialogOkCancel.TunableFactory(description='\n        The dialog to show when the user tries to sell an object via Live Drag.\n        ')
     LIVE_DRAG_SELL_STACK_DIALOG = UiDialogOkCancel.TunableFactory(description='\n        The dialog to show when the user tries to sell a stack via Live Drag.\n        ')
+    LIVE_DRAG_SELL_FAVORITE_DIALOG = UiDialogOkCancel.TunableFactory(description='\n        The dialog to show when the user tries to sell a favorite object via Live Drag.\n        ')
 
 class LiveDragState(enum.Int, export=False):
     NOT_LIVE_DRAGGING = ...

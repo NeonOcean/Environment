@@ -1,9 +1,21 @@
 from _sims4_collections import frozendict
 import functools
 import random
+from collections import namedtuple
+from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning
+from sims4.tuning.instances import lock_instance_tunables
+from sims4.tuning.tunable import TunableReference, TunableList, OptionalTunable, TunableEnumEntry, Tunable, TunableSet, TunableEnumWithFilter, TunableTuple, TunableEnumSet, TunableVariant, TunableMapping
+from sims4.tuning.tunable_base import GroupNames
+from sims4.utils import flexmethod, flexproperty, classproperty
+from singletons import DEFAULT
+import sims4.localization
+import sims4.log
+import sims4.telemetry
 from animation.animation_utils import flush_all_animations
 from animation.posture_manifest import AnimationParticipant, SlotManifest, SlotManifestEntry
 from animation.posture_manifest_constants import SIT_POSTURE_MANIFEST
+from bucks.bucks_enums import BucksType
+from bucks.bucks_utils import BucksUtils
 from build_buy import add_object_to_buildbuy_system
 from carry.carry_elements import enter_carry_while_holding, exit_carry_while_holding
 from carry.carry_interactions import PickUpObjectSuperInteraction
@@ -17,7 +29,7 @@ from crafting.crafting_tunable import CraftingTuning
 from crafting.recipe import CraftingObjectType, Recipe, PhaseName, Phase
 from distributor.shared_messages import IconInfoData
 from element_utils import build_critical_section_with_finally, build_critical_section, unless, build_element
-from event_testing.resolver import SingleSimResolver
+from event_testing.resolver import SingleSimResolver, SingleActorAndObjectResolver
 from event_testing.results import TestResult, EnqueueResult, ExecuteResult
 from interactions import ParticipantType, liability, ParticipantTypeSingle, ParticipantTypeSingleSim
 from interactions.aop import AffordanceObjectPair
@@ -44,21 +56,12 @@ from objects.system import create_object
 from postures import PostureTrack
 from postures.posture_specs import PostureSpecVariable
 from postures.posture_state_spec import PostureStateSpec
-from sims4.localization import TunableLocalizedStringFactory, LocalizationHelperTuning
-from sims4.tuning.instances import lock_instance_tunables
-from sims4.tuning.tunable import TunableReference, TunableList, OptionalTunable, TunableEnumEntry, Tunable, TunableSet, TunableEnumWithFilter, TunableTuple, TunableEnumSet, TunableVariant
-from sims4.tuning.tunable_base import GroupNames
-from sims4.utils import flexmethod, flexproperty, classproperty
-from singletons import DEFAULT
 from tag import Tag
 from tunable_multiplier import TunableMultiplier
 from ui.ui_dialog_picker import RecipePickerRow, UiRecipePicker
 import build_buy
 import element_utils
 import services
-import sims4.localization
-import sims4.log
-import sims4.telemetry
 import telemetry_helper
 logger = sims4.log.Logger('Interactions')
 TELEMETRY_GROUP_CRAFTING = 'CRFT'
@@ -71,7 +74,7 @@ PARTY_CRAFTING = 1
 CRAFT_FOR_SPECIFIC_PARTICIPANT = 2
 
 class StartCraftingMixin:
-    INSTANCE_TUNABLES = {'check_target_inventory': Tunable(description="\n            If checked, look through the target object's inventory for \n            gathering ingredients.\n            ", tunable_type=bool, default=False), 'set_target_as_current_ico': Tunable(description='\n            After creating the crafting component, if this is checked, the\n            value of current_ico on the crafting_process will be set to the\n            target.\n            \n            This is a way to make an object that we are not creating as an ICO\n            to behave a bit like an ICO. By setting the current_ico to the\n            target it allows the crafting interactions to return the target as\n            the carry target, enabling the non ICO object to be carried to\n            where it needs to be.\n            \n            For an example of when you might want to set this consider the Kave\n            bowl. The Kava Bowl acts as both an ICO and a Final Product that\n            holds individual servings. The only way to carry the Kava Bowl to\n            the correct place to run the interaction is to set the current_ico\n            to the kava bowl despite it not actually being a traditional ICO.\n            ', tunable_type=bool, default=False)}
+    INSTANCE_TUNABLES = {'check_target_inventory': Tunable(description="\n            If checked, look through the target object's inventory for \n            gathering ingredients.\n            ", tunable_type=bool, default=False), 'check_sim_inventory': Tunable(description="\n            If checked, look through the sims's inventory for \n            gathering ingredients.\n            ", tunable_type=bool, default=True), 'check_fridge_shared_inventory': Tunable(description='\n            If checked, look through the fridge shared inventory for \n            gathering ingredients.\n            ', tunable_type=bool, default=True), 'set_target_as_current_ico': Tunable(description='\n            After creating the crafting component, if this is checked, the\n            value of current_ico on the crafting_process will be set to the\n            target.\n            \n            This is a way to make an object that we are not creating as an ICO\n            to behave a bit like an ICO. By setting the current_ico to the\n            target it allows the crafting interactions to return the target as\n            the carry target, enabling the non ICO object to be carried to\n            where it needs to be.\n            \n            For an example of when you might want to set this consider the Kave\n            bowl. The Kava Bowl acts as both an ICO and a Final Product that\n            holds individual servings. The only way to carry the Kava Bowl to\n            the correct place to run the interaction is to set the current_ico\n            to the kava bowl despite it not actually being a traditional ICO.\n            ', tunable_type=bool, default=False)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -90,6 +93,26 @@ class StartCraftingMixin:
                 self.orderer_ids.append(participant.id)
         else:
             self.orderer_ids.append(sim.id)
+
+    def _get_bucks_available(self, bucks_type, paying_sim):
+        tracker = BucksUtils.get_tracker_for_bucks_type(bucks_type, owner_id=paying_sim.id)
+        if tracker is None:
+            return 0
+        return tracker.get_bucks_amount_for_type(bucks_type)
+
+    @flexmethod
+    def _get_recipe_price_discounts(cls, inst, recipe, is_retail=False, ingredient_modifier=1, resolver=None):
+        inst_or_cls = inst if inst is not None else cls
+        if resolver is None:
+            resolver = inst_or_cls.get_resolver()
+        multiplier = inst_or_cls.price_multiplier.get_multiplier(resolver)
+        (_, discounted_price) = recipe.get_price(is_retail=is_retail, ingredient_modifier=ingredient_modifier, multiplier=multiplier)
+        unresolved_multipliers = inst_or_cls.bucks_price_multipliers
+        resolved_multipliers = {}
+        for buck_type in unresolved_multipliers:
+            resolved_multipliers[buck_type] = unresolved_multipliers[buck_type].get_multiplier(resolver)
+        bucks_prices = recipe.get_bucks_prices(is_retail=is_retail, multipliers=resolved_multipliers)
+        return (discounted_price, bucks_prices)
 
     def _handle_begin_crafting(self, recipe, crafter, ordering_sim=None, crafting_target=None, orderer_ids=DEFAULT, ingredients=(), funds_source=None, paying_sim=None):
         if orderer_ids is DEFAULT:
@@ -119,12 +142,16 @@ class StartCraftingMixin:
                     is_retail = True
             else:
                 paying_sim = crafter
-        resolver = self.get_resolver()
-        multiplier = self.price_multiplier.get_multiplier(resolver)
-        (_, discounted_price) = recipe.get_price(is_retail, ingredient_modifier=ingredient_modifier, multiplier=multiplier)
-        discounted_price *= len(orderer_ids)
+        (discounted_price, discounted_bucks_prices) = self._get_recipe_price_discounts(recipe, is_retail=is_retail, ingredient_modifier=ingredient_modifier)
+        ordered_ids_count = len(orderer_ids)
+        discounted_price *= ordered_ids_count
         if not paying_sim.family_funds.can_afford(discounted_price):
             return
+        for (bucks_type, amount) in discounted_bucks_prices.items():
+            available = self._get_bucks_available(bucks_type, paying_sim)
+            amount *= ordered_ids_count
+            if available < amount:
+                return
         reserved_ingredients = []
         for (ingredient_object, count) in ingredients_to_consume.items():
             inventory = ingredient_object.get_inventory()
@@ -141,7 +168,7 @@ class StartCraftingMixin:
             original_target = self.context.pick.target
         else:
             original_target = self.target
-        self.crafting_process = CraftingProcess(self.context.sim, crafter, recipe, discounted_price, paying_sim, reserved_ingredients=reserved_ingredients, orderer_ids=orderer_ids, original_target=original_target, ingredient_quality_bonus=avg_quality_bonus, funds_source=funds_source)
+        self.crafting_process = CraftingProcess(self.context.sim, crafter, recipe, discounted_price, paying_sim, reserved_ingredients=reserved_ingredients, orderer_ids=orderer_ids, original_target=original_target, ingredient_quality_bonus=avg_quality_bonus, funds_source=funds_source, bucks_cost=discounted_bucks_prices)
         if self.set_target_as_current_ico:
             self.crafting_process.current_ico = original_target
         if test_result:
@@ -155,23 +182,25 @@ class StartCraftingMixin:
         return result
 
     @staticmethod
-    def get_default_candidate_ingredients(crafter):
+    def get_default_candidate_ingredients(crafter, check_sim_inventory=True, check_fridge_shared_inventory=True):
         candidate_ingredients = []
-        if crafter is not None:
-            sim_inventory = crafter.inventory_component
-            for obj in sim_inventory:
-                if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
-                    candidate_ingredients.append(obj)
-        fridge_inventory = services.active_lot().get_object_inventories(CraftingTuning.SHARED_FRIDGE_INVENTORY_TYPE)[0]
-        if fridge_inventory is not None:
-            for obj in fridge_inventory:
-                if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
-                    candidate_ingredients.append(obj)
+        if check_sim_inventory:
+            if crafter is not None:
+                sim_inventory = crafter.inventory_component
+                for obj in sim_inventory:
+                    if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
+                        candidate_ingredients.append(obj)
+        if check_fridge_shared_inventory:
+            fridge_inventory = services.active_lot().get_object_inventories(CraftingTuning.SHARED_FRIDGE_INVENTORY_TYPE)[0]
+            if fridge_inventory is not None:
+                for obj in fridge_inventory:
+                    if obj.definition.has_build_buy_tag(IngredientTuning.INGREDIENT_TAG):
+                        candidate_ingredients.append(obj)
         return candidate_ingredients
 
     @classmethod
     def _get_ingredient_candidates(cls, crafter, crafting_target=None):
-        candidate_ingredients = StartCraftingMixin.get_default_candidate_ingredients(crafter)
+        candidate_ingredients = StartCraftingMixin.get_default_candidate_ingredients(crafter, check_sim_inventory=cls.check_sim_inventory, check_fridge_shared_inventory=cls.check_fridge_shared_inventory)
         if cls.check_target_inventory:
             if crafting_target is not None:
                 if crafting_target.inventory_component is None:
@@ -208,7 +237,7 @@ class StartCraftingMixin:
         return (ingredient_modifier, avg_quality_bonus, ingredient_logger)
 
 class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
-    INSTANCE_TUNABLES = {'crafter': TunableEnumEntry(description='\n            Who is to be crafting the recipe.  Typically this is set to Actor \n            if this affordance is targetting an object.\n            \n            You can set this to TargetSim if you want to have the appearance\n            of directing a Sim to craft the recipe.  Note that in these\n            cases, which object they use to craft is determined by autonomy.\n            \n            See also "Funds Source" and "Paying Sim" for additional tuning\n            if this is for the purpose of employee crafting.\n            \n            Note: If the world object needed for crafting is not on the lot\n            this will fail with a warning that it could not find an affordance\n            to run phases for the recipe on.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'funds_source': get_tunable_payment_source_variant(description='\n            When deducting the cost of the recipe, it will be deducted \n            from this funds source.\n            '), 'paying_sim': OptionalTunable(description='\n            If set, force the paying Sim to be this participant.\n            \n            This does not normally need to be set.\n            \n            In general, the behavior is that the person crafting the item \n            incurs the cost of the recipe.  \n            For orders, it is the person who is ordering the recipe.\n            \n            For driving other Sims to craft items \n            (e.g. Actor is a Sim, and crafter above is TargetSim)\n            it\'s not necessarily an "order" because the actor will not \n            wait for the order to complete.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor)), 'recipes': TunableList(description='\n            The recipes a Sim can craft.\n            ', tunable=TunableReference(description='\n                Recipe to craft.\n                ', manager=services.recipe_manager(), pack_safe=True, reload_dependent=True)), 'craft_for_other_sims': TunableVariant(description='\n            Options for crafting this drink for other sims.\n            ', no_other_sims=TunableTuple(description="\n                Don't craft this for any other sims.\n                ", locked_args={'option': NO_OTHER_SIMS}), party_crafting=TunableTuple(description='\n                Craft for all for the Sims in a rally source.\n                ', rally_source=TunableEnumSet(description='\n                    A list of different sources that we want to use to figure\n                    out the Sims to craft drinks for.\n                    ', enum_type=RallySource, enum_default=RallySource.ENSEMBLE, default_enum_list=frozenset((RallySource.ENSEMBLE,))), locked_args={'option': PARTY_CRAFTING}), craft_for_specific_participant=TunableTuple(description='\n                Craft for the Sim of a specific participant type. \n                ', participant=TunableEnumEntry(description='\n                    The specific participant that we want to craft for. \n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.PickedSim), locked_args={'option': CRAFT_FOR_SPECIFIC_PARTICIPANT}), default='no_other_sims'), 'create_unavailable_recipe_description': TunableLocalizedStringFactory(default=4228422038, tuning_group=GroupNames.UI), 'basic_reserve_object': TunableReserveObject(), 'use_ingredients_default_value': Tunable(description='\n            Default value if the interaction should use ingredients. \n            If this interaction is not using the recipe picker but the \n            interaction picker, this is the way to tune if a cooking \n            interaction will use ingredients or not.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'favorite_recipe': OptionalTunable(description="\n            If enabled, the interaction will use Sim's favorite recipe (which\n            is constrained by the tag sets) to push the crafting interaction.\n            If the tag sets is empty, then pick any of the sim's favorite\n            recipe. If the sim has no favorite recipe set, then randomly select\n            a valid one from the interaction recipe, and persist that on the\n            sim.\n            ", tunable=TunableTuple(recipe_tags=TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, filter_prefixes=['recipe'], default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=True)), pie_menu_tooltip=OptionalTunable(description='\n                    If enabled, then a greyed-out tooltip will be displayed if there\n                    are no valid favorite recipe. When disabled, the test to check for valid\n                    choices will run first and if it fail any other tuned test in the\n                    interaction will not get run. When enabled, the tooltip will be the\n                    last fallback tooltip, and if other tuned interaction tests have\n                    tooltip, those tooltip will show first. [cjiang/scottd]\n                    ', tunable=TunableLocalizedStringFactory(description='\n                        The tooltip text to show in the greyed-out tooltip when no valid\n                        favorite recipe exists.\n                        '))), disabled_name='use_picker', enabled_name='use_favorite_recipe'), 'price_multiplier': TunableMultiplier.TunableFactory(description='\n            Tested multipliers to apply to the price of the item.\n            ', tuning_group=GroupNames.PICKERTUNING, multiplier_options={'use_tooltip': True})}
+    INSTANCE_TUNABLES = {'crafter': TunableEnumEntry(description='\n            Who is to be crafting the recipe.  Typically this is set to Actor \n            if this affordance is targetting an object.\n            \n            You can set this to TargetSim if you want to have the appearance\n            of directing a Sim to craft the recipe.  Note that in these\n            cases, which object they use to craft is determined by autonomy.\n            \n            See also "Funds Source" and "Paying Sim" for additional tuning\n            if this is for the purpose of employee crafting.\n            \n            Note: If the world object needed for crafting is not on the lot\n            this will fail with a warning that it could not find an affordance\n            to run phases for the recipe on.\n            ', tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor), 'funds_source': get_tunable_payment_source_variant(description='\n            When deducting the cost of the recipe, it will be deducted \n            from this funds source.\n            '), 'paying_sim': OptionalTunable(description='\n            If set, force the paying Sim to be this participant.\n            \n            This does not normally need to be set.\n            \n            In general, the behavior is that the person crafting the item \n            incurs the cost of the recipe.  \n            For orders, it is the person who is ordering the recipe.\n            \n            For driving other Sims to craft items \n            (e.g. Actor is a Sim, and crafter above is TargetSim)\n            it\'s not necessarily an "order" because the actor will not \n            wait for the order to complete.\n            ', tunable=TunableEnumEntry(tunable_type=ParticipantTypeSingleSim, default=ParticipantTypeSingleSim.Actor)), 'recipes': TunableList(description='\n            The recipes a Sim can craft.\n            ', tunable=TunableReference(description='\n                Recipe to craft.\n                ', manager=services.recipe_manager(), pack_safe=True, reload_dependent=True)), 'craft_for_other_sims': TunableVariant(description='\n            Options for crafting this drink for other sims.\n            ', no_other_sims=TunableTuple(description="\n                Don't craft this for any other sims.\n                ", locked_args={'option': NO_OTHER_SIMS}), party_crafting=TunableTuple(description='\n                Craft for all for the Sims in a rally source.\n                ', rally_source=TunableEnumSet(description='\n                    A list of different sources that we want to use to figure\n                    out the Sims to craft drinks for.\n                    ', enum_type=RallySource, enum_default=RallySource.ENSEMBLE, default_enum_list=frozenset((RallySource.ENSEMBLE,))), locked_args={'option': PARTY_CRAFTING}), craft_for_specific_participant=TunableTuple(description='\n                Craft for the Sim of a specific participant type. \n                ', participant=TunableEnumEntry(description='\n                    The specific participant that we want to craft for. \n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.PickedSim), locked_args={'option': CRAFT_FOR_SPECIFIC_PARTICIPANT}), default='no_other_sims'), 'create_unavailable_recipe_description': TunableLocalizedStringFactory(default=4228422038, tuning_group=GroupNames.UI), 'basic_reserve_object': TunableReserveObject(), 'use_ingredients_default_value': Tunable(description='\n            Default value if the interaction should use ingredients. \n            If this interaction is not using the recipe picker but the \n            interaction picker, this is the way to tune if a cooking \n            interaction will use ingredients or not.\n            ', tunable_type=bool, default=False, tuning_group=GroupNames.PICKERTUNING), 'favorite_recipe': OptionalTunable(description='\n            If enabled, the interaction will use Sim\'s favorite recipe (which\n            is constrained by the tag sets) to push the crafting interaction.\n            If the tag sets is empty, then pick any of the sim\'s favorite\n            recipe. If the sim has no favorite recipe set, then randomly select\n            a valid one from the interaction recipe, and persist that on the\n            sim if "Persist New Favorite Recipe" tuning is checked.\n            ', tunable=TunableTuple(recipe_tags=TunableSet(tunable=TunableEnumWithFilter(tunable_type=Tag, filter_prefixes=['recipe'], default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=True)), persist_new_favorite_recipe=Tunable(description="\n                    When the sim has no favorite recipe set, then randomly \n                    select a valid one from the interaction recipe.\n                    \n                    If checked, the new selected favorite recipe will be \n                    persisted as favorite recipe for the sim. Otherwise, \n                    it won't be persisted.\n                    ", tunable_type=bool, default=True), pie_menu_tooltip=OptionalTunable(description='\n                    If enabled, then a greyed-out tooltip will be displayed if there\n                    are no valid favorite recipe. When disabled, the test to check for valid\n                    choices will run first and if it fail any other tuned test in the\n                    interaction will not get run. When enabled, the tooltip will be the\n                    last fallback tooltip, and if other tuned interaction tests have\n                    tooltip, those tooltip will show first. [cjiang/scottd]\n                    ', tunable=TunableLocalizedStringFactory(description='\n                        The tooltip text to show in the greyed-out tooltip when no valid\n                        favorite recipe exists.\n                        '))), disabled_name='use_picker', enabled_name='use_favorite_recipe'), 'price_multiplier': TunableMultiplier.TunableFactory(description='\n            Tested multipliers to apply to the price of the item.\n            ', tuning_group=GroupNames.PICKERTUNING, multiplier_options={'use_tooltip': True}), 'bucks_price_multipliers': TunableMapping(description='\n            Mapping of buck type to tested multiplier to apply to the bucks price\n            of the item.\n            ', key_type=TunableEnumEntry(description='\n                Buck type to apply price multiplier to.\n                ', tunable_type=BucksType, default=BucksType.INVALID), value_type=TunableMultiplier.TunableFactory(description='\n                Tested multipliers to apply to the bucks price of the item.\n                ', multiplier_options={'use_tooltip': True}), tuning_group=GroupNames.PICKERTUNING)}
 
     @classmethod
     def _verify_tuning_callback(cls):
@@ -255,9 +284,10 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         if favorite_recipe is None:
             test_paying_sim = orderer if paying_sim is None else paying_sim
             favorite_recipe = self._pick_random_favorite_recipe(crafter, test_paying_sim)
-        if favorite_recipe is None:
-            return False
-        orderer.sim_info.set_favorite_recipe(favorite_recipe)
+            if favorite_recipe is None:
+                return False
+            if self.favorite_recipe.persist_new_favorite_recipe:
+                orderer.sim_info.set_favorite_recipe(favorite_recipe)
         if handle_crafting_func is DEFAULT:
             return self._handle_begin_crafting(favorite_recipe, crafter, ordering_sim=orderer, orderer_ids=self.orderer_ids, funds_source=self.funds_source, paying_sim=paying_sim)
         else:
@@ -265,14 +295,12 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
 
     def _pick_random_favorite_recipe(self, crafter, payer):
         candidate_recipes = []
-        resolver = self.get_resolver()
         for recipe in self.recipes:
             if recipe.use_ingredients is not None:
                 continue
             is_order_interaction = issubclass(type(self), StartCraftingOrderSuperInteraction)
-            multiplier = self.price_multiplier.get_multiplier(resolver)
-            (_, discounted_price) = recipe.get_price(is_order_interaction, multiplier)
-            recipe_test_result = CraftingProcess.recipe_test(self.target, self.context, recipe, crafter, discounted_price, paying_sim=payer)
+            (discounted_price, bucks_prices) = self._get_recipe_price_discounts(recipe, is_retail=is_order_interaction)
+            recipe_test_result = CraftingProcess.recipe_test(self.target, self.context, recipe, crafter, discounted_price, paying_sim=payer, discounted_bucks_prices=bucks_prices)
             if recipe_test_result.visible:
                 if not recipe_test_result.errors:
                     candidate_recipes.append(recipe)
@@ -291,15 +319,14 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
         else:
             is_order_interaction = issubclass(cls, StartCraftingOrderSuperInteraction)
         resolver = cls.get_resolver(target=target, context=context)
-        multiplier = cls.price_multiplier.get_multiplier(resolver)
         if cls.favorite_recipe is not None:
             favorite_recipe = orderer.sim_info.get_favorite_recipe(cls.favorite_recipe.recipe_tags)
             if favorite_recipe is not None:
-                (_, discounted_price) = favorite_recipe.get_price(is_order_interaction, multiplier)
-                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, discounted_price, paying_sim=orderer)
+                (discounted_price, discounted_bucks_prices) = cls._get_recipe_price_discounts(favorite_recipe, is_retail=is_order_interaction, resolver=resolver)
+                return CraftingProcess.recipe_test(target, context, favorite_recipe, crafter, discounted_price, paying_sim=orderer, discounted_bucks_prices=discounted_bucks_prices)
         for recipe in cls.recipes:
-            (_, discounted_price) = recipe.get_price(is_order_interaction, multiplier)
-            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=orderer)
+            (discounted_price, discounted_bucks_prices) = cls._get_recipe_price_discounts(recipe, is_retail=is_order_interaction, resolver=resolver)
+            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=orderer, discounted_bucks_prices=discounted_bucks_prices)
             if recipe_test_result.visible:
                 if not recipe_test_result.errors:
                     return True
@@ -347,7 +374,18 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
             (original_price, discounted_price) = recipe.get_price(is_order_interaction, adjusted_ingredient_price, multiplier)
             original_price *= order_count
             discounted_price *= order_count
-            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=context.sim, funds_source=funds_source)
+            unresolved_multipliers = cls.bucks_price_multipliers
+            resolved_multipliers = {}
+            for buck_type in unresolved_multipliers:
+                (bucks_multiplier, bucks_discount_tooltip) = unresolved_multipliers[buck_type].get_multiplier_and_tooltip(resolver)
+                resolved_multipliers[buck_type] = bucks_multiplier
+            discounted_bucks_prices = recipe.get_bucks_prices(is_retail=is_order_interaction, multipliers=resolved_multipliers, order_count=order_count)
+            BucksCostsData = namedtuple('BucksCostsData', ('bucks_type', 'amount'))
+            bucks_costs = []
+            for (buck_type, cost_amount) in discounted_bucks_prices.items():
+                costs = BucksCostsData(buck_type, cost_amount)
+                bucks_costs.append(costs)
+            recipe_test_result = CraftingProcess.recipe_test(target, context, recipe, crafter, discounted_price, paying_sim=context.sim, funds_source=funds_source, discounted_bucks_prices=discounted_bucks_prices)
             if not (not recipe.use_ingredients is not None or not ingredients_needed_count or subclass_of_order_interaction) or cls.ingredient_source and has_required_ingredients or recipe_test_result.visible:
                 ingredient_display_list = tuple(ingredient_requirement.get_display_data() for ingredient_requirement in recipe_ingredients_map.get(recipe, ()))
                 if recipe_test_result.errors:
@@ -381,7 +419,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                                     is_order_interaction_with_source_and_ingredients = subclass_of_order_interaction and (cls.ingredient_source and has_required_ingredients)
                                     is_start_interaction_with_ingredients = not subclass_of_order_interaction and (issubclass(cls, StartCraftingSuperInteraction) and has_required_ingredients)
                                     is_discounted = is_order_interaction_with_source_and_ingredients or is_start_interaction_with_ingredients
-                                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted)
+                                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted, bucks_costs=bucks_costs, subrow_sort_id=recipe.subrow_sort_id)
                                 yield row
                         else:
                             tooltip = functools.partial(IngredientTuning.OPTIONAL_INGREDIENT_LIST_STRING, ingredients_list_string)
@@ -400,7 +438,7 @@ class StartCraftingSuperInteraction(StartCraftingMixin, PickerSuperInteraction):
                     is_order_interaction_with_source_and_ingredients = subclass_of_order_interaction and (cls.ingredient_source and has_required_ingredients)
                     is_start_interaction_with_ingredients = not subclass_of_order_interaction and (issubclass(cls, StartCraftingSuperInteraction) and has_required_ingredients)
                     is_discounted = is_order_interaction_with_source_and_ingredients or is_start_interaction_with_ingredients
-                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted)
+                row = RecipePickerRow(name=recipe.get_recipe_name(crafter), price=original_price, icon=recipe.icon_override, row_description=description, row_tooltip=tooltip, skill_level=recipe.required_skill_level, is_enable=enable_recipe & recipe_test_result.enabled, linked_recipe=recipe.base_recipe, display_name=recipe.get_recipe_picker_name(crafter), icon_info=recipe_icon, tag=recipe, ingredients=ingredient_display_list, price_with_ingredients=discounted_price, pie_menu_influence_by_active_mood=recipe_test_result.influence_by_active_mood, mtx_id=recipe.entitlement, discounted_price=discounted_price, is_discounted=is_discounted, bucks_costs=bucks_costs, subrow_sort_id=recipe.subrow_sort_id)
                 yield row
         if not recipe_ingredients_map is None or inst is not None:
             inst._recipe_ingredients_map = recipe_ingredients_map
@@ -558,7 +596,7 @@ class StartCraftingOrderSuperInteraction(StartCraftingSuperInteraction):
 lock_instance_tunables(StartCraftingOrderSuperInteraction, basic_reserve_object=None)
 
 class StartCraftingAutonomouslySuperInteraction(StartCraftingMixin, AutonomousPickerSuperInteraction):
-    INSTANCE_TUNABLES = {'recipes': TunableList(description='\n            The recipes a Sim can craft.\n            ', tunable=TunableReference(description='\n                Recipe to craft.\n                ', manager=services.recipe_manager(), pack_safe=True, reload_dependent=True)), 'test_reserve_object': TunableReserveObject(description="\n            The reservation type to use when testing for this interaction's\n            autonomous availability.\n            "), 'craft_for_other_sims': TunableVariant(description='\n            Options for crafting this drink for other sims.\n            ', no_other_sims=TunableTuple(description="\n                Don't craft this for any other sims.\n                ", locked_args={'option': NO_OTHER_SIMS}), party_crafting=TunableTuple(description='\n                Craft for all for the Sims in a rally source.\n                ', rally_source=TunableEnumSet(description='\n                    A list of different sources that we want to use to figure\n                    out the Sims to craft drinks for.\n                    ', enum_type=RallySource, enum_default=RallySource.ENSEMBLE, default_enum_list=frozenset((RallySource.ENSEMBLE,))), locked_args={'option': PARTY_CRAFTING}), craft_for_specific_participant=TunableTuple(description='\n                Craft for the Sim of a specific participant type. \n                ', participant=TunableEnumEntry(description='\n                    The specific participant that we want to craft for. \n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.PickedSim), locked_args={'option': CRAFT_FOR_SPECIFIC_PARTICIPANT}), default='no_other_sims'), 'price_multiplier': TunableMultiplier.TunableFactory(description='\n            Tested multipliers to apply to the price of the item.\n            ')}
+    INSTANCE_TUNABLES = {'recipes': TunableList(description='\n            The recipes a Sim can craft.\n            ', tunable=TunableReference(description='\n                Recipe to craft.\n                ', manager=services.recipe_manager(), pack_safe=True, reload_dependent=True)), 'test_reserve_object': TunableReserveObject(description="\n            The reservation type to use when testing for this interaction's\n            autonomous availability.\n            "), 'craft_for_other_sims': TunableVariant(description='\n            Options for crafting this drink for other sims.\n            ', no_other_sims=TunableTuple(description="\n                Don't craft this for any other sims.\n                ", locked_args={'option': NO_OTHER_SIMS}), party_crafting=TunableTuple(description='\n                Craft for all for the Sims in a rally source.\n                ', rally_source=TunableEnumSet(description='\n                    A list of different sources that we want to use to figure\n                    out the Sims to craft drinks for.\n                    ', enum_type=RallySource, enum_default=RallySource.ENSEMBLE, default_enum_list=frozenset((RallySource.ENSEMBLE,))), locked_args={'option': PARTY_CRAFTING}), craft_for_specific_participant=TunableTuple(description='\n                Craft for the Sim of a specific participant type. \n                ', participant=TunableEnumEntry(description='\n                    The specific participant that we want to craft for. \n                    ', tunable_type=ParticipantTypeSingle, default=ParticipantTypeSingle.PickedSim), locked_args={'option': CRAFT_FOR_SPECIFIC_PARTICIPANT}), default='no_other_sims'), 'price_multiplier': TunableMultiplier.TunableFactory(description='\n            Tested multipliers to apply to the price of the item.\n            '), 'bucks_price_multipliers': TunableMapping(description='\n            Mapping of buck type to tested multiplier to apply to the bucks price\n            of the item.\n            ', key_type=TunableEnumEntry(description='\n                Buck type to apply price multiplier to.\n                ', tunable_type=BucksType, default=BucksType.INVALID), value_type=TunableMultiplier.TunableFactory(description='\n                Tested multipliers to apply to the bucks price of the item.\n                '), tuning_group=GroupNames.PICKERTUNING)}
 
     @classmethod
     def _verify_tuning_callback(cls):
@@ -581,7 +619,7 @@ class StartCraftingAutonomouslySuperInteraction(StartCraftingMixin, AutonomousPi
     @classmethod
     def _autonomous_test(cls, target, context, who):
         for recipe in cls.recipes:
-            result = CraftingProcess.recipe_test(target, context, recipe, who, 0, build_error_list=False, from_autonomy=True)
+            result = CraftingProcess.recipe_test(target, context, recipe, who, 0, build_error_list=False, from_autonomy=True, check_bucks_costs=False)
             if result:
                 return TestResult.TRUE
         return TestResult(False, 'There are no autonomously completable recipies.')
@@ -727,7 +765,7 @@ class CraftingResumeInteraction(SuperInteraction):
         result = process.resume_test(target, context)
         if not result:
             return result
-        result = CraftingProcess.recipe_test(target, context, process.recipe, context.sim, 0, first_phase=process.phase, from_resume=True)
+        result = CraftingProcess.recipe_test(target, context, process.recipe, context.sim, 0, first_phase=process.phase, from_resume=True, check_bucks_costs=False)
         if result:
             return TestResult.TRUE
         error_tooltip = None
@@ -812,7 +850,7 @@ class CraftingStepInteraction(CraftingMixerInteractionMixin, MixerInteraction):
         yield
 
 class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
-    INSTANCE_TUNABLES = {'crafting_type_requirement': TunableReference(services.recipe_manager(), class_restrictions=CraftingObjectType, allow_none=True, description="This specifies the crafting object type that is required for this interaction to work.This allows the crafting system to know what type of object the SI was expecting when it can't find that SI."), 'force_final_product': Tunable(description="\n            Whether or not to force the final product to set as a result of this interaction completing.  \n            Normally this is governed by the phase when a crafting process is transferred to an ICO or creation of the \n            final product.\n              \n            Set this to true in cases where this doesn't make sense.\n            \n            e.g. Crafting on a cauldron places the process early on the cauldron which starts out as an ICO, \n            but at the completion of the last crafting SI, the cauldron itself 'becomes' a the final product.\n            ", tunable_type=bool, default=False)}
+    INSTANCE_TUNABLES = {'crafting_type_requirement': TunableReference(services.recipe_manager(), class_restrictions=CraftingObjectType, allow_none=True, description="This specifies the crafting object type that is required for this interaction to work.This allows the crafting system to know what type of object the SI was expecting when it can't find that SI."), 'force_final_product': Tunable(description="\n            Whether or not to force the final product to set as a result of this interaction completing.  \n            Normally this is governed by the phase when a crafting process is transferred to an ICO or creation of the \n            final product.\n              \n            Set this to true in cases where this doesn't make sense.\n            \n            e.g. Crafting on a cauldron places the process early on the cauldron which starts out as an ICO, \n            but at the completion of the last crafting SI, the cauldron itself 'becomes' a the final product.\n            ", tunable_type=bool, default=False), 'destroy_ico_object_if_reset': Tunable(description='\n            If this is enabled and the sim is reset while they are performing \n            this interaction, we will destroy the ico object and end the\n            crafting process. We should use this in cases where the ICO object\n            cannot be safely reset. This will also refund the household.\n            ', tunable_type=bool, default=False)}
     _object_info = None
 
     def __init__(self, *args, crafting_process, phase, **kwargs):
@@ -823,6 +861,14 @@ class CraftingPhaseSuperInteractionMixin(CraftingInteractionMixin):
         self._cancel_phase_ran = False
         super().__init__(*args, crafting_process=crafting_process, phase=phase, **kwargs)
         self.add_exit_function(self._maybe_push_cancel_phase_exit_behavior)
+
+    def on_reset(self):
+        if self.destroy_ico_object_if_reset:
+            ico_object = self.process.current_ico
+            if ico_object is not None:
+                ico_object.make_transient()
+                self.process.refund_payment(explicit=True)
+        super().on_reset()
 
     def is_guaranteed(self):
         return not self.has_active_cancel_replacement
@@ -1000,7 +1046,7 @@ class CraftingPhaseCreateObjectSuperInteraction(CraftingPhaseSuperInteractionMix
                 if not previous_ico.get_users():
                     self.add_exit_function(previous_ico.destroy)
         if self.phase.object_info_is_final_product:
-            resolver = SingleSimResolver(self.sim.sim_info)
+            resolver = SingleActorAndObjectResolver(self.sim.sim_info, self.created_target, source=self)
             if self.process.recipe.final_product.conditional_apply_states:
                 for conditional_state in self.process.recipe.final_product.conditional_apply_states:
                     if resolver(conditional_state.test):
@@ -1056,17 +1102,21 @@ class CraftingPhaseCreateObjectSuperInteraction(CraftingPhaseSuperInteractionMix
 
         def callback(*_, **__):
             nonlocal success
-            self._object_create_helper.claim()
-            self._custom_claim_callback()
-            self.process.pay_for_item()
-            self._log_telemetry()
-            success = True
+            if self.process._paying_sim and not self.process.check_is_affordable():
+                self.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Not enough bucks/simoleons for interaction.')
+                success = False
+            else:
+                self._object_create_helper.claim()
+                self._custom_claim_callback()
+                self.process.pay_for_item()
+                self._log_telemetry()
+                success = True
 
         def crafting_sequence(timeline):
             nonlocal sequence
             sequence = super_build_basic_content(sequence, **kwargs)
             sequence = build_critical_section(sequence, flush_all_animations)
-            sequence = self._build_sequence_with_callback(callback, sequence)
+            sequence = element_utils.must_run(self._build_sequence_with_callback(callback, sequence))
             for apply_state in reversed(self.object_info.apply_states):
                 sequence = state_change(targets={self.created_target}, new_value_ending=apply_state, xevt_id=self._apply_state_xevt_id, animation_context=self.animation_context, sequence=sequence)
             result = yield from element_utils.run_child(timeline, sequence)
@@ -1139,6 +1189,7 @@ class CraftingPhaseCreateObjectInInventorySuperInteraction(CraftingPhaseCreateOb
 
     def add_object_to_household_inventory(self, *_, **__):
         self._go_to_next_phase()
+        self.created_target.set_post_bb_fixup_needed()
         if not build_buy.move_object_to_household_inventory(self.created_target):
             logger.error('CraftingInteractions: Failed to add created target {} to household inventory.', self.created_target, owner='rmccord')
 
@@ -1157,17 +1208,23 @@ UNCLAIMED_CRAFTABLE_LIABILITY = 'UnclaimedCraftableLiability'
 
 class UnclaimedCraftableLiability(Liability):
 
-    def __init__(self, object_to_claim, recipe_cost, owning_sim, **kwargs):
+    def __init__(self, object_to_claim, recipe_cost, recipe_bucks_price, owning_sim, **kwargs):
         super().__init__(**kwargs)
         self._object_to_claim = object_to_claim
         self._original_object_location = object_to_claim.location
         self._recipe_cost = recipe_cost
+        self._recipe_bucks_price = recipe_bucks_price
         self._owning_sim = owning_sim
 
     def release(self):
         if self._object_to_claim.location == self._original_object_location:
             self._object_to_claim.schedule_destroy_asap(source=self._owning_sim, cause='Destroying unclaimed craftable')
             self._owning_sim.family_funds.add(self._recipe_cost, 0, self._owning_sim)
+            for (bucks_type_key, amount) in self._recipe_bucks_price.items():
+                (bucks_type, _) = bucks_type_key
+                tracker = BucksUtils.get_tracker_for_bucks_type(bucks_type, owner_id=self._owning_sim.id, add_if_none=amount > 0)
+                if tracker is not None:
+                    tracker.try_modify_bucks(bucks_type, amount)
 
     def should_transfer(self, continuation):
         return False
@@ -1184,7 +1241,7 @@ class CreateConsumableAndPushConsumeSuperInteraction(CraftingPhaseCreateObjectIn
             if aop is not None and context is not None:
                 result = aop.interaction_factory(context)
                 if result:
-                    result.interaction.add_liability(UNCLAIMED_CRAFTABLE_LIABILITY, UnclaimedCraftableLiability(self.consume_object, self.recipe.crafting_price, self.sim))
+                    result.interaction.add_liability(UNCLAIMED_CRAFTABLE_LIABILITY, UnclaimedCraftableLiability(self.consume_object, self.recipe.crafting_price, self.recipe.crafting_bucks_price, self.sim))
                     aop.execute_interaction(result.interaction)
                 return result
                 yield
@@ -1241,7 +1298,7 @@ class CraftingPhaseCreateObjectFromCarryingSuperInteraction(CraftingPhaseCreateO
             self.target.persistence_group = PersistenceGroups.IN_OPEN_STREET
         else:
             self.target.persistence_group = PersistenceGroups.OBJECT
-            add_object_to_buildbuy_system(self.target.id, services.current_zone_id())
+            add_object_to_buildbuy_system(self.target.id)
 
     def _should_persist_before_claim(self):
         return False
@@ -1320,8 +1377,11 @@ class CraftingPhaseTransferCraftingComponentSuperInteraction(CraftingPhaseStagin
             subject = self.get_participant(self.crafting_component_recipient)
             self.process.add_crafting_component_to_object(subject)
             self.process.increment_phase(interaction=self)
-            self.process.pay_for_item()
-            self.process.apply_quality_and_value(subject)
+            if not self.process.check_is_affordable():
+                self.cancel(FinishingType.INTERACTION_QUEUE, cancel_reason_msg='Not enough bucks/simoleons for interaction.')
+            else:
+                self.process.pay_for_item()
+                self.process.apply_quality_and_value(subject)
 
         return element_utils.build_element((transfer_crafting_component, super_basic_elements))
 

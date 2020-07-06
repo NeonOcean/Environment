@@ -85,7 +85,7 @@ class ZoneModifierAction(HasTunableSingletonFactory, AutoFactoryInit):
         return SingleSimResolver(sim_info, additional_participants=self._additional_resolver_participants)
 
 class ZoneModifierSimLootMixin:
-    FACTORY_TUNABLES = {'loots': TunableSet(description='\n            Loot(s) to apply.  Loot applied to Sims must be configured\n            against Actor participant type.\n            \n            This loot op does not occur in an interaction context,\n            so other participant types may not be supported.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), pack_safe=True))}
+    FACTORY_TUNABLES = {'loots': TunableList(description='\n            Loot(s) to apply.  Loot applied to Sims must be configured\n            against Actor participant type.\n            \n            This loot op does not occur in an interaction context,\n            so other participant types may not be supported.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.ACTION), pack_safe=True), unique_entries=True)}
 
     def apply_loots_to_sims_on_active_lot(self):
         self.apply_loots_to_sims(services.sim_info_manager().instanced_sims_on_active_lot_gen())
@@ -282,3 +282,18 @@ class ZoneInteractionTriggers(HasTunableSingletonFactory, AutoFactoryInit):
         for trigger_conditions in self.trigger_conditions:
             tests.append(trigger_conditions.test)
         return tests
+
+class ZoneModifierUpdateAction(HasTunableSingletonFactory, AutoFactoryInit):
+    FACTORY_TUNABLES = {'actions': TunableList(description='\n            A list of actions to be applied.\n            ', tunable=ZoneModifierActionVariants())}
+
+    def apply_all_actions(self):
+        for action in self.actions:
+            action.perform()
+
+    def apply_to_sim(self, sim):
+        if not sim.is_sim:
+            logger.error('Cannot apply sim actions to {}, which is not a sim.', type(sim))
+            return
+        for action in self.actions:
+            if isinstance(action, ZoneModifierBroadcastLoot):
+                action.apply_loots_to_sim(sim)

@@ -9,7 +9,6 @@ from sims4.service_manager import Service
 from sims4.tuning.tunable import TunableEnumFlags
 from sims4.utils import classproperty
 from singletons import EMPTY_SET
-from venues.venue_constants import VenueTuning
 import persistence_error_types
 import routing
 import services
@@ -30,6 +29,7 @@ EXEMPT_DOOR_LOT_DESCRIPTION_ID = 118799
 
 class DoorService(Service):
     FRONT_DOOR_ALLOWED_PORTAL_FLAGS = TunableEnumFlags(description="\n        Door Service does a routability check to all doors from the lot's\n        arrival spawn point to find doors that are reachable without crossing\n        other doors.\n        \n        These flags are supplied to the routability check's PathPlanContext, to\n        tell it what portals are usable. For example, stair portals should be\n        allowed (e.g. for front doors off the ground level, or house is on a\n        foundation).\n        ", enum_type=PortalFlags)
+    FRONT_DOOR_ALLOWED_APARTMENT_PORTAL_FLAGS = TunableEnumFlags(description='\n        Additional portal flags to be used if needing to choose between\n        multiple external doors in an apartment.\n        \n        e.g. Elevator.\n        ', enum_type=PortalFlags)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -93,7 +93,7 @@ class DoorService(Service):
 
     def _zone_requires_front_door(self):
         zone = services.current_zone()
-        venue = zone.venue_service.venue
+        venue = zone.venue_service.active_venue
         requires_front_door = venue.venue_requires_front_door
         if requires_front_door == VenueFrontdoorRequirement.NEVER:
             return False
@@ -138,8 +138,21 @@ class DoorService(Service):
         return zone.lot.corners[1]
 
     def _get_exterior_and_interior_doors(self):
-        zone = services.current_zone()
         doors = self._get_doors()
+        connections = self._get_door_connections_from_arrival(doors)
+        exterior_door_to_infos = {}
+        for (_, handle, distance) in connections:
+            old_info = exterior_door_to_infos.get(handle.door)
+            if old_info is not None and not handle.is_front:
+                continue
+            is_backwards = not handle.is_front
+            info = ExteriorDoorInfo(door=handle.door, distance=distance, is_backwards=is_backwards)
+            exterior_door_to_infos[handle.door] = info
+        interior_doors = frozenset(door for door in doors if door not in exterior_door_to_infos)
+        return (frozenset(exterior_door_to_infos.values()), interior_doors)
+
+    def _get_door_connections_from_arrival(self, doors, is_apartment=False):
+        zone = services.current_zone()
         source_point = self._get_arrival_point()
         source_handles = set()
         source_handle = Handle(source_point, routing.SurfaceIdentifier(zone.id, 0, routing.SurfaceType.SURFACETYPE_WORLD))
@@ -150,7 +163,10 @@ class DoorService(Service):
                 routing_context.lock_portal(portal_handle.there)
                 routing_context.lock_portal(portal_handle.back)
         routing_context.set_key_mask(routing.FOOTPRINT_KEY_ON_LOT | routing.FOOTPRINT_KEY_OFF_LOT)
-        routing_context.set_portal_key_mask(DoorService.FRONT_DOOR_ALLOWED_PORTAL_FLAGS)
+        if is_apartment:
+            routing_context.set_portal_key_mask(DoorService.FRONT_DOOR_ALLOWED_PORTAL_FLAGS | DoorService.FRONT_DOOR_ALLOWED_APARTMENT_PORTAL_FLAGS)
+        else:
+            routing_context.set_portal_key_mask(DoorService.FRONT_DOOR_ALLOWED_PORTAL_FLAGS)
         dest_handles = set()
         for door in doors:
             (front_position, back_position) = door.get_door_positions()
@@ -164,22 +180,14 @@ class DoorService(Service):
             connections = routing.estimate_path_batch(source_handles, dest_handles, routing_context=routing_context)
             if connections is None:
                 connections = ()
-        exterior_door_to_infos = {}
-        for (_, handle, distance) in connections:
-            old_info = exterior_door_to_infos.get(handle.door)
-            if old_info is not None and not handle.is_front:
-                continue
-            is_backwards = not handle.is_front
-            info = ExteriorDoorInfo(door=handle.door, distance=distance, is_backwards=is_backwards)
-            exterior_door_to_infos[handle.door] = info
-        interior_doors = frozenset(door for door in doors if door not in exterior_door_to_infos)
-        return (frozenset(exterior_door_to_infos.values()), interior_doors)
+        return connections
 
     def _fix_up_for_apartments(self):
         plex_door_infos = self.get_plex_door_infos(force_refresh=True)
         backward_doors = set()
         active_zone_id = services.current_zone_id()
         object_manager = services.object_manager()
+        plex_doors = []
         for info in plex_door_infos:
             household_id = services.get_persistence_service().get_household_id_from_zone_id(info.zone_id)
             door = object_manager.get(info.door_id)
@@ -197,10 +205,31 @@ class DoorService(Service):
                     logger.error('For WB: An apartment door facing the common area needs to be flipped. Lot desc id: {}, World desc id: {}. Neighborhood id: {}, Neighborhood Name: {}', lot_description_id, world_description_id, neighborhood_id, neighborhood_data.name)
                 door.set_household_owner_id(household_id)
                 if info.zone_id == active_zone_id:
-                    self.set_as_front_door(door)
+                    plex_doors.append(door)
                 else:
                     door.set_inactive_apartment_door_status(True)
         self._flip_backward_doors(backward_doors)
+        if not plex_doors:
+            return
+        if len(plex_doors) == 1:
+            self.set_as_front_door(plex_doors[0])
+            return
+        logger.warn("plex zone_id: {} has multiple potential front doors: {}, can lead to sims able to access areas they shouldn't", active_zone_id, plex_doors)
+        best_door = None
+        best_distance = None
+        connections = self._get_door_connections_from_arrival(plex_doors, is_apartment=True)
+        for (_, handle, distance) in connections:
+            if not best_distance is None:
+                if best_distance < distance:
+                    best_door = handle.door
+                    best_distance = distance
+            best_door = handle.door
+            best_distance = distance
+        if best_door is None:
+            logger.error('Unable to route to plex doors in zone_id: {} potential doors: {}', active_zone_id, plex_doors)
+            self.set_as_front_door(plex_doors[0])
+            return
+        self.set_as_front_door(best_door)
 
     def unlock_all_doors(self):
         doors = self._get_doors()

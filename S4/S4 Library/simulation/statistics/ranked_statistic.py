@@ -1,4 +1,5 @@
 from protocolbuffers import SimObjectAttributes_pb2 as protocols, Commodities_pb2
+import contextlib
 from bucks.bucks_enums import BucksType
 from bucks.bucks_utils import BucksUtils
 from distributor.shared_messages import IconInfoData
@@ -60,6 +61,7 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
         self.previous_event_level = 0
         self._notifications_disabled = False
         self._initial_loots_awarded = False
+        self._suppress_level_up_telemetry = False
 
     @constproperty
     def is_ranked():
@@ -210,10 +212,22 @@ class RankedStatistic(HasTunableReference, ProgressiveStatisticCallbackMixin, st
         else:
             self.create_and_send_commodity_update_msg(is_rate_change=False)
 
+    @contextlib.contextmanager
+    def suppress_level_up_telemetry(self):
+        if self._suppress_level_up_telemetry:
+            yield None
+        else:
+            self._suppress_level_up_telemetry = True
+            try:
+                yield None
+            finally:
+                self._suppress_level_up_telemetry = False
+
     def _handle_level_up_telemetry(self, level):
-        with telemetry_helper.begin_hook(ranked_stat_telemetry_writer, TELEMETRY_HOOK_RANKED_STAT_LEVEL_UP) as hook:
-            hook.write_guid(TELEMETRY_FIELD_RANKED_STAT_TYPE, self.guid64)
-            hook.write_int(TELEMETRY_FIELD_RANKED_STAT_LEVEL, level)
+        if not self._suppress_level_up_telemetry:
+            with telemetry_helper.begin_hook(ranked_stat_telemetry_writer, TELEMETRY_HOOK_RANKED_STAT_LEVEL_UP) as hook:
+                hook.write_guid(TELEMETRY_FIELD_RANKED_STAT_TYPE, self.guid64)
+                hook.write_int(TELEMETRY_FIELD_RANKED_STAT_LEVEL, level)
 
     @sims4.utils.classproperty
     def max_value(cls):

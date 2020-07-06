@@ -27,7 +27,7 @@ class GoToNearestFloorFeatureInteraction(SuperInteraction):
         floor_feature_contraints = []
         floor_features_and_surfaces = []
         zone_id = services.current_zone_id()
-        floor_features = build_buy.list_floor_features(zone_id, inst_or_cls.terrain_feature)
+        floor_features = build_buy.list_floor_features(inst_or_cls.terrain_feature)
         if floor_features is None:
             return Nowhere('No found floor features.')
         radius_object = None
@@ -36,7 +36,7 @@ class GoToNearestFloorFeatureInteraction(SuperInteraction):
         if inst_or_cls.radius_filter is not None and radius_object is None:
             return Nowhere('Radius filter is enabled but the radius actor has a None value.')
         for floor_feature in floor_features:
-            if inst_or_cls.indoors_only and build_buy.is_location_natural_ground(zone_id, floor_feature[0], floor_feature[1]):
+            if inst_or_cls.indoors_only and build_buy.is_location_natural_ground(floor_feature[0], floor_feature[1]):
                 continue
             routing_surface = routing.SurfaceIdentifier(zone_id, floor_feature[1], routing.SurfaceType.SURFACETYPE_WORLD)
             floor_feature_location = floor_feature[0]

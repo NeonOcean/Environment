@@ -37,7 +37,7 @@ class UniversityCourseCareerSISpawnPointTags(HasTunableSingletonFactory, AutoFac
             logger.error('Trying to get University Specific spawn point via career SI from invalid interaction: {}', interaction)
             return EMPTY_SET
         career = services.get_instance_manager(sims4.resources.Types.CAREER).get(career_uid)
-        if career is None:
+        if career is None or not hasattr(career, 'get_spawn_point_tags'):
             return EMPTY_SET
         return career.get_spawn_point_tags(sim_info)
 
@@ -52,6 +52,6 @@ class UniversityCourseParticipantSpawnPointTags(HasTunableSingletonFactory, Auto
             logger.error('Trying to get University Specific spawn point via invalid participant {}: {}', self.participant)
             return EMPTY_SET
         career = services.get_instance_manager(sims4.resources.Types.CAREER).get(career_uid)
-        if career is None:
+        if career is None or not hasattr(career, 'get_spawn_point_tags'):
             return EMPTY_SET
         return career.get_spawn_point_tags(sim_info)

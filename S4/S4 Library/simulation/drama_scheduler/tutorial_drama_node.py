@@ -1,3 +1,4 @@
+from drama_scheduler.drama_node import DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from drama_scheduler.situation_drama_node import SituationDramaNode
 from event_testing.resolver import DoubleSimResolver
@@ -32,7 +33,7 @@ class TutorialDramaNode(SituationDramaNode):
     def _run(self):
         super()._run()
         self._disable_non_tutorial_functionality()
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def get_player_sim_info(self):
         return self._receiver_sim_info

@@ -13,7 +13,7 @@ class PoolSizeTest(HasTunableSingletonFactory, AutoFactoryInit, test_base.BaseTe
 
     def __call__(self, targets):
         for target in targets:
-            pool_size = build_buy.get_pool_size_at_location(target.location.zone_id, target.location.world_transform.translation, target.level)
+            pool_size = build_buy.get_pool_size_at_location(target.location.world_transform.translation, target.level)
             if pool_size is None:
                 if 0.0 < terrain.get_water_depth_at_location(target.location):
                     return TestResult.TRUE

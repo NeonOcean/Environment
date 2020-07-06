@@ -435,7 +435,8 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         excluded_sims = {sim for sim in itertools.chain((self.owner,), excluded_sims)}
         for sim_nearby in placement.get_nearby_sims_gen(polygon.centroid(), routing_surface, radius=polygon.radius(), exclude=excluded_sims):
             if sims4.geometry.test_point_in_polygon(sim_nearby.position, polygon):
-                violators.append(sim_nearby)
+                if not sim_nearby.ignore_blocking_near_destination:
+                    violators.append(sim_nearby)
         return violators
 
     def _check_violations(self, *_, **__):
@@ -580,11 +581,13 @@ class RoutingComponent(Component, HasTunableFactory, AutoFactoryInit, component_
         if self._route_event_provider_requests is not None:
             for request in self._route_event_provider_requests:
                 request.provide_route_events(self._route_event_context, owner, path, **kwargs)
-        for node in path.nodes:
-            if node.portal_object_id != 0:
-                portal_object = services.object_manager(owner.zone_id).get(node.portal_object_id)
-                if portal_object is not None:
-                    portal_object.provide_route_events(node.portal_id, self._route_event_context, owner, path, node=node, **kwargs)
+        object_manager = services.object_manager(owner.zone_id)
+        if object_manager is not None:
+            for node in path.nodes:
+                if node.portal_object_id != 0:
+                    portal_object = object_manager.get(node.portal_object_id)
+                    if portal_object is not None:
+                        portal_object.provide_route_events(node.portal_id, self._route_event_context, owner, path, node=node, **kwargs)
 
     def clear_route_events(self, *args, **kwargs):
         if self._route_event_context is None:

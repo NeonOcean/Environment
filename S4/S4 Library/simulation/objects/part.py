@@ -1,7 +1,6 @@
 from _weakrefset import WeakSet
 from animation.animation_utils import AnimationOverrides
 from animation.arb_element import ArbElement
-from build_buy import is_location_pool
 from caches import cached
 from event_testing.resolver import DoubleObjectResolver
 from interactions.utils.routing import RouteTargetType
@@ -21,7 +20,6 @@ from sims4.tuning.tunable_hash import TunableStringHash32
 from sims4.utils import Result, constproperty
 from singletons import DEFAULT
 from snippets import TunableAffordanceFilterSnippet
-from terrain import get_water_depth
 from traits.traits import Trait
 from tunable_utils.tunable_white_black_list import TunableWhiteBlackList
 import routing
@@ -50,7 +48,7 @@ class _PartOwnerSurfaceType(HasTunableSingletonFactory, AutoFactoryInit):
         return owner.routing_surface.type
 
 class Part(ProxyObject, ReservationMixin):
-    _unproxied_attributes = ProxyObject._unproxied_attributes | {'_data', '_reservation_handlers', '_joint_transform', '_routing_context', '_children_cache', '_is_surface', '_parts', '_part_location', '_containment_slot_info_cache'}
+    _unproxied_attributes = ProxyObject._unproxied_attributes | {'_data', '_reservation_handlers', '_joint_transform', '_routing_context', '_children_cache', '_is_surface', '_parts', '_part_location', '_containment_slot_info_cache', '_disabling_states'}
 
     def __init__(self, owner, data):
         super().__init__(owner)
@@ -62,6 +60,7 @@ class Part(ProxyObject, ReservationMixin):
         self._containment_slot_info_cache = None
         self._part_location = None
         self._is_surface = {}
+        self._disabling_states = None
 
     def __repr__(self):
         return '<part {0} on {1}>'.format(self.part_group_index, self.part_owner)
@@ -106,6 +105,10 @@ class Part(ProxyObject, ReservationMixin):
         return self._data.restrict_autonomy_preference
 
     @property
+    def disabling_states(self):
+        return self._data.disabling_states
+
+    @property
     def part_name(self):
         return self._data.name
 
@@ -121,6 +124,14 @@ class Part(ProxyObject, ReservationMixin):
     @transform.setter
     def transform(self):
         raise AttributeError("A part's Transform should never be set by hand. Only the part owner's transform should be set.")
+
+    def add_disabling_state(self, state):
+        if not self._disabling_states:
+            self._disabling_states = set()
+        self._disabling_states.add(state)
+
+    def remove_disabling_state(self, state):
+        self._disabling_states.remove(state)
 
     def get_joint_transform(self):
         if self._joint_transform is None:
@@ -296,6 +307,8 @@ class Part(ProxyObject, ReservationMixin):
             return self.part_definition.trait_requirements.test_collection(traits)
 
     def supports_posture_spec(self, posture_spec, interaction=None, sim=None):
+        if self._disabling_states:
+            return False
         if interaction is not None and interaction.is_super:
             affordance = interaction.affordance
             if affordance.requires_target_support and not self.supports_affordance(affordance):

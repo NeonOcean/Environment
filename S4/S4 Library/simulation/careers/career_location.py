@@ -49,7 +49,7 @@ class CareerLocation(HasTunableFactory, AutoFactoryInit):
                         self._dialog.show_dialog(*args, additional_tokens=career.get_career_text_tokens(), **kwargs)
 
                 sim_info.try_to_set_goodbye_notification(_UiDialogNotificationCareerGoodbye)
-            if self._career.push_go_to_work_affordance():
+            if self._career.put_sim_in_career_rabbit_hole():
                 return
             services.get_zone_situation_manager().make_sim_leave_now_must_run(sim)
             career.attend_work()
@@ -111,11 +111,11 @@ class _CareerLocationVenue(CareerLocation):
         if self._zone_id:
             venue_manager = services.venue_manager()
             try:
-                venue_key = get_current_venue(self._zone_id)
+                venue_tuning_id = get_current_venue(self._zone_id)
             except RuntimeError:
                 return False
-            venue_type = venue_manager.get(venue_key)
-            if venue_type in self.venue_types:
+            venue_tuning = venue_manager.get(venue_tuning_id)
+            if venue_tuning in self.venues:
                 return True
         return False
 
@@ -138,7 +138,7 @@ class _CareerLocationVenue(CareerLocation):
         return super().on_npc_start_work()
 
 class CareerLocationVenue(_CareerLocationVenue):
-    FACTORY_TUNABLES = {'venue_types': TunableList(description='\n            The set of required venue types to be in this career.\n            ', tunable=TunableReference(description='\n                The required venue type for this career.\n                ', manager=services.get_instance_manager(sims4.resources.Types.VENUE), pack_safe=True))}
+    FACTORY_TUNABLES = {'venues': TunableList(description='\n            The set of required venue types to be in this career.\n            ', tunable=TunableReference(description='\n                The required venue for this career.\n                ', manager=services.get_instance_manager(sims4.resources.Types.VENUE), pack_safe=True))}
 
     def is_valid_career_location(self):
         if not super().is_valid_career_location():

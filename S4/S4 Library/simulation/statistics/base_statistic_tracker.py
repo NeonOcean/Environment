@@ -3,17 +3,19 @@ from singletons import DEFAULT
 from statistics.base_statistic import GalleryLoadBehavior
 from statistics.base_statistic_listener import BaseStatisticCallbackListener
 from traits.trait_type import TraitType
+import gsi_handlers
 import services
 import sims
 import sims4.callback_utils
 import sims4.log
 import uid
 logger = sims4.log.Logger('Statistic')
+lod_logger = sims4.log.Logger('LoD', default_owner='miking')
 with sims4.reload.protected(globals()):
     _handle_id_gen = uid.UniqueIdGenerator(1)
 
 class BaseStatisticTracker(SimInfoTracker):
-    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_listener_seeds', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load', 'suppress_callback_alarm_calculation')
+    __slots__ = ('_statistics', '_owner', '_watchers', '_delta_watchers', '_listener_seeds', '_on_remove_callbacks', 'suppress_callback_setup_during_load', 'statistics_to_skip_load', 'suppress_callback_alarm_calculation', '_recovery_add_in_progress')
 
     def __init__(self, owner=None):
         self._statistics = None
@@ -25,11 +27,13 @@ class BaseStatisticTracker(SimInfoTracker):
         self.suppress_callback_setup_during_load = False
         self.suppress_callback_alarm_calculation = False
         self.statistics_to_skip_load = None
+        self._recovery_add_in_progress = False
 
     def __iter__(self):
-        if self._statistics is not None:
-            return self._statistics.values().__iter__()
-        return iter([])
+        if self._statistics is None:
+            return iter([])
+        stat_iter = self._statistics.values().__iter__()
+        return (stat for stat in stat_iter if stat is not None)
 
     def __len__(self):
         if self._statistics is not None:
@@ -41,16 +45,19 @@ class BaseStatisticTracker(SimInfoTracker):
         return self._owner
 
     def set_callback_alarm_calculation_supression(self, value):
-        self.suppress_callback_alarm_calculation = value
-        if not value:
-            if self._statistics:
-                for stat in self._statistics.values():
-                    stat._update_callback_listeners()
+        if self.suppress_callback_alarm_calculation != value:
+            self.suppress_callback_alarm_calculation = value
+            if not value:
+                if self._statistics:
+                    for stat in self._statistics.values():
+                        if stat is not None:
+                            stat._update_callback_listeners()
 
     def _statistics_values_gen(self):
         if self._statistics:
             for stat in self._statistics.values():
-                yield stat
+                if stat is not None:
+                    yield stat
 
     def destroy(self):
         for stat in list(self):
@@ -97,6 +104,7 @@ class BaseStatisticTracker(SimInfoTracker):
         if stat is None:
             seed = stat_type.create_callback_listener_seed(stat_type, threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
             self._add_callback_listener_seed(stat_type, seed)
+            return seed
         else:
             callback_listener = stat.create_and_add_callback_listener(threshold, callback, on_callback_alarm_reset=on_callback_alarm_reset)
             return callback_listener
@@ -150,7 +158,7 @@ class BaseStatisticTracker(SimInfoTracker):
             if not self._on_remove_callbacks:
                 self._on_remove_callbacks = None
 
-    def add_statistic(self, stat_type, owner=None, **kwargs):
+    def add_statistic(self, stat_type, owner=None, create_instance=True, **kwargs):
         if self._statistics:
             stat = self._statistics.get(stat_type)
         else:
@@ -170,6 +178,9 @@ class BaseStatisticTracker(SimInfoTracker):
             stat = stat_type(self)
             if self._statistics is None:
                 self._statistics = {}
+            if not create_instance and not stat.instance_required:
+                self._statistics[stat_type] = None
+                return
             self._statistics[stat_type] = stat
             stat.on_add()
             value = stat.get_value()
@@ -187,24 +198,46 @@ class BaseStatisticTracker(SimInfoTracker):
         if self.has_statistic(stat_type):
             stat = self._statistics[stat_type]
             del self._statistics[stat_type]
-            if self._on_remove_callbacks:
-                self._on_remove_callbacks(stat)
-            stat.on_remove(on_destroy=on_destroy)
+            if stat is not None:
+                if self._on_remove_callbacks:
+                    self._on_remove_callbacks(stat)
+                stat.on_remove(on_destroy=on_destroy)
+
+    def clear_statistic(self, stat_type):
+        if self._statistics and stat_type in self._statistics:
+            stat = self._statistics[stat_type]
+            if stat is not None:
+                self._statistics[stat_type] = None
+                if self._on_remove_callbacks:
+                    self._on_remove_callbacks(stat)
+                stat.on_remove()
 
     def get_statistic(self, stat_type, add=False):
-        if self._statistics:
-            stat = self._statistics.get(stat_type)
-        else:
-            stat = None
-        if stat is None:
-            if add:
+        try:
+            if self._statistics:
+                stat = self._statistics.get(stat_type)
+                if stat is None:
+                    if self.has_statistic(stat_type):
+                        self._recovery_add_in_progress = True
+                        add = True
+            else:
+                stat = None
+            if stat is None and add:
                 stat = self.add_statistic(stat_type)
-        return stat
+                if stat is not None and self._recovery_add_in_progress:
+                    stat.on_recovery()
+            return stat
+        finally:
+            self._recovery_add_in_progress = False
 
     def has_statistic(self, stat_type):
         if self._statistics is None:
             return False
         return stat_type in self._statistics
+
+    @property
+    def recovery_add_in_progress(self):
+        return self._recovery_add_in_progress
 
     def get_communicable_statistic_set(self):
         if self._statistics is None:
@@ -286,10 +319,10 @@ class BaseStatisticTracker(SimInfoTracker):
         self.check_for_unneeded_initial_statistics()
         save_list = []
         if self._statistics:
-            for stat in self._statistics.values():
-                if stat.persisted:
-                    value = stat.get_saved_value()
-                    save_data = (type(stat).__name__, value)
+            for (stat_type, stat) in self._statistics.items():
+                if stat_type.persisted:
+                    value = stat.get_saved_value() if stat else None
+                    save_data = (stat_type.__name__, value)
                     save_list.append(save_data)
         return save_list
 
@@ -319,8 +352,8 @@ class BaseStatisticTracker(SimInfoTracker):
 
     def debug_output_all(self, _connection):
         if self._statistics:
-            for stat in self._statistics.values():
-                sims4.commands.output('{:<24} Value: {:-6.2f}'.format(stat.__class__.__name__, stat.get_value()), _connection)
+            for (stat_type, stat) in self._statistics.items():
+                sims4.commands.output('{:<24} Value: {:-6.2f}'.format(stat_type.__name__, stat.get_value() if stat else 'None'), _connection)
 
     def debug_set_all_to_best_except(self, stat_to_exclude, core=True):
         for stat_type in list(self._statistics):
@@ -357,4 +390,27 @@ class BaseStatisticTracker(SimInfoTracker):
                     self.remove_statistic(stat_type)
 
     def check_for_unneeded_initial_statistics(self):
-        pass
+        if not self._statistics:
+            return
+        total_stats = len(self._statistics)
+        removed_stats = 0
+        for (stat_type, stat_to_test) in self._statistics.items():
+            if not stat_to_test is None:
+                if stat_to_test.instance_required:
+                    continue
+                callback_listeners = stat_to_test.release_control_on_all_callback_listeners()
+                for listener in callback_listeners:
+                    if not listener.should_seed or hasattr(listener._callback, '__self__') and listener._callback.__self__ is listener.stat:
+                        listener.destroy()
+                    else:
+                        listener.stat = None
+                        stat_type = listener.statistic_type
+                        if stat_type is not None:
+                            self._add_callback_listener_seed(stat_type, listener)
+                lod_logger.info('Removing unneeded statistic: {} from: {}', stat_type, self.owner)
+                if gsi_handlers.statistics_removed_handlers.is_archive_enabled():
+                    gsi_handlers.statistics_removed_handlers.archive_removed_statistic(stat_type.__name__, gsi_handlers.gsi_utils.format_object_name(self.owner))
+                self.clear_statistic(stat_type)
+                removed_stats = removed_stats + 1
+        removed_pct = removed_stats/total_stats*100 if total_stats > 0 else 0
+        lod_logger.info('---> {}: Removed {} of {} statistics ({}%)', self.owner, removed_stats, total_stats, removed_pct)

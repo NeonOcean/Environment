@@ -17,13 +17,18 @@ logger = sims4.log.Logger('Portal')
 class _PortalTypeDataStairs(_PortalTypeDataBase):
     STAIR_SHOO_POLYGON_PADDING = Tunable(description='\n        When a sim uses a stair case with a stair landing, any sims who are\n        in the way will be shooed. The polygon that determines which sims are\n        shooed is based on the portals on that landing, but can be padded using\n        this constant.\n        ', tunable_type=float, default=0.3)
     FACTORY_TUNABLES = {'supports_landing_shoo': Tunable(description='\n            If True, sims standing on a stair landing on the object on which\n            this portal exists will be shooed from the path of the stairs if\n            another sim attempts to use the stairs. This is to avoid clipping.\n            ', tunable_type=bool, default=False)}
+    STAIRS_DOWN_CYCLE = hash_util.hash32('stairs_down_cycle')
+    STAIRS_DOWN_CYCLE_R = hash_util.hash32('stairs_down_cycle_r')
+    STAIRS_UP_CYCLE = hash_util.hash32('stairs_up_cycle')
+    STAIRS_UP_CYCLE_R = hash_util.hash32('stairs_up_cycle_r')
+    SPEED_OVERRIDE = hash_util.hash32('speed_override')
 
     @property
     def portal_type(self):
         return PortalType.PortalType_Animate
 
     def get_stair_count(self, obj):
-        return build_buy.get_stair_count(obj.id, obj.zone_id)
+        return build_buy.get_stair_count(obj.id)
 
     def get_additional_required_portal_flags(self, entry_location, exit_location):
         if entry_location.routing_surface == exit_location.routing_surface:
@@ -68,14 +73,17 @@ class _PortalTypeDataStairs(_PortalTypeDataBase):
 
     def get_portal_duration(self, portal_instance, is_mirrored, walkstyle, age, gender, species):
         walkstyle_info_dict = routing.get_walkstyle_info_full(walkstyle, age, gender, species)
-        builder_name = hash_util.hash32('stairs_down_cycle') if is_mirrored else hash_util.hash32('stairs_up_cycle')
-        if builder_name not in walkstyle_info_dict:
-            builder_name = hash_util.hash32('stairs_down_cycle_r') if is_mirrored else hash_util.hash32('stairs_up_cycle_r')
-            if builder_name not in walkstyle_info_dict:
-                logger.error('Failed to find stair builder for walkstyle {}.', walkstyle)
-                return 0
         obj = portal_instance.obj
         stair_count = self.get_stair_count(obj)
+        builder_name = self.STAIRS_DOWN_CYCLE if is_mirrored else self.STAIRS_UP_CYCLE
+        if builder_name not in walkstyle_info_dict:
+            builder_name = self.STAIRS_DOWN_CYCLE_R if is_mirrored else self.STAIRS_UP_CYCLE_R
+            if builder_name not in walkstyle_info_dict:
+                speed_override = routing.get_walkstyle_property(walkstyle, age, gender, species, self.SPEED_OVERRIDE)
+                if speed_override is None:
+                    logger.error('Failed to find stair builder or speed_override for walkstyle {}.', walkstyle)
+                    return 0
+                return speed_override*stair_count
         info = walkstyle_info_dict[builder_name]
         duration = info['duration']*stair_count
         return duration

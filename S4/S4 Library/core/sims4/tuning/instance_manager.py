@@ -56,6 +56,7 @@ class TuningInstanceManager(Service):
                 self._total_time += delta
                 logger.debug('Just yielded from TuningInstanceManager. Time: {:2}.', delta, owner='manus')
                 return False
+        self._total_time += time.time() - time_stamp
         return True
 
     def execute(self, log_fn=None):

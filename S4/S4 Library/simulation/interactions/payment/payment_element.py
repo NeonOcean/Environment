@@ -1,9 +1,10 @@
-import sims4.log
 from interactions.payment.tunable_payment import TunablePaymentSnippet
 from interactions.utils.interaction_elements import XevtTriggeredElement
-from sims4.tuning.tunable import OptionalTunable, Tunable, TunableTuple
+from sims4.tuning.tunable import Tunable, TunableTuple, OptionalTunable
+from sims.funds import FundsSource
 from singletons import DEFAULT
 from ui.ui_dialog_notification import TunableUiDialogNotificationSnippet
+import sims4.log
 
 logger = sims4.log.Logger('Payment', default_owner = 'rmccord')
 
@@ -24,7 +25,12 @@ class PaymentElement(XevtTriggeredElement):
 			interaction_resolver = interaction.get_resolver(target = target, context = context, **interaction_parameters)
 			return payment_element.payment.get_simoleon_delta(interaction_resolver)
 
+		def get_cost_upper_bound (funds_source = DEFAULT, context = DEFAULT):
+			return payment_element.payment.payment_source.max_funds(context.sim)
+
 		affordance.register_simoleon_delta_callback(get_simoleon_delta, object_tuning_id = object_tuning_id)
+		affordance.register_upper_limit_callback(get_cost_upper_bound)
+		affordance.register_cost_gain_strings_callbacks(payment_element.payment.get_cost_string, payment_element.payment.get_gain_string)
 
 	def _do_behavior (self):
 		if self.display_only:

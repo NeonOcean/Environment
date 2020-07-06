@@ -71,6 +71,14 @@ class HasSimInfoBasicMixin:
         self.sim_info.grubby = value
 
     @property
+    def dyed(self):
+        return self.sim_info.dyed
+
+    @dyed.setter
+    def dyed(self, value):
+        self.sim_info.dyed = value
+
+    @property
     def household(self):
         return self.sim_info.household
 

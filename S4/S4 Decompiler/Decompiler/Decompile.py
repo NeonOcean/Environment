@@ -5,8 +5,10 @@ import threading
 import typing
 from multiprocessing import connection
 
-from uncompyle6 import main
+#from uncompyle6 import main as Uncompyle6Main
 from unpyc37 import unpyc3
+# noinspection SpellCheckingInspection
+from decompyle3 import main as Decompyle3Main
 
 _decompileProcess = None  # type: typing.Optional[multiprocessing.Process]
 _decompileProcessInputPipe = None  # type: typing.Optional[connection.Connection]
@@ -161,13 +163,15 @@ def _DecompileFileProcess (inputPipe: connection.Connection, outputPipe: connect
 			with open(destinationFilePath, "w+", encoding = "utf-8") as destinationFile:
 				destinationFile.write(str(unpyc3.decompile(targetFilePath)))
 		except Exception as e:
-			print("Failed to decompile '", printFileName + "' with 'unpyc3' trying alternative 'uncompyle6'. \n" + str(e), file = sys.stderr)
+			# noinspection SpellCheckingInspection
+			print("Failed to decompile '", printFileName + "' with 'unpyc3' trying alternative 'decompyle3'. \n" + str(e), file = sys.stderr)
 
 			try:
 				with open(destinationFilePath, "w+", encoding = "utf-8") as destinationFile:
-					main.decompile_file(targetFilePath, outstream = destinationFile)
+					Decompyle3Main.decompile_file(targetFilePath, outstream = destinationFile)
 			except Exception as e:
-				print("uncompyle6 failed to decompile '", printFileName + "'. \n" + str(e), file = sys.stderr)
+				# noinspection SpellCheckingInspection
+				print("decompyle3 failed to decompile '", printFileName + "'. \n" + str(e), file = sys.stderr)
 
 				outputPipe.send(False)
 				continue

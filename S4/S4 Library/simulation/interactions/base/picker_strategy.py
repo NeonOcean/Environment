@@ -64,7 +64,7 @@ class RecipePickerEnumerationStrategy(PickerEnumerationStrategy):
         for recipe in self._choices:
             if recipe.all_ingredients_required:
                 continue
-            result = crafting.crafting_process.CraftingProcess.recipe_test(si.target, si.context, recipe, si.sim, 0, build_error_list=False, from_autonomy=True)
+            result = crafting.crafting_process.CraftingProcess.recipe_test(si.target, si.context, recipe, si.sim, 0, build_error_list=False, from_autonomy=True, check_bucks_costs=False)
             if result:
                 weights.append((recipe.calculate_autonomy_weight(si.sim), recipe))
         if not weights:

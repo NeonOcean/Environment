@@ -29,6 +29,10 @@ except ImportError:
             return 0
 
         @staticmethod
+        def get_eco_footprint_value(*_, **__):
+            return 0
+
+        @staticmethod
         def get_rent(*_, **__):
             return 0
 
@@ -49,6 +53,10 @@ except ImportError:
             pass
 
         @staticmethod
+        def get_is_eco_footprint_compatible_for_world_description(*_, **__):
+            return False
+
+        @staticmethod
         def get_hide_from_lot_picker(*_, **__):
             pass
 
@@ -60,11 +68,13 @@ invite_sims_to_zone = _zone.invite_sims_to_zone
 get_house_description_id = _zone.get_house_description_id
 is_event_enabled = _zone.is_event_enabled
 get_building_type = _zone.get_building_type
+get_eco_footprint_value = _zone.get_eco_footprint_value
 get_rent = _zone.get_rent
 get_lot_description_id = _zone.get_lot_description_id
 get_world_description_id = _zone.get_world_description_id
 get_world_id = _zone.get_world_id
 get_world_and_lot_description_id_from_zone_id = _zone.get_world_and_lot_description_id_from_zone_id
+get_is_eco_footprint_compatible_for_world_description = _zone.get_is_eco_footprint_compatible_for_world_description
 get_hide_from_lot_picker = _zone.get_hide_from_lot_picker
 with sims4.reload.protected(globals()):
     tuning_managers = InstanceTuningManagers()
@@ -234,10 +244,10 @@ def locator_manager():
 def object_manager(zone_id=None):
     if zone_id is None:
         zone = current_zone()
-        if zone is not None:
-            return zone.object_manager
-        return
-    return _zone_manager.get(zone_id).object_manager
+    else:
+        zone = _zone_manager.get(zone_id)
+    if zone is not None:
+        return zone.object_manager
 
 def inventory_manager(zone_id=None):
     if zone_id is None:
@@ -342,6 +352,9 @@ def get_reset_and_delete_service():
 def venue_service():
     return current_zone().venue_service
 
+def venue_game_service():
+    return getattr(game_services.service_manager, 'venue_game_service', None)
+
 def zone_spin_up_service():
     return current_zone().zone_spin_up_service
 
@@ -356,9 +369,16 @@ def travel_group_manager(zone_id=None):
         return
     return _zone_manager.get(zone_id).travel_group_manager
 
-def utilities_manager(household_id):
-    _utilities_manager = game_services.service_manager.utilities_manager
-    return _utilities_manager.get_manager_for_household(household_id)
+def utilities_manager(household_id=None):
+    if household_id:
+        return get_utilities_manager_by_household_id(household_id)
+    return get_utilities_manager_by_zone_id(current_zone_id())
+
+def get_utilities_manager_by_household_id(household_id):
+    return game_services.service_manager.utilities_manager.get_manager_for_household(household_id)
+
+def get_utilities_manager_by_zone_id(zone_id):
+    return game_services.service_manager.utilities_manager.get_manager_for_zone(zone_id)
 
 def ui_dialog_service():
     return current_zone().ui_dialog_service
@@ -384,7 +404,7 @@ def get_event_manager():
 def get_current_venue():
     service = venue_service()
     if service is not None:
-        return service.venue
+        return service.active_venue
 
 def get_intern_service():
     return _intern_service
@@ -588,6 +608,9 @@ def organization_service():
 
 def get_object_lost_and_found_service():
     return game_services.service_manager.object_lost_and_found_service
+
+def street_service():
+    return getattr(game_services.service_manager, 'street_service', None)
 
 def c_api_gsi_dump():
     import server_commands.developer_commands

@@ -49,6 +49,8 @@ class SwitchLightImmediateInteraction(ImmediateSuperInteraction):
 
             def _on_update(*, color, intensity):
                 for light_target in self.light_target.get_light_target_gen(interaction):
+                    if not light_target.is_lighting_enabled():
+                        continue
                     light_target.set_user_intensity_override(intensity)
                     light_target.set_light_color(color)
 

@@ -91,7 +91,10 @@ class DeathTracker(SimInfoTracker):
         ghost_trait = DeathTracker.DEATH_TYPE_GHOST_TRAIT_MAP.get(death_type)
         if ghost_trait is not None:
             self._sim_info.add_trait(ghost_trait)
-        self._sim_info.trait_tracker.remove_traits_of_type(TraitType.PROFESSOR)
+        traits = list(self._sim_info.trait_tracker.equipped_traits)
+        for trait in traits:
+            if trait.remove_on_death:
+                self._sim_info.remove_trait(trait)
         self._death_type = death_type
         self._death_time = services.time_service().sim_now.absolute_ticks()
         self._sim_info.reset_age_progress()

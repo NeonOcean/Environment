@@ -8,6 +8,7 @@ from careers.retirement import Retirement
 from date_and_time import DATE_AND_TIME_ZERO
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.resolver import SingleSimResolver
+from objects import ALL_HIDDEN_REASONS
 from objects.mixins import AffordanceCacheMixin, ProvidedAffordanceData
 from rewards.reward_enums import RewardType
 from sims.sim_info_lod import SimInfoLODLevel
@@ -297,9 +298,11 @@ class CareerTracker(AffordanceCacheMixin, SimInfoTracker):
     def on_sim_added_to_skewer(self):
         for career in self._careers.values():
             career_history = self._career_history.get(career.guid64, None)
-            if career_history is not None:
-                if career_history.deferred_rewards:
-                    career.award_deferred_promotion_rewards()
+            if career_history is not None and career_history.deferred_rewards:
+                career.award_deferred_promotion_rewards()
+            sim = self._sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+            if sim is not None:
+                career.create_objects()
         self.resend_career_data()
         self.resend_at_work_infos()
 
@@ -401,6 +404,9 @@ class CareerTracker(AffordanceCacheMixin, SimInfoTracker):
                 career_aspiration.register_callbacks()
                 self._sim_info.aspiration_tracker.validate_and_return_completed_status(career_aspiration)
                 self._sim_info.aspiration_tracker.process_test_events_for_aspiration(career_aspiration)
+            current_gig = career.get_current_gig()
+            if current_gig is not None:
+                current_gig.register_aspiration_callbacks()
 
     def get_provided_super_affordances(self):
         provided_affordances = set()

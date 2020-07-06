@@ -60,7 +60,7 @@ class TerrainService(sims4.service_manager.Service):
         routing_surface = location.routing_surface
         level = routing_surface.secondary_id
         pool_block_id = 0
-        if build_buy.is_location_pool(zone_id, position, level):
+        if build_buy.is_location_pool(position, level):
             pool_block_id = build_buy.get_block_id(zone_id, position, level - 1)
             if not pool_block_id:
                 logger.error('Failed ot get pool block id from location: {} ', location)

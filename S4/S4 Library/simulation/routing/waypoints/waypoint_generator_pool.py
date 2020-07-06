@@ -25,7 +25,7 @@ class _WaypointGeneratorPool(_WaypointGeneratorBase):
         self._master_depth_constraint = None
         self._waypoint_constraints = []
         self.keep_away_constraint = None
-        self._location_is_pool = build_buy.is_location_pool(sim.zone_id, position, level)
+        self._location_is_pool = build_buy.is_location_pool(position, level)
         if self._location_is_pool:
             pool_block_id = build_buy.get_block_id(sim.zone_id, position, level - 1)
             pool = pool_utils.get_pool_by_block_id(pool_block_id)
@@ -33,7 +33,7 @@ class _WaypointGeneratorPool(_WaypointGeneratorBase):
                 pool_edge_constraints = pool.get_edge_constraint(constraint_width=self.constraint_width, inward_dir=True, return_constraint_list=True)
                 pool_edge_constraints = [constraint.generate_geometry_only_constraint() for constraint in pool_edge_constraints]
                 if self.keep_away_from_edges is not None:
-                    bb_polys = build_buy.get_pool_polys(pool_block_id, sim.zone_id, level - 1)
+                    bb_polys = build_buy.get_pool_polys(pool_block_id, level - 1)
                     if len(bb_polys) > 0:
                         bb_poly = bb_polys[0]
                         _WaypointGeneratorPool._push_poly_inward(bb_poly, self.keep_away_from_edges)

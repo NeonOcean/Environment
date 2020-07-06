@@ -62,6 +62,9 @@ class RelationshipTrackTracker(BaseStatisticTracker, RelationshipTrackTrackerMix
                         modified_amount = stat_type.tested_initial_modifier.get_max_modifier(DoubleSimResolver(sim_info_a, sim_info_b))
         super().set_value(stat_type, value + modified_amount, **kwargs)
 
+    def should_suppress_calculations(self):
+        return self.load_in_progress
+
     def get_statistic(self, stat_type, add=False):
         if stat_type is DEFAULT:
             stat_type = RelationshipGlobalTuning.REL_INSPECTOR_TRACK

@@ -2,7 +2,7 @@ import itertools
 import operator
 from event_testing.test_events import TestEvent
 from objects.components.object_relationship_component import ObjectRelationshipComponent
-from scheduler import TunableDayAvailability
+from scheduler_utils import TunableDayAvailability
 from sims4.random import weighted_random_item
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableTuple, TunableList, TunableThreshold, Tunable, TunableReference, TunableRange, TunableMapping

@@ -146,11 +146,12 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         list_msg = Commodities_pb2.CommodityListUpdate()
         list_msg.sim_id = self._sim_info.sim_id
         for commodity in commodity_list:
-            stat = self._sim_info.commodity_tracker.get_statistic(commodity)
-            if stat:
-                if stat.is_visible_commodity():
-                    with ProtocolBufferRollback(list_msg.commodities) as commodity_msg:
-                        stat.populate_commodity_update_msg(commodity_msg, is_rate_change=False)
+            if commodity.visible:
+                stat = self._sim_info.commodity_tracker.get_statistic(commodity)
+                if stat:
+                    if stat.is_visible_commodity():
+                        with ProtocolBufferRollback(list_msg.commodities) as commodity_msg:
+                            stat.populate_commodity_update_msg(commodity_msg, is_rate_change=False)
         send_sim_commodity_list_update_message(self._sim_info, list_msg)
 
     def _update_initial_commodities(self, trait, previous_initial_commodities):
@@ -250,6 +251,7 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
         self._remove_buffs(trait)
         self._remove_vfx_mask(trait)
         self._remove_day_night_tracking(trait)
+        self._remove_build_buy_purchase_tracking(trait)
         self.update_trait_effects()
         self.update_affordance_caches()
         if trait.disable_aging:
@@ -579,9 +581,33 @@ class TraitTracker(AffordanceCacheMixin, SimInfoTracker):
             else:
                 self._sim_info.remove_buff_by_type(buff.buff_type)
 
+    def _has_any_trait_with_build_buy_purchase_tracking(self):
+        return any(trait for trait in self if trait.build_buy_purchase_tracking is not None)
+
+    def _add_build_buy_purchase_tracking(self, trait):
+        if trait.build_buy_purchase_tracking is not None and not services.get_event_manager().is_registered_for_event(self, test_events.TestEvent.ObjectAdd):
+            services.get_event_manager().register(self, (test_events.TestEvent.ObjectAdd,))
+
+    def _remove_build_buy_purchase_tracking(self, trait):
+        if trait.build_buy_purchase_tracking is None or self._has_any_trait_with_build_buy_purchase_tracking():
+            return
+        services.get_event_manager().unregister(self, (test_events.TestEvent.ObjectAdd,))
+
+    def _handle_build_buy_purchase_event(self, trait, resolver):
+        if not trait.build_buy_purchase_tracking:
+            return
+        for loot_action in trait.build_buy_purchase_tracking:
+            loot_action.apply_to_resolver(resolver)
+
+    def handle_event(self, sim_info, event_type, resolver):
+        if event_type == test_events.TestEvent.ObjectAdd:
+            for trait in self:
+                self._handle_build_buy_purchase_event(trait, resolver)
+
     def on_sim_ready_to_simulate(self):
         for trait in self:
             self._add_day_night_tracking(trait)
+            self._add_build_buy_purchase_tracking(trait)
 
     def get_provided_super_affordances(self):
         affordances = set()

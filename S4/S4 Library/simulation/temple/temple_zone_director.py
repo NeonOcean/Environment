@@ -75,9 +75,8 @@ class TempleZoneDirector(SchedulingZoneDirector):
             self._temple_id = next_temple_id
             self._prepare_temple_data()
             object_manager = services.object_manager()
-            zone_id = services.current_zone_id()
-            self._setup_gates(object_manager, zone_id)
-            self._setup_traps(object_manager, zone_id)
+            self._setup_gates(object_manager)
+            self._setup_traps(object_manager)
             self._setup_rooms_visibility()
             self.open_street_director.set_temple_in_progress()
             self._require_setup = True
@@ -148,11 +147,11 @@ class TempleZoneDirector(SchedulingZoneDirector):
         self._rooms = [TempleRoom() for _ in range(len(self._temple_data.rooms))]
         self._current_room = 0
 
-    def _setup_traps(self, object_manager, zone_id):
+    def _setup_traps(self, object_manager):
         traps_by_room = [defaultdict() for _ in range(len(self._rooms))]
         traps = object_manager.get_objects_matching_tags((TempleTuning.TRAP_TAG,))
         for placeholder_trap in traps:
-            room = build_buy.get_location_plex_id(zone_id, placeholder_trap.position, placeholder_trap.level)
+            room = build_buy.get_location_plex_id(placeholder_trap.position, placeholder_trap.level)
             (new_trap, trigger_interactions) = self._get_random_trap(room)
             new_trap_instance = objects.system.create_object(new_trap)
             new_trap_instance.location = placeholder_trap.location
@@ -166,7 +165,7 @@ class TempleZoneDirector(SchedulingZoneDirector):
                 self._rooms[i].trigger_object = trigger_object
                 self._rooms[i].trigger_interaction = random.choice(list(traps[trigger_object]))
 
-    def _setup_gates(self, object_manager, zone_id):
+    def _setup_gates(self, object_manager):
         active_sim_info = services.active_sim_info()
         gates = object_manager.get_objects_matching_tags((TempleTuning.GATE_TAG,))
         for gate in gates:
@@ -174,8 +173,8 @@ class TempleZoneDirector(SchedulingZoneDirector):
                 logger.error('Trying to randomize temple gates but the gate, {},  has no state component. Ignoring it.', gate)
             else:
                 (front_position, back_position) = gate.get_door_positions()
-                front_plex_id = build_buy.get_location_plex_id(zone_id, front_position, gate.level)
-                back_plex_id = build_buy.get_location_plex_id(zone_id, back_position, gate.level)
+                front_plex_id = build_buy.get_location_plex_id(front_position, gate.level)
+                back_plex_id = build_buy.get_location_plex_id(back_position, gate.level)
                 if front_plex_id == 0 and back_plex_id == 0:
                     logger.error("Found a gate, {}, but it doesn't seem to have a plex on either side. Ignoring it.", gate)
                 else:
@@ -197,15 +196,13 @@ class TempleZoneDirector(SchedulingZoneDirector):
         return random.choice(list(self._temple_data.rooms[room_number].traps.items()))
 
     def _setup_rooms_visibility(self):
-        zone_id = services.current_zone_id()
         for i in range(1, len(self._temple_data.rooms)):
-            build_buy.set_plex_visibility(zone_id, i, i <= self._current_room)
+            build_buy.set_plex_visibility(i, i <= self._current_room)
 
     def show_room(self, room_number, show):
         if room_number >= len(self._temple_data.rooms):
             return False
-        zone_id = services.current_zone_id()
-        build_buy.set_plex_visibility(zone_id, room_number, show)
+        build_buy.set_plex_visibility(room_number, show)
 
     def unlock_next_room(self):
         if self._current_room >= len(self._temple_data.rooms):

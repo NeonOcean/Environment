@@ -533,6 +533,9 @@ class AnimationContext:
         target_actor_id = event_data.event_data['target_actor_id']
         material_state = event_data.event_data['material_state_name']
         target = get_animation_object_by_id(target_actor_id)
+        if target is None:
+            logger.error('Failed to handle material state clip event in ASMs: {}, Clip: {} because Target is None. Target ID: {}, Material State: {}', self._asms, event_data.event_data.get('clip_name', 'unknown clip'), target_actor_id, material_state, owner='shouse')
+            return
         material_state = MaterialState(material_state)
         target.material_state = material_state
 

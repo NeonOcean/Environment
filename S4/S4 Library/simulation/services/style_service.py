@@ -61,6 +61,9 @@ class StyleService(Service):
                 Distributor.instance().add_object(outfit_data)
         return outfit_data
 
+    def clear_style_outfit_data(self, gender:Gender):
+        self._style_outfit_data[gender] = None
+
     def try_set_style_outfit(self, sim):
         if sim.is_human and sim.sim_info.is_teen_or_older and random.random() <= self.STYLE_OUTFIT_SELECTION_ODDS:
             outfit_sim_info = self._style_outfit_data.get(sim.gender, None)
@@ -71,3 +74,7 @@ class StyleService(Service):
                     sim.sim_info.set_current_outfit((OutfitCategory.SITUATION, 0))
                     return True
         return False
+
+    def has_active_style_outfit(self, gender):
+        outfit_data = self._style_outfit_data.get(gender)
+        return outfit_data != None

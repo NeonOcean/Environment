@@ -2,19 +2,21 @@ from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from protocolbuffers import UI_pb2 as ui_protocols
 import random
 from objects.components import types, componentmethod_with_fallback
+from objects.components.spawner_component import SpawnerTuning
 from objects.gardening.gardening_component import _GardeningComponent
 from objects.gardening.gardening_tuning import GardeningTuning
 from objects.hovertip import TooltipFields
 from sims4.localization import LocalizationHelperTuning
-from sims4.tuning.tunable import TunableReference
+from sims4.tuning.tunable import TunableReference, TunableSet
 import objects.components.types
 import placement
 import services
 import sims4.log
+from sims4.tuning.tunable_hash import TunableStringHash32
 logger = sims4.log.Logger('Gardening')
 
 class GardeningPlantComponent(_GardeningComponent, component_name=objects.components.types.GARDENING_COMPONENT, persistence_key=protocols.PersistenceMaster.PersistableData.GardeningComponent):
-    FACTORY_TUNABLES = {'shoot_definition': TunableReference(description='\n            The object definition to use when creating Shoot objects for the\n            splicing system.\n            ', manager=services.definition_manager())}
+    FACTORY_TUNABLES = {'shoot_definition': TunableReference(description='\n            The object definition to use when creating Shoot objects for the\n            splicing system.\n            ', manager=services.definition_manager()), 'prohibited_vertical_plant_slots': TunableSet(description='\n            The list of slots that are prohibited from spawning fruit if the plant \n            is on the vertical garden.\n            ', tunable=TunableStringHash32(description='\n                The hashed name of the slot.\n                ', default='_ctnm_spawn_1'))}
 
     def on_add(self, *args, **kwargs):
         zone = services.current_zone()
@@ -37,6 +39,28 @@ class GardeningPlantComponent(_GardeningComponent, component_name=objects.compon
         if not zone.is_zone_loading:
             gardening_service = services.get_gardening_service()
             gardening_service.move_gardening_object(self.owner)
+            self._refresh_prohibited_spawn_slots()
+
+    def _refresh_prohibited_spawn_slots(self):
+        plant = self.owner
+        plant_parent = plant.parent
+        fruits = tuple(self.owner.children)
+        destroyed_fruit = False
+        for fruit in fruits:
+            gardening_component = fruit.get_component(types.GARDENING_COMPONENT)
+            if gardening_component is None:
+                continue
+            if self.is_prohibited_spawn_slot(fruit.location.slot_hash, plant_parent):
+                fruit.destroy()
+                destroyed_fruit = True
+        if destroyed_fruit or not fruits:
+            return
+        empty_slot_count = 0
+        for runtime_slot in plant.get_runtime_slots_gen():
+            if runtime_slot.empty:
+                if not self.is_prohibited_spawn_slot(runtime_slot.slot_name_hash, plant_parent):
+                    empty_slot_count += 1
+        plant.force_spawn_object(spawn_type=SpawnerTuning.SLOT_SPAWNER, ignore_firemeter=True, create_slot_obj_count=empty_slot_count)
 
     def _refresh_fruit_states(self):
         for fruit_state in GardeningTuning.FRUIT_STATES:
@@ -86,6 +110,13 @@ class GardeningPlantComponent(_GardeningComponent, component_name=objects.compon
     def on_state_changed(self, state, old_value, new_value, from_init):
         self._on_fruit_support_state_changed(state, old_value, new_value)
         self.update_hovertip()
+
+    def is_prohibited_spawn_slot(self, slot, plant_parent):
+        if plant_parent is None or plant_parent.definition not in GardeningTuning.VERTICAL_GARDEN_OBJECTS:
+            return False
+        elif slot in self.prohibited_vertical_plant_slots:
+            return True
+        return False
 
     def add_fruit(self, fruit, sprouted_from=False):
         gardening_component = fruit.get_component(types.GARDENING_COMPONENT)

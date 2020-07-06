@@ -87,10 +87,10 @@ class OrganizationService(Service):
             return
         if org_event_id in self._schedule_cancelled_venue_event_alarm:
             del self._schedule_cancelled_venue_event_alarm[org_event_id]
-        event_venue_type = self.get_tuned_venue_type(node_type)
-        if event_venue_type is None:
+        event_venue_tuning = self.get_organization_venue_tuning(node_type)
+        if event_venue_tuning is None:
             return
-        org_venue_event_info = self.VENUE_ORG_EVENT_MAPPING.get(event_venue_type)
+        org_venue_event_info = self.VENUE_ORG_EVENT_MAPPING.get(event_venue_tuning)
         max_allowed = org_venue_event_info.org_zones_to_schedule
         if max_allowed == 0:
             return
@@ -105,7 +105,7 @@ class OrganizationService(Service):
 
         venue_service = services.venue_service()
         try_zones_in_preferred_regions = True
-        preferred_zone_ids_gen = self.get_preferred_zones_gen(org_venue_event_info.org_preferred_regions, event_venue_type)
+        preferred_zone_ids_gen = self.get_preferred_zones_gen(org_venue_event_info.org_preferred_regions, event_venue_tuning)
         if preferred_zone_ids_gen is None:
             try_zones_in_preferred_regions = False
         if try_zones_in_preferred_regions:
@@ -113,8 +113,8 @@ class OrganizationService(Service):
             if max_allowed <= 0:
                 self.update_organization_events_panel()
                 return
-        all_zones_with_venue_type_gen = venue_service.get_zones_for_venue_type_gen(event_venue_type, region_blacklist=org_venue_event_info.org_blacklisted_regions)
-        max_allowed = schedule_cancelled_org_event(all_zones_with_venue_type_gen, node_type, max_allowed)
+        all_zones_with_venue_tuning_gen = venue_service.get_zones_for_venue_type_gen(event_venue_tuning, region_blacklist=org_venue_event_info.org_blacklisted_regions)
+        max_allowed = schedule_cancelled_org_event(all_zones_with_venue_tuning_gen, node_type, max_allowed)
         if max_allowed <= 0:
             self.update_organization_events_panel()
 
@@ -133,15 +133,15 @@ class OrganizationService(Service):
             self._organization_venue_events[uid] = str(org_drama_node)
             drama_scheduler.add_complete_callback(uid, self._reschedule_venue_org_event)
 
-    def get_preferred_zones_gen(self, preferred_regions, event_venue_type):
+    def get_preferred_zones_gen(self, preferred_regions, event_venue_tuning):
         venue_service = services.venue_service()
         preferred_zone_ids_gen = None
         for region_id in preferred_regions:
             region = Region.REGION_DESCRIPTION_TUNING_MAP.get(region_id)
             if preferred_zone_ids_gen is None:
-                preferred_zone_ids_gen = venue_service.get_zones_for_venue_type_gen(event_venue_type, compatible_region=region, ignore_region_compatability_tags=True)
+                preferred_zone_ids_gen = venue_service.get_zones_for_venue_type_gen(event_venue_tuning, compatible_region=region, ignore_region_compatability_tags=True)
             else:
-                preferred_zone_ids_gen = itertools.chain(preferred_zone_ids_gen, venue_service.get_zones_for_venue_type_gen(event_venue_type, compatible_region=region, ignore_region_compatability_tags=True))
+                preferred_zone_ids_gen = itertools.chain(preferred_zone_ids_gen, venue_service.get_zones_for_venue_type_gen(event_venue_tuning, compatible_region=region, ignore_region_compatability_tags=True))
         return preferred_zone_ids_gen
 
     def verify_valid_time(self, drama_node):
@@ -180,7 +180,7 @@ class OrganizationService(Service):
                     self._organization_festival_events[uid] = str(org_drama_node)
                     drama_scheduler.add_complete_callback(uid, self._reschedule_festival_org_event)
         venue_service = services.venue_service()
-        for (event_venue_type, org_venue_event_info) in self.VENUE_ORG_EVENT_MAPPING.items():
+        for (event_venue_tuning, org_venue_event_info) in self.VENUE_ORG_EVENT_MAPPING.items():
             if not org_venue_event_info.org_drama_node_events:
                 continue
             org_drama_nodes = [drama_node for drama_node in org_venue_event_info.org_drama_node_events if drama_node not in scheduled_org_events if drama_node not in active_org_events if drama_node.guid64 not in self._schedule_cancelled_venue_event_alarm.keys()]
@@ -190,7 +190,7 @@ class OrganizationService(Service):
             if max_allowed == 0:
                 continue
             try_zones_in_preferred_regions = True
-            preferred_zone_ids_gen = self.get_preferred_zones_gen(org_venue_event_info.org_preferred_regions, event_venue_type)
+            preferred_zone_ids_gen = self.get_preferred_zones_gen(org_venue_event_info.org_preferred_regions, event_venue_tuning)
             if preferred_zone_ids_gen is None:
                 try_zones_in_preferred_regions = False
 
@@ -208,8 +208,8 @@ class OrganizationService(Service):
                 if max_allowed <= 0:
                     continue
             else:
-                all_zones_with_venue_type_gen = venue_service.get_zones_for_venue_type_gen(event_venue_type, region_blacklist=org_venue_event_info.org_blacklisted_regions)
-                schedule_events(all_zones_with_venue_type_gen, max_allowed, org_drama_nodes)
+                all_zones_with_venue_tuning_gen = venue_service.get_zones_for_venue_type_gen(event_venue_tuning, region_blacklist=org_venue_event_info.org_blacklisted_regions)
+                schedule_events(all_zones_with_venue_tuning_gen, max_allowed, org_drama_nodes)
 
     def on_zone_load(self):
         for (org_id, sims) in self._organization_members.items():
@@ -241,8 +241,8 @@ class OrganizationService(Service):
                     drama_scheduler.cancel_scheduled_node(uid)
                     cancelled_venue_event_nodes_uids.append(uid)
                 else:
-                    current_venue_type = services.venue_service().get_venue_tuning(drama_node_inst.zone_id)
-                    if current_venue_type is not self.get_tuned_venue_type(type(drama_node_inst)):
+                    venue_tuning = services.venue_service().get_venue_tuning(drama_node_inst.zone_id)
+                    if venue_tuning is not self.get_organization_venue_tuning(type(drama_node_inst)):
                         drama_scheduler.cancel_scheduled_node(uid)
                         cancelled_venue_event_nodes_uids.append(uid)
                     else:
@@ -254,10 +254,10 @@ class OrganizationService(Service):
                 del self._organization_venue_events[cancelled_node_uid]
             self.remove_event_update(cancelled_node_uid)
 
-    def get_tuned_venue_type(self, drama_node):
-        for (venue_type, org_venue_data) in self.VENUE_ORG_EVENT_MAPPING.items():
+    def get_organization_venue_tuning(self, drama_node):
+        for (venue_tuning, org_venue_data) in self.VENUE_ORG_EVENT_MAPPING.items():
             if drama_node in org_venue_data.org_drama_node_events:
-                return venue_type
+                return venue_tuning
 
     def event_is_scheduled(self, org_id, drama_node):
         return type(drama_node) in [type(org_event_info.drama_node) for org_event_info in self._event_updates.get(org_id, [])]
@@ -267,8 +267,8 @@ class OrganizationService(Service):
         self.add_event_update(org_id, org_event_info)
 
     def validate_venue_event(self, drama_node):
-        current_venue_type = services.venue_service().get_venue_tuning(drama_node.zone_id)
-        if current_venue_type is not self.get_tuned_venue_type(type(drama_node)):
+        venue_tuning = services.venue_service().get_venue_tuning(drama_node.zone_id)
+        if venue_tuning is not self.get_organization_venue_tuning(type(drama_node)):
             drama_scheduler = services.drama_scheduler_service()
             if drama_scheduler is None:
                 return False

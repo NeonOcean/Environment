@@ -435,7 +435,7 @@ class ConstraintBasedCondition(HasTunableFactory, AutoFactoryInit, Condition):
 class TunableCondition(TunableVariant):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, stat_based=TunableStatisticCondition(description='A condition based on the status of a statistic.'), state_based=TunableStateCondition(description='A condition based on the state of an object.'), time_based=TunableTimeRangeCondition(description='The minimum and maximum amount of time required to satisfy this condition.'), event_based=TunableEventBasedCondition(description='A condition that is satisfied by some event'), career_based=TunableCareerCondition(description='A condition that is satisfied by career data'), wakeup_time_based=TunableWakeupCondition(description='A condition that is satisfied by being close to the schedule time for the sims career'), sim_spawn_based=TunableSimSpawnCondition(description='A condition that is satisfied when a Sim spawns in the world.'), group_based=GroupBasedCondition.TunableFactory(), daytime_state_change_based=DaytimeStateChangeCondition.TunableFactory(), in_use_based=InUseCondition.TunableFactory(), mood_based=MoodBasedCondition.TunableFactory(), object_relationship_based=ObjectRelationshipCondition.TunableFactory(), buff_based=BuffCondition.TunableFactory(), child_based=ObjectChildrenChangedCondition.TunableFactory(), constraint_based=ConstraintBasedCondition.TunableFactory(), rabbit_hole=TunableRabbitHoleExitCondition(), hidden_or_shown=HiddenOrShownCondition.TunableFactory(), default='stat_based', **kwargs)
+        super().__init__(*args, stat_based=TunableStatisticCondition(description='A condition based on the status of a statistic.'), state_based=TunableStateCondition(description='A condition based on the state of an object.'), time_based=TunableTimeRangeCondition(description='The minimum and maximum amount of time required to satisfy this condition.'), event_based=TunableEventBasedCondition(description='A condition that is satisfied by some event'), career_based=TunableCareerCondition(description='A condition that is satisfied by career data'), wakeup_time_based=TunableWakeupCondition(description='A condition that is satisfied by being close to the schedule time for the sims career'), sim_spawn_based=TunableSimSpawnCondition(description='A condition that is satisfied when a Sim spawns in the world.'), group_based=GroupBasedCondition.TunableFactory(), daytime_state_change_based=DaytimeStateChangeCondition.TunableFactory(), in_use_based=InUseCondition.TunableFactory(), mood_based=MoodBasedCondition.TunableFactory(), object_relationship_based=ObjectRelationshipCondition.TunableFactory(), buff_based=BuffCondition.TunableFactory(), child_based=ObjectChildrenChangedCondition.TunableFactory(), constraint_based=ConstraintBasedCondition.TunableFactory(), rabbit_hole_based=TunableRabbitHoleExitCondition(), hidden_or_shown=HiddenOrShownCondition.TunableFactory(), default='stat_based', **kwargs)
 
 class TunableTimeRangeCondition(TunableFactory):
 
@@ -461,15 +461,35 @@ class TunableTimeRangeCondition(TunableFactory):
     def __init__(self, description='A time range in Sim minutes for this condition to be satisfied.', **kwargs):
         super().__init__(description=description, verify_tunable_callback=self._on_tunable_loaded_callback, min_time=TunableSimMinute(description='\n                             Minimum amount of time (in sim minutes) for this condition to be satisfied.\n                             ', default=1), max_time=TunableSimMinute(description='\n                             Maximum amount of time (in sim minutes) for this condition to be satisfied.\n                             ', default=None), **kwargs)
 
+class RabbitHoleTimeBasedCondition(Condition):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._duration = None
+
+    def attach_to_owner(self, owner, callback):
+        self._owner = owner
+        self.si_callback = callback
+        self._duration = services.get_rabbit_hole_service().get_time_for_head_rabbit_hole(owner.sim.id).in_minutes()
+
+    def detach_from_owner(self, _, exiting=False):
+        self._handle = None
+        self._owner = None
+        self.si_callback = None
+
+    def get_time_until_satisfy(self, interaction):
+        remaining_time = services.get_rabbit_hole_service().get_time_for_head_rabbit_hole(self._owner.sim.id).in_minutes()
+        if remaining_time is None or self._duration is None:
+            logger.error('Rabbit hole time condition is tuned on affordance but rabbit hole service cannot generate a time for it')
+            return (None, None, None)
+        percent_done = 1 - remaining_time/self._duration
+        return (self._duration, percent_done, 1/self._duration)
+
 class TunableRabbitHoleExitCondition(TunableTimeRangeCondition):
 
     @staticmethod
     def factory(min_time, max_time, interaction, **kwargs):
-        time_override = services.get_rabbit_hole_service().get_time_for_rabbit_hole(interaction)
-        if time_override is not None:
-            return TunableTimeRangeCondition.factory(time_override.in_minutes(), None, interaction, **kwargs)
-        else:
-            return TunableTimeRangeCondition.factory(min_time, max_time, interaction, **kwargs)
+        return RabbitHoleTimeBasedCondition()
 
     FACTORY_TYPE = factory
 

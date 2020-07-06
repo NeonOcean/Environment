@@ -150,8 +150,8 @@ class BaseSituation(IBouncerClient):
             if not cls.survives_active_household_change and zone.active_household_changed_between_save_and_load():
                 logger.debug("Don't load lot situation:{} due to active_household_change", seed.situation_type, owner='sscholl')
                 return False
-            if zone.venue_type_changed_between_save_and_load():
-                logger.debug("Don't load lot situation:{} due to venue type change", seed.situation_type, owner='sscholl')
+            if zone.venue_changed_between_save_and_load():
+                logger.debug("Don't load lot situation:{} due to venue change", seed.situation_type, owner='sscholl')
                 return False
             elif zone.lot_owner_household_changed_between_save_and_load():
                 logger.debug("Don't load lot situation:{} due to lot owner household change", seed.situation_type, owner='sscholl')
@@ -377,6 +377,10 @@ class BaseSituation(IBouncerClient):
 
     @classproperty
     def allow_non_prestige_events(cls):
+        return False
+
+    @classproperty
+    def sets_welcome_wagon_flag(cls):
         return False
 
     def save_situation(self):
@@ -797,8 +801,8 @@ class BaseSituation(IBouncerClient):
     def _create_guest_info_from_reservation_request(self, request):
         return SituationGuestInfo(request.sim_id, request.job_type, request.spawning_option, request.request_priority, request.expectation_preference, reservation=True)
 
-    def _create_request_from_guest_info(self, guest_info, spawn_point_override=None, position_override=None):
-        request = BouncerRequest(self, callback_data=_RequestUserData(guest_info.persisted_role_state_type), job_type=guest_info.job_type, request_priority=guest_info.request_priority, user_facing=self.is_user_facing, exclusivity=self.exclusivity, requested_sim_id=guest_info.sim_id, accept_alternate_sim=guest_info.accept_alternate_sim, spawning_option=guest_info.spawning_option, requesting_sim_info=self.requesting_sim_info, expectation_preference=guest_info.expectation_preference, common_blacklist_categories=guest_info.common_blacklist_categories, for_persisted_sim=guest_info.for_persisted_sim, elevated_importance_override=guest_info.elevated_importance_override, accept_looking_for_more_work=guest_info.job_type.accept_looking_for_more_work, specific_spawn_point=spawn_point_override, specific_position=position_override)
+    def _create_request_from_guest_info(self, guest_info, spawn_point_override=None, location_override=None):
+        request = BouncerRequest(self, callback_data=_RequestUserData(guest_info.persisted_role_state_type), job_type=guest_info.job_type, request_priority=guest_info.request_priority, user_facing=self.is_user_facing, exclusivity=self.exclusivity, requested_sim_id=guest_info.sim_id, accept_alternate_sim=guest_info.accept_alternate_sim, spawning_option=guest_info.spawning_option, requesting_sim_info=self.requesting_sim_info, expectation_preference=guest_info.expectation_preference, common_blacklist_categories=guest_info.common_blacklist_categories, for_persisted_sim=guest_info.for_persisted_sim, elevated_importance_override=guest_info.elevated_importance_override, accept_looking_for_more_work=guest_info.job_type.accept_looking_for_more_work, specific_spawn_point=spawn_point_override, specific_location=location_override)
         return request
 
     def _create_guest_info_from_request(self, request):
@@ -839,12 +843,12 @@ class BaseSituation(IBouncerClient):
             request = BouncerFallbackRequestFactory(self, callback_data=_RequestUserData(), job_type=self.default_job(), user_facing=self.is_user_facing, exclusivity=self.exclusivity)
             self.manager.bouncer.submit_request(request)
 
-    def _fulfill_reservation_guest_info(self, guest_info, position_override=None):
+    def _fulfill_reservation_guest_info(self, guest_info, location_override=None):
         if not guest_info.reservation:
             logger.error("Attempting to fulfill a reservation request for {} that isn't a reservation request.", self)
             return
         guest_info.reservation = False
-        request = self._create_request_from_guest_info(guest_info, position_override=position_override)
+        request = self._create_request_from_guest_info(guest_info, location_override=location_override)
         self.manager.bouncer.replace_reservation_request(request)
 
     def invite_sim_to_job(self, sim, job=DEFAULT):
@@ -1384,7 +1388,8 @@ class BaseSituation(IBouncerClient):
                 household.set_highest_medal_for_situation(type(self).guid64, self.get_level())
             level_reward = self._get_reward()
             if level_reward is not None:
-                end_msg.icon_info.desc = level_reward.reward_description
+                if level_reward.reward_description is not None:
+                    end_msg.icon_info.desc = level_reward.reward_description
                 level_reward.give_reward(self.initiating_sim_info)
             for sim in self._situation_sims.keys():
                 if not sim.is_selectable:
@@ -1440,13 +1445,17 @@ class BaseSituation(IBouncerClient):
             op = distributor.ops.SituationScoreUpdateOp(msg)
             Distributor.instance().add_op(self, op)
 
+    def _resolve_sim_job_headline(self, sim, sim_job):
+        resolver = SingleSimResolver(sim.sim_info)
+        tokens = sim_job.tooltip_name_text_tokens.get_tokens(resolver)
+        if self.is_user_facing and self.manager.is_distributed(self) or sim_job.user_facing_sim_headline_display_override:
+            sim.sim_info.sim_headline = sim_job.tooltip_name(*tokens)
+        return tokens
+
     def add_situation_sim_joined_message(self, sim):
         sim_job = self.get_current_job_for_sim(sim)
         if sim_job is not None:
-            resolver = SingleSimResolver(sim.sim_info)
-            tokens = sim_job.tooltip_name_text_tokens.get_tokens(resolver)
-            if self.is_user_facing and self.manager.is_distributed(self) or sim_job.user_facing_sim_headline_display_override:
-                sim.sim_info.sim_headline = sim_job.tooltip_name(*tokens)
+            tokens = self._resolve_sim_job_headline(sim, sim_job)
         if self.is_user_facing and self.manager.is_distributed(self):
             msg = Situations_pb2.SituationSimJoined()
             msg.sim_id = sim.id

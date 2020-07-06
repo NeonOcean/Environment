@@ -1,12 +1,12 @@
+import operator
 from weakref import WeakSet
 import random
 from animation.posture_manifest import SlotManifestEntry, SlotManifest, Hand
-from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT, STAND_POSTURE_MANIFEST, SIT_POSTURE_MANIFEST
+from animation.posture_manifest_constants import STAND_OR_SIT_CONSTRAINT, STAND_POSTURE_MANIFEST, SIT_POSTURE_MANIFEST, STAND_AT_NONE_CONSTRAINT
 from carry.carry_elements import exit_carry_while_holding, swap_carry_while_holding, enter_carry_while_holding
 from carry.carry_postures import CarrySystemInventoryTarget, CarrySystemTerrainTarget, CarrySystemTransientTarget, CarrySystemDestroyTarget
 from carry.carry_utils import create_carry_constraint, SCRIPT_EVENT_ID_START_CARRY
 from event_testing.results import TestResult
-from interactions import ParticipantType
 from interactions.base.basic import TunableBasicContentSet
 from interactions.base.super_interaction import SuperInteraction
 from interactions.constraints import JigConstraint, create_constraint_set, Circle, Constraint, Nowhere, OceanStartLocationConstraint, WaterDepthIntervals, WaterDepthIntervalConstraint
@@ -19,7 +19,7 @@ from postures.posture_specs import PostureSpecVariable
 from postures.posture_state_spec import PostureStateSpec
 from sims4.tuning.tunable import Tunable, TunableTuple, TunableReference, OptionalTunable, TunableVariant, AutoFactoryInit, HasTunableSingletonFactory, TunableList, TunableEnumEntry
 from sims4.utils import flexmethod, classproperty, constproperty
-from singletons import DEFAULT
+from singletons import DEFAULT, EMPTY_SET
 import element_utils
 import enum
 import objects.game_object
@@ -44,7 +44,19 @@ class AggregateObjectOwnership(enum.IntFlags):
     SAME_AS_TARGET = 2
     ACTIVE_HOUSEHOLD = 4
 
-class PutDownChooserInteraction(SuperInteraction):
+class PutDown:
+
+    @classproperty
+    def is_putdown(cls):
+        return True
+
+    def evaluate_putdown_distance(self, obj, distance_estimator):
+        return (True, None)
+
+    def get_distant_nodes_to_remove(self, node_routing_distances):
+        return EMPTY_SET
+
+class PutDownChooserInteraction(PutDown, SuperInteraction):
 
     class _ObjectToPutDownTarget(HasTunableSingletonFactory, AutoFactoryInit):
 
@@ -89,10 +101,6 @@ class PutDownChooserInteraction(SuperInteraction):
         yield
 
     @classproperty
-    def is_putdown(cls):
-        return True
-
-    @classproperty
     def requires_target_support(cls):
         return False
 
@@ -104,19 +112,13 @@ class PutDownChooserInteraction(SuperInteraction):
         yield create_carry_constraint(obj, debug_name='CarryForPutDown')
         yield Circle(sim.position, PUT_DOWN_GEOMETRY_RADIUS, routing_surface=sim.routing_surface)
 
-    def is_object_valid(self, obj, distance_estimator):
-        return True
-
-class PutAwayBase(SuperInteraction):
+class PutAwayBase(PutDown, SuperInteraction):
 
     def _run_interaction_gen(self, timeline):
         yield from super()._run_interaction_gen(timeline)
         main_social_group = self.sim.get_main_group()
         if main_social_group is not None:
             main_social_group.execute_adjustment_interaction(self.sim, force_allow_posture_changes=True)
-
-    def is_object_valid(self, obj, distance_estimator):
-        return True
 
 class PutInInventoryInteraction(PutAwayBase):
     INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(no_content=True, default='no_content')}
@@ -138,10 +140,6 @@ class PutInInventoryInteraction(PutAwayBase):
 
     @constproperty
     def is_put_in_inventory():
-        return True
-
-    @classproperty
-    def is_putdown(cls):
         return True
 
     def build_basic_content(self, sequence, **kwargs):
@@ -272,7 +270,7 @@ class CollectManyInteraction(SuperInteraction):
     def requires_target_support(cls):
         return False
 
-class PutAwayInteraction(SuperInteraction):
+class PutAwayInteraction(PutDown, SuperInteraction):
 
     def _run_interaction_gen(self, timeline):
         context = self.context.clone_for_continuation(self)
@@ -282,10 +280,6 @@ class PutAwayInteraction(SuperInteraction):
             yield
         return False
         yield
-
-    @classproperty
-    def is_putdown(cls):
-        return True
 
     @classproperty
     def requires_target_support(cls):
@@ -301,9 +295,6 @@ class PutAwayInteraction(SuperInteraction):
         yield create_carry_constraint(target, debug_name='CarryForPutDown')
         yield from put_down_geometry_constraint_gen(sim, target)
 
-    def is_object_valid(self, obj, distance_estimator):
-        return True
-
 class PutDownQuicklySuperInteraction(PutAwayBase):
 
     def _run_interaction_gen(self, timeline):
@@ -317,10 +308,6 @@ class PutDownQuicklySuperInteraction(PutAwayBase):
         yield
 
     @classproperty
-    def is_putdown(cls):
-        return True
-
-    @classproperty
     def requires_target_support(cls):
         return False
 
@@ -331,7 +318,7 @@ class PutDownQuicklySuperInteraction(PutAwayBase):
         yield create_carry_constraint(target, debug_name='CarryForPutDown')
         yield from put_down_geometry_constraint_gen(sim, target)
 
-class AddToWorldSuperInteraction(SuperInteraction):
+class AddToWorldSuperInteraction(PutDown, SuperInteraction):
     INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(no_content=True, default='no_content'), 'put_down_cost_multipliers': TunableTuple(description='\n            Multipliers to be applied to the different put downs possible when\n            determining the best put down aop.\n            ', in_slot_multiplier=OptionalTunable(enabled_by_default=True, tunable=Tunable(description='\n                    Cost multiplier for sims putting the object down in a slot.\n                    ', tunable_type=float, default=1)), on_floor_multiplier=OptionalTunable(enabled_by_default=True, tunable=Tunable(description='\n                    Cost multiplier for sims putting the object down on the\n                    floor.\n                    ', tunable_type=float, default=1)))}
 
     @flexmethod
@@ -358,17 +345,10 @@ class AddToWorldSuperInteraction(SuperInteraction):
         yield from put_down_geometry_constraint_gen(sim, target)
 
     @classproperty
-    def is_putdown(cls):
-        return True
-
-    @classproperty
     def requires_target_support(cls):
         return False
 
-    def is_object_valid(self, obj, distance_estimator):
-        return True
-
-class SwipeAddToWorldSuperInteraction(SuperInteraction):
+class SwipeAddToWorldSuperInteraction(PutDown, SuperInteraction):
 
     def _run_interaction_gen(self, timeline):
         liability = self.get_liability(JigConstraint.JIG_CONSTRAINT_LIABILITY)
@@ -379,14 +359,7 @@ class SwipeAddToWorldSuperInteraction(SuperInteraction):
             self.target.location = new_location
             self.target.fade_in()
 
-    @classproperty
-    def is_putdown(cls):
-        return True
-
-    def is_object_valid(self, obj, distance_estimator):
-        return True
-
-class PutDownHereInteraction(TerrainSuperInteraction):
+class PutDownHereInteraction(PutDown, TerrainSuperInteraction):
 
     def __init__(self, *args, put_down_transform=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -397,10 +370,6 @@ class PutDownHereInteraction(TerrainSuperInteraction):
         else:
             carry_system_target = CarrySystemTerrainTarget(self.sim, self.carry_target, True, put_down_transform)
         self._carry_system_target = carry_system_target
-
-    @classproperty
-    def is_putdown(cls):
-        return True
 
     def build_basic_content(self, sequence, **kwargs):
         sequence = super().build_basic_content(sequence, **kwargs)
@@ -432,9 +401,6 @@ class PutDownHereInteraction(TerrainSuperInteraction):
             if main_social_group is not None:
                 main_social_group.execute_adjustment_interaction(self.sim)
 
-    def is_object_valid(self, obj, distance_estimator):
-        return True
-
 class PutDownInSlotInteraction(PutAwayBase):
     INSTANCE_TUNABLES = {'basic_content': TunableBasicContentSet(no_content=True, default='no_content')}
 
@@ -453,10 +419,6 @@ class PutDownInSlotInteraction(PutAwayBase):
         if slot is not None and not slot.is_valid_for_placement(obj=carried_obj):
             return TestResult(False, 'destination slot is occupied or not enough room for {}', carried_obj)
         return TestResult.TRUE
-
-    @classproperty
-    def is_putdown(cls):
-        return True
 
     @classproperty
     def requires_target_support(cls):
@@ -507,7 +469,7 @@ def create_put_down_on_ground_constraint(sim, target, terrain_transform, routing
             swipe_constraint = swipe_constraint.generate_alternate_water_depth_constraint(depth_constraint.get_min_water_depth(), depth_constraint.get_max_water_depth())
         swipe_constraint = swipe_constraint._copy(_multi_surface=False)
     carry_constraint = create_carry_constraint(target, debug_name='CarryForPutDownOnGround')
-    final_constraint = swipe_constraint.intersect(carry_constraint).intersect(STAND_OR_SIT_CONSTRAINT)
+    final_constraint = swipe_constraint.intersect(carry_constraint).intersect(STAND_AT_NONE_CONSTRAINT)
     return final_constraint.generate_constraint_with_cost(cost)
 
 def create_put_down_in_inventory_constraint(inst, sim, target, targets_with_inventory, cost=0):
@@ -529,7 +491,24 @@ def create_put_down_in_inventory_constraint(inst, sim, target, targets_with_inve
     final_constraint = carry_constraint.intersect(final_constraint)
     return final_constraint
 
+def create_put_down_in_self_inventory_constraint(inst, sim, target, cost=0):
+    if cost is None:
+        return Nowhere('No Cost({}). Sim: {} Target: {}', cost, sim, target)
+    carry_constraint = create_carry_constraint(target, debug_name='CarryForPutDownInSimInventory')
+    carry_constraint = carry_constraint.generate_constraint_with_cost(cost)
+    constraint = sim.get_inventory_access_constraint(sim, True, target)
+    constraint = constraint.apply_posture_state(None, inst.get_constraint_resolver(None))
+    posture_slot_constraint = sim.posture.slot_constraint
+    if posture_slot_constraint:
+        if not sim.parent_may_move:
+            constraint = constraint.intersect(posture_slot_constraint)
+    else:
+        constraint = constraint.intersect(Circle(sim.position, PUT_DOWN_GEOMETRY_RADIUS, sim.routing_surface))
+    final_constraint = carry_constraint.intersect(constraint)
+    return final_constraint
+
 class PutDownAnywhereInteraction(PutAwayBase):
+    MAX_NODES_TO_EVALUATE_PER_CONSTRAINT = 30
 
     def __init__(self, *args, slot_types_and_costs, world_cost, sim_inventory_cost, object_inventory_cost, terrain_transform, terrain_routing_surface, objects_with_inventory, visibility_override=None, display_name_override=None, debug_name=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -564,10 +543,6 @@ class PutDownAnywhereInteraction(PutAwayBase):
                     self._max_route_distance = best_non_route_cost
                 else:
                     self._max_route_distance = best_non_route_cost - best_slot_type_cost
-
-    @classproperty
-    def is_putdown(cls):
-        return True
 
     @classproperty
     def requires_target_support(cls):
@@ -614,7 +589,7 @@ class PutDownAnywhereInteraction(PutAwayBase):
         if inst is not None:
             inst._slot_constraint = create_put_down_in_slot_type_constraint(sim, target, inst._slot_types_and_costs)
             inst._world_constraint = create_put_down_on_ground_constraint(sim, target, inst._terrain_transform, cost=inst._world_cost)
-            inst._sim_inventory_constraint = create_put_down_in_inventory_constraint(inst, sim, target, targets_with_inventory=[sim], cost=inst._sim_inventory_cost)
+            inst._sim_inventory_constraint = create_put_down_in_self_inventory_constraint(inst, sim, target, cost=inst._sim_inventory_cost)
             inst._object_inventory_constraint = create_put_down_in_inventory_constraint(inst, sim, target, targets_with_inventory=inst._objects_with_inventory, cost=inst._object_inventory_cost)
             if inst._slot_constraint.valid or (inst._world_constraint.valid or inst._sim_inventory_constraint.valid) or inst._object_inventory_constraint.valid:
                 constraints = [inst._slot_constraint, inst._world_constraint, inst._sim_inventory_constraint, inst._object_inventory_constraint]
@@ -631,12 +606,18 @@ class PutDownAnywhereInteraction(PutAwayBase):
             logger.error('Failed to resolve {} with posture state {}. Result: {}', inst_or_cls, posture_state, result, owner='maxr', trigger_breakpoint=True)
         return result
 
-    def is_object_valid(self, obj, distance_estimator):
+    def evaluate_putdown_distance(self, obj, distance_estimator):
         if self._max_route_distance is None:
-            return True
+            return (True, None)
         locations = obj.get_locations_for_posture(None)
         for location in locations:
             estimated_distance = distance_estimator.estimate_distance((distance_estimator.sim.routing_location, location))
             if estimated_distance < self._max_route_distance:
-                return True
-        return False
+                return (True, estimated_distance)
+        return (False, None)
+
+    def get_distant_nodes_to_remove(self, node_routing_distances):
+        distance_sorted = sorted(node_routing_distances.items(), key=operator.itemgetter(1))
+        if len(distance_sorted) <= self.MAX_NODES_TO_EVALUATE_PER_CONSTRAINT:
+            return EMPTY_SET
+        return tuple(item[0] for item in distance_sorted[self.MAX_NODES_TO_EVALUATE_PER_CONSTRAINT:])

@@ -1,6 +1,6 @@
 from date_and_time import TimeSpan
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
-from drama_scheduler.drama_node import BaseDramaNode
+from drama_scheduler.drama_node import BaseDramaNode, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.utils import classproperty
@@ -30,7 +30,7 @@ class PlayerPlannedDramaNode(BaseDramaNode):
     def _run(self):
         situation_seed = self._situation_seed
         if situation_seed is None:
-            return True
+            return DramaNodeRunOutcome.FAILURE
         situation_manager = services.get_zone_situation_manager()
         dialog = self.dialog(self._receiver_sim_info, resolver=self._get_resolver())
 
@@ -47,7 +47,7 @@ class PlayerPlannedDramaNode(BaseDramaNode):
                 services.drama_scheduler_service().complete_node(self.uid)
 
         dialog.show_dialog(on_response=response, additional_tokens=(situation_seed.situation_type.display_name,))
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def _on_planned_drama_node_ended(self, situation_id, callback_option, _):
         services.drama_scheduler_service().complete_node(self.uid)

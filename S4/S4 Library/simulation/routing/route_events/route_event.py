@@ -68,8 +68,7 @@ class RouteEvent(RouteEventBase, HasTunableReference, metaclass=TunedInstanceMet
         if not result:
             return result
         if not from_update:
-            actor_participant = ParticipantType.Actor if isinstance(resolver, SingleSimResolver) else ParticipantType.Object
-            actor = resolver.get_participant(actor_participant)
+            actor = resolver.get_participant(ParticipantType.Actor)
             actor = actor.sim_info.get_sim_instance() if actor is not None and actor.is_sim else actor
             event_type = cls.event_type
             result = event_type.factory.test(actor, event_type)

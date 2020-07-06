@@ -39,7 +39,8 @@ class SicknessService(Service):
         self.trigger_sickness_distribution()
 
     def trigger_sickness_distribution(self):
-        for sim_info in services.sim_info_manager().values():
+        active_household = services.active_household()
+        for sim_info in active_household:
             if sim_info.sickness_tracker is None:
                 continue
             resolver = SingleSimResolver(sim_info)

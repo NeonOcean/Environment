@@ -14,9 +14,14 @@ class ReservationHandlerNested:
     def add_handler(self, handler):
         self._handlers.append(handler)
 
-    def begin_reservation(self, *_, **__):
+    def begin_reservation(self, *_, _may_reserve_already_run=False, **__):
+        if not _may_reserve_already_run:
+            result = self.may_reserve(_from_reservation_call=True)
+            if not result:
+                return result
         for handler in self._handlers:
-            handler.begin_reservation()
+            handler.begin_reservation(_may_reserve_already_run=True)
+        return ReservationResult.TRUE
 
     def end_reservation(self, *_, **__):
         for handler in self._handlers:

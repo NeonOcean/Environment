@@ -58,11 +58,11 @@ from objects.parenting_utils import SetAsHeadElement
 from objects.slot_elements import SlotItemTransfer, SlotObjectsFromInventory
 from open_street_director.open_street_director_element import ManipulateConditionalLayer
 from postures.set_posture_element import SetPosture
+from rabbit_hole.rabbit_hole_element import RabbitHoleElement
 from relationships.relationship_bit_change import TunableRelationshipBitElement
 from retail.retail_elements import RetailCustomerAction
 from routing.formation.formation_element import RoutingFormationElement
 from routing.route_events.route_event_provider import RouteEventProviderRequest
-from services.rabbit_hole_service import RabbitHoleElement
 from sickness.sickness_elements import TrackDiagnosticAction
 from sims.aging.aging_element import ChangeAgeElement
 from sims.occult.switch_occult_element import SwitchOccultElement
@@ -278,6 +278,7 @@ class BasicExtraVariantCore(TunableVariant):
 						 exit_carry_while_holding = TunableExitCarryWhileHolding(),
 						 extend_vacation = TravelGroupExtend.TunableFactory(),
 						 enter_carry_while_holding = EnterCarryWhileHolding.TunableFactory(),
+
 						 fade_children = FadeChildrenElement.TunableFactory(),
 						 familiar_bind = BindFamiliarElement.TunableFactory(),
 						 familiar_dismiss = DismissFamiliarElement.TunableFactory(),
@@ -296,11 +297,12 @@ class BasicExtraVariantCore(TunableVariant):
 						 painting_state_transfer = PaintingStateTransfer.TunableFactory(),
 						 parent_object = ParentObjectElement.TunableFactory(),
 						 payment = PaymentElement.TunableFactory(),
+
 						 play_stored_audio_from_source = TunablePlayStoredAudioFromSource.TunableFactory(),
 						 pregnancy = PregnancyElement.TunableFactory(),
 						 put_near = PutNearElement.TunableFactory(),
 						 put_object_in_mail = PutObjectInMail.TunableFactory(),
-						 rabbit_hole = RabbitHoleElement.TunableFactory(),
+						 put_sim_in_rabbit_hole = RabbitHoleElement.TunableFactory(),
 						 record_trends = RecordTrendsElement.TunableFactory(),
 						 remove_from_ensemble = RemoveFromEnsemble.TunableFactory(),
 						 remove_from_travel_group = TravelGroupRemove.TunableFactory(),
@@ -312,6 +314,7 @@ class BasicExtraVariantCore(TunableVariant):
 						 royalty_payment = TunableRoyaltyPayment.TunableFactory(),
 						 save_participant = SaveParticipantElement.TunableFactory(),
 						 send_to_inventory = SendToInventory.TunableFactory(),
+
 						 service_npc_request = ServiceNpcRequest.TunableFactory(),
 						 set_as_head = SetAsHeadElement.TunableFactory(),
 						 set_game_speed = TunableSetClockSpeed.TunableFactory(),
@@ -328,6 +331,7 @@ class BasicExtraVariantCore(TunableVariant):
 						 switch_occult = SwitchOccultElement.TunableFactory(),
 						 take_photo = TakePhoto.TunableFactory(),
 						 track_diagnostic_action = TrackDiagnosticAction.TunableFactory(),
+
 						 transfer_carry_while_holding = TransferCarryWhileHolding.TunableFactory(),
 						 transfer_name = NameTransfer.TunableFactory(),
 						 transfer_stored_audio_component = TransferStoredAudioComponent.TunableFactory(),
@@ -345,19 +349,7 @@ class BasicExtraVariantCore(TunableVariant):
 class BasicExtraVariant(BasicExtraVariantCore):
 
 	def __init__ (self, **kwargs):
-		super().__init__(
-            footprint_toggle = TunableFootprintToggleElement(),
-            join_game = GameElementJoin.TunableFactory(),
-            put_npc_in_leave_now_must_run_situation = TunableMakeNPCLeaveMustRun(),
-            relationship_bit = TunableRelationshipBitElement(),
-            reslot_plumbbob = TunableReslotPlumbbob(),
-            set_game_target = TunableSetGameTarget(),
-            set_sim_sleeping = TunableSetSimSleeping(),
-            stat_increment_decrement = TunableStatisticIncrementDecrement(),
-            user_ask_npc_to_leave = TunableUserAskNPCToLeave(),
-            push_affordance_on_random_parent = PushAffordanceOnRandomParent.TunableFactory(),
-            push_leave_lot_interaction = PushNpcLeaveLotNowInteraction.TunableFactory(),
-            **kwargs)
+		super().__init__(footprint_toggle = TunableFootprintToggleElement(), join_game = GameElementJoin.TunableFactory(), put_npc_in_leave_now_must_run_situation = TunableMakeNPCLeaveMustRun(), relationship_bit = TunableRelationshipBitElement(), reslot_plumbbob = TunableReslotPlumbbob(), set_game_target = TunableSetGameTarget(), set_sim_sleeping = TunableSetSimSleeping(), stat_increment_decrement = TunableStatisticIncrementDecrement(), user_ask_npc_to_leave = TunableUserAskNPCToLeave(), push_affordance_on_random_parent = PushAffordanceOnRandomParent.TunableFactory(), push_leave_lot_interaction = PushNpcLeaveLotNowInteraction.TunableFactory(), **kwargs)
 
 BASIC_EXTRA_DESCRIPTION = "\n    Basic extras add additional non-periodic behavior to an interaction.\n    Elements in this list come in two kinds: ones that act once and ones\n    that do something at the beginning and end of an interaction.\n    \n    The first kind generally causes a discrete change in the world at a\n    specified moment. Most of these tunables give you the option of\n    specifying the moment in time when the behavior should trigger,\n    usually at the beginning of the interaction, the end of the\n    interaction, or on an xevent.\n    \n    The other kind of element is one that starts some modifying behavior\n    which ends at the end of the interaction.  These do things like\n    modify the Sim's focus or modify audio properties.\n    \n    The order of the elements you add to this list does matter: the\n    elements that come earlier in the list surround the behavior of\n    elements that come later.  In most cases this order isn't\n    significant, but it is possible that one element could depend on the\n    behavior of another having already occurred.  Consult a GPE if you\n    aren't sure.\n    \n    e.g. You want a sound modifier to be in effect while running this\n    interaction, and while the sound is playing, you want the Sim's\n    focus to be affected:\n     * add an 'audio_modification' element\n     * add a 'focus' element\n     \n    In this case, the audio_modification element will start before the\n    focus one, and it will end after the focus one.  (This example is\n    somewhat contrived since both the beginning and ending of both\n    elements will happen on the same frame so the order doesn't actually\n    matter.)\n         \n    e.g. You want an object state to change at a particular xevent, such\n    as a toilet becoming flushed when the Sim touches the handle:\n     * add a 'state' element, using the xevent id agreed on in the DR or\n       IR to fill in the timing.\n    "
 

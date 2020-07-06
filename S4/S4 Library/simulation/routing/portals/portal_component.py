@@ -1,16 +1,17 @@
 from _math import Vector3Immutable
 from collections import namedtuple
-from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableList, OptionalTunable
-import sims4.utils
 from objects.components import Component, types, componentmethod_with_fallback, componentmethod
 from objects.components.locking_components import PortalLockingComponent
+from objects.components.state import TunableStateValueReference
 from routing import remove_portal
 from routing.portals.portal_animation_component import PortalAnimationComponent
 from routing.portals.portal_data import TunablePortalReference
 from routing.portals.portal_enums import PathSplitType
 from routing.portals.portal_tuning import PortalType
+from sims4.tuning.tunable import HasTunableFactory, AutoFactoryInit, TunableList, OptionalTunable, TunableMapping
 from tag import TunableTags
 import services
+import sims4.utils
 import tag
 _PortalPair = namedtuple('_PortalPair', ['there', 'back'])
 
@@ -19,7 +20,7 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
     PORTAL_DIRECTION_BACK = 1
     PORTAL_LOCATION_ENTRY = 0
     PORTAL_LOCATION_EXIT = 1
-    FACTORY_TUNABLES = {'_portal_data': TunableList(description='\n            The portals that are to be created for this object.\n            ', tunable=TunablePortalReference(pack_safe=True)), '_portal_animation_component': OptionalTunable(description='\n            If enabled, this portal animates in response to agents traversing\n            it. Use Enter/Exit events to control when and for how long an\n            animation plays.\n            ', tunable=PortalAnimationComponent.TunableFactory()), '_portal_locking_component': OptionalTunable(description='\n            If enabled then this object will be capable of being locked using\n            the same system as Portal Objects.\n            \n            If not enabled then it will not have a portal locking component\n            and will therefore not be lockable.\n            ', tunable=PortalLockingComponent.TunableFactory()), '_portal_disallowed_tags': TunableTags(description='\n            A set of tags used to prevent Sims in particular role states from\n            using this portal.\n            ', filter_prefixes=tag.PORTAL_DISALLOWANCE_PREFIX)}
+    FACTORY_TUNABLES = {'_portal_data': TunableList(description='\n            The portals that are to be created for this object.\n            ', tunable=TunablePortalReference(pack_safe=True)), 'state_values_which_disable_portals': TunableMapping(description='\n            A mapping between object state values and portals which should be\n            disabled when those state values are active. Disabling a portal\n            requires a full refresh of the owning objects portals.\n            ', key_type=TunableStateValueReference(pack_safe=True), value_type=TunableList(tunable=TunablePortalReference(pack_safe=True))), '_portal_animation_component': OptionalTunable(description='\n            If enabled, this portal animates in response to agents traversing\n            it. Use Enter/Exit events to control when and for how long an\n            animation plays.\n            ', tunable=PortalAnimationComponent.TunableFactory()), '_portal_locking_component': OptionalTunable(description='\n            If enabled then this object will be capable of being locked using\n            the same system as Portal Objects.\n            \n            If not enabled then it will not have a portal locking component\n            and will therefore not be lockable.\n            ', tunable=PortalLockingComponent.TunableFactory()), '_portal_disallowed_tags': TunableTags(description='\n            A set of tags used to prevent Sims in particular role states from\n            using this portal.\n            ', filter_prefixes=tag.PORTAL_DISALLOWANCE_PREFIX)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -64,6 +65,8 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
 
     def on_add(self, *_, **__):
         services.object_manager().add_portal_to_cache(self.owner)
+        if len(self.state_values_which_disable_portals) > 0:
+            self.owner.add_state_changed_callback(self._on_state_changed_callback)
 
     def on_remove(self, *_, **__):
         self._remove_portals()
@@ -132,13 +135,20 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
         return self.owner.routing_surface
 
     def _add_portals(self):
+        disabled_portals = set()
+        if self.state_values_which_disable_portals:
+            for (state_value, portals) in self.state_values_which_disable_portals.items():
+                if self.owner.state_value_active(state_value):
+                    disabled_portals.update(portals)
         for portal_data in self._portal_data:
-            self._add_portal_internal(self.owner, portal_data)
+            if portal_data not in disabled_portals:
+                self._add_portal_internal(self.owner, portal_data)
         if self.owner.parts is not None:
             for part in self.owner.parts:
                 part_definition = part.part_definition
                 for portal_data in part_definition.portal_data:
-                    self._add_portal_internal(part, portal_data)
+                    if portal_data not in disabled_portals:
+                        self._add_portal_internal(part, portal_data)
         if self._custom_portals is not None:
             for (location_point, portal_data, mask, _) in self._custom_portals:
                 self._add_portal_internal(location_point, portal_data, mask)
@@ -394,6 +404,12 @@ class PortalComponent(Component, HasTunableFactory, AutoFactoryInit, component_n
                 if location is None:
                     continue
                 return location
+
+    def _on_state_changed_callback(self, owner, state, old_value, new_value):
+        if old_value == new_value:
+            return
+        if old_value in self.state_values_which_disable_portals or new_value in self.state_values_which_disable_portals:
+            self._refresh_portals()
 
     def _get_desired_location(self, portal_there_id, portal_back_id, portal_direction, portal_location):
         if portal_direction == PortalComponent.PORTAL_DIRECTION_THERE:

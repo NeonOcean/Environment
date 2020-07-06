@@ -102,11 +102,10 @@ class SecretLabZoneDirector(RegisterTestEventMixin, SchedulingZoneDirectorMixin,
                 except ValueError:
                     logger.error('Ran interaction {} on unexpected door {}', resolver.interaction, door)
                     plex_to_unlock = 0
-                zone_id = services.current_zone_id()
                 if interaction_complete:
                     self._handle_door_state(sim_info, door, True)
                 else:
-                    build_buy.set_plex_visibility(zone_id, plex_to_unlock, True)
+                    build_buy.set_plex_visibility(plex_to_unlock, True)
                     self._revealed_plex = max(plex_to_unlock, self._revealed_plex)
 
     def handle_command(self, command:SecretLabCommand, **kwargs):
@@ -136,11 +135,10 @@ class SecretLabZoneDirector(RegisterTestEventMixin, SchedulingZoneDirectorMixin,
         door.set_state(state_value.state, state_value, force_update=True)
 
     def _update_locks_and_visibility(self):
-        zone_id = services.current_zone_id()
         active_sim_info = services.active_sim_info()
         for i in range(1, len(self.section_doors) + 1):
             reveal = i <= self._revealed_plex
-            build_buy.set_plex_visibility(zone_id, i, reveal)
+            build_buy.set_plex_visibility(i, reveal)
             door = self._plex_door_map.get(i, None)
             if door is None:
                 continue

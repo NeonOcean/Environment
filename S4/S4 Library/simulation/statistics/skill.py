@@ -431,7 +431,7 @@ class Skill(HasTunableReference, ProgressiveStatisticCallbackMixin, statistics.c
             return
         if level_data.rewards:
             for reward in level_data.rewards:
-                reward().open_reward(self._tracker.owner, reward_destination=RewardDestination.SIM)
+                reward().open_reward(self._tracker.owner, reward_destination=RewardDestination.SIM, reward_source=self)
         if level_data.loot:
             resolver = SingleSimResolver(self._tracker.owner)
             for loot in level_data.loot:

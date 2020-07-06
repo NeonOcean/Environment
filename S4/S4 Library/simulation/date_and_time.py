@@ -238,22 +238,22 @@ class TimeSpan:
         return self._delta - other._delta
 
     def __lt__(self, other):
-        return self._delta < other._delta
+        return issubclass(type(other), type(self)) and self._delta < other._delta
 
     def __le__(self, other):
-        return self._delta <= other._delta
+        return issubclass(type(other), type(self)) and self._delta <= other._delta
 
     def __gt__(self, other):
-        return self._delta > other._delta
+        return issubclass(type(other), type(self)) and self._delta > other._delta
 
     def __ge__(self, other):
-        return self._delta >= other._delta
+        return issubclass(type(other), type(self)) and self._delta >= other._delta
 
     def __eq__(self, other):
-        return self._delta == other._delta
+        return issubclass(type(other), type(self)) and self._delta == other._delta
 
     def __ne__(self, other):
-        return self._delta != other._delta
+        return not (issubclass(type(other), type(self)) and self._delta == other._delta)
 
     def __neg__(self):
         return TimeSpan(-self._delta)

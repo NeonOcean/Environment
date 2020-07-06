@@ -291,7 +291,7 @@ class RestaurantZoneDirector(BusinessZoneDirectorMixin, VisitorSituationOnArriva
     def _get_dining_spot_tests(self):
         if self._dining_spot_pair_tests is not None:
             return self._dining_spot_pair_tests
-        venue_tuning = services.venue_service().venue
+        venue_tuning = services.venue_service().active_venue
         if venue_tuning is None:
             return
         tests = []

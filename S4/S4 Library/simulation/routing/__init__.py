@@ -1,11 +1,12 @@
 from _math import Quaternion, Vector3, Transform
+from enum_lib import Enum
 import weakref
+import enum
+import sims4.reload
 from objects.proxy import ProxyObject
 import build_buy
-import enum
 import placement
 import services
-import sims4.reload
 try:
     import _pathing
 except ImportError:
@@ -68,6 +69,12 @@ except ImportError:
         pass
 
     def get_stair_portals(*_, **__):
+        pass
+
+    def get_ladder_levels_and_height(*_, **__):
+        pass
+
+    def get_blocked_ladder_portals(*_, **__):
         pass
 
     def has_walkstyle_info(*_, **__):
@@ -312,6 +319,8 @@ else:
     add_portal = _pathing.add_portal
     remove_portal = _pathing.remove_portal
     get_stair_portals = _pathing.get_stair_portals
+    get_ladder_levels_and_height = _pathing.get_ladder_levels_and_height
+    get_blocked_ladder_portals = _pathing.get_blocked_ladder_portals
     test_connectivity_pt_pt = _pathing.test_connectivity_pt_pt
     test_point_placement_in_navmesh = _pathing.test_point_placement_in_navmesh
     test_polygon_placement_in_navmesh = _pathing.test_polygon_placement_in_navmesh
@@ -326,6 +335,7 @@ else:
     get_walkstyle_info = _pathing.get_walkstyle_info
     get_walkstyle_info_full = _pathing.get_walkstyle_info_full
     has_walkstyle_info = _pathing.has_walkstyle_info
+    get_walkstyle_property = _pathing.get_walkstyle_property
     planner_build_id = _pathing.planner_build_id
     get_walkstyle_hash_from_resource = _pathing.get_walkstyle_hash_from_resource
     get_walkstyle_name_from_resource = _pathing.get_walkstyle_name_from_resource
@@ -442,6 +452,32 @@ PORTAL_USE_LOCK = 25000
 PORTAL_LOCKED_COST = 100000
 EstimatePathDistance_DefaultOptions = EstimatePathFlag.NONE
 
+class GoalType(Enum):
+    Good = 0
+    Bad = 1
+    Failure = 2
+
+class GoalFailureType(Enum):
+    NoError = 0
+    LOSBlocked = 1
+    OutsideRouteableArea = 2
+    IsSuppressed = 3
+    OutOfWaterDepth = 4
+    TerrainTagViolations = 5
+
+class GoalFailureInfo:
+    __slots__ = ('info', 'location', 'cost', 'validation', 'failure')
+
+    def __init__(self, info, location=None, cost=None, validation=None, failure=None):
+        self.info = info
+        self.location = location
+        self.cost = cost
+        self.validation = GoalType.Good if validation is None else GoalType(validation)
+        self.failure = GoalFailureType.NoError if failure is None else GoalFailureType(failure)
+
+    def __repr__(self):
+        return '({}{}{}{}{})'.format(self.info, '' if self.location is None else ', {}'.format(str(self.location)), '' if self.cost is None else ', {}'.format(str(self.cost)), '' if self.validation is GoalType.Good else ', {}'.format(str(self.validation.name)), '' if self.failure is GoalFailureType.NoError else ', {}'.format(self.failure.name))
+
 class PathNodeAction(enum.Int, export=False):
     PATH_NODE_WALK_ACTION = 0
     PATH_NODE_PORTAL_WARP_ACTION = 1
@@ -457,11 +493,10 @@ def get_sim_extra_clearance_distance():
     return 0.0
 
 def get_routing_surface_at_or_below_position(position):
-    zone_id = services.current_zone_id()
     for level in range(build_buy.get_highest_level_allowed(), build_buy.get_lowest_level_allowed() - 1, -1):
-        if build_buy.has_floor_at_location(zone_id, position, level):
+        if build_buy.has_floor_at_location(position, level):
             break
-    return SurfaceIdentifier(zone_id, level, SurfaceType.SURFACETYPE_WORLD)
+    return SurfaceIdentifier(services.current_zone_id(), level, SurfaceType.SURFACETYPE_WORLD)
 
 class Location(LocationBase):
 
@@ -479,17 +514,20 @@ class Location(LocationBase):
         return Location(self.position, orientation=self.orientation, routing_surface=routing_surface)
 
 class Goal(Destination):
-    __slots__ = ('requires_los_check', 'path_id', 'connectivity_handle', 'path_cost')
+    __slots__ = ('requires_los_check', 'path_id', 'connectivity_handle', 'path_cost', 'failure_reason')
 
-    def __init__(self, location, cost=1.0, tag=0, group=0, requires_los_check=True, path_id=0, connectivity_handle=None):
+    def __init__(self, location, cost=1.0, tag=0, group=0, requires_los_check=True, path_id=0, connectivity_handle=None, failure_reason=GoalFailureType.NoError):
         super().__init__(location, cost, tag, group)
         self.requires_los_check = requires_los_check
         self.path_id = path_id
         self.connectivity_handle = connectivity_handle
         self.path_cost = None
+        self.failure_reason = failure_reason
 
     def __repr__(self):
-        return '{}, Cost: {}'.format(self.location, self.cost)
+        if self.failure_reason == GoalFailureType.NoError:
+            return '{}, Cost: {}'.format(self.location, self.cost)
+        return '{}, Cost: {}, {}'.format(self.location, self.cost, self.failure_reason)
 
     def clone(self):
         new_goal = type(self)(self.location)
@@ -503,6 +541,7 @@ class Goal(Destination):
         new_goal.tag = self.tag
         new_goal.group = self.group
         new_goal.requires_los_check = self.requires_los_check
+        new_goal.failure_reason = self.failure_reason
 
 class Path:
     PLANSTATUS_NONE = 0

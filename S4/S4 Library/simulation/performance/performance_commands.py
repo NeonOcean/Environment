@@ -7,6 +7,7 @@ from adaptive_clock_speed import AdaptiveClockSpeed
 from clock import ClockSpeedMultiplierType, ClockSpeedMode
 from gsi_handlers.performance_handlers import generate_statistics
 from interactions.utils.death import DeathType
+from relationships.global_relationship_tuning import RelationshipGlobalTuning
 from relationships.relationship_enums import RelationshipBitCullingPrevention, RelationshipDecayMetricKeys, RelationshipDirection
 from server_commands.autonomy_commands import show_queue, autonomy_distance_estimates_enable, autonomy_distance_estimates_dump
 from server_commands.cache_commands import cache_status
@@ -26,7 +27,7 @@ import performance.performance_constants as consts
 import services
 import sims4.commands
 CLIENT_STATE_OPS_TO_IGNORE = ['autonomy_modifiers']
-RelationshipMetrics = namedtuple('RelationshipMetrics', ('rels', 'rels_active', 'rels_played', 'rels_unplayed', 'rel_bits_one_way', 'rel_bits_bi', 'rel_tracks'))
+RelationshipMetrics = namedtuple('RelationshipMetrics', ('rels', 'rels_active', 'rels_played', 'rels_unplayed', 'rel_bits_one_way', 'rel_bits_bi', 'rel_tracks', 'avg_meaningful_rels'))
 
 @sims4.commands.Command('performance.log_alarms')
 def log_alarms(enabled:bool=True, check_cooldown:bool=True, _connection=None):
@@ -43,7 +44,6 @@ def log_object_statistics(outputFile=None, _connection=None):
     automation_output = sims4.commands.AutomationOutput(_connection)
     automation_output('PerfLogObjStats; Status:Begin')
     for (name, value) in result:
-        sims4.commands.output('{:40} : {:5}'.format(name, value), _connection)
         eval_value = eval(value)
         if isinstance(eval_value, Number):
             automation_output('PerfLogObjStats; Status:Data, Name:{}, Value:{}'.format(name, value))
@@ -61,23 +61,43 @@ def log_object_statistics(outputFile=None, _connection=None):
     automation_output('PerfLogObjStats; Status:End')
 
 @sims4.commands.Command('performance.log_object_statistics_summary', command_type=CommandType.Automation)
-def log_object_statistics_summary(_connection=None):
+def log_object_statistics_summary(object_breakdown:bool=False, _connection=None):
     result = generate_statistics()
     (nodes, edges) = services.current_zone().posture_graph_service.get_nodes_and_edges()
     result.append((consts.POSTURE_GRAPH_NODES, nodes))
     result.append((consts.POSTURE_GRAPH_EDGES, edges))
     output = sims4.commands.CheatOutput(_connection)
-    f = '{:50} : {:5} : {:5}'
-    output(f.format('Metric', 'Value', 'Budget'))
     ignore = set([x for x in consts.OBJECT_CLASSIFICATIONS])
     ignore.add(consts.TICKS_PER_SECOND)
     ignore.add(consts.COUNT_PROPS)
     ignore.add(consts.COUNT_OBJECTS_PROPS)
+    f = '{:50} : {:5} : {:5}'
+    breakdown_key = {}
+    if object_breakdown:
+        breakdown_key[consts.OBJS_ACTIVE_LOT_INTERACTIVE] = (consts.OBJS_INTERACTIVE, consts.LOCATION_ACTIVE_LOT)
+        breakdown_key[consts.OBJS_ACTIVE_LOT_DECORATIVE] = (consts.OBJS_DECORATIVE, consts.LOCATION_ACTIVE_LOT)
+        breakdown_key[consts.OBJS_OPEN_STREET_INTERACTIVE] = (consts.OBJS_INTERACTIVE, consts.LOCATION_OPEN_STREET)
+        breakdown_key[consts.OBJS_OPEN_STREET_DECORATIVE] = (consts.OBJS_DECORATIVE, consts.LOCATION_OPEN_STREET)
+        f = '{:75} : {:5} : {:5}'
+        d = '  {:73} : {:5}'
+    output(f.format('Metric', 'Value', 'Budget'))
+    if object_breakdown:
+        output(d.format('Object Name', ''))
     for (name, value) in result:
         if name in ignore:
             continue
         budget = consts.BUDGETS.get(name, '')
         output(f.format(name, value, budget))
+        if name not in breakdown_key:
+            continue
+        (breakdown_name, location) = breakdown_key[name]
+        for (detail_name, detail_result) in result:
+            if detail_name != breakdown_name:
+                continue
+            detail_result_dict_list = eval(detail_result)
+            for detail in detail_result_dict_list:
+                if detail.get(consts.FIELD_LOCATION) == location:
+                    output(d.format(detail.get(consts.FIELD_NAME), detail.get(consts.FIELD_FREQUENCY)))
     output('\nDetailed info in GSI: Performance Metrics panel, |performance.log_object_statistics, |performance.posture_graph_summary, RedDwarf: World Coverage Report')
 
 @sims4.commands.Command('performance.add_automation_profiling_marker', command_type=CommandType.Automation)
@@ -363,6 +383,7 @@ def get_relationship_metrics(output=None):
     rel_bits_one_way = 0
     rel_bits_bi = 0
     rel_tracks = 0
+    meaningful_rels = defaultdict(int)
     rel_service = services.relationship_service()
     for relationship in rel_service:
         x = relationship.find_sim_info_a()
@@ -377,11 +398,36 @@ def get_relationship_metrics(output=None):
         rels += 1
         if not (x.is_npc and y.is_npc):
             rels_active += 1
+            if not x.is_npc:
+                if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & x_bits:
+                    meaningful_rels[x_id] += 1
+            if not y.is_npc:
+                if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & y_bits:
+                    meaningful_rels[y_id] += 1
+                    if x.is_played_sim or y.is_played_sim:
+                        rels_played += 1
+                        if x.is_played_sim:
+                            if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & x_bits:
+                                meaningful_rels[x_id] += 1
+                        if y.is_played_sim:
+                            if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & y_bits:
+                                meaningful_rels[y_id] += 1
+                                rels_unplayed += 1
+                    else:
+                        rels_unplayed += 1
         elif x.is_played_sim or y.is_played_sim:
             rels_played += 1
+            if x.is_played_sim:
+                if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & x_bits:
+                    meaningful_rels[x_id] += 1
+            if y.is_played_sim:
+                if RelationshipGlobalTuning.MEANINGFUL_RELATIONSHIP_BITS & y_bits:
+                    meaningful_rels[y_id] += 1
+                    rels_unplayed += 1
         else:
             rels_unplayed += 1
-    return RelationshipMetrics(rels, rels_active, rels_played, rels_unplayed, rel_bits_one_way, rel_bits_bi, rel_tracks)
+    avg_meaningful_rels = sum(meaningful_rels.values())/float(len(meaningful_rels)) if meaningful_rels else 0
+    return RelationshipMetrics(rels, rels_active, rels_played, rels_unplayed, rel_bits_one_way, rel_bits_bi, rel_tracks, avg_meaningful_rels)
 
 @sims4.commands.Command('performance.relationship_status', command_type=CommandType.Automation)
 def relationship_status(_connection=None):
@@ -395,6 +441,7 @@ def relationship_status(_connection=None):
     dump.append(('#relationships rel bits one-way', metrics.rel_bits_one_way))
     dump.append(('#relationships rel bits bi-directional', metrics.rel_bits_bi))
     dump.append(('#relationships rel tracks', metrics.rel_tracks))
+    dump.append(('#average meaningful rels', metrics.avg_meaningful_rels))
     for (name, value) in dump:
         output('{:40} : {}'.format(name, value))
     return dump

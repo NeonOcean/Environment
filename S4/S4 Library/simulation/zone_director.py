@@ -256,7 +256,7 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
         super().on_startup()
         self.send_startup_telemetry_event()
         if zone_director_handlers.archiver.enabled:
-            zone_director_handlers.log_zone_director_event(self, services.current_zone(), 'startup', services.venue_service().venue)
+            zone_director_handlers.log_zone_director_event(self, services.current_zone(), 'startup')
         self._create_automatic_objects()
         register_build_buy_exit_callback(self._create_automatic_objects)
 
@@ -308,9 +308,9 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
         if spawn_cleanup_action is not None:
             cleanup_actions.append(spawn_cleanup_action)
         if lot_preparation_log is not None:
-            zone_director_handlers.log_lot_preparations(self, services.current_zone(), services.venue_service().venue, lot_preparation_log)
+            zone_director_handlers.log_lot_preparations(self, services.current_zone(), lot_preparation_log)
         if spawn_objects_log is not None:
-            zone_director_handlers.log_spawn_objects(self, services.current_zone(), services.venue_service().venue, spawn_objects_log)
+            zone_director_handlers.log_spawn_objects(self, services.current_zone(), spawn_objects_log)
         for cleanup_action in reversed(cleanup_actions):
             self.add_cleanup_action(cleanup_action)
 
@@ -378,7 +378,7 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
                 logger.exception('Error running cleanup action {}', cleanup_action)
 
     def _create_automatic_objects(self):
-        venue_tuning = services.venue_service().venue
+        venue_tuning = services.venue_service().active_venue
         if venue_tuning is None:
             return
         starting_position = services.active_lot().get_default_position()
@@ -433,7 +433,8 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
             if obj is None:
                 continue
             spawned_objects.append(obj)
-            spawn_objects_log.append({'obj_id': str(obj.id), 'obj_def': info.definition.name, 'parent_id': 0, 'position': str(world_transform), 'states': str(info.init_state_values)})
+            if spawn_objects_log is not None:
+                spawn_objects_log.append({'obj_id': str(obj.id), 'obj_def': info.definition.name, 'parent_id': 0, 'position': str(world_transform), 'states': str(info.init_state_values)})
             for child_info in info.children:
                 slot_owner = obj
                 if child_info.part_index is not None:
@@ -450,7 +451,8 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
                 child = self._create_child_object(child_info.definition, slot_owner, slot_types=slot_types, bone_name_hash=bone_name_hash, state_values=child_info.init_state_values)
                 if child is not None:
                     spawned_objects.append(child)
-                    spawn_objects_log.append({'obj_id': str(child.id), 'obj_def': child_info.definition.name, 'parent_id': str(obj.id), 'position': 0, 'states': str(child_info.init_state_values)})
+                    if spawn_objects_log is not None:
+                        spawn_objects_log.append({'obj_id': str(child.id), 'obj_def': child_info.definition.name, 'parent_id': str(obj.id), 'position': 0, 'states': str(child_info.init_state_values)})
         if spawned_objects:
             return DestroyObjects(objects_to_destroy=reversed(spawned_objects))
 
@@ -490,7 +492,7 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
         if not self.was_loaded and self.init_actions.send_saved_npcs_home:
             return _ZoneSavedSimOp.CLEAR
         current_zone = services.current_zone()
-        if current_zone.lot_owner_household_changed_between_save_and_load() or current_zone.venue_type_changed_between_save_and_load():
+        if current_zone.lot_owner_household_changed_between_save_and_load():
             return _ZoneSavedSimOp.CLEAR
         if current_zone.active_household_changed_between_save_and_load() or services.current_zone().time_has_passed_in_world_since_zone_save():
             return _ZoneSavedSimOp.REINITIATE
@@ -717,7 +719,7 @@ class ZoneDirectorBase(AttractorCreationDirectorMixin, HasTunableReference, meta
                                 sim_infos_to_fix_up.append(sim_info)
             if sim_infos_to_fix_up:
                 logger.debug('Fixing up npcs {} during zone fixup', sim_infos_to_fix_up, owner='sscholl')
-                services.current_zone().venue_service.venue.zone_fixup(sim_infos_to_fix_up, purpose=NPCSummoningPurpose.ZONE_FIXUP)
+                services.current_zone().venue_service.active_venue.zone_fixup(sim_infos_to_fix_up, purpose=NPCSummoningPurpose.ZONE_FIXUP)
 
     def _prune_stale_situations(self, situation_ids):
         situation_manager = services.get_zone_situation_manager()

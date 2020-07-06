@@ -2,7 +2,7 @@ from _collections import defaultdict
 from contextlib import contextmanager
 import itertools
 from protocolbuffers import GameplaySaveData_pb2 as gameplay_serialization
-from build_buy import mark_conditional_objects_loaded, load_conditional_objects, test_location_for_object, move_object_to_household_inventory, HouseholdInventoryFlags, set_client_conditional_layer_active
+from build_buy import mark_conditional_objects_loaded, load_conditional_objects, test_location_for_object, move_object_to_household_inventory, HouseholdInventoryFlags, set_client_conditional_layer_active, conditional_layer_destroyed
 from conditional_layers.conditional_layer_handlers import is_archive_enabled, archive_layer_request_culling, LayerRequestAction
 from crafting.crafting_tunable import CraftingTuning
 from date_and_time import TimeSpan, create_time_span
@@ -190,6 +190,7 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
             if obj is not None:
                 obj.destroy(source=self, cause='Destroying object from conditional layer service.', fade_duration=ClientObjectMixin.FADE_DURATION)
         layer_info.objects_loaded.clear()
+        conditional_layer_destroyed(services.current_zone_id(), self.conditional_layer.layer_name)
         services.conditional_layer_service().complete_current_request()
 
     def _destroy_objects_callback(self, _):
@@ -204,6 +205,7 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
             if not objects_loaded:
                 alarms.cancel_alarm(self.alarm_handle)
                 self.alarm_handle = None
+                conditional_layer_destroyed(services.current_zone_id(), self.conditional_layer.layer_name)
                 services.conditional_layer_service().complete_current_request()
                 return
             if objects_index >= len(objects_loaded):
@@ -245,17 +247,18 @@ class DestroyConditionalLayerRequest(ConditionalLayerRequest):
     def _destroy_layer_gradually(self):
         self.alarm_handle = alarms.add_alarm(self, TimeSpan.ZERO, self._destroy_objects_callback, repeating=True, repeating_time_span=create_time_span(minutes=self.timer_interval))
 
-    def _destroy_layer_as_client_only(self):
+    def _destroy_layer_as_client_only(self, speed):
         conditional_layer_service = services.conditional_layer_service()
-        conditional_layer_service._set_client_layer(self.conditional_layer, False, speed=self.speed)
+        conditional_layer_service._set_client_layer(self.conditional_layer, False, speed=speed)
         conditional_layer_service.complete_current_request()
 
     def execute_request(self):
+        speed = ConditionalLayerRequestSpeedType.IMMEDIATELY if services.current_zone().is_zone_shutting_down else self.speed
         if self.conditional_layer.client_only:
-            self._destroy_layer_as_client_only()
-        elif self.speed == ConditionalLayerRequestSpeedType.GRADUALLY:
+            self._destroy_layer_as_client_only(speed)
+        elif speed == ConditionalLayerRequestSpeedType.GRADUALLY:
             self._destroy_layer_gradually()
-        elif self.speed == ConditionalLayerRequestSpeedType.IMMEDIATELY:
+        elif speed == ConditionalLayerRequestSpeedType.IMMEDIATELY:
             self._destroy_layer_immediately()
         else:
             logger.error('Invalid speed {} has been set for destroy conditional layer request.', self._speed)
@@ -288,6 +291,10 @@ class ConditionalLayerService(Service):
     def requests(self):
         return tuple(self._requests)
 
+    def on_client_disconnect(self, client):
+        for conditional_layer in self._layer_infos:
+            self._set_client_layer(conditional_layer, False, speed=ConditionalLayerRequestSpeedType.IMMEDIATELY)
+
     def stop(self):
         super().stop()
         if self._current_request is not None:
@@ -301,6 +308,8 @@ class ConditionalLayerService(Service):
         open_street_data.conditional_layer_service = gameplay_serialization.ConditionalLayerServiceData()
         for (conditional_layer, layer_info) in self._layer_infos.items():
             if not layer_info.objects_loaded and not conditional_layer.client_only:
+                continue
+            if conditional_layer.client_only and layer_info.last_request_type != ConditionalLayerRequestType.LOAD_LAYER:
                 continue
             with ProtocolBufferRollback(open_street_data.conditional_layer_service.layer_infos) as layer_data:
                 layer_data.conditional_layer = conditional_layer.guid64
@@ -324,23 +333,39 @@ class ConditionalLayerService(Service):
                 else:
                     layer_info = self._get_layer_info(conditional_layer)
                     layer_info.objects_loaded = set(layer_data.object_ids)
+                    if not conditional_layer.client_only:
+                        if layer_info.objects_loaded:
+                            layer_info.last_request_type = ConditionalLayerRequestType.LOAD_LAYER
+                    layer_info.last_request_type = ConditionalLayerRequestType.LOAD_LAYER
             else:
                 conditional_layer_manager = services.get_instance_manager(sims4.resources.Types.CONDITIONAL_LAYER)
                 conditional_layer = conditional_layer_manager.get(layer_data.conditional_layer)
                 layer_info = self._get_layer_info(conditional_layer)
             layer_info.objects_loaded = set(layer_data.object_ids)
+            if not conditional_layer.client_only:
+                if layer_info.objects_loaded:
+                    layer_info.last_request_type = ConditionalLayerRequestType.LOAD_LAYER
+            layer_info.last_request_type = ConditionalLayerRequestType.LOAD_LAYER
 
-    def on_zone_load(self):
-        current_zone_id = services.current_zone_id()
-        street_cls = world.street.get_street_instance_from_zone_id(current_zone_id)
-        if street_cls and street_cls.tested_conditional_layers:
-            self.load_street_layers(street_cls)
+    def on_zone_load(self, **kwargs):
+        self.load_tested_conditional_layers(**kwargs)
         for conditional_layer in self._layer_infos:
             if conditional_layer.client_only:
                 if conditional_layer not in self._active_street_conditional_layers:
-                    self._set_client_layer(conditional_layer, True)
+                    self._set_client_layer(conditional_layer, True, speed=ConditionalLayerRequestSpeedType.IMMEDIATELY)
+
+    def load_tested_conditional_layers(self, editmode=False):
+        current_zone_id = services.current_zone_id()
+        street_cls = world.street.get_street_instance_from_zone_id(current_zone_id)
+        if street_cls and street_cls.tested_conditional_layers:
+            self.load_street_layers(street_cls, editmode)
 
     def on_zone_unload(self):
+        for (conditional_layer, layer_info) in self._layer_infos.items():
+            if conditional_layer.client_only:
+                if layer_info.last_request_type == ConditionalLayerRequestType.LOAD_LAYER:
+                    if conditional_layer not in self._active_street_conditional_layers:
+                        self._set_client_layer(conditional_layer, False, speed=ConditionalLayerRequestSpeedType.IMMEDIATELY)
         self.unload_street_layers()
 
     @contextmanager
@@ -381,50 +406,68 @@ class ConditionalLayerService(Service):
         if resolver is None:
             resolver = GlobalResolver()
         layers_to_test = self._test_event_to_conditional_layers[event]
-        tested_in_layers = set()
+        layers_to_destroy = set()
+        layers_to_load = set()
         for (conditional_layer, tests) in layers_to_test:
+            is_active = conditional_layer in self._active_street_conditional_layers
             if tests.run_tests(resolver):
-                tested_in_layers.add(conditional_layer)
-        layers_to_destroy = self._active_street_conditional_layers - tested_in_layers
-        layers_to_load = tested_in_layers - tested_in_layers.intersection(self._active_street_conditional_layers)
+                if not is_active:
+                    layers_to_load.add(conditional_layer)
+                    if is_active:
+                        layers_to_destroy.add(conditional_layer)
+            elif is_active:
+                layers_to_destroy.add(conditional_layer)
         speed = ConditionalLayerRequestSpeedType.GRADUALLY if services.current_zone().is_zone_running else ConditionalLayerRequestSpeedType.IMMEDIATELY
         for layer_to_destroy in layers_to_destroy:
             if self._tested_layer_processing_type.get(layer_to_destroy) and self._defer_counter > 0:
-                self.add_conditional_layer_processing_callback(self.destroy_layer, (layer_to_destroy, speed))
+                self.add_conditional_layer_processing_callback(self.destroy_street_layer, (layer_to_destroy, speed))
             else:
-                self.destroy_layer(layer_to_destroy, speed)
+                self.destroy_street_layer(layer_to_destroy, speed)
         for layer_to_load in layers_to_load:
             if self._tested_layer_processing_type.get(layer_to_load) and self._defer_counter > 0:
-                self.add_conditional_layer_processing_callback(self.load_layer, (layer_to_load, speed))
+                self.add_conditional_layer_processing_callback(self.load_street_layer, (layer_to_load, speed))
             else:
-                self.load_layer(layer_to_load, speed)
+                self.load_street_layer(layer_to_load, speed)
 
-    def destroy_layer(self, layer_to_destroy, speed):
+    def destroy_street_layer(self, layer_to_destroy, speed):
         if layer_to_destroy not in self._active_street_conditional_layers:
             return
         self._active_street_conditional_layers.remove(layer_to_destroy)
         self.destroy_conditional_layer(layer_to_destroy, speed=speed, timer_interval=self.STREET_LAYER_OBJECTS_ALARM_TIME, timer_object_count=self.STREET_LAYER_OBJECTS_TO_DESTROY)
 
-    def load_layer(self, layer_to_load, speed):
+    def load_street_layer(self, layer_to_load, speed):
         if layer_to_load in self._active_street_conditional_layers:
             return
         self._active_street_conditional_layers.add(layer_to_load)
         self.load_conditional_layer(layer_to_load, speed=speed, timer_interval=self.STREET_LAYER_OBJECTS_ALARM_TIME, timer_object_count=self.STREET_LAYER_OBJECTS_TO_DESTROY)
 
-    def load_street_layers(self, street_cls):
+    def load_street_layers(self, street_cls, editmode=False):
         resolver = GlobalResolver()
         tests_to_register = []
         for tested_conditional_layer in street_cls.tested_conditional_layers:
+            if editmode and not tested_conditional_layer.test_on_managed_world_edit_mode_load:
+                continue
             self._tested_layer_processing_type[tested_conditional_layer.conditional_layer] = tested_conditional_layer.process_after_event_handled
-            if tested_conditional_layer.tests.run_tests(resolver):
-                self._active_street_conditional_layers.add(tested_conditional_layer.conditional_layer)
-                self.load_conditional_layer(tested_conditional_layer.conditional_layer)
-            for test in tested_conditional_layer.tests:
+            tests = tested_conditional_layer.tests
+            conditional_layer = tested_conditional_layer.conditional_layer
+            should_be_loaded = tests.run_tests(resolver)
+            is_loaded = self.is_layer_loaded(conditional_layer)
+            if should_be_loaded:
+                self._active_street_conditional_layers.add(conditional_layer)
+                if not is_loaded:
+                    self.load_conditional_layer(conditional_layer)
+                elif conditional_layer.client_only:
+                    self._set_client_layer(conditional_layer, True)
+            elif not should_be_loaded and is_loaded:
+                self._active_street_conditional_layers.discard(conditional_layer)
+                self.destroy_conditional_layer(conditional_layer)
+            for test in tests:
                 key_events_for_conditional_layer = set(event for (event, _) in itertools.chain(test.get_test_events_to_register(), test.get_custom_event_registration_keys()))
                 for key_event in key_events_for_conditional_layer:
-                    self._test_event_to_conditional_layers[key_event].append((tested_conditional_layer.conditional_layer, tested_conditional_layer.tests))
+                    self._test_event_to_conditional_layers[key_event].append((conditional_layer, tests))
                 tests_to_register.append(test)
-        services.get_event_manager().register_tests(self, tests_to_register)
+        if tests_to_register:
+            services.get_event_manager().register_tests(self, tests_to_register)
 
     def unload_street_layers(self):
         for registered_conditional_layers in self._test_event_to_conditional_layers.values():
@@ -432,6 +475,7 @@ class ConditionalLayerService(Service):
                 services.get_event_manager().unregister_tests(self, tests)
         for conditional_layer in self._active_street_conditional_layers:
             self.destroy_conditional_layer(conditional_layer)
+        self._active_street_conditional_layers.clear()
 
     def _execute_next_request(self):
         while self._requests:
@@ -479,6 +523,17 @@ class ConditionalLayerService(Service):
 
     def is_object_in_conditional_layer(self, obj_id):
         return any(obj_id in layer_info.objects_loaded for layer_info in self._layer_infos.values())
+
+    def is_layer_loaded(self, conditional_layer, consider_queued_requests=True):
+        if consider_queued_requests:
+            for i in range(-1, -len(self._requests), -1):
+                request = self._requests[i]
+                if request.conditional_layer == conditional_layer:
+                    return request.request_type == ConditionalLayerRequestType.LOAD_LAYER
+            if self._current_request is not None and self._current_request.conditional_layer == conditional_layer:
+                return self._current_request.request_type == ConditionalLayerRequestType.LOAD_LAYER
+        layer_info = self._layer_infos.get(conditional_layer)
+        return layer_info is not None and layer_info.last_request_type == ConditionalLayerRequestType.LOAD_LAYER
 
     def _get_layer_info(self, conditional_layer):
         if conditional_layer not in self._layer_infos:

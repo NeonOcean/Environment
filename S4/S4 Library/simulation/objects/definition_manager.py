@@ -47,11 +47,9 @@ class DefinitionManager(InstanceManager):
     def get(self, def_id, obj_state=0, pack_safe=False, get_fallback_definition_id=True):
         def_id = int(def_id)
         if get_fallback_definition_id:
-            current_zone_id = services.current_zone_id()
-            if current_zone_id is not None:
-                def_id = build_buy.get_vetted_object_defn_guid(current_zone_id, 0, def_id)
-                if def_id is None:
-                    return
+            def_id = build_buy.get_vetted_object_defn_guid(0, def_id)
+            if def_id is None:
+                return
         key = (def_id, obj_state) if obj_state else def_id
         definition = self._definitions_cache.get(key)
         if definition is not None:
@@ -152,8 +150,8 @@ class DefinitionManager(InstanceManager):
                             logger.exception('exception in removing game object {}', gameobject)
                             continue
                         try:
-                            dup = objects.system.create_object(definition, obj_id=gameobject.id, loc_type=loc_type)
-                            dup.load_object(save_data)
+                            dup = objects.system.create_object(definition, obj_id=gameobject.id, loc_type=loc_type, disable_object_commodity_callbacks=True)
+                            dup.load_object(save_data, inline_finalize=True)
                             if gameobject.location is not None:
                                 dup.location = gameobject.location
                             inventory = dup.get_inventory()

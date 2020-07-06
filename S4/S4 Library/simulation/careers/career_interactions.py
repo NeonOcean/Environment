@@ -9,8 +9,10 @@ from event_testing.results import TestResult
 from fame.fame_tuning import FameTunables
 from filters.tunable import TunableSimFilter
 from interactions.aop import AffordanceObjectPair
+from interactions.context import InteractionSource, InteractionContext
 from interactions.base.picker_interaction import PickerSingleChoiceSuperInteraction
 from interactions.base.super_interaction import SuperInteraction
+from interactions.priority import Priority
 from interactions.utils.loot import LootActions
 from interactions.utils.success_chance import SuccessChance
 from interactions.utils.tunable import TunableContinuation
@@ -86,7 +88,7 @@ class CareerSuperInteraction(interactions.base.super_interaction.SuperInteractio
         if career.scholarship_info_loot is not None and not career.seen_scholarship_info:
             self._start_scholarship_info_loot(career, career.scholarship_info_loot)
         sequence = super().build_basic_elements(sequence=sequence)
-        sequence = build_critical_section_with_finally(self.interaction_start, sequence, self.interaction_end)
+        sequence = build_critical_section_with_finally(sequence, self.interaction_end)
         return sequence
 
     def _should_run_fame_moment(self, career, level):
@@ -107,17 +109,11 @@ class CareerSuperInteraction(interactions.base.super_interaction.SuperInteractio
         scholarship_info_loot.apply_to_resolver(SingleSimResolver(self._sim.sim_info))
         self.register_for_scholarship_info_loot_callback()
 
-    def interaction_start(self, _):
-        career = self.get_career()
-        if career is not None:
-            career.attend_work(interaction=self)
-
     def interaction_end(self, _):
         if services.current_zone().is_zone_shutting_down:
             return
         career = self.get_career()
         if career is not None:
-            career.leave_work(left_early=not self.is_finishing_naturally)
             self.unregister_for_fame_moment_callback()
             self.unregister_for_scholarship_info_loot_callback()
 
@@ -222,14 +218,50 @@ class CareerPickerSuperInteraction(PickerSingleChoiceSuperInteraction):
 class CareerProxyInteractionMixin:
 
     @classmethod
-    def potential_interactions(cls, target, context, **kwargs):
-        if context.sim is None:
-            return
+    def _test(cls, target, context, *args, sim_info=None, **kwargs):
+        if context is None:
+            return TestResult(False, 'No sim info')
         career = context.sim.sim_info.career_tracker.career_currently_within_hours
-        if career is not None and not career.currently_at_work and not career.on_assignment:
-            affordance = career.get_work_affordance()
-            if affordance is not None:
-                yield AffordanceObjectPair(affordance, target, affordance, None, **kwargs)
+        if career is None or career.currently_at_work or career.on_assignment:
+            return TestResult(False, 'Not currently at work')
+        return super(CareerProxyInteractionMixin, cls)._test(target, context, *args, **kwargs)
+
+    @flexmethod
+    def get_icon_info(cls, inst, target=None, context=None, **kwargs):
+        if context is None:
+            if inst is not None:
+                context = InteractionContext(inst.sim, InteractionContext.SOURCE_SCRIPT, Priority.High)
+        if context is not None and context.sim is not None:
+            career = context.sim.sim_info.career_tracker.career_currently_within_hours
+            if career is not None:
+                career_interaction = career.career_rabbit_hole.affordance
+                icon_info = career_interaction.get_icon_info(target=target, context=context)
+            if icon_info is not None:
+                return icon_info
+        logger.error('Failed to get rabbit hole travel icon for rabbit hole: {}', cls)
+        return super(CareerProxyInteractionMixin, cls).get_icon_info(cls, inst, target=target, context=context, **kwargs)
+
+    @flexmethod
+    def get_name(cls, inst, target=None, context=None, **interaction_parameters):
+        if context is None:
+            if inst is not None:
+                context = InteractionContext(inst.sim, InteractionContext.SOURCE_SCRIPT, Priority.High)
+        if context is not None and context.sim is not None:
+            career = context.sim.sim_info.career_tracker.career_currently_within_hours
+            if career is not None:
+                career_interaction = career.career_rabbit_hole.get_affordance(context.sim.sim_info, career.guid64)
+                if career_interaction is None:
+                    career_interaction = career.career_rabbit_hole.get_travel_affordance(context.sim.sim_info, career.guid64)
+                name = career_interaction.get_name(target=target, context=context, **interaction_parameters)
+            if name is not None:
+                return name
+        logger.error('Failed to get rabbit hole travel display name for rabbit hole: {}', cls)
+        return super(CareerProxyInteractionMixin, cls).get_name(cls, inst, target=target, context=context, **interaction_parameters)
+
+    def _run_interaction_gen(self, timeline):
+        self.context.sim.sim_info.career_tracker.career_currently_within_hours.put_sim_in_career_rabbit_hole()
+        return True
+        yield
 
 class CareerProxySuperInteraction(CareerProxyInteractionMixin, SuperInteraction):
     pass

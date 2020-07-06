@@ -1,6 +1,7 @@
 import time
 from sims4.sim_irq_service import yield_zone_id
 from sims4.utils import exception_protected, c_api_can_fail
+from statistics.commodity_tracker import CommodityTracker
 from telemetry_helper import TelemetryTuning
 import clock
 import game_services
@@ -36,6 +37,8 @@ TELEMETRY_HOOK_ZONE_EXIT = 'EXIT'
 TELEMETRY_FIELD_NPC_COUNT = 'npcc'
 TELEMETRY_FIELD_PLAYER_COUNT = 'plyc'
 area_telemetry_writer = sims4.telemetry.TelemetryWriter(TELEMETRY_GROUP_AREA)
+with sims4.reload.protected(globals()):
+    server_init_load_time = 0
 
 class synchronous(object):
     __slots__ = ('callback_index', 'zone_id_index', 'session_id_index')
@@ -125,6 +128,8 @@ def c_api_server_shutdown(callback):
 @c_api_can_fail()
 @exception_protected(default_return=EXCEPTION_ERROR_CODE, log_invoke=True)
 def c_api_zone_init(zone_id, world_id, world_file, set_game_time_callback, gameplay_zone_data_bytes=None, save_slot_data_bytes=None):
+    global server_init_load_time
+    server_init_load_time = time.time()
     persistence_service = services.get_persistence_service()
     persistence_service.build_caches()
     zone_data_proto = persistence_service.get_zone_proto_buff(zone_id)
@@ -141,17 +146,20 @@ def c_api_zone_init(zone_id, world_id, world_file, set_game_time_callback, gamep
     zone = services._zone_manager.get(zone_id)
     game_clock_service = services.game_clock_service()
     game_clock_service.set_game_time_callback = set_game_time_callback
+    zone.suppress_object_commodity_callbacks = True
     return SUCCESS_CODE
 
 @synchronous(callback_index=1, zone_id_index=0)
 @c_api_can_fail(error_return_values=(EXCEPTION_ERROR_CODE, TIMEOUT_ERROR_CODE, LOADSIMS_FAILED_ERROR_CODE))
 @exception_protected(default_return=EXCEPTION_ERROR_CODE, log_invoke=True)
 def c_api_zone_loaded(zone_id, callback):
+    global server_init_load_time
     zone = services._zone_manager.get(zone_id)
     zone.on_objects_loaded()
     zone.load_zone()
     zone.zone_spin_up_service.process_zone_loaded()
-    status.info('Zone {:#08x} loaded'.format(zone_id))
+    server_init_load_time = time.time() - server_init_load_time
+    status.info('Zone {:#08x} loaded. {:0.02f} seconds.', zone_id, server_init_load_time)
     return SUCCESS_CODE
 
 @synchronous(callback_index=1, zone_id_index=0)
@@ -200,7 +208,7 @@ def c_api_client_connect(session_id, account_id, household_id, persona_name, zon
         time_stamp = time.time() - time_stamp
         status.info('Completed {} with result {}. Total Time: {:0.02f} seconds.', spin_up_mode, result, time_stamp)
         if indexed_manager.capture_load_times:
-            indexed_manager.object_load_times['lot_load'] = time_stamp
+            indexed_manager.object_load_times['lot_load'] = time_stamp + server_init_load_time
         service_perf_logger.debug('Zone startup complete')
         game_services.enable_shutdown()
         if not result:

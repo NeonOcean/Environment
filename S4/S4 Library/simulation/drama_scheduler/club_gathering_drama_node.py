@@ -1,6 +1,6 @@
 import random
 from clubs.club_tuning import ClubTunables
-from drama_scheduler.drama_node import BaseDramaNode, CooldownOption
+from drama_scheduler.drama_node import BaseDramaNode, CooldownOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.results import TestResult
 from gsi_handlers.drama_handlers import GSIRejectedDramaNodeScoringData
@@ -17,10 +17,10 @@ class ClubGatheringDramaNode(BaseDramaNode):
     def _run(self):
         club_service = services.get_club_service()
         if club_service is None:
-            return False
+            return DramaNodeRunOutcome.FAILURE
         club = club_service.get_club_by_id(self._club_id)
         club.show_club_gathering_dialog(self._receiver_sim_info, flavor_text=ClubTunables.CLUB_GATHERING_DIALOG_TEXT_DRAMA_NODE, sender_sim_info=self._sender_sim_info)
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_COMPLETE
 
     def _test(self, resolver, skip_run_tests=False):
         if self._club_id is None:
@@ -60,5 +60,3 @@ class ClubGatheringDramaNode(BaseDramaNode):
         chosen_club = random.choice(tuple(available_clubs))
         self._club_id = chosen_club.club_id
         return True
-
-lock_instance_tunables(ClubGatheringDramaNode, cooldown_option=CooldownOption.ON_RUN)

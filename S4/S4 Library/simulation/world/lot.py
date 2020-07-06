@@ -5,7 +5,7 @@ from protocolbuffers import Consts_pb2, UI_pb2
 from protocolbuffers.Localization_pb2 import LocalizedStringToken
 from distributor.shared_messages import create_icon_info_msg, IconInfoData
 from distributor.system import Distributor
-from objects.components import ComponentContainer
+from objects.components import ComponentContainer, forward_to_components
 from objects.components.inventory_enums import InventoryType
 from objects.components.inventory_type_tuning import InventoryTypeTuning
 from objects.components.shared_inventory_component import SharedInventoryContainer
@@ -57,6 +57,10 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
     @property
     def center(self):
         return self.position
+
+    @property
+    def id(self):
+        pass
 
     def get_random_point(self):
         pos = sims4.math.Vector3(0, 0, 0)
@@ -133,10 +137,13 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
             plex_service = services.get_plex_service()
             if plex_service.is_active_zone_a_plex():
                 (front_position, back_position) = front_door.get_door_positions()
-                front_zone_id = plex_service.get_plex_zone_at_position(front_position, front_door.level)
+                if front_position is not None:
+                    front_zone_id = plex_service.get_plex_zone_at_position(front_position, front_door.level)
+                else:
+                    front_zone_id = None
                 if front_zone_id is not None:
                     default_position = front_position
-                else:
+                elif back_position is not None:
                     back_zone_id = plex_service.get_plex_zone_at_position(back_position, front_door.level)
                     if back_zone_id is not None:
                         default_position = back_position
@@ -300,3 +307,7 @@ class Lot(ComponentContainer, HasStatisticComponent, _lot.Lot):
         self.statistic_tracker.load(gameplay_zone_data.statistics_tracker.statistics)
         self.commodity_tracker.load(gameplay_zone_data.skill_tracker.skills)
         self.commodity_tracker.load(gameplay_zone_data.ranked_statistic_tracker.ranked_statistics)
+
+    @forward_to_components
+    def on_finalize_load(self):
+        pass

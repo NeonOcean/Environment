@@ -2,7 +2,7 @@
 # Python bytecode 3.7 (3394)
 # Decompiled from: Python 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
 # Embedded file name: T:\InGame\Gameplay\Scripts\Server\sims\university\degree_tracker.py
-# Size of source mod 2**32: 140860 bytes
+# Size of source mod 2**32: 142512 bytes
 from _collections import defaultdict
 import itertools, math, random
 from protocolbuffers import SimObjectAttributes_pb2, UI_pb2, Consts_pb2
@@ -39,6 +39,7 @@ from sims4.resources import Types
 from sims4.tuning.geometric import TunableCurve
 from sims4.tuning.tunable import TunableMapping, TunableRange, TunableInterval, TunableEnumEntry, TunableTuple, TunableList, TunableReference, TunablePackSafeReference
 from sims4.tuning.tunable_base import ExportModes
+from sims4.utils import classproperty
 from singletons import DEFAULT
 from tunable_time import TunableTimeSpan, Days
 from tunable_utils.tested_list import TunableTestedList
@@ -106,10 +107,11 @@ class DegreeTracker(SimInfoTracker):
       manager=(services.get_instance_manager(sims4.resources.Types.DRAMA_NODE)),
       pack_safe=True))
     POST_GRADUATION_REWARDS = TunableTuple(description='\n        A tuple of the loots that will be awarded after graduation.\n        ',
-      diploma_loot=LootActions.TunableReference(description='\n            The diploma loot action applied.\n            ',
+      diploma_loot=LootActions.TunableReference(description='\n            The diploma loot action applied to selectable sims. This loot will\n            also be applied when a graduated sim is added to the skewer. \n            ',
       pack_safe=True),
       portrait_loot=LootActions.TunableReference(description='\n            The portrait loot action applied.\n            ',
-      pack_safe=True))
+      pack_safe=True),
+      diploma_notification=UiDialogNotification.TunableFactory(description='\n            The notification to display when a selectable Sim receives their \n            diploma.\n            '))
     DIPLOMA_MAIL_DELAY = TunableRange(description='\n        The number of days after the graduating (once Sim has completed all \n        degree requirements) when the diploma should be mailed to the Sim.\n        ',
       tunable_type=int,
       default=3,
@@ -252,6 +254,11 @@ class DegreeTracker(SimInfoTracker):
         self._show_reenrollment_dialog_on_spin_up = False
         self._show_reenrollment_dialog_on_next_turn = False
 
+    @classproperty
+    def required_packs(cls):
+        return (
+         Pack.EP08,)
+
     def save(self):
         data = SimObjectAttributes_pb2.PersistableDegreeTracker()
         data.current_major = self._current_major.guid64 if self._current_major else 0
@@ -311,8 +318,6 @@ class DegreeTracker(SimInfoTracker):
         return data
 
     def load(self, data):
-        if not is_available_pack(Pack.EP08):
-            return
         major_manager = services.get_instance_manager(sims4.resources.Types.UNIVERSITY_MAJOR)
         university_manager = services.get_instance_manager(sims4.resources.Types.UNIVERSITY)
         self._current_major = major_manager.get(data.current_major)
@@ -400,6 +405,13 @@ class DegreeTracker(SimInfoTracker):
             self.kickout_destination_zone = data.kickout_destination_zone
             if data.HasField('kickout_reason'):
                 self.kickout_reason = UniversityHousingKickOutReason(data.kickout_reason)
+
+    def on_sim_added_to_skewer(self):
+        if self._previous_majors:
+            pass
+        if self._diploma_handle is None:
+            resolver = SingleSimResolver(self._sim_info)
+            self.POST_GRADUATION_REWARDS.diploma_loot.apply_to_resolver(resolver)
 
     def on_cancel_enrollment_dialog(self):
         self.finish_reenrollment_dialog_flow()
@@ -639,10 +651,9 @@ class DegreeTracker(SimInfoTracker):
 
             self._sim_info.career_tracker.resend_career_data()
             self._sim_info.career_tracker.resend_at_work_infos()
-        elif self._sim_info.is_played_sim:
-            if self._enrollment_status == EnrollmentStatus.GRADUATED:
-                self.graduate()
-        if self._enrollment_status == EnrollmentStatus.NOT_ENROLLED:
+        elif self._enrollment_status == EnrollmentStatus.GRADUATED:
+            self.graduate()
+        elif self._enrollment_status == EnrollmentStatus.NOT_ENROLLED:
             self._show_reenrollment_dialog_on_spin_up = True
 
     def _setup_mail_diploma_alarm(self, time_till_mail_diploma=None):
@@ -661,6 +672,13 @@ class DegreeTracker(SimInfoTracker):
         if self._current_university is not None:
             organization_tracker.deactivate_organizations(self._current_university)
 
+    def _activate_organization_membership(self):
+        organization_tracker = self._sim_info.organization_tracker
+        if organization_tracker is not None:
+            pass
+        if self._current_university is not None:
+            organization_tracker.reactivate_organizations(self._current_university)
+
     def _suspension_pre_actions(self):
         self.drop_enrolled_courses()
         self._remove_organization_membership()
@@ -672,8 +690,11 @@ class DegreeTracker(SimInfoTracker):
     def _diploma_callback(self, _):
         self._set_enrollment_status(EnrollmentStatus.NONE)
         self._remove_degree_info_slot()
-        resolver = SingleSimResolver(self._sim_info)
-        self.POST_GRADUATION_REWARDS.diploma_loot.apply_to_resolver(resolver)
+        if self._sim_info.is_selectable:
+            resolver = SingleSimResolver(self._sim_info)
+            self.POST_GRADUATION_REWARDS.diploma_loot.apply_to_resolver(resolver)
+            diploma_dialog = self.POST_GRADUATION_REWARDS.diploma_notification(self._sim_info, resolver)
+            diploma_dialog.show_dialog()
         self._current_major = None
         self._current_university = None
         self._current_credits = 0
@@ -690,17 +711,19 @@ class DegreeTracker(SimInfoTracker):
             gpa = self.get_gpa()
         self._current_major.graduate(self._sim_info, self._current_university, gpa)
         self.clear_scholarships()
+        self._setup_mail_diploma_alarm()
+        if not self._sim_info.is_selectable:
+            return
         uid = id_generator.generate_object_id()
         drama_node = self.GRADUATION_DRAMA_NODE_MAP[self._current_university]
         if drama_node is None:
             logger.error('No graduation drama node found for {}', self._current_university)
         drama_node_inst = drama_node(uid)
         resolver = SingleSimResolver(self._sim_info)
-        services.drama_scheduler_service().schedule_node(drama_node, resolver, drama_inst=drama_node_inst)
-        self._setup_mail_diploma_alarm()
-        if self._sim_info.is_selectable:
-            graduation_notification_dialog = self.GRADUATION_NOTIFICATION(self._sim_info, SingleSimResolver(self._sim_info))
-            graduation_notification_dialog.show_dialog(additional_tokens=(self._current_university.display_name,))
+        services.drama_scheduler_service().schedule_node(drama_node, resolver,
+          drama_inst=drama_node_inst)
+        graduation_notification_dialog = self.GRADUATION_NOTIFICATION(self._sim_info, SingleSimResolver(self._sim_info))
+        graduation_notification_dialog.show_dialog(additional_tokens=(self._current_university.display_name,))
 
     def drop_enrolled_courses(self):
         for career_guid in self._course_infos.keys():
@@ -1305,6 +1328,7 @@ class DegreeTracker(SimInfoTracker):
             self._set_degree_info_slot()
             self._setup_start_of_term_alarm()
             self._setup_daily_update_alarm()
+            self._activate_organization_membership()
             services.get_event_manager().process_event((test_events.TestEvent.SimEnrolledInUniversity),
               enrolled_sim_id=(self._sim_info.id))
             self.clear_kickout_info()

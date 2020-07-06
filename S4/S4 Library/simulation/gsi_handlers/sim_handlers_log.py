@@ -1,6 +1,5 @@
 from gsi_handlers.gameplay_archiver import GameplayArchiver
 from sims4.gsi.schema import GsiFieldVisualizers, GsiGridSchema
-from sims4.log import generate_message_with_callstack
 import gsi_handlers
 import services
 skill_change_log_archive_schema = GsiGridSchema(label='Skill Change Log', sim_specific=True)

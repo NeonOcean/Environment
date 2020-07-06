@@ -88,10 +88,9 @@ def test_current_placement(obj_id:int, _connection=None):
 
 @sims4.commands.Command('placement.has_floor')
 def has_floor(x:float, y:float, z:float, level:int, _connection=None):
-    zone_id = services.current_zone_id()
     position = sims4.math.Vector3(x, y, z)
     from build_buy import has_floor_at_location
-    if has_floor_at_location(zone_id, position, level):
+    if has_floor_at_location(position, level):
         sims4.commands.output('Floor exists at location', _connection)
         return True
     else:

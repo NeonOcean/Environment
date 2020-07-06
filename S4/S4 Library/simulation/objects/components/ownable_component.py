@@ -6,6 +6,7 @@ from sims4.tuning.tunable import HasTunableFactory, TunableEnumEntry, Tunable, T
 import services
 import sims4.resources
 import zone_types
+logger = sims4.log.Logger('ObjectOwnership', default_owner='rrodgers')
 
 class TransferOwnershipLootOp(BaseLootOperation):
     FACTORY_TUNABLES = {'description': "\n            This loot will give ownership of the tuned object to the tuned sim\n            or to the tuned sim's household.\n            ", 'target': TunableEnumEntry(description='\n            The participant of the interaction whom the ownership will be \n            tested on.\n            ', tunable_type=ParticipantType, default=ParticipantType.Object), 'give_sim_ownership': Tunable(description="\n            If True, the sim will be the owner of this object, and the sim's \n            household will be the owning household. If False, the sim's \n            household will own the object and the sim owner will be cleared if\n            the household_id assigned is new.\n            ", tunable_type=bool, default=False)}
@@ -15,10 +16,13 @@ class TransferOwnershipLootOp(BaseLootOperation):
         self._give_sim_ownership = give_sim_ownership
 
     def _apply_to_subject_and_target(self, subject, target, resolver):
-        subject_obj = self._get_object_from_recipient(subject)
+        new_owner = self._get_object_from_recipient(subject)
         target_obj = self._get_object_from_recipient(target)
-        if subject_obj is not None and target_obj is not None:
-            target_obj.update_ownership(subject_obj, make_sim_owner=self._give_sim_ownership)
+        if new_owner is not None and target_obj is not None:
+            if target_obj.stack_count() > 1:
+                logger.error('Attempting to change ownership on an object {} which is within a stack. This is disallowed.', target_obj)
+                return
+            target_obj.update_ownership(new_owner, make_sim_owner=self._give_sim_ownership)
 
 class OwnableComponent(Component, HasTunableFactory, component_name=types.OWNABLE_COMPONENT, persistence_key=protocols.PersistenceMaster.PersistableData.OwnableComponent):
     DEFAULT_OWNABLE_COMPONENT_AFFORDANCES = TunableList(TunableReference(manager=services.get_instance_manager(sims4.resources.Types.INTERACTION)), description='Affordances that all ownable component owners have.')

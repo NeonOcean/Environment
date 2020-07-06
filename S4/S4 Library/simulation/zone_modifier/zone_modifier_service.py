@@ -23,11 +23,13 @@ class ZoneModifierService(Service):
         self._scheduler = None
         self._action_alarm_handles = set()
         self._zone_mod_spin_up_state_complete = False
+        self._is_build_eco_effects_enabled = True
 
-    def load(self, zone_data=None):
-        self.get_zone_modifiers(services.current_zone_id())
+    @property
+    def is_build_eco_effects_enabled(self):
+        return self._is_build_eco_effects_enabled
 
-    def start(self):
+    def on_client_connect(self, client):
         services.get_event_manager().register_single_event(self, TestEvent.SimActiveLotStatusChanged)
         self._run_start_actions()
         self._setup_zone_modifier_schedules()
@@ -36,8 +38,13 @@ class ZoneModifierService(Service):
         self._run_spin_up_actions()
         self._zone_mod_spin_up_state_complete = True
 
+    def start(self):
+        services.venue_service().on_venue_type_changed.register(self._handle_venue_type_changed)
+        return super().start()
+
     def stop(self):
         services.get_event_manager().unregister_single_event(self, TestEvent.SimActiveLotStatusChanged)
+        services.venue_service().on_venue_type_changed.unregister(self._handle_venue_type_changed)
         self._run_stop_actions()
         self._clear_action_alarms()
         if self._scheduler is not None:
@@ -60,11 +67,32 @@ class ZoneModifierService(Service):
                 for loot in loot_list:
                     loot.apply_to_resolver(loot_resolver)
 
-    def on_zone_modifiers_updated(self, zone_id):
+    def _handle_venue_type_changed(self):
+        persistence_service = services.get_persistence_service()
+        zone_id = services.current_zone_id()
+        active_venue = services.venue_service().active_venue
+        zone_data = persistence_service.get_zone_proto_buff(zone_id)
+        neighborhood_data = persistence_service.get_neighborhood_proto_buf_from_zone_id(zone_id)
+        for lot_data in neighborhood_data.lots:
+            if zone_id != lot_data.zone_instance_id:
+                continue
+            lot_data.venue_key = active_venue.guid64
+            if lot_data.sub_venue_infos:
+                for sub_venue_info in lot_data.sub_venue_infos:
+                    if sub_venue_info.sub_venue_key == lot_data.venue_key:
+                        lot_data.venue_eligible = sub_venue_info.sub_venue_eligible
+                        zone_data.ClearField('lot_traits')
+                        for trait in sub_venue_info.sub_venue_lot_traits:
+                            zone_data.lot_traits.append(trait)
+        self.check_for_and_apply_new_zone_modifiers(zone_id)
+
+    def check_for_and_apply_new_zone_modifiers(self, zone_id):
         cached_zone_modifiers = self.get_zone_modifiers(zone_id, force_cache=True)
         zone_modifiers_update = self.get_zone_modifiers(zone_id, force_refresh=True)
         if zone_id != services.current_zone_id():
             return
+        for modifier in zone_modifiers_update:
+            modifier.apply_object_actions(self._is_build_eco_effects_enabled)
         removed_modifiers = cached_zone_modifiers - zone_modifiers_update
         added_modifiers = zone_modifiers_update - cached_zone_modifiers
         if not removed_modifiers and not added_modifiers:
@@ -92,8 +120,19 @@ class ZoneModifierService(Service):
         for added_modifier in added_modifiers:
             with telemetry_helper.begin_hook(writer, TELEMETRY_HOOK_ADD_TRAIT) as hook:
                 hook.write_int(TELEMETRY_FIELD_TRAIT_ID, added_modifier.guid64)
-            added_modifier.on_add_actions()
+            added_modifier.on_add_actions(self._is_build_eco_effects_enabled)
         self._setup_zone_modifier_schedules()
+
+    def set_build_eco_effects_enabled(self, enabled):
+        if self._is_build_eco_effects_enabled == enabled:
+            return
+        self._is_build_eco_effects_enabled = enabled
+        zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
+        for zone_modifier in zone_modifiers:
+            if self._is_build_eco_effects_enabled:
+                zone_modifier.apply_object_actions(self._is_build_eco_effects_enabled)
+            else:
+                zone_modifier.revert_object_actions()
 
     def get_zone_modifiers(self, zone_id, force_refresh=False, force_cache=False):
         zone_modifiers = None if force_refresh else self._zone_id_to_modifier_cache.get(zone_id, None)
@@ -103,6 +142,8 @@ class ZoneModifierService(Service):
             return frozenset()
         zone_data = services.get_persistence_service().get_zone_proto_buff(zone_id)
         zone_modifiers = self._get_zone_modifiers_from_zone_data(zone_data)
+        venue_zone_modifiers = services.venue_service().get_additional_zone_modifiers(zone_id)
+        zone_modifiers.update(venue_zone_modifiers)
         self._zone_id_to_modifier_cache[zone_id] = zone_modifiers
         return zone_modifiers
 
@@ -110,11 +151,14 @@ class ZoneModifierService(Service):
         return any(zone_modifier.is_situation_prohibited(situation_type) for zone_modifier in self.get_zone_modifiers(zone_id))
 
     def _get_zone_modifiers_from_zone_data(self, zone_data=None):
-        zone_modifiers = set()
         if zone_data is None:
-            return zone_modifiers
+            return set()
+        return self._get_zone_modifiers_from_lot_traits_msg(zone_data.lot_traits)
+
+    def _get_zone_modifiers_from_lot_traits_msg(self, lot_traits_msg):
+        zone_modifiers = set()
         mgr = services.get_instance_manager(Types.ZONE_MODIFIER)
-        for trait_guid in zone_data.lot_traits:
+        for trait_guid in lot_traits_msg:
             trait = mgr.get(trait_guid)
             if trait is not None:
                 zone_modifiers.add(trait)
@@ -124,7 +168,8 @@ class ZoneModifierService(Service):
         display_infos = set()
         zone_modifiers = self.get_zone_modifiers(zone_id)
         for modifier in zone_modifiers:
-            display_infos.add(self._get_display_info_for_zone_modifier(modifier))
+            if not modifier.hide_screen_slam:
+                display_infos.add(self._get_display_info_for_zone_modifier(modifier))
         return display_infos
 
     def _get_display_info_for_zone_modifier(self, zone_modifier):
@@ -150,7 +195,7 @@ class ZoneModifierService(Service):
     def _run_spin_up_actions(self):
         zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
         for zone_modifier in zone_modifiers:
-            zone_modifier.on_spin_up_actions()
+            zone_modifier.on_spin_up_actions(self._is_build_eco_effects_enabled)
 
     def _run_stop_actions(self):
         zone_modifiers = self.get_zone_modifiers(services.current_zone_id())
@@ -190,3 +235,9 @@ class ZoneModifierService(Service):
         for handle in self._action_alarm_handles:
             handle.cancel()
         self._action_alarm_handles.clear()
+
+    def save_options(self, options_proto):
+        options_proto.build_eco_effects_enabled = self._is_build_eco_effects_enabled
+
+    def load_options(self, options_proto):
+        self._is_build_eco_effects_enabled = options_proto.build_eco_effects_enabled

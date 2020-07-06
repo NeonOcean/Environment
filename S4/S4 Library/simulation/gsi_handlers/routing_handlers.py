@@ -1,5 +1,7 @@
 import traceback
 from gsi_handlers.gameplay_archiver import GameplayArchiver
+from gsi_handlers.route_event_handlers import get_path_route_events_log
+from objects import ALL_HIDDEN_REASONS
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
 import objects.system
 import routing
@@ -29,6 +31,7 @@ with planner_archive_schema.add_has_many('Goals', GsiGridSchema) as sub_schema:
     sub_schema.add_field('z', label='Z', type=GsiFieldVisualizers.FLOAT, width=2)
     sub_schema.add_field('level', label='Level', type=GsiFieldVisualizers.STRING, width=2)
     sub_schema.add_field('cost', label='Cost', type=GsiFieldVisualizers.FLOAT, width=2)
+    sub_schema.add_field('valid', label='Valid', type=GsiFieldVisualizers.STRING, width=2)
     sub_schema.add_field('final_cost', label='Final Cost (lower==better)', type=GsiFieldVisualizers.FLOAT, width=2)
     sub_schema.add_field('result', label='Result', width=2)
     sub_schema.add_field('raw_result', label='Raw Result', type=GsiFieldVisualizers.INT, width=2)
@@ -97,7 +100,7 @@ def archive_plan(planner, path, ticks, time):
         cost = round(result[2], 4)
         if cost >= 1000000.0:
             cost = 999999
-        goals.append({'index': index, 'x': round(goal.location.position.x, 4), 'z': round(goal.location.position.z, 4), 'level': surface_string(goal.location.routing_surface), 'cost': round(goal.cost, 4), 'final_cost': cost, 'result': result_str, 'raw_result': result[1], 'group': goal.group})
+        goals.append({'index': index, 'x': round(goal.location.position.x, 4), 'z': round(goal.location.position.z, 4), 'level': surface_string(goal.location.routing_surface), 'cost': round(goal.cost, 4), 'valid': goal.failure_reason.name, 'final_cost': cost, 'result': result_str, 'raw_result': result[1], 'group': goal.group})
         index += 1
     entry['Goals'] = goals
     selected_start_tag = path.nodes.selected_start_tag_tuple
@@ -205,17 +208,141 @@ with sim_route_archive_schema.add_has_many('Nodes', GsiGridSchema) as sub_schema
     sub_schema.add_field('portal_id', label='Portal ID', width=0.5)
     sub_schema.add_field('portal_object', label='Portal Object', type=GsiFieldVisualizers.STRING, width=2)
     sub_schema.add_field('portal_object_id', label='Portal Object ID', type=GsiFieldVisualizers.STRING, width=2)
+with sim_route_archive_schema.add_has_many('Route Events', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('time', label='Time', type=GsiFieldVisualizers.FLOAT, width=1)
+    sub_schema.add_field('event_type', label='Event Type', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('tuning_instance', label='Tuning Instance', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('duration', label='Duration', type=GsiFieldVisualizers.FLOAT, width=1)
+    sub_schema.add_field('executed', label='Executed', type=GsiFieldVisualizers.STRING, width=1)
+with sim_route_archive_schema.add_has_many('Routing Formations', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('master', label='Master', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('slave', label='Slave', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('formation_type', label='Formation Type', type=GsiFieldVisualizers.STRING, width=2)
+with sim_route_archive_schema.add_has_many('Portals', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('portal_obj_id', label='Portal Object ID', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('portal_obj', label='Portal Object', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('portal_id', label='Portal ID', width=1)
+    sub_schema.add_field('portal_type', label='Portal Type', type=GsiFieldVisualizers.STRING, width=2)
+    sub_schema.add_field('portal_entry_surface', label='Entry Routing Surface', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_entry_orientation', label='Entry Orientation', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_entry_position', label='Entry Position', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_exit_surface', label='Exit Routing Surface', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_exit_orientation', label='Exit Orientation', type=GsiFieldVisualizers.STRING, width=3)
+    sub_schema.add_field('portal_exit_position', label='Exit Position', type=GsiFieldVisualizers.STRING, width=3)
 sim_route_archiver = GameplayArchiver('sim_route', sim_route_archive_schema, enable_archive_by_default=True)
-sim_route_to_nodes = {}
+
+def _archive_sim_route_node_portals(entry, node, portal_object):
+    if portal_object is None:
+        return
+    portal = portal_object.get_portal_by_id(node.portal_id)
+    if portal is None:
+        return
+    (portal_entry, portal_exit) = portal.get_portal_locations(node.portal_id)
+    entry.append({'portal_obj_id': str(node.portal_object_id), 'portal_obj': str(portal_object), 'portal_id': node.portal_id, 'portal_type': str(portal_object.get_portal_type(node.portal_id)), 'portal_entry_surface': surface_string(portal_entry.routing_surface if portal_entry is not None else None), 'portal_entry_orientation': str(portal_entry.orientation if portal_entry is not None else None), 'portal_entry_position': str(portal_entry.position if portal_entry is not None else None), 'portal_exit_surface': surface_string(portal_exit.routing_surface if portal_exit is not None else None), 'portal_exit_orientation': str(portal_exit.orientation if portal_exit is not None else None), 'portal_exit_position': str(portal_exit.position if portal_exit is not None else None)})
+
+def _archive_sim_routing_formations(entry, sim_info):
+    sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
+    if sim is None:
+        return
+    routing_component = sim.routing_component
+    if routing_component is None:
+        return
+    entry.append({'master': str(routing_component.routing_master)})
+    slave_data_list = routing_component.get_routing_slave_data()
+    for slave_data in slave_data_list:
+        entry.append({'slave': str(slave_data.slave), 'formation_type': str(slave_data.formation_type)})
 
 def archive_sim_route(sim_info, interaction, path):
-    nodes_entry = []
+    entry = {'path_id': id(path), 'interaction': repr(interaction), 'duration': path.duration() if path is not None else None, 'length': path.length() if path is not None else None}
     path_nodes = path.nodes
-    entry = {'path_id': id(path), 'interaction': repr(interaction), 'duration': path.duration() if path is not None else None, 'length': path.length() if path is not None else None, 'route_string': path.get_contents_as_string(path_nodes)}
+    nodes_entry = []
+    portals_entry = []
     for index in range(len(path_nodes) - 1, 0, -1):
         cur_node = path_nodes[index]
         prev_node = path_nodes[index - 1]
         portal_object = services.object_manager().get(cur_node.portal_object_id)
+        _archive_sim_route_node_portals(portals_entry, cur_node, portal_object)
         nodes_entry.append({'segment_duration': cur_node.time - prev_node.time, 'x': cur_node.position[0], 'y': cur_node.position[1], 'z': cur_node.position[2], 'routing_surface': surface_string(cur_node.routing_surface_id), 'portal_id': cur_node.portal_id, 'portal_object': str(portal_object), 'portal_object_id': str(cur_node.portal_object_id)})
     entry['Nodes'] = nodes_entry
+    entry['Portals'] = portals_entry
+    entry['route_string'] = path.get_contents_as_string(path_nodes)
+    route_events_entry = []
+    route_events = get_path_route_events_log(path).route_events
+    for event in route_events.values():
+        route_events_entry.append({'time': event['time'], 'event_type': event['event_type'], 'tuning_instance': event['event_cls'], 'duration': event['duration'], 'executed': event['executed']})
+    entry['Route Events'] = route_events_entry
+    routing_formations_entry = []
+    _archive_sim_routing_formations(routing_formations_entry, sim_info)
+    entry['Routing Formations'] = routing_formations_entry
     sim_route_archiver.archive(data=entry, object_id=sim_info.id)
+
+def set_goal_archive_schema(goal_archive_schema):
+    goal_archive_schema.add_field('count', label='Count', type=GsiFieldVisualizers.INT, width=2)
+    goal_archive_schema.add_field('constraint', label='Constraint', width=2)
+    goal_archive_schema.add_field('geometry', label='Geometry', width=2)
+    goal_archive_schema.add_field('args', label='Args', width=2)
+    with goal_archive_schema.add_has_many('Goals', GsiGridSchema) as sub_schema:
+        sub_schema.add_field('x', label='X', type=GsiFieldVisualizers.FLOAT, width=2)
+        sub_schema.add_field('y', label='Y', type=GsiFieldVisualizers.FLOAT, width=2)
+        sub_schema.add_field('z', label='Z', type=GsiFieldVisualizers.FLOAT, width=2)
+        sub_schema.add_field('routing_surface', label='Routing Surface', type=GsiFieldVisualizers.STRING, width=3)
+        sub_schema.add_field('cost', label='Cost', type=GsiFieldVisualizers.FLOAT, width=2)
+        sub_schema.add_field('tag', label='Tag', type=GsiFieldVisualizers.INT, width=2)
+        sub_schema.add_field('requires_los_check', label='LOS?', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('error', label='Error', type=GsiFieldVisualizers.STRING, width=2)
+    with goal_archive_schema.add_has_many('Discarded Goals', GsiGridSchema) as sub_schema:
+        sub_schema.add_field('x', label='X', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('y', label='Y', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('z', label='Z', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('routing_surface', label='Routing Surface', type=GsiFieldVisualizers.STRING, width=3)
+        sub_schema.add_field('cost', label='Cost', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('error', label='Error', type=GsiFieldVisualizers.STRING, width=2)
+        sub_schema.add_field('info', label='Info', type=GsiFieldVisualizers.STRING, width=2)
+    with goal_archive_schema.add_has_many('Callstack', GsiGridSchema) as sub_schema:
+        sub_schema.add_field('callstack', label='Callstack', width=2)
+
+goal_archive_schema = GsiGridSchema(label='Goals Archive')
+set_goal_archive_schema(goal_archive_schema)
+goals_archiver = GameplayArchiver('goals_archive', goal_archive_schema, add_to_archive_enable_functions=True)
+sim_goal_archive_schema = GsiGridSchema(label='Goals Archive', sim_specific=True)
+set_goal_archive_schema(sim_goal_archive_schema)
+sim_goals_archiver = GameplayArchiver('sim_goals_archive', sim_goal_archive_schema, add_to_archive_enable_functions=True)
+
+def archive_goals_enabled():
+    return goals_archiver.enabled or sim_goals_archiver.enabled
+
+def archive_goals(handle, goal_list, discarded_goals, **kwargs):
+    entry = {'count': len(goal_list), 'constraint': str(handle.constraint), 'geometry': str(handle.geometry), 'args': str(kwargs)}
+    goals = []
+    entry['Goals'] = goals
+    for goal in goal_list:
+        position = goal.location.world_transform.translation
+        goals.append({'x': position.x, 'y': position.y, 'z': position.z, 'routing_surface': surface_string(goal.location.routing_surface), 'cost': goal.cost, 'tag': goal.tag, 'requires_los_check': 'X' if goal.requires_los_check else '', 'error': goal.failure_reason.name})
+    discarded_goals_entry = []
+    for discarded_goal in discarded_goals:
+        if discarded_goal.location is None:
+            x_str = ''
+            y_str = ''
+            z_str = ''
+            routing_surface_str = ''
+        else:
+            position = discarded_goal.location.world_transform.translation
+            x_str = str(position.x)
+            y_str = str(position.y)
+            z_str = str(position.z)
+            routing_surface_str = surface_string(discarded_goal.location.routing_surface)
+        if discarded_goal.cost is None:
+            cost_str = ''
+        else:
+            cost_str = str(discarded_goal.cost)
+        discarded_goals_entry.append({'x': x_str, 'y': y_str, 'z': z_str, 'routing_surface': routing_surface_str, 'cost': cost_str, 'error': discarded_goal.failure.name, 'info': discarded_goal.info})
+    entry['Discarded Goals'] = discarded_goals_entry
+    callstack = []
+    for line in traceback.format_stack():
+        callstack.append({'callstack': line.strip()})
+    callstack.reverse()
+    entry['Callstack'] = callstack
+    if handle.sim is None or not handle.sim.is_sim:
+        goals_archiver.archive(data=entry)
+    else:
+        sim_goals_archiver.archive(data=entry, object_id=handle.sim.sim_info.id)

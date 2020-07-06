@@ -63,9 +63,12 @@ class TemporaryCloneSituation(situations.situation_complex.SituationComplexCommo
         if clone_guest_info is None:
             return False
         clone_sim_info = services.sim_info_manager().get(clone_guest_info.sim_id)
-        if clone_sim_info is None or clone_sim_info.zone_id != services.current_zone_id():
+        if clone_sim_info is None:
             return False
         if not clone_sim_info.household.hidden:
+            return False
+        if clone_sim_info.zone_id != services.current_zone_id():
+            self._remove_clone_sim_info(clone_sim_info)
             return False
         return super().load_situation()
 

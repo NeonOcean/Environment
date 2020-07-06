@@ -1,8 +1,11 @@
+from civic_policies.street_civic_policy_tests import StreetCivicPolicyTest
+from conditional_layers.conditional_layer_tests import ConditionalLayerLoadedTest
 from event_testing.tests import TunableTestSet
 from sims4.tuning.tunable import TunableVariant, HasTunableSingletonFactory, AutoFactoryInit, TunableList, TunableTuple
 import event_testing
 import global_policies
 import narrative
+from venues.civic_policies.venue_civic_policy_tests import VenueCivicPolicyTest
 
 class TunableTestedVariant(TunableVariant):
 
@@ -46,4 +49,4 @@ class TunableGlobalTestList(event_testing.tests.TestListLoadingMixin):
 class TunableGlobalTestVariant(TunableVariant):
 
     def __init__(self, description='A tunable test supported for a global resolver.', **kwargs):
-        super().__init__(narrative=narrative.narrative_tests.NarrativeTest.TunableFactory(locked_args={'tooltip': None}), global_policy=global_policies.global_policy_tests.GlobalPolicyStateTest.TunableFactory(locked_args={'tooltip': None}), description=description, **kwargs)
+        super().__init__(narrative=narrative.narrative_tests.NarrativeTest.TunableFactory(locked_args={'tooltip': None}), global_policy=global_policies.global_policy_tests.GlobalPolicyStateTest.TunableFactory(locked_args={'tooltip': None}), street_civic_policy=StreetCivicPolicyTest.TunableFactory(locked_args={'tooltip': None}), venue_civic_policy=VenueCivicPolicyTest.TunableFactory(locked_args={'tooltip': None}), conditional_layer_loaded=ConditionalLayerLoadedTest.TunableFactory(locked_args={'tooltip': None}), description=description, **kwargs)

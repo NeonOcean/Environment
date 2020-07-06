@@ -1,10 +1,12 @@
+from event_testing.resolver import SingleObjectResolver
+from event_testing.tests import TunableTestSet
 from protocolbuffers import SimObjectAttributes_pb2 as protocols
 from build_buy import get_object_has_tag
 from objects.components import Component, componentmethod
 from objects.components.types import LIGHTING_COMPONENT
 from objects.object_enums import ResetReason
 from sims.household_utilities.utility_types import Utilities
-from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableReference, TunableEnumEntry, AutoFactoryInit, OptionalTunable, Tunable, TunableRange
+from sims4.tuning.tunable import HasTunableFactory, TunableList, TunableReference, TunableEnumEntry, AutoFactoryInit, OptionalTunable, Tunable, TunableRange, TunableTuple
 from singletons import DEFAULT
 from tag import Tag
 from vfx import PlayEffect
@@ -22,7 +24,7 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
     LIGHT_DIMMER_STAT_MULTIPLIER = 100
     LIGHT_DIMMER_VALUE_OFF = 0.0
     LIGHT_DIMMER_VALUE_MAX_INTENSITY = 1.0
-    FACTORY_TUNABLES = {'component_interactions': TunableList(description='\n            Each interaction in this list will be added to the owner of the\n            component.\n            ', tunable=TunableReference(manager=services.affordance_manager())), 'default_dimmer_value': TunableRange(description='\n            The default dimmer value for this light.\n            ', tunable_type=float, default=LIGHT_DIMMER_VALUE_MAX_INTENSITY, minimum=LIGHT_DIMMER_VALUE_OFF, maximum=LIGHT_DIMMER_VALUE_MAX_INTENSITY), 'material_state_on': OptionalTunable(description='\n            If enabled, specify the material state to apply when the light is\n            on.\n            ', tunable=Tunable(description='\n                The material state to apply when the light is on.\n                ', tunable_type=str, default='lightson')), 'material_state_off': OptionalTunable(description='\n            If enabled, specify the material state to apply when the light is\n            off.\n            ', tunable=Tunable(description='\n                The material state to apply when the light is off.\n                ', tunable_type=str, default='lightsoff')), 'visual_effect': OptionalTunable(description='\n            If enabled, specify the visual effect to apply when the light is on.\n            ', tunable=PlayEffect.TunableFactory())}
+    FACTORY_TUNABLES = {'component_interactions': TunableList(description='\n            Each interaction in this list will be added to the owner of the\n            component.\n            ', tunable=TunableReference(manager=services.affordance_manager())), 'default_dimmer_value': TunableRange(description='\n            The initial dimmer value for this light when first created.\n            ', tunable_type=float, default=LIGHT_DIMMER_VALUE_MAX_INTENSITY, minimum=LIGHT_DIMMER_VALUE_OFF, maximum=LIGHT_DIMMER_VALUE_MAX_INTENSITY), 'material_state_on': OptionalTunable(description='\n            If enabled, specify the material state to apply when the light is\n            on.\n            ', tunable=Tunable(description='\n                The material state to apply when the light is on.\n                ', tunable_type=str, default='lightson')), 'material_state_off': OptionalTunable(description='\n            If enabled, specify the material state to apply when the light is\n            off.\n            ', tunable=Tunable(description='\n                The material state to apply when the light is off.\n                ', tunable_type=str, default='lightsoff')), 'visual_effect': OptionalTunable(description='\n            If enabled, specify the visual effect to apply when the light is on.\n            ', tunable=PlayEffect.TunableFactory()), 'light_states': OptionalTunable(description='\n            If enabled then we will set these states when the lighting component is changed due to it being\n            an auto-light.\n            ', tunable=TunableTuple(description="\n                The states to react to the light's on/off state changing.\n                ", on_state_value=TunableReference(description='\n                    The state value of the state that will be set when this light changes to on.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions=('ObjectStateValue',)), off_state_value=TunableReference(description='\n                    The state value of the state that will be set when this light changes to off.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions=('ObjectStateValue',)))), 'disabling_state_values': TunableList(description='\n            If tuned, states which will, if active, cause this component to \n            disable. Disabling is the same behavior that is used for electric \n            lights if the power is out.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.OBJECT_STATE), class_restrictions=('ObjectStateValue',)))}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -33,17 +35,16 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
         self._material_state_on = self.material_state_on
         self._material_state_off = self.material_state_off
         self._visual_effect = None
+        self._disable_because_sold = False
         self._pending_dimmer_value = None
         self._color = None
         self._previous_color = None
-        if self.is_power_off():
-            self.on_power_off()
 
     @distributor.fields.ComponentField(op=distributor.ops.SetLightDimmer)
     def light_dimmer(self):
         return self._light_dimmer
 
-    def _resend_lighting(self):
+    def _resend_dimmer_value(self):
         _distributor = distributor.system.Distributor.instance()
         if _distributor.client is not None and self.owner.valid_for_distribution:
             client_dimmer_value = self._light_dimmer
@@ -81,6 +82,10 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
     _resend_color = light_color.get_resend()
 
     @componentmethod
+    def is_lighting_enabled(self):
+        return self._pending_dimmer_value is None
+
+    @componentmethod
     def get_light_dimmer_value(self):
         return self._light_dimmer
 
@@ -105,10 +110,12 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
         value = self.get_overridden_dimmer_value(value)
         self._light_dimmer = value
         self._update_visual_effect()
+        if value != LightingComponent.LIGHT_AUTOMATION_DIMMER_VALUE:
+            self.on_light_changed(value > 0)
         stat = self._owner_stat_tracker.get_statistic(self.LIGHT_STATE_STAT)
         if stat is not None:
             self._owner_stat_tracker.set_value(self.LIGHT_STATE_STAT, value*self.LIGHT_DIMMER_STAT_MULTIPLIER)
-        self._resend_lighting()
+        self._resend_dimmer_value()
 
     def _update_visual_effect(self):
         if self.visual_effect is None:
@@ -152,29 +159,29 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
         self.set_light_dimmer_value(value)
 
     @componentmethod
-    def set_automated(self):
-        pass
+    def on_light_changed(self, on):
+        if self.light_states is None:
+            return
+        if on:
+            self.owner.set_state(self.light_states.on_state_value.state, self.light_states.on_state_value)
+        else:
+            self.owner.set_state(self.light_states.off_state_value.state, self.light_states.off_state_value)
 
     def is_power_off(self):
-        household = services.owning_household_of_active_lot()
-        if household is not None and not services.utilities_manager(household.id).is_utility_active(Utilities.POWER) and not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
+        if not services.utilities_manager().is_utility_active(Utilities.POWER) and not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
             return True
         return False
 
-    def on_power_off(self, from_load=False):
-        if not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
-            if not from_load:
-                self._pending_dimmer_value = self._light_dimmer
+    def update_lighting_enabled_state(self):
+        if not (not self.is_power_off() or get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG)) or self.disabling_state_values and any(self.owner.state_value_active(state_value) for state_value in self.disabling_state_values) or self._disable_because_sold:
+            old_dimmer_value = self._light_dimmer
             self.set_light_dimmer_value(self.LIGHT_DIMMER_VALUE_OFF)
-
-    def on_power_on(self, from_load=False):
-        if not get_object_has_tag(self.owner.definition.id, LightingComponent.NON_ELECTRIC_LIGHT_TAG):
-            if self._pending_dimmer_value is not None:
-                self._light_dimmer = self._pending_dimmer_value
-                self._resend_lighting()
-                self._pending_dimmer_value = None
-            elif from_load:
-                self._resend_lighting()
+            if self.is_lighting_enabled():
+                self._pending_dimmer_value = old_dimmer_value
+        elif not self.is_lighting_enabled():
+            new_dimmer_value = self._pending_dimmer_value
+            self._pending_dimmer_value = None
+            self.set_light_dimmer_value(new_dimmer_value)
 
     def component_super_affordances_gen(self, **kwargs):
         yield from self.component_interactions
@@ -189,6 +196,10 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
             return self._user_intensity_overrides
         return self.LIGHT_DIMMER_VALUE_MAX_INTENSITY
 
+    def on_state_changed(self, state, old_value, new_value, from_init):
+        if old_value in self.disabling_state_values or new_value in self.disabling_state_values:
+            self.update_lighting_enabled_state()
+
     def on_add(self):
         if self.owner.is_on_active_lot():
             self.set_light_dimmer_value(self._light_dimmer)
@@ -196,17 +207,16 @@ class LightingComponent(Component, HasTunableFactory, AutoFactoryInit, component
             self.set_light_dimmer_value(LightingComponent.LIGHT_AUTOMATION_DIMMER_VALUE)
 
     def on_finalize_load(self):
-        if self.is_power_off():
-            from_load = True if self._pending_dimmer_value else False
-            self.on_power_off(from_load=from_load)
-        else:
-            self.on_power_on(from_load=True)
+        self.update_lighting_enabled_state()
+        self._resend_dimmer_value()
 
     def on_set_sold(self):
-        self.on_power_off()
+        self._disable_because_sold = True
+        self.update_lighting_enabled_state()
 
     def on_restock(self):
-        self.on_power_on()
+        self._disable_because_sold = False
+        self.update_lighting_enabled_state()
 
     def component_reset(self, reset_reason):
         if reset_reason == ResetReason.BEING_DESTROYED:

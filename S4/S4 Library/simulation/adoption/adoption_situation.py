@@ -1,5 +1,6 @@
 from event_testing.test_events import TestEvent
 from objects.system import create_object
+from routing import Location
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableEnumWithFilter, TunableReference, Tunable
 from situations.bouncer.bouncer_types import BouncerExclusivityCategory
@@ -44,9 +45,15 @@ class _SpawnPetsState(CommonSituationState):
     def on_activate(self, reader=None):
         super().on_activate(reader)
         pet_crate_object = self.owner.pet_crate
-        pet_crate_position = pet_crate_object.position + pet_crate_object.forward*self._spawn_offset if pet_crate_object is not None else None
+        if pet_crate_object is None:
+            return
+        pet_crate_location = pet_crate_object.location
+        pet_crate_transform = pet_crate_location.transform
+        pet_crate_position = pet_crate_transform.translation
+        pet_position = pet_crate_position + pet_crate_object.forward*self._spawn_offset
+        pet_location = Location(pet_position, pet_crate_transform.orientation, pet_crate_location.routing_surface)
         for guest_info in self.owner._guest_list.get_guest_infos_for_job(self.owner.pet_adoption_candidate_job_and_role.job):
-            self.owner._fulfill_reservation_guest_info(guest_info, position_override=pet_crate_position)
+            self.owner._fulfill_reservation_guest_info(guest_info, location_override=pet_location)
 
     def on_set_sim_job(self, sim, job):
         if sim.sim_id in self._pets_to_spawn:

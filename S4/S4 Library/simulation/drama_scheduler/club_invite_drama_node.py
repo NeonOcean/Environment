@@ -1,5 +1,5 @@
 import random
-from drama_scheduler.drama_node import BaseDramaNode, _DramaParticipant, CooldownOption
+from drama_scheduler.drama_node import BaseDramaNode, _DramaParticipant, CooldownOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from event_testing.results import TestResult
 from gsi_handlers.drama_handlers import GSIRejectedDramaNodeScoringData
@@ -66,12 +66,10 @@ class ClubInviteBaseDramaNode(BaseDramaNode):
         dialog = self.dialog(self._receiver_sim_info, target_sim_id=self._sender_sim_info.id, resolver=self._get_resolver())
         club = services.get_club_service().get_club_by_id(self._club_id)
         dialog.show_dialog(on_response=on_response, additional_tokens=(club.name,))
-        return False
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE
 
     def _run_club_behavior(self, club):
         raise NotImplementedError
-
-lock_instance_tunables(ClubInviteBaseDramaNode, cooldown_option=CooldownOption.ON_RUN)
 
 class ClubInviteDramaNode(ClubInviteBaseDramaNode):
 

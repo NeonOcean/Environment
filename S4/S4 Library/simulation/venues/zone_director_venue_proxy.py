@@ -9,7 +9,7 @@ class ZoneDirectorVenueProxy(ZoneDirectorBase):
             if new is object.__new__:
                 return new(cls)
             raise TypeError('super() of _ZoneDirectorVenueProxy cannot override __new__')
-        venue_zone_director = services.venue_service().venue.zone_director()
+        venue_zone_director = services.venue_service().active_venue.zone_director()
 
         class _ZoneDirectorVenueProxy(cls, type(venue_zone_director)):
 

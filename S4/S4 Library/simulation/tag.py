@@ -16,7 +16,7 @@ class TagCategory(DynamicEnumLocked, export_modes=(ExportModes.ClientBinary, Exp
 class TunableTag(TunableEnumWithFilter):
 
     def __init__(self, description='A tag.', filter_prefixes=singletons.EMPTY_SET, pack_safe=True, **kwargs):
-        super().__init__(tunable_type=Tag, default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=pack_safe, filter_prefixes=filter_prefixes, **kwargs)
+        super().__init__(tunable_type=Tag, default=Tag.INVALID, invalid_enums=(Tag.INVALID,), pack_safe=pack_safe, filter_prefixes=filter_prefixes, description=description, **kwargs)
 
 class TunableTags(TunableSet):
 

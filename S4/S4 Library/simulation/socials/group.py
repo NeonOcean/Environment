@@ -179,9 +179,9 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
             social_anchor_object = si.get_participant(cls.social_anchor_object)
             if social_anchor_object is not None:
                 return social_anchor_object
-            elif si.sim.parent is target_sim or target_sim.parent is si.sim:
+            elif si.sim.parent is target_sim or target_sim is not None and target_sim.parent is si.sim:
                 return si.picked_object
-        elif si.sim.parent is target_sim or target_sim.parent is si.sim:
+        elif si.sim.parent is target_sim or target_sim is not None and target_sim.parent is si.sim:
             return si.picked_object
 
     def get_active_sim_count(self):
@@ -340,11 +340,11 @@ class SocialGroup(objects.components.ComponentContainer, HasStatisticComponent, 
     @property
     def is_outside(self):
         level = 0 if self.routing_surface is None else self.routing_surface.secondary_id
-        return build_buy.is_location_outside(self.zone_id, self.position, level)
+        return build_buy.is_location_outside(self.position, level)
 
     def is_on_natural_ground(self):
         level = 0 if self.routing_surface is None else self.routing_surface.secondary_id
-        return build_buy.is_location_natural_ground(self.zone_id, self.position, level)
+        return build_buy.is_location_natural_ground(self.position, level)
 
     def has_room_in_group(self, sim):
         if sim in self:

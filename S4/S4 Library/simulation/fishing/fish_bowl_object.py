@@ -12,7 +12,7 @@ class FishBowl(objects.game_object.GameObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._fish_vfx = None
-        self.add_component(FishBowlTooltipComponent(self, custom_tooltips=(), state_value_numbers=(), state_value_strings=(), tooltip_tests=CompoundTestList(), update_if_stat_changes=False))
+        self.add_component(FishBowlTooltipComponent(self, custom_tooltips=(), state_value_numbers=(), state_value_strings=(), tooltip_tests=CompoundTestList(), update_if_stat_or_buck_changes=False, update_on_game_option_changed=False))
         self._disable_tooltip()
 
     def get_fish(self):

@@ -14,8 +14,8 @@ class ClubBucksTracker(BucksTrackerBase):
     EP02_CLUB_BUCKS = 24577
     BUCKS_TRACKER_REWARDS_CATEGORIES = TunableMapping(description='\n        Ordered list of Club Bucks Reward categories that will appear in the \n        Club Bucks rewards UI along with the perks that belong in the category.\n        ', key_type=Tunable(description='\n            An integer value used to set the specific order of the categories\n            in the UI. the lower numbers are displayed first in the UI.\n            ', tunable_type=int, default=0), value_type=TunableTuple(description='\n            Tuning structure holding all of the localized string data for the \n            tuned Perk Category.        \n            ', category_name=TunableLocalizedString(description='\n                This is the localized name of the category that will show up \n                in the club bucks UI.\n                '), category_tooltip=TunableLocalizedString(description='\n                This is the description that will show up when the user hovers\n                over the catgory name for a while.\n                '), rewards=TunableMapping(description='\n                An ordered list of the rewards that will appear in this\n                category.\n                ', key_type=Tunable(description='\n                    An integer value used to order the appearance of the rewards\n                    inside of the category. The smaller numbers are sorted to\n                    the front of the list.\n                    ', tunable_type=int, default=0), value_type=TunableReference(description='\n                    The Buck Perk (reward) to display in the category panel of\n                    the UI.\n                    ', manager=services.get_instance_manager(sims4.resources.Types.BUCKS_PERK), pack_safe=True), tuple_name='RewardCategoryMapping'), export_class_name='RewardCategoryInfoTuple'), tuple_name='CategoryMapping', export_modes=ExportModes.ClientBinary)
 
-    def try_modify_bucks(self, bucks_type, amount, distribute=True, reason=None):
-        result = super().try_modify_bucks(bucks_type, amount, distribute=distribute)
+    def try_modify_bucks(self, bucks_type, amount, distribute=True, reason=None, from_load=False, suppress_telemetry=False):
+        result = super().try_modify_bucks(bucks_type, amount, distribute=distribute, reason=reason, from_load=from_load, suppress_telemetry=suppress_telemetry)
         if amount > 0:
             self._owner.handle_club_bucks_earned(bucks_type, amount, reason=reason)
         return result
@@ -30,7 +30,7 @@ class ClubBucksTracker(BucksTrackerBase):
         sim_infos = (sim_info,) if sim_info is not None else self._owner.members
         for sim_info in sim_infos:
             for reward in perk.rewards:
-                reward().open_reward(sim_info)
+                reward().open_reward(sim_info, reward_source=perk)
 
     def _owner_sim_info_gen(self):
         yield from self._owner.members

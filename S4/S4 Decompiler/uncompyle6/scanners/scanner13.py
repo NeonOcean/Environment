@@ -7,10 +7,12 @@ grammar parsing.
 """
 
 import uncompyle6.scanners.scanner14 as scan
+
 # from uncompyle6.scanners.scanner26 import ingest as  ingest26
 
 # bytecode verification, verify(), uses JUMP_OPs from here
 from xdis.opcodes import opcode_13
+
 JUMP_OPS = opcode_13.JUMP_OPS
 
 # We base this off of 1.4 instead of the other way around

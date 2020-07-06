@@ -1,17 +1,17 @@
-from animation import animation_constants
-from interactions.constraints import Constraint
-from interactions.utils.routing import SlotGoal
 from native.routing.connectivity import Handle, HandleList
-from postures.posture_specs import PostureSpecVariable
-from routing import SurfaceType
-from sims.sim_info_types import Age, SpeciesExtended
 from sims4.collections import frozendict
 from sims4.utils import constproperty
+import sims4.math
+from animation import animation_constants
+from interactions.utils.routing import SlotGoal
+from postures.posture_specs import PostureSpecVariable
+from routing import GoalFailureType, GoalFailureInfo
+from sims.sim_info_types import Age, SpeciesExtended
 from world.ocean_tuning import OceanTuning
+import gsi_handlers.routing_handlers
 import placement
 import routing
 import services
-import sims4.math
 VALID_GOAL_VALUES = (0, 1)
 
 class RoutingHandle(Handle):
@@ -50,7 +50,7 @@ class RoutingHandle(Handle):
     def _get_kwargs_for_clone(self, kwargs):
         kwargs.update(sim=self.sim, constraint=self.constraint, geometry=self.geometry, los_reference_point=self.los_reference_point, routing_surface_override=self.routing_surface, locked_params=self.locked_params)
 
-    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None, always_reject_invalid_goals=False, perform_los_check=True):
+    def get_goals(self, max_goals=None, relative_object=None, single_goal_only=False, for_carryable=False, for_source=False, goal_height_limit=None, target_reference_override=None, always_reject_invalid_goals=False, perform_los_check=True, out_result_info=None):
         force_multi_surface = relative_object is not None and (relative_object.force_multi_surface_constraints or relative_object.is_sim and relative_object.routing_surface != self.sim.routing_surface)
         if force_multi_surface or not not (self.constraint.multi_surface and for_source):
             routing_surfaces = self.constraint.get_all_valid_routing_surfaces(force_multi_surface=force_multi_surface)
@@ -101,8 +101,16 @@ class RoutingHandle(Handle):
                 continue
             surface_costs[routing_surface.type] = self.sim.get_additional_scoring_for_surface(routing_surface.type)
             generated_goals.extend(goals)
+        if out_result_info is None:
+            if gsi_handlers.routing_handlers.archive_goals_enabled():
+                out_result_info = []
+        goal_list = []
         if not generated_goals:
-            return []
+            if out_result_info is not None:
+                out_result_info.append(GoalFailureInfo('No results returned - tested points outside constraint or LOS blocked'))
+            if gsi_handlers.routing_handlers.archive_goals_enabled():
+                gsi_handlers.routing_handlers.archive_goals(self, goal_list, out_result_info, max_goals=max_goals, relative_object=relative_object, single_goal_only=single_goal_only, for_carryable=for_carryable, for_source=for_source, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override, always_reject_invalid_goals=always_reject_invalid_goals, perform_los_check=perform_los_check)
+            return goal_list
         minimum_router_cost = self._get_minimum_router_cost()
         target_obj = self.target.part_owner if self.target is not None and self.target.is_part else self.target
         target_height = None
@@ -117,41 +125,413 @@ class RoutingHandle(Handle):
                         target_height = height_obj.position.y
         is_line_obj = target_obj is not None and target_obj.waiting_line_component is not None
         is_single_point = self._is_geometry_single_point()
-        goal_list = []
-        water_constraint_cache = dict()
         max_goal_height = self.sim.position.y
-        for (tag, (location, cost, validation)) in enumerate(generated_goals):
+        for (tag, (location, cost, validation, failure)) in enumerate(generated_goals):
+            failure = GoalFailureType(failure)
             invalid_goal = not (for_source or validation in VALID_GOAL_VALUES)
             if always_reject_invalid_goals and invalid_goal:
-                continue
-            if invalid_goal and (not sim_is_big_dog and (not is_line_obj and relative_object is not None)) and is_single_point:
-                continue
-            if not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
-                continue
-            if invalid_goal:
-                if location.routing_surface in water_constraint_cache:
-                    water_constraint = water_constraint_cache[location.routing_surface]
-                else:
-                    (surface_min_water_depth, surface_max_water_depth) = OceanTuning.make_depth_bounds_safe_for_surface(location.routing_surface, wading_interval=wading_interval, min_water_depth=min_water_depth, max_water_depth=max_water_depth)
-                    water_constraint = self.constraint.intersect(Constraint(min_water_depth=surface_min_water_depth, max_water_depth=surface_max_water_depth))
-                    water_constraint_cache[location.routing_surface] = water_constraint
-                if not water_constraint.is_location_water_depth_valid(location):
-                    continue
-                if not self.constraint.is_location_terrain_tags_valid(location):
-                    continue
-            if minimum_router_cost is not None:
-                if cost > sims4.math.EPSILON:
-                    cost = max(cost, minimum_router_cost)
-            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
-            full_cost += surface_costs[location.routing_surface.type]
-            if self.constraint.enables_height_scoring:
-                full_cost += max_goal_height - location.position.y
-            goal = self.create_goal(location, full_cost, tag)
-            goal_list.append(goal)
+                if out_result_info is not None:
+                    out_result_info.append(GoalFailureInfo('Reject Invalid', location, cost, validation, failure))
+                    if invalid_goal and (not sim_is_big_dog and (not is_line_obj and relative_object is not None)) and is_single_point:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Qualified Invalid', location, cost, validation, failure))
+                            if not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Height Invalid', location, cost, validation, failure))
+                                    if invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                                        if out_result_info is not None:
+                                            out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                                            if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                                if out_result_info is not None:
+                                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                                    if minimum_router_cost is not None:
+                                                        if cost > sims4.math.EPSILON:
+                                                            cost = max(cost, minimum_router_cost)
+                                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                                    full_cost += surface_costs[location.routing_surface.type]
+                                                    if self.constraint.enables_height_scoring:
+                                                        full_cost += max_goal_height - location.position.y
+                                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                                    goal_list.append(goal)
+                                            else:
+                                                if minimum_router_cost is not None:
+                                                    if cost > sims4.math.EPSILON:
+                                                        cost = max(cost, minimum_router_cost)
+                                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                                full_cost += surface_costs[location.routing_surface.type]
+                                                if self.constraint.enables_height_scoring:
+                                                    full_cost += max_goal_height - location.position.y
+                                                goal = self.create_goal(location, full_cost, tag, failure)
+                                                goal_list.append(goal)
+                                    elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                        if out_result_info is not None:
+                                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                            if minimum_router_cost is not None:
+                                                if cost > sims4.math.EPSILON:
+                                                    cost = max(cost, minimum_router_cost)
+                                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                            full_cost += surface_costs[location.routing_surface.type]
+                                            if self.constraint.enables_height_scoring:
+                                                full_cost += max_goal_height - location.position.y
+                                            goal = self.create_goal(location, full_cost, tag, failure)
+                                            goal_list.append(goal)
+                                    else:
+                                        if minimum_router_cost is not None:
+                                            if cost > sims4.math.EPSILON:
+                                                cost = max(cost, minimum_router_cost)
+                                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                        full_cost += surface_costs[location.routing_surface.type]
+                                        if self.constraint.enables_height_scoring:
+                                            full_cost += max_goal_height - location.position.y
+                                        goal = self.create_goal(location, full_cost, tag, failure)
+                                        goal_list.append(goal)
+                            elif invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                                    if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                        if out_result_info is not None:
+                                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                            if minimum_router_cost is not None:
+                                                if cost > sims4.math.EPSILON:
+                                                    cost = max(cost, minimum_router_cost)
+                                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                            full_cost += surface_costs[location.routing_surface.type]
+                                            if self.constraint.enables_height_scoring:
+                                                full_cost += max_goal_height - location.position.y
+                                            goal = self.create_goal(location, full_cost, tag, failure)
+                                            goal_list.append(goal)
+                                    else:
+                                        if minimum_router_cost is not None:
+                                            if cost > sims4.math.EPSILON:
+                                                cost = max(cost, minimum_router_cost)
+                                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                        full_cost += surface_costs[location.routing_surface.type]
+                                        if self.constraint.enables_height_scoring:
+                                            full_cost += max_goal_height - location.position.y
+                                        goal = self.create_goal(location, full_cost, tag, failure)
+                                        goal_list.append(goal)
+                            elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Height Invalid', location, cost, validation, failure))
+                            if invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                                    if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                        if out_result_info is not None:
+                                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                            if minimum_router_cost is not None:
+                                                if cost > sims4.math.EPSILON:
+                                                    cost = max(cost, minimum_router_cost)
+                                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                            full_cost += surface_costs[location.routing_surface.type]
+                                            if self.constraint.enables_height_scoring:
+                                                full_cost += max_goal_height - location.position.y
+                                            goal = self.create_goal(location, full_cost, tag, failure)
+                                            goal_list.append(goal)
+                                    else:
+                                        if minimum_router_cost is not None:
+                                            if cost > sims4.math.EPSILON:
+                                                cost = max(cost, minimum_router_cost)
+                                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                        full_cost += surface_costs[location.routing_surface.type]
+                                        if self.constraint.enables_height_scoring:
+                                            full_cost += max_goal_height - location.position.y
+                                        goal = self.create_goal(location, full_cost, tag, failure)
+                                        goal_list.append(goal)
+                            elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                            if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                            if minimum_router_cost is not None:
+                                if cost > sims4.math.EPSILON:
+                                    cost = max(cost, minimum_router_cost)
+                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                            full_cost += surface_costs[location.routing_surface.type]
+                            if self.constraint.enables_height_scoring:
+                                full_cost += max_goal_height - location.position.y
+                            goal = self.create_goal(location, full_cost, tag, failure)
+                            goal_list.append(goal)
+                    else:
+                        if minimum_router_cost is not None:
+                            if cost > sims4.math.EPSILON:
+                                cost = max(cost, minimum_router_cost)
+                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                        full_cost += surface_costs[location.routing_surface.type]
+                        if self.constraint.enables_height_scoring:
+                            full_cost += max_goal_height - location.position.y
+                        goal = self.create_goal(location, full_cost, tag, failure)
+                        goal_list.append(goal)
+            elif invalid_goal and (not sim_is_big_dog and (not is_line_obj and relative_object is not None)) and is_single_point:
+                if out_result_info is not None:
+                    out_result_info.append(GoalFailureInfo('Qualified Invalid', location, cost, validation, failure))
+                    if not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Height Invalid', location, cost, validation, failure))
+                            if invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                                    if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                        if out_result_info is not None:
+                                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                            if minimum_router_cost is not None:
+                                                if cost > sims4.math.EPSILON:
+                                                    cost = max(cost, minimum_router_cost)
+                                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                            full_cost += surface_costs[location.routing_surface.type]
+                                            if self.constraint.enables_height_scoring:
+                                                full_cost += max_goal_height - location.position.y
+                                            goal = self.create_goal(location, full_cost, tag, failure)
+                                            goal_list.append(goal)
+                                    else:
+                                        if minimum_router_cost is not None:
+                                            if cost > sims4.math.EPSILON:
+                                                cost = max(cost, minimum_router_cost)
+                                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                        full_cost += surface_costs[location.routing_surface.type]
+                                        if self.constraint.enables_height_scoring:
+                                            full_cost += max_goal_height - location.position.y
+                                        goal = self.create_goal(location, full_cost, tag, failure)
+                                        goal_list.append(goal)
+                            elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                            if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                            if minimum_router_cost is not None:
+                                if cost > sims4.math.EPSILON:
+                                    cost = max(cost, minimum_router_cost)
+                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                            full_cost += surface_costs[location.routing_surface.type]
+                            if self.constraint.enables_height_scoring:
+                                full_cost += max_goal_height - location.position.y
+                            goal = self.create_goal(location, full_cost, tag, failure)
+                            goal_list.append(goal)
+                    else:
+                        if minimum_router_cost is not None:
+                            if cost > sims4.math.EPSILON:
+                                cost = max(cost, minimum_router_cost)
+                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                        full_cost += surface_costs[location.routing_surface.type]
+                        if self.constraint.enables_height_scoring:
+                            full_cost += max_goal_height - location.position.y
+                        goal = self.create_goal(location, full_cost, tag, failure)
+                        goal_list.append(goal)
+            elif not self._is_generated_goal_location_valid(location, goal_height_limit, target_height):
+                if out_result_info is not None:
+                    out_result_info.append(GoalFailureInfo('Height Invalid', location, cost, validation, failure))
+                    if invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                            if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                                if out_result_info is not None:
+                                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                                    if minimum_router_cost is not None:
+                                        if cost > sims4.math.EPSILON:
+                                            cost = max(cost, minimum_router_cost)
+                                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                    full_cost += surface_costs[location.routing_surface.type]
+                                    if self.constraint.enables_height_scoring:
+                                        full_cost += max_goal_height - location.position.y
+                                    goal = self.create_goal(location, full_cost, tag, failure)
+                                    goal_list.append(goal)
+                            else:
+                                if minimum_router_cost is not None:
+                                    if cost > sims4.math.EPSILON:
+                                        cost = max(cost, minimum_router_cost)
+                                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                                full_cost += surface_costs[location.routing_surface.type]
+                                if self.constraint.enables_height_scoring:
+                                    full_cost += max_goal_height - location.position.y
+                                goal = self.create_goal(location, full_cost, tag, failure)
+                                goal_list.append(goal)
+                    elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                            if minimum_router_cost is not None:
+                                if cost > sims4.math.EPSILON:
+                                    cost = max(cost, minimum_router_cost)
+                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                            full_cost += surface_costs[location.routing_surface.type]
+                            if self.constraint.enables_height_scoring:
+                                full_cost += max_goal_height - location.position.y
+                            goal = self.create_goal(location, full_cost, tag, failure)
+                            goal_list.append(goal)
+                    else:
+                        if minimum_router_cost is not None:
+                            if cost > sims4.math.EPSILON:
+                                cost = max(cost, minimum_router_cost)
+                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                        full_cost += surface_costs[location.routing_surface.type]
+                        if self.constraint.enables_height_scoring:
+                            full_cost += max_goal_height - location.position.y
+                        goal = self.create_goal(location, full_cost, tag, failure)
+                        goal_list.append(goal)
+            elif invalid_goal and failure == GoalFailureType.OutOfWaterDepth:
+                if out_result_info is not None:
+                    out_result_info.append(GoalFailureInfo('Water Depth Invalid', location, cost, validation, failure))
+                    if invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                        if out_result_info is not None:
+                            out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                            if minimum_router_cost is not None:
+                                if cost > sims4.math.EPSILON:
+                                    cost = max(cost, minimum_router_cost)
+                            full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                            full_cost += surface_costs[location.routing_surface.type]
+                            if self.constraint.enables_height_scoring:
+                                full_cost += max_goal_height - location.position.y
+                            goal = self.create_goal(location, full_cost, tag, failure)
+                            goal_list.append(goal)
+                    else:
+                        if minimum_router_cost is not None:
+                            if cost > sims4.math.EPSILON:
+                                cost = max(cost, minimum_router_cost)
+                        full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                        full_cost += surface_costs[location.routing_surface.type]
+                        if self.constraint.enables_height_scoring:
+                            full_cost += max_goal_height - location.position.y
+                        goal = self.create_goal(location, full_cost, tag, failure)
+                        goal_list.append(goal)
+            elif invalid_goal and failure == GoalFailureType.TerrainTagViolations:
+                if out_result_info is not None:
+                    out_result_info.append(GoalFailureInfo('Terrain Tags Invalid', location, cost, validation, failure))
+                    if minimum_router_cost is not None:
+                        if cost > sims4.math.EPSILON:
+                            cost = max(cost, minimum_router_cost)
+                    full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                    full_cost += surface_costs[location.routing_surface.type]
+                    if self.constraint.enables_height_scoring:
+                        full_cost += max_goal_height - location.position.y
+                    goal = self.create_goal(location, full_cost, tag, failure)
+                    goal_list.append(goal)
+            else:
+                if minimum_router_cost is not None:
+                    if cost > sims4.math.EPSILON:
+                        cost = max(cost, minimum_router_cost)
+                full_cost = self._get_location_cost(location.position, location.orientation, location.routing_surface, cost)
+                full_cost += surface_costs[location.routing_surface.type]
+                if self.constraint.enables_height_scoring:
+                    full_cost += max_goal_height - location.position.y
+                goal = self.create_goal(location, full_cost, tag, failure)
+                goal_list.append(goal)
+        if gsi_handlers.routing_handlers.archive_goals_enabled():
+            gsi_handlers.routing_handlers.archive_goals(self, goal_list, out_result_info, max_goals=max_goals, relative_object=relative_object, single_goal_only=single_goal_only, for_carryable=for_carryable, for_source=for_source, goal_height_limit=goal_height_limit, target_reference_override=target_reference_override, always_reject_invalid_goals=always_reject_invalid_goals, perform_los_check=perform_los_check)
         return goal_list
 
-    def create_goal(self, location, full_cost, tag):
-        return routing.Goal(location, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self)
+    def create_goal(self, location, full_cost, tag, failure):
+        return routing.Goal(location, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self, failure_reason=failure)
 
     def _is_generated_goal_location_valid(self, location, goal_height_limit=None, target_height=None):
         if goal_height_limit is None or target_height is None:
@@ -189,7 +569,7 @@ class SlotRoutingHandle(RoutingHandle):
         super()._get_kwargs_for_clone(kwargs)
         kwargs.update(reference_transform=self._reference_transform, entry=self._entry)
 
-    def create_goal(self, location, full_cost, tag):
+    def create_goal(self, location, full_cost, tag, failure):
         reference_transform = self._reference_transform
         if reference_transform is None:
             reference_transform = self.constraint.containment_transform if self._entry else self.constraint.containment_transform_exit
@@ -210,7 +590,7 @@ class SlotRoutingHandle(RoutingHandle):
             goal_location = routing.Location(location.position, orientation=target_orientation, routing_surface=location.routing_surface)
         else:
             goal_location = location
-        return SlotGoal(goal_location, containment_transform=self.constraint.containment_transform, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self, slot_params=locked_params)
+        return SlotGoal(goal_location, containment_transform=self.constraint.containment_transform, cost=full_cost, tag=tag, requires_los_check=self.los_reference_point is not None, connectivity_handle=self, slot_params=locked_params, failure_reason=failure)
 
     def _get_location_cost(self, position, orientation, routing_surface, router_cost):
         transform = self.constraint.containment_transform

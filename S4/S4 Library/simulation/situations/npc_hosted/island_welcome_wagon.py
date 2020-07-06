@@ -1,5 +1,6 @@
 import random
 from sims4.tuning.tunable import TunableReference
+from sims4.utils import classproperty
 from situations.bouncer.bouncer_types import RequestSpawningOption, BouncerRequestPriority
 from situations.npc_hosted.welcome_wagon import PreWelcomeWagon, WelcomeWagon
 from situations.situation import Situation
@@ -12,6 +13,10 @@ logger = sims4.log.Logger('Island Welcome Wagon')
 class IslandPreWelcomeWagon(PreWelcomeWagon):
     INSTANCE_TUNABLES = {'_lei_carrier_situation_job': TunableReference(description='\n            The job for the lei carrier.\n            ', manager=services.situation_job_manager())}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
+
+    @classproperty
+    def sets_welcome_wagon_flag(cls):
+        return True
 
     @classmethod
     def get_predefined_guest_list(cls):

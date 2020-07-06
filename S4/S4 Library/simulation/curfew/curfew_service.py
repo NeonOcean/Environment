@@ -259,8 +259,8 @@ class CurfewService(Service):
         self._setup_curfew_text_message()
         self._create_alarm_handles(current_zone_id)
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_type = venue_manager.get(build_buy.get_current_venue(current_zone_id))
-        if venue_type.is_residential:
+        current_venue_tuning = venue_manager.get(build_buy.get_current_venue(current_zone_id))
+        if current_venue_tuning.is_residential or current_venue_tuning.is_university_housing:
             current_setting = self._zone_curfew_data.get(current_zone_id, CurfewService.UNSET)
             self._update_curfew_settings(current_zone_id, current_setting)
         else:

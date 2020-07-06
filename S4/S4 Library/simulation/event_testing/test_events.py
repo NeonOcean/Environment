@@ -106,6 +106,14 @@ class TestEvent(DynamicEnum):
     HouseholdSplitPanelClosed = 96
     SimEnrolledInUniversity = 97
     ScholarshipInfoSignShown = 98
+    SimHomeZoneChanged = 99
+    CivicPolicyOpenVoting = 100
+    CivicPolicyDailyRandomVoting = 101
+    CivicPolicyCloseVoting = 102
+    BucksEarned = 103
+    CivicPoliciesChanged = 104
+    TestedGameOptionChanged = 105
+    SoldUtilityOnBill = 106
 
 CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP = 'CONTENT_SET_GEN_PROCESS_HOUSEHOLD_EVENT_CACHE_GROUP'
 

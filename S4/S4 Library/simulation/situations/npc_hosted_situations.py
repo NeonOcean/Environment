@@ -1,6 +1,8 @@
 import argparse
 from clock import interval_in_sim_minutes, ClockSpeedMode
 from distributor.shared_messages import build_icon_info_msg, IconInfoData
+from event_testing.resolver import GlobalResolver
+from event_testing.tests import TunableTestSet
 from sims4.localization import TunableLocalizedStringFactory
 from sims4.service_manager import Service
 from sims4.tuning.tunable import TunableTuple, TunableReference, TunableSimMinute, OptionalTunable
@@ -39,17 +41,17 @@ class NPCHostedSituationDialog(UiDialogOkCancel):
         zone_data = persistence_service.get_zone_proto_buff(zone_id)
         if zone_data is None:
             return msg
-        venue_type_id = build_buy.get_current_venue(zone_id)
+        venue_tuning_id = build_buy.get_current_venue(zone_id)
         venue_manager = services.get_instance_manager(sims4.resources.Types.VENUE)
-        venue_instance = venue_manager.get(venue_type_id)
-        if venue_instance is None:
+        venue_tuning = venue_manager.get(venue_tuning_id)
+        if venue_tuning is None:
             return msg
-        msg.lot_title = self.zone_title(venue_instance.display_name, zone_data.name)
-        build_icon_info_msg(IconInfoData(icon_resource=venue_instance.venue_icon), venue_instance.display_name, msg.venue_icon)
+        msg.lot_title = self.zone_title(venue_tuning.display_name, zone_data.name)
+        build_icon_info_msg(IconInfoData(icon_resource=venue_tuning.venue_icon), venue_tuning.display_name, msg.venue_icon)
         return msg
 
 class NPCHostedSituationService(Service):
-    WELCOME_WAGON_TUNING = TunableTuple(description='\n        Tuning dedicated to started the welcome wagon.\n        ', situation=TunableReference(description='\n            The welcome wagon situation.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION)), minimum_time_to_start_situation=TunableSimMinute(description='\n            The minimum amount of time since the service started that the\n            welcome wagon will begin.\n            ', default=60, minimum=0), available_time_of_day=TunableTuple(description='\n            The start and end times that determine the time that the welcome\n            wagon can begin.  This has nothing to do with the end time of the\n            situation.  The duration of the situation can last beyond the times\n            tuned here.\n            ', start_time=TunableTimeOfDay(description='\n                The start time that the welcome wagon can begin.\n                '), end_time=TunableTimeOfDay(description='\n                The end time that the welcome wagon can begin.\n                ')))
+    WELCOME_WAGON_TUNING = TunableTuple(description='\n        Tuning dedicated to started the welcome wagon.\n        ', situation=TunableReference(description='\n            The welcome wagon situation.\n            ', manager=services.get_instance_manager(sims4.resources.Types.SITUATION)), minimum_time_to_start_situation=TunableSimMinute(description='\n            The minimum amount of time since the service started that the\n            welcome wagon will begin.\n            ', default=60, minimum=0), available_time_of_day=TunableTuple(description='\n            The start and end times that determine the time that the welcome\n            wagon can begin.  This has nothing to do with the end time of the\n            situation.  The duration of the situation can last beyond the times\n            tuned here.\n            ', start_time=TunableTimeOfDay(description='\n                The start time that the welcome wagon can begin.\n                '), end_time=TunableTimeOfDay(description='\n                The end time that the welcome wagon can begin.\n                ')), welcome_wagon_start_tests=TunableTestSet(description='\n            A test set that we will test against before starting the welcome wagon.\n            '))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -68,8 +70,16 @@ class NPCHostedSituationService(Service):
         else:
             self._schedule_welcome_wagon()
             return
+        resolver = GlobalResolver()
+        if not NPCHostedSituationService.WELCOME_WAGON_TUNING.welcome_wagon_start_tests.run_tests(resolver):
+            active_household.needs_welcome_wagon = False
+            return
         narrative_service = services.narrative_service()
         welcome_wagon_situation = narrative_service.get_possible_replacement_situation(NPCHostedSituationService.WELCOME_WAGON_TUNING.situation)
+        if welcome_wagon_situation is NPCHostedSituationService.WELCOME_WAGON_TUNING.situation:
+            region = services.current_region()
+            if region.welcome_wagon_replacement is not None:
+                welcome_wagon_situation = region.welcome_wagon_replacement
         guest_list = welcome_wagon_situation.get_predefined_guest_list()
         if guest_list is None:
             active_household.needs_welcome_wagon = False
@@ -77,7 +87,9 @@ class NPCHostedSituationService(Service):
         game_clock_services = services.game_clock_service()
         if game_clock_services.clock_speed == ClockSpeedMode.SUPER_SPEED3:
             game_clock_services.set_clock_speed(ClockSpeedMode.NORMAL)
-        situation_manager.create_situation(welcome_wagon_situation, guest_list=guest_list, user_facing=False, scoring_enabled=False)
+        situation_id = situation_manager.create_situation(welcome_wagon_situation, guest_list=guest_list, user_facing=False, scoring_enabled=False)
+        if not (situation_id is None or not welcome_wagon_situation.sets_welcome_wagon_flag):
+            active_household.needs_welcome_wagon = False
 
     def on_all_households_and_sim_infos_loaded(self, client):
         self._schedule_welcome_wagon()

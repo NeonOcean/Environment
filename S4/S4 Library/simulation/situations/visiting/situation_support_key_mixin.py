@@ -13,4 +13,4 @@ class SituationSupportKeyMixin:
             relationship_tracker = sim.sim_info.relationship_tracker
             for sim_info in services.active_household():
                 if relationship_tracker.has_bit(sim_info.sim_id, RelationshipGlobalTuning.NEIGHBOR_GIVEN_KEY_RELATIONSHIP_BIT):
-                    services.current_zone().venue_service.venue.summon_npcs((sim.sim_info,), self.SUMMONING_PURPOSE)
+                    services.current_zone().venue_service.active_venue.summon_npcs((sim.sim_info,), self.SUMMONING_PURPOSE)

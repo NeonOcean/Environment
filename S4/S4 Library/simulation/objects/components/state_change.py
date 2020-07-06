@@ -19,6 +19,7 @@ class StateChange:
     LIGHT_MATERIAL_STATE = 'light_material_states'
     LOT_MODIFIERS = 'lot_statistic_modifiers'
     SINGED = 'singed'
+    WIND_SPEED_LEVEL = 'wind_speed_level'
     GRUBBY = 'grubby'
     SCRATCHED = 'scratched'
     CHANGE_VALUE = 'change_value'
@@ -37,3 +38,4 @@ class StateChange:
     ROUTE_EVENT = 'route_event'
     SET_FIRE = 'set_fire'
     SCALE = 'scale'
+    DYED = 'dyed'

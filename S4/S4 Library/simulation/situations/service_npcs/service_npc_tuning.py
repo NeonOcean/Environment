@@ -41,6 +41,8 @@ class ServiceNpc(metaclass=HashedTunedInstanceMetaclass, manager=services.get_in
     @classmethod
     def fake_perform(cls, household):
         fake_performer = cls.fake_perform_job()
+        if cls.situation is not None:
+            cls.situation.fake_perform_job()
         return fake_performer.modify_objects()
 
     @classmethod

@@ -30,7 +30,7 @@ class IsTriggerInteractionTest(HasTunableSingletonFactory, AutoFactoryInit, Base
         return result
 
     def _get_result(self, zone_director, trap):
-        plex_id = build_buy.get_location_plex_id(trap.zone_id, trap.position, trap.level)
+        plex_id = build_buy.get_location_plex_id(trap.position, trap.level)
         if plex_id != zone_director.current_room:
             return TestResult(False, 'The trap is not in the current temple room.')
         room_data = zone_director.room_data[plex_id]
@@ -59,7 +59,7 @@ class IsInCurrentTempleRoomTest(HasTunableSingletonFactory, AutoFactoryInit, Bas
         return self._get_result(zone_director, subject)
 
     def _get_result(self, zone_director, subject):
-        plex_id = build_buy.get_location_plex_id(services.current_zone_id(), subject.position, subject.level)
+        plex_id = build_buy.get_location_plex_id(subject.position, subject.level)
         if plex_id != zone_director.current_room:
             if self.negate:
                 return TestResult.TRUE

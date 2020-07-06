@@ -84,7 +84,7 @@ def print_sim_info_refs(_connection=None):
         for referrer in referrers:
             output('    SimInfo Ref Held by: {}'.format(referrer))
 
-@sims4.commands.Command('sims.spawnmaxsims')
+@sims4.commands.Command('sims.spawnmaxsims', command_type=sims4.commands.CommandType.Automation)
 def spawn_max_sims(_connection=None):
     sim_spawner_service = services.sim_spawner_service()
     num = sim_spawner_service.npc_soft_cap - sim_spawner_service.number_of_npcs_instantiated
@@ -1155,6 +1155,17 @@ def set_grubby(opt_target:OptionalTargetParam=None, set_grubby:bool=None, _conne
         sim_info.grubby = not sim_info.grubby
     else:
         sim_info.grubby = set_grubby
+
+@sims4.commands.Command('sims.set_dyed')
+def set_dyed(opt_sim:OptionalTargetParam=None, set_dyed:bool=None, _connection=None):
+    sim = get_optional_target(opt_sim, _connection)
+    if sim is None:
+        return False
+    sim_info = sim.sim_info
+    if set_dyed is None:
+        sim_info.dyed = not sim_info.dyed
+    else:
+        sim_info.dyed = set_dyed
 
 @sims4.commands.Command('sims.test_path')
 def test_path(obj_id:int=None, walkstyle_name='walk', _connection=None):

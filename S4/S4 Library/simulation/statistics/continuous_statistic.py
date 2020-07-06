@@ -4,6 +4,7 @@ import operator
 from date_and_time import DateAndTime, create_date_and_time
 from event_testing.resolver import SingleSimResolver
 from sims4.math import Threshold
+from sims4.repr_utils import standard_repr
 from sims4.tuning.tunable import TunableRange
 from sims4.utils import classproperty, flexmethod
 from singletons import UNSET, DEFAULT
@@ -32,6 +33,9 @@ class _ContinuousStatisticCallbackData(BaseStatisticCallbackListener):
     def __init__(self, stat, stat_type, threshold, callback, on_callback_alarm_reset=None, should_seed=True):
         super().__init__(stat, stat_type, threshold, callback, on_callback_alarm_reset, should_seed=should_seed)
         self._trigger_time = UNSET
+
+    def __repr__(self):
+        return standard_repr(self, stat=self.statistic_type.__name__, threshold=self._threshold, callback=self._callback, trigger_time=self._trigger_time)
 
     def __eq__(self, other):
         return super().__eq__(other) and self._trigger_time == other._trigger_time
@@ -108,7 +112,7 @@ class ContinuousStatistic(BaseStatistic):
         self._decay_rate_modifier = 1
         self._decay_rate_modifiers = None
         self._convergence_value = self._default_convergence_value
-        if self._tracker is None or not self._tracker.load_in_progress:
+        if tracker is None or not (not tracker.recovery_add_in_progress and not tracker.should_suppress_calculations()):
             self._recalculate_modified_decay_rate()
         self._delayed_decay_timer = None
         self._time_of_last_value_change = None
@@ -131,6 +135,10 @@ class ContinuousStatistic(BaseStatistic):
         pass
 
     @classproperty
+    def default_convergence_value(cls):
+        return cls._default_convergence_value
+
+    @classproperty
     def default_value(cls):
         return cls._default_convergence_value
 
@@ -142,6 +150,11 @@ class ContinuousStatistic(BaseStatistic):
         super().on_add()
         if self._use_delayed_decay():
             self.restart_delayed_decay_timer()
+
+    def on_recovery(self):
+        super().on_recovery()
+        if self.tracker is not None and not self.tracker.should_suppress_calculations():
+            self._recalculate_modified_decay_rate()
 
     @flexmethod
     def get_value(cls, inst):
@@ -249,6 +262,9 @@ class ContinuousStatistic(BaseStatistic):
         self._decay_rate_modifiers.append(value)
         self._recalculate_modified_decay_rate()
 
+    def clear_decay_rate_modifiers(self):
+        self._decay_rate_modifiers = None
+
     def remove_decay_rate_modifier(self, value):
         if self._decay_rate_modifiers is None:
             return
@@ -312,7 +328,7 @@ class ContinuousStatistic(BaseStatistic):
 
     def _update_value(self, minimum_decay_value=DEFAULT):
         tracker = self._tracker
-        if tracker is not None and tracker.load_in_progress:
+        if tracker is not None and tracker.should_suppress_calculations():
             return 0
         now = services.time_service().sim_now
         delta_time = now - self._last_update
@@ -661,6 +677,8 @@ class ContinuousStatistic(BaseStatistic):
     @property
     def instance_required(self):
         if super().instance_required:
+            return True
+        if self._convergence_value != self._default_convergence_value:
             return True
         change_rate = self._get_change_rate_without_decay()
         decay_rate = self.get_decay_rate()

@@ -254,7 +254,7 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             else:
                 tracker = self.get_tracker(commodity_type)
                 if not tracker.has_statistic(commodity_type):
-                    tracker.add_statistic(commodity_type)
+                    tracker.add_statistic(commodity_type, create_instance=False)
                 if commodity_type not in self._commodities_added:
                     self._commodities_added[commodity_type] = 1
                 else:
@@ -718,6 +718,12 @@ class StatisticComponent(Component, component_name=types.STATISTIC_COMPONENT, al
             self._statistic_tracker.on_lod_update(old_lod, new_lod)
         if self._static_commodity_tracker is not None:
             self._static_commodity_tracker.on_lod_update(old_lod, new_lod)
+
+    def on_finalize_load(self):
+        if not self.owner.is_sim:
+            self.on_initial_startup()
+            if self._commodity_tracker is not None:
+                self._commodity_tracker.set_callback_alarm_calculation_supression(False)
 
     def save(self, persistence_master_message):
         persistable_data = persistence_protocols.PersistenceMaster.PersistableData()

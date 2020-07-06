@@ -190,6 +190,7 @@ class LocalizationHelperTuning:
     OBJECT_NAME_LOCALIZATION = TunableLocalizedStringFactory(description='\n        Localized factory that will receive an object and will return the\n        localized catalog name of that object name\n        e.g. {0.ObjectName} \n        ')
     OBJECT_NAME_INDETERMINATE = TunableLocalizedStringFactory(description='\n        Localized factory that will receive an object and will return the object\n        name preceded by the appropriate indeterminate article.\n        e.g. A/an {0.ObjectName}\n        ')
     OBJECT_NAME_COUNT = TunableLocalizedStringFactory(description='\n        Localized string that defines the pattern for object counts.\n        e.g. {0.Number} {S0.{S1.ObjectName}}{P0.{P1.ObjectName}}\n        ')
+    OBJECT_NAME_COUNT_WITH_DESCRIPTION = TunableLocalizedStringFactory(description='\n        Localized string that defines the pattern for object counts.\n        e.g. {0.Number} {S0.{S1.ObjectName}}{P0.{P1.ObjectName}}\n{2.String}\n        ')
     OBJECT_DESCRIPTION_LOCALIZATION = TunableLocalizedStringFactory(description='\n        Localized factory that will receive an object and will return the\n        localized catalog description of that object\n        e.g. {0.ObjectDescription} \n        ')
     NAME_VALUE_PAIR_STRUCTURE = TunableLocalizedStringFactory(description='\n        Localized string that will define the pattern for name-value pairs,\n        e.g. {0.String}: {1.String}\n        ')
     NAME_VALUE_PARENTHESIS_PAIR_STRUCTURE = TunableLocalizedStringFactory(description='\n        Localized string that will define the pattern for name-value pairs using\n        parenthesis. \n        \n        e.g. {0.String} ({1.String})\n        ')
@@ -221,8 +222,11 @@ class LocalizationHelperTuning:
         return cls.OBJECT_NAME_INDETERMINATE(obj_def)
 
     @classmethod
-    def get_object_count(cls, count, obj_def):
-        return cls.OBJECT_NAME_COUNT(count, obj_def)
+    def get_object_count(cls, count, obj_def, detail_text=None):
+        if detail_text is None:
+            return cls.OBJECT_NAME_COUNT(count, obj_def)
+        else:
+            return cls.OBJECT_NAME_COUNT_WITH_DESCRIPTION(count, obj_def, detail_text)
 
     @classmethod
     def get_object_description(cls, obj_def):

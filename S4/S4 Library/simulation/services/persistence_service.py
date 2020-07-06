@@ -57,6 +57,7 @@ class PersistenceService(Service):
         self.once_per_session_telemetry_sent = False
         self.save_error_code = persistence_error_types.ErrorCodes.NO_ERROR
         self._zone_data_pb_cache = {}
+        self._world_id_to_region_id_cache = {}
         self._sim_data_pb_cache = None
         self._household_pb_cache = None
         self._world_ids = frozenset()
@@ -65,9 +66,17 @@ class PersistenceService(Service):
         self._time_of_last_save = None
 
     def build_caches(self):
+        self._world_id_to_region_id_cache.clear()
         self._zone_data_pb_cache.clear()
         for zone in self._save_game_data_proto.zones:
             self._zone_data_pb_cache[zone.zone_id] = zone
+            world_id = zone.world_id
+            if world_id in self._world_id_to_region_id_cache:
+                continue
+            neighborhood_id = zone.neighborhood_id
+            for neighborhood in self._save_game_data_proto.neighborhoods:
+                if neighborhood.neighborhood_id == neighborhood_id:
+                    self._world_id_to_region_id_cache[world_id] = neighborhood.region_id
         self._world_ids = frozenset(z.world_id for z in self._zone_data_pb_cache.values())
         self.dirty_sim_data_pb_cache()
         self._household_pb_cache = None
@@ -325,6 +334,10 @@ class PersistenceService(Service):
         for lot_data in neighborhood_data.lots:
             if zone_data.zone_id == lot_data.zone_instance_id:
                 return lot_data
+
+    def get_region_id_from_world_id(self, world_id):
+        if world_id in self._world_id_to_region_id_cache:
+            return self._world_id_to_region_id_cache[world_id]
 
     def get_world_id_from_zone(self, zone_id):
         zone_proto = self.get_zone_proto_buff(zone_id)

@@ -1,20 +1,21 @@
-from protocolbuffers import Routing_pb2 as routing_protocols
 from animation import get_throwaway_animation_context, animation_constants
-from animation.animation_utils import StubActor
 from animation.arb import Arb
 from animation.asm import create_asm
 from routing.portals.portal_data_locomotion import _PortalTypeDataLocomotion
 from routing.portals.portal_tuning import PortalType
-from sims4.tuning.tunable import TunableReference
-import services
-import sims4
+from routing.portals.variable_jump_mixin import _VariableJumpMixin
 
-class _PortalTypeDataVariableJump(_PortalTypeDataLocomotion):
-    FACTORY_TUNABLES = {'animation_element': TunableReference(description='\n            The animation to play when a Sim traverses this portal.\n            ', manager=services.get_instance_manager(sims4.resources.Types.ANIMATION))}
+class _PortalTypeDataVariableJump(_PortalTypeDataLocomotion, _VariableJumpMixin):
 
     @property
     def portal_type(self):
         return PortalType.PortalType_Animate
+
+    def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
+        return self._add_variable_jump_portal_data(actor, portal_instance, is_mirrored, walkstyle)
+
+    def get_portal_duration(self, portal_instance, is_mirrored, walkstyle, age, gender, species):
+        return self._get_variable_jump_portal_duration(portal_instance, is_mirrored, species)
 
     def _get_arb(self, actor, portal_instance, *, is_mirrored):
         arb = Arb()
@@ -26,24 +27,9 @@ class _PortalTypeDataVariableJump(_PortalTypeDataLocomotion):
         else:
             entry_location = portal_instance.there_entry
             exit_location = portal_instance.there_exit
-        asm.set_actor_parameter(self.animation_element.actor_name, actor, 'InitialTranslation', entry_location.position)
-        asm.set_actor_parameter(self.animation_element.actor_name, actor, 'InitialOrientation', entry_location.orientation)
+        asm.set_actor_parameter(self.animation_element.actor_name, actor, animation_constants.ASM_INITIAL_TRANSLATION, entry_location.position)
+        asm.set_actor_parameter(self.animation_element.actor_name, actor, animation_constants.ASM_INITIAL_ORIENTATION, entry_location.orientation)
         asm.set_actor_parameter(self.animation_element.actor_name, actor, animation_constants.ASM_TARGET_TRANSLATION, exit_location.position)
         asm.set_actor_parameter(self.animation_element.actor_name, actor, animation_constants.ASM_TARGET_ORIENTATION, entry_location.orientation)
         self.animation_element.append_to_arb(asm, arb)
         return arb
-
-    def add_portal_data(self, actor, portal_instance, is_mirrored, walkstyle):
-        arb = self._get_arb(actor, portal_instance, is_mirrored=is_mirrored)
-        op = routing_protocols.RouteAnimateData()
-        op.arb_data = arb._bytes()
-        node_data = routing_protocols.RouteNodeData()
-        node_data.type = routing_protocols.RouteNodeData.DATA_ANIMATE
-        node_data.data = op.SerializeToString()
-        return node_data
-
-    def get_portal_duration(self, portal_instance, is_mirrored, walkstyle, age, gender, species):
-        actor = StubActor(1, species=species)
-        arb = self._get_arb(actor, portal_instance, is_mirrored=is_mirrored)
-        (_, duration, _) = arb.get_timing()
-        return duration

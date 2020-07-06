@@ -15,11 +15,14 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         self.simulation_level = CommodityTrackerSimulationLevel.REGULAR_SIMULATION
         self.load_in_progress = False
 
-    def add_statistic(self, stat_type, **kwargs):
-        commodity = super().add_statistic(stat_type, **kwargs)
+    def add_statistic(self, stat_type, create_instance=True, **kwargs):
+        commodity = super().add_statistic(stat_type, create_instance=create_instance, **kwargs)
         if commodity is not None:
             self.owner.statistic_component.apply_statistic_modifiers_on_stat(commodity)
         return commodity
+
+    def should_suppress_calculations(self):
+        return self.suppress_callback_alarm_calculation or self.load_in_progress
 
     def remove_listener(self, listener):
         stat_type = listener.statistic_type
@@ -49,7 +52,8 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         for commodity in tuple(self._statistics_values_gen()):
             commodity.on_initial_startup()
         self.check_for_unneeded_initial_statistics()
-        self.send_commodity_progress_update(from_add=True)
+        if self.owner.is_sim:
+            self.send_commodity_progress_update(from_add=True)
 
     def start_low_level_simulation(self):
         self.simulation_level = CommodityTrackerSimulationLevel.LOW_LEVEL_SIMULATION
@@ -88,8 +92,8 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
                 continue
             try:
                 stat.save_statistic(commodities, skills, ranked_statistics, self)
-            except Exception:
-                logger.error('Exception thrown while trying to save stat {}', stat)
+            except Exception as e:
+                logger.error('Exception {} thrown while trying to save stat {}', e, stat)
         return (commodities, skills, ranked_statistics)
 
     def load(self, statistics, skip_load=False, update_affordance_cache=True):
@@ -132,9 +136,10 @@ class CommodityTracker(AffordanceCacheMixin, ContinuousStatisticTracker):
         self.check_for_unneeded_initial_statistics()
 
     def get_all_commodities(self):
-        if self._statistics:
-            return tuple(self._statistics.values())
-        return ()
+        if self._statistics is None:
+            return ()
+        stat_iter = self._statistics.values()
+        return tuple(stat for stat in stat_iter if stat is not None)
 
     def get_provided_super_affordances(self):
         affordances = set()

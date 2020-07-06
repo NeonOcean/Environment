@@ -177,6 +177,12 @@ class _AmbientSourceStreet(_AmbientSource):
             street = self._walkby_tuning.__name__
         return '({0}, {1}, {2})'.format(street, self.get_desired_number_of_sims(), self.get_current_number_of_sims())
 
+    def get_running_situations(self):
+        running_situations = super().get_running_situations()
+        if self._walkby_schedule is not None:
+            running_situations.extend(self._walkby_schedule.get_all_situations())
+        return running_situations
+
     def save(self, source_data):
         super().save(source_data)
         if self._walkby_schedule is not None:

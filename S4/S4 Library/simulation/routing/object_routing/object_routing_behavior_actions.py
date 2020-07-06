@@ -29,7 +29,7 @@ class _ObjectRoutingActionAnimation(HasTunableSingletonFactory, AutoFactoryInit)
             if sleep_element and sleep_element.attached_to_timeline:
                 sleep_element.trigger_soft_stop()
             if callback is not None:
-                callback()
+                callback(None)
             if action_event_handle is not None:
                 action_event_handle.release()
 
@@ -113,7 +113,7 @@ class ObjectRoutingBehaviorActionDestroyObjects(ObjectRoutingBehaviorAction):
             return True
             yield
 
-        def _callback(timeline):
+        def _callback(_):
             for o in objects:
                 resolver = DoubleObjectResolver(obj, o)
                 for loot_action in self.loot_success:

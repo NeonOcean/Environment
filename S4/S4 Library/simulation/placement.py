@@ -280,7 +280,7 @@ PositionIncrementInfo = namedtuple('PositionIncrementInfo', ('position_increment
 
 class FindGoodLocationContext:
 
-    def __init__(self, starting_routing_location, object_id=None, object_def_id=None, object_def_state_index=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment_info=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, terrain_tags=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, raytest_start_point_override=None, search_flags=FGLSearchFlagsDefault, min_water_depth=None, max_water_depth=None, **kwargs):
+    def __init__(self, starting_routing_location, object_id=None, object_def_id=None, object_def_state_index=None, object_footprints=None, object_polygons=None, routing_context=None, ignored_object_ids=None, min_distance=None, max_distance=None, position_increment_info=None, additional_avoid_sim_radius=0, restrictions=None, scoring_functions=None, offset_distance=None, offset_restrictions=None, random_range_weighting=None, max_results=0, max_steps=1, height_tolerance=None, terrain_tags=None, raytest_start_offset=None, raytest_end_offset=None, raytest_radius=None, raytest_ignore_flags=None, raytest_start_point_override=None, search_flags=FGLSearchFlagsDefault, min_water_depth=None, max_water_depth=None, connectivity_group_override_point=None, **kwargs):
         self.search_strategy = _placement.FGLSearchStrategyRouting(start_location=starting_routing_location)
         self.result_strategy = _placement.FGLResultStrategyDefault()
         self.search = _placement.FGLSearch(self.search_strategy, self.result_strategy)
@@ -391,6 +391,8 @@ class FindGoodLocationContext:
             self.search_strategy.min_water_depth = min_water_depth
         if max_water_depth is not None:
             self.search_strategy.max_water_depth = max_water_depth
+        if connectivity_group_override_point is not None:
+            self.search_strategy.connectivity_group_position = connectivity_group_override_point
         if gsi_handlers.routing_handlers.FGL_archiver.enabled:
             self.__dict__.update(locals())
 

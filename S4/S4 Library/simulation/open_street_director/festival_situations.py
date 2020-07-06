@@ -34,7 +34,7 @@ class CooldownFestivalSituationState(CommonSituationState):
                 self.owner.manager.bouncer.set_sim_looking_for_new_situation(sim)
 
 class BaseGenericFestivalSituation(SituationComplexCommon):
-    INSTANCE_TUNABLES = {'cooldown_state': CooldownFestivalSituationState.TunableFactory(description='\n            The state that the Situation will go into when the festival open\n            street director notifies it that the festival is going into\n            cooldown.\n            ', locked_args={'allow_join_situation': False, 'time_out': None}, tuning_group=SituationComplexCommon.SITUATION_STATE_GROUP), 'duration_randomizer': TunableSimMinute(description="\n            A random time between 0 and this tuned time will be added to the\n            situation's duration.\n            ", default=0, minimum=0)}
+    INSTANCE_TUNABLES = {'cooldown_state': CooldownFestivalSituationState.TunableFactory(description='\n            The state that the Situation will go into when the festival open\n            street director notifies it that the festival is going into\n            cooldown.\n            ', locked_args={'allow_join_situation': False, 'time_out': None}, tuning_group=SituationComplexCommon.SITUATION_STATE_GROUP)}
     REMOVE_INSTANCE_TUNABLES = Situation.NON_USER_FACING_REMOVE_INSTANCE_TUNABLES
 
     @classmethod
@@ -51,11 +51,6 @@ class BaseGenericFestivalSituation(SituationComplexCommon):
     @classproperty
     def always_elevated_importance(cls):
         return True
-
-    def _get_duration(self):
-        if self._seed.duration_override is not None:
-            return self._seed.duration_override
-        return self.duration + random.randint(0, self.duration_randomizer)
 
 class StartingFestivalSituationState(CommonSituationState):
     pass

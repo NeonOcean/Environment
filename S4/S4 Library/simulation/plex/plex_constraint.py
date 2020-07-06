@@ -19,7 +19,7 @@ class PlexConstraint(HasTunableSingletonFactory, AutoFactoryInit):
         if not plex_service.is_zone_a_plex(zone_id):
             return self.non_plex_constraint.constraint
         level = routing_surface.secondary_id
-        polygons = plex_service.get_plex_polygons(zone_id, level)
+        polygons = plex_service.get_plex_polygons(level)
         if not polygons:
             return Nowhere('PlexConstraint: plex {} not on level {}', zone_id, level)
         compound_polygon = CompoundPolygon(polygons)

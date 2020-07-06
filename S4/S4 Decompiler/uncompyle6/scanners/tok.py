@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2019 by Rocky Bernstein
+#  Copyright (c) 2016-2020 by Rocky Bernstein
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #  Copyright (c) 1999 John Aycock
 #
@@ -20,6 +20,28 @@ from uncompyle6 import PYTHON3
 
 if PYTHON3:
     intern = sys.intern
+
+
+def off2int(offset, prefer_last=True):
+    if isinstance(offset, int):
+        return offset
+    else:
+        assert isinstance(offset, str)
+        offsets = list(map(int, offset.split("_")))
+        if len(offsets) == 1:
+            return offsets[0]
+        else:
+            assert len(offsets) == 2
+            offset_1, offset_2 = offsets
+        if offset_1 + 2 == offset_2:
+            # This is an instruction with an extended arg.
+            # For things that compare against offsets, we generally want the
+            # later offset.
+            return offset_2 if prefer_last else offset_1
+        else:
+            # Probably a "COME_FROM"-type offset, where the second number
+            # is just a count, and not really an offset.
+            return offset_1
 
 
 class Token:
@@ -44,12 +66,17 @@ class Token:
         op=None,
         has_arg=None,
         opc=None,
+        has_extended_arg=False,
     ):
         self.kind = intern(opname)
         self.has_arg = has_arg
         self.attr = attr
         self.pattr = pattr
-        self.offset = offset
+        if has_extended_arg:
+            self.offset = "%d_%d" % (offset, offset + 2)
+        else:
+            self.offset = offset
+
         self.linestart = linestart
         if has_arg is False:
             self.attr = None
@@ -93,13 +120,20 @@ class Token:
     def __str__(self):
         return self.format(line_prefix="")
 
-    def format(self, line_prefix=""):
-        prefix = (
-            "\n%s%4d  " % (line_prefix, self.linestart)
-            if self.linestart
-            else (" " * (6 + len(line_prefix)))
-        )
-        offset_opname = "%6s  %-17s" % (self.offset, self.kind)
+    def format(self, line_prefix="", token_num=None):
+        if token_num is not None:
+            prefix = (
+                "\n(%03d)%s L.%4d  " % (token_num, line_prefix, self.linestart)
+                if self.linestart
+                else ("(%03d)%s" % (token_num, " " * (9 + len(line_prefix))))
+            )
+        else:
+            prefix = (
+                "\n%s L.%4d  " % (line_prefix, self.linestart)
+                if self.linestart
+                else (" " * (9 + len(line_prefix)))
+            )
+        offset_opname = "%8s  %-17s" % (self.offset, self.kind)
 
         if not self.has_arg:
             return "%s%s" % (prefix, offset_opname)
@@ -131,7 +165,7 @@ class Token:
                     return "%s%s%s %s" % (prefix, offset_opname, argstr, pattr)
                 elif self.op in self.opc.hasvargs:
                     return "%s%s%s" % (prefix, offset_opname, argstr)
-                elif name == 'LOAD_ASSERT':
+                elif name == "LOAD_ASSERT":
                     return "%s%s        %s" % (prefix, offset_opname, pattr)
                 elif self.op in self.opc.NAME_OPS:
                     if self.opc.version >= 3.0:
@@ -158,6 +192,9 @@ class Token:
 
     def __getitem__(self, i):
         raise IndexError
+
+    def off2int(self, prefer_last=True):
+        return off2int(self.offset, prefer_last)
 
 
 NoneToken = Token("LOAD_CONST", offset=-1, attr=None, pattr=None)

@@ -1,3 +1,4 @@
+from bucks.bucks_enums import BucksType
 from date_and_time import TimeSpan, DateAndTime, MINUTES_PER_HOUR
 from distributor.rollback import ProtocolBufferRollback
 from event_testing.event_data_const import ObjectiveDataStorageType
@@ -24,6 +25,7 @@ class EventDataObject:
         self._data[data_const.DataType.ClubBucks] = ClubBucksData()
         self._data[data_const.DataType.TimeInClubGatherings] = ClubGatheringTimeData()
         self._data[data_const.DataType.Mood] = MoodData()
+        self._data[data_const.DataType.BucksData] = BucksData()
 
     @property
     def data(self):
@@ -79,6 +81,15 @@ class EventDataObject:
 
     def get_current_total_relationships(self, relationship_bit):
         return self._data[data_const.DataType.RelationshipData].get_current_relationship_number(relationship_bit)
+
+    @DataMapHandler(test_events.TestEvent.BucksEarned)
+    def add_bucks_earned(self, bucks_type=None, amount=None):
+        if amount <= 0:
+            return
+        self._data[data_const.DataType.BucksData].add_bucks(bucks_type, amount)
+
+    def get_bucks_earned(self, bucks_type):
+        return self._data[data_const.DataType.BucksData].get_bucks_amount(bucks_type)
 
     @DataMapHandler(test_events.TestEvent.SimoleonsEarned)
     def add_simoleons_earned(self, simoleon_data_type=None, amount=None, **kwargs):
@@ -385,6 +396,31 @@ class CareerData:
     def load(self, event_data_blob):
         for career in event_data_blob.career_data:
             self.set_career_data_by_name(career.name, career.time, career.money)
+
+class BucksData:
+    __slots__ = ('_stored_bucks_data',)
+
+    def __init__(self):
+        self._stored_bucks_data = {}
+
+    def get_bucks_amount(self, bucks_type):
+        return self._stored_bucks_data.get(bucks_type, 0)
+
+    def add_bucks(self, bucks_type, amount):
+        if bucks_type not in self._stored_bucks_data:
+            self._stored_bucks_data[bucks_type] = amount
+        else:
+            self._stored_bucks_data[bucks_type] += amount
+
+    def save(self, event_data_blob):
+        for (bucks_type_enum, amount) in self._stored_bucks_data.items():
+            bucks_data = event_data_blob.bucks_data.add()
+            bucks_data.enum = bucks_type_enum
+            bucks_data.amount = amount
+
+    def load(self, event_data_blob):
+        for bucks_data in event_data_blob.bucks_data:
+            self._stored_bucks_data[bucks_data.enum] = bucks_data.amount
 
 class SimoleonData:
     __slots__ = ('_stored_simoleon_data',)

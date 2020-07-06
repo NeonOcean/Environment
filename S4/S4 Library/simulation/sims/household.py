@@ -1,6 +1,4 @@
 from collections import OrderedDict
-from event_testing.resolver import DoubleSimResolver
-from interactions.utils.loot import LootActions
 from protocolbuffers import FileSerialization_pb2 as serialization, ResourceKey_pb2, S4Common_pb2, FileSerialization_pb2, GameplaySaveData_pb2
 from protocolbuffers.Consts_pb2 import TELEMETRY_HOUSEHOLD_TRANSFER_GAIN
 from protocolbuffers.DistributorOps_pb2 import Operation
@@ -12,9 +10,11 @@ from distributor.ops import GenericProtocolBufferOp
 from distributor.rollback import ProtocolBufferRollback
 from distributor.system import Distributor
 from event_testing import test_events
+from event_testing.resolver import DoubleSimResolver
 from holidays.holiday_tracker import HolidayTracker
 from household_milestones.household_milestone_tracker import HouseholdMilestoneTracker
 from households.household_object_preference_tracker import HouseholdObjectPreferenceTracker
+from interactions.utils.loot import LootActions
 from laundry.household_laundry_tracker import HouseholdLaundryTracker
 from objects import HiddenReasonFlag, ALL_HIDDEN_REASONS
 from objects.collection_manager import CollectionTracker
@@ -618,6 +618,7 @@ class Household:
                 send_sim_added_telemetry(sim_info)
             self._on_sim_added(sim_info)
             self.resend_sim_infos()
+            services.get_event_manager().process_event(test_events.TestEvent.SimHomeZoneChanged, sim_info=sim_info, old_zone_id=sim_info.prior_household_home_zone_id, new_zone_id=self.home_zone_id)
 
     def _on_sim_added(self, sim_info):
         self.notify_dirty()
@@ -649,6 +650,7 @@ class Household:
             if services.current_zone().is_zone_running:
                 services.get_event_manager().process_events_for_household(test_events.TestEvent.HouseholdChanged, self)
             self.resend_sim_infos()
+            services.get_event_manager().process_event(test_events.TestEvent.SimHomeZoneChanged, sim_info=sim_info, old_zone_id=sim_info.prior_household_home_zone_id, new_zone_id=self.home_zone_id)
         if destroy_if_empty_household:
             self.destroy_household_if_empty()
 
@@ -1106,9 +1108,11 @@ class Household:
                         household_account_pair_msg.persona_name = self.account.persona_name
                     break
             self._home_world_id = zone_data_proto.world_id
+        old_zone_id = self._home_zone_id
         self._home_zone_id = zone_id
         if not from_load:
             self.resend_home_zone_id()
+            services.get_event_manager().process_events_for_household(test_events.TestEvent.SimHomeZoneChanged, self, old_zone_id=old_zone_id, new_zone_id=self.home_zone_id)
         self._home_zone_move_in_time = move_in_time or services.time_service().sim_now
 
     def move_object_to_sim_or_household_inventory(self, obj, sort_by_distance=False):

@@ -74,11 +74,11 @@ class ZoneTestIsPlex(HasTunableSingletonFactory):
         return services.get_plex_service().is_zone_a_plex(zone_proto.zone_id)
 
 class ZoneTestVenueType(HasTunableSingletonFactory, AutoFactoryInit):
-    FACTORY_TUNABLES = {'venue_types': TunableList(description='\n            If the venue type is in this list, the test passes.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.VENUE), pack_safe=True))}
+    FACTORY_TUNABLES = {'venues': TunableList(description='\n            If the venue is in this list, the test passes.\n            ', tunable=TunableReference(manager=services.get_instance_manager(sims4.resources.Types.VENUE), pack_safe=True))}
 
     def is_valid_zone(self, zone_proto):
-        venue_type_id = build_buy.get_current_venue(zone_proto.zone_id)
-        return venue_type_id in (venue.guid64 for venue in self.venue_types)
+        venue_tuning_id = build_buy.get_current_venue(zone_proto.zone_id)
+        return venue_tuning_id in (venue.guid64 for venue in self.venues)
 
 class RequiredCareerEventZoneRandom(RequiredCareerEventZone):
     FORBIDDEN = 'FORBIDDEN'

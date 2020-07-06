@@ -1,4 +1,4 @@
-from build_buy import get_object_has_tag, get_object_all_tags, get_block_id
+from build_buy import get_object_has_tag, get_object_all_tags, get_room_id
 from objects.components.lighting_component import LightingComponent
 from objects.components.types import LIGHTING_COMPONENT
 from sims4.tuning.tunable import AutoFactoryInit, HasTunableSingletonFactory, TunableSet, TunableEnumEntry, TunableVariant, TunableRange, TunableColor, Tunable
@@ -19,12 +19,12 @@ def all_lights_gen(target):
 
 def lights_in_target_room_gen(target):
     zone_id = services.current_zone_id()
-    target_block_id = get_block_id(zone_id, target.position, target.level)
+    target_room_id = get_room_id(zone_id, target.position, target.level)
     for obj in services.object_manager().get_all_objects_with_component_gen(LIGHTING_COMPONENT):
         if get_object_has_tag(obj.definition.id, LightingComponent.MANUAL_LIGHT_TAG):
             continue
-        obj_block_id = get_block_id(zone_id, obj.position, obj.level)
-        if obj_block_id != target_block_id:
+        obj_room_id = get_room_id(zone_id, obj.position, obj.level)
+        if obj_room_id != target_room_id:
             continue
         yield obj
 
@@ -143,6 +143,8 @@ class LightingHelper(AutoFactoryInit, HasTunableSingletonFactory):
 
     def execute_lighting_helper(self, interaction):
         for light_obj in self.light_target.get_light_target_gen(interaction):
+            if not light_obj.is_lighting_enabled():
+                continue
             dimmer_value = self.dimmer_value.get_dimmer_value(light_obj)
             store_dimmer_prev_setting = self.dimmer_value.is_storing_previous_setting()
             light_obj.set_light_dimmer_value(dimmer_value, store_previous_value=store_dimmer_prev_setting)

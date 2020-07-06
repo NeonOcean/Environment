@@ -400,16 +400,18 @@ def create_route_msg_src(route_id, actor, path, start_time, wait_time, track_ove
         node_pb.surface_object_id = n.surface_object_id
         node_pb.is_procedural = n.is_procedural
         if n.portal_object_id != 0:
-            portal_object = services.object_manager(actor.zone_id).get(n.portal_object_id)
-            if portal_object is not None:
-                node_pb.portal_object_id = n.portal_object_id
-                portal_object.add_portal_events(n.portal_id, actor, n.time, route_pb)
-                node_data = portal_object.add_portal_data(n.portal_id, actor, n.walkstyle)
-                if node_data is not None:
-                    node_pb.node_data.type = node_data.type
-                    node_pb.node_data.data = node_data.data
-                    node_pb.node_data.do_start_transition = node_data.do_start_transition
-                    node_pb.node_data.do_stop_transition = node_data.do_stop_transition
+            object_manager = services.object_manager(actor.zone_id)
+            if object_manager is not None:
+                portal_object = object_manager.get(n.portal_object_id)
+                if portal_object is not None:
+                    node_pb.portal_object_id = n.portal_object_id
+                    portal_object.add_portal_events(n.portal_id, actor, n.time, route_pb)
+                    node_data = portal_object.add_portal_data(n.portal_id, actor, n.walkstyle)
+                    if node_data is not None:
+                        node_pb.node_data.type = node_data.type
+                        node_pb.node_data.data = node_data.data
+                        node_pb.node_data.do_start_transition = node_data.do_start_transition
+                        node_pb.node_data.do_stop_transition = node_data.do_stop_transition
         if not last_routing_surface_id is None:
             if last_routing_surface_id != n.routing_surface_id:
                 node_pb.routing_surface_id.primary_id = n.routing_surface_id.primary_id
@@ -1029,6 +1031,23 @@ class SetGrubby(Op):
             op.is_grubby = False
         self.serialize_op(msg, op, protocol_constants.SET_GRUBBY)
 
+class SetDyed(Op):
+
+    def __init__(self, is_dyed):
+        super().__init__()
+        self.is_dyed = is_dyed
+
+    def __repr__(self):
+        return standard_repr(self, self.is_dyed)
+
+    def write(self, msg):
+        op = DistributorOps_pb2.SetDyed()
+        if self.is_dyed is not None:
+            op.is_dyed = self.is_dyed
+        else:
+            op.is_dyed = False
+        self.serialize_op(msg, op, protocol_constants.SET_DYED)
+
 class SetObjectDefStateIndex(Op):
 
     def __init__(self, obj_def_state_index):
@@ -1107,6 +1126,22 @@ class SetLightDimmer(Op):
         else:
             op.dimmer = 1.0
         self.serialize_op(msg, op, protocol_constants.SET_LIGHT_DIMMER)
+
+class SetWindSpeedEffect(Op):
+
+    def __init__(self, value):
+        super().__init__()
+        self._wind_speed_effect = value
+
+    def __repr__(self):
+        return standard_repr(self, self._wind_speed_effect)
+
+    def write(self, msg):
+        op = DistributorOps_pb2.SetPinWheelSpinSpeed()
+        if self._wind_speed_effect is not None:
+            op.spin_speed = self._wind_speed_effect.spin_speed
+            op.transition_speed = self._wind_speed_effect.transition_speed
+            self.serialize_op(msg, op, protocol_constants.SET_PINWHEEL_SPIN_SPEED)
 
 class SetLightMaterialStates(Op):
 
@@ -1772,6 +1807,25 @@ class SetActorPosture(Op):
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SET_ACTOR_DATA)
 
+class SetActorStateMachineParams(Op):
+
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+
+    def write(self, msg):
+        op = DistributorOps_pb2.SetActorStateMachineParams()
+        for (key, value) in self.params.items():
+            with ProtocolBufferRollback(op.asm_params) as param_data:
+                param_data.param_key = key
+                if isinstance(value, str):
+                    param_data.param_value_string = value
+                elif isinstance(value, int):
+                    param_data.param_value_int = value
+                elif isinstance(value, bool):
+                    param_data.param_value_bool = value
+        self.serialize_op(msg, op, protocol_constants.SET_ACTOR_STATE_MACHINE_PARAMS)
+
 class DisablePendingHeadline(Op):
 
     def __init__(self, sim_id, group_id=None, was_canceled=False):
@@ -2127,6 +2181,18 @@ class SetAtWorkInfos(Op):
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SET_AT_WORK_INFO)
+
+class UpdateFindCareerInteractionAvailability(Op):
+
+    def __init__(self, enable, tooltip):
+        super().__init__()
+        self.op = DistributorOps_pb2.UpdateFindCareerInteractionAvailability()
+        self.op.enable = enable
+        if tooltip is not None:
+            self.op.tooltip = tooltip
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.UPDATE_FIND_CAREER_INTERACTION_AVAILABILITY)
 
 class EndOfWorkday(Op):
 
@@ -3010,6 +3076,51 @@ class SplitHouseholdDialog(Op):
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SPLIT_HOUSEHOLD_DIALOG)
 
+class CommunityBoardDialog(Op):
+
+    def __init__(self, provider, sim_info, target_id):
+        super().__init__()
+        self.op = ui_ops.CommunityBoardShow()
+        provider.populate_community_board_op(sim_info, self.op, target_id)
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.COMMUNITY_POLICY_BOARD)
+
+class CommunityBoardAddPolicy(Op):
+
+    def __init__(self, policy_tuple, sim_id, new_policy_allowed):
+        super().__init__()
+        self.op = ui_ops.CommunityBoardAddPolicy()
+        self.op.sim_id = sim_id
+        snippet_manager = services.get_instance_manager(sims4.resources.Types.SNIPPET)
+        for policy_id in policy_tuple:
+            policy = snippet_manager.get(policy_id)
+            if policy is not None:
+                with ProtocolBufferRollback(self.op.policies) as added_policy:
+                    added_policy.policy_id = policy_id
+                    stat = policy.vote_count_statistic
+                    added_policy.count = 0
+                    if stat is not None:
+                        added_policy.max_count = stat.max_value
+        self.op.new_policy_allowed = new_policy_allowed
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.COMMUNITY_POLICY_ADD_POLICY)
+
+class CivicPolicyPanelUpdate(Op):
+
+    def __init__(self, voting_open, repeal_policy_id, repeal_policy_sigs, schedule_text):
+        super().__init__()
+        self.op = DistributorOps_pb2.CivicPolicyPanelData()
+        self.op.voting_open = voting_open
+        self.op.repeal_policy_id = repeal_policy_id
+        self.op.repeal_policy_sigs = repeal_policy_sigs
+        if hasattr(self.op, 'schedule_text'):
+            self.op.schedule_text = schedule_text
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.CIVIC_POLICY_PANEL_UPDATE)
+
 class SendUIMessage(Op):
 
     def __init__(self, message_name):
@@ -3019,3 +3130,28 @@ class SendUIMessage(Op):
 
     def write(self, msg):
         self.serialize_op(msg, self.op, protocol_constants.SEND_UI_MESSAGE)
+
+class ShowBillsPanel(Op):
+
+    def __init__(self, utility_infos, line_items):
+        super().__init__()
+        self.op = ui_ops.ShowBillsDialog()
+        for utility_info in utility_infos:
+            with ProtocolBufferRollback(self.op.utility_info) as utility_info_msg:
+                utility_info_msg.utility = utility_info.utility
+                utility_info_msg.cost = int(utility_info.cost)
+                utility_info_msg.max_value = int(utility_info.max_value)
+                utility_info_msg.current_value = int(utility_info.current_value)
+                utility_info_msg.utility_name = utility_info.utility_name
+                utility_info_msg.utility_symbol = utility_info.utility_symbol
+                utility_info_msg.rate_of_change = utility_info.rate_of_change
+                utility_info_msg.selling = utility_info.selling
+        for line_item in line_items:
+            with ProtocolBufferRollback(self.op.line_items) as line_item_msg:
+                line_item_msg.amount = int(line_item.amount)
+                line_item_msg.label = line_item.label
+                if line_item.tooltip is not None:
+                    line_item_msg.tooltip = line_item.tooltip
+
+    def write(self, msg):
+        self.serialize_op(msg, self.op, protocol_constants.SHOW_BILLS_DIALOG)

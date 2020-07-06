@@ -90,7 +90,7 @@ class BouncerRequest:
     _get_next_creation_id = UniqueIdGenerator(1)
     BOUNCER_PRIORITY_INDEX_MULTIPLIER = 2
 
-    def __init__(self, situation, callback_data, job_type, request_priority, user_facing, exclusivity, requested_sim_id=0, accept_alternate_sim=False, blacklist_sim_ids=None, spawning_option=RequestSpawningOption.DONT_CARE, requesting_sim_info=None, expectation_preference=False, common_blacklist_categories=0, for_persisted_sim=False, elevated_importance_override=False, accept_looking_for_more_work=False, specific_spawn_point=None, specific_position=None):
+    def __init__(self, situation, callback_data, job_type, request_priority, user_facing, exclusivity, requested_sim_id=0, accept_alternate_sim=False, blacklist_sim_ids=None, spawning_option=RequestSpawningOption.DONT_CARE, requesting_sim_info=None, expectation_preference=False, common_blacklist_categories=0, for_persisted_sim=False, elevated_importance_override=False, accept_looking_for_more_work=False, specific_spawn_point=None, specific_location=None):
         self._situation = situation
         self._callback_data = callback_data
         self._job_type = job_type
@@ -128,7 +128,7 @@ class BouncerRequest:
         self._sim_spawner_service_request = None
         self._accept_looking_for_more_work = accept_looking_for_more_work
         self._specific_spawn_point = specific_spawn_point
-        self._specific_position = specific_position
+        self._specific_location = specific_location
 
     @property
     def situation(self):
@@ -364,8 +364,8 @@ class BouncerRequest:
         return self._specific_spawn_point
 
     @property
-    def specific_position(self):
-        return self._specific_position
+    def specific_location(self):
+        return self._specific_location
 
 class BouncerRequestFactory(BouncerRequest):
 

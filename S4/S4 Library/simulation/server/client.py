@@ -293,6 +293,8 @@ class Client:
             services.active_household().distribute_household_data()
         sim_info.commodity_tracker.send_commodity_progress_update(from_add=True)
         sim_info.career_tracker.on_sim_added_to_skewer()
+        if sim_info.degree_tracker is not None:
+            sim_info.degree_tracker.on_sim_added_to_skewer()
         sim_info.send_whim_bucks_update(SetWhimBucks.LOAD)
         sim_info.resend_trait_ids()
         sim = sim_info.get_sim_instance(allow_hidden_flags=ALL_HIDDEN_REASONS)
@@ -493,6 +495,7 @@ class Client:
             distributor_system = Distributor.instance()
             distributor_system.add_op_with_no_owner(op)
             if not dialog.accepted:
+                self.cancel_live_drag_on_objects()
                 return
             value = int(self.get_live_drag_object_value(live_drag_object, self._live_drag_is_stack))
             for child_object in live_drag_object.get_all_children_gen():
@@ -523,7 +526,10 @@ class Client:
             self._live_drag_is_stack = False
             self._live_drag_sell_dialog_active = False
 
-        if self._live_drag_is_stack:
+        favorites_tracker = self.active_sim_info.favorites_tracker
+        if favorites_tracker and favorites_tracker.is_favorite_stack(live_drag_object):
+            dialog = LiveDragTuning.LIVE_DRAG_SELL_FAVORITE_DIALOG(owner=live_drag_object)
+        elif self._live_drag_is_stack:
             dialog = LiveDragTuning.LIVE_DRAG_SELL_STACK_DIALOG(owner=live_drag_object)
         else:
             dialog = LiveDragTuning.LIVE_DRAG_SELL_DIALOG(owner=live_drag_object)
@@ -591,7 +597,7 @@ class Client:
             if career.is_late:
                 if not career.taking_day_off:
                     return (Sims_pb2.SimPB.LATE_FOR_WORK, career.career_category)
-        if services.get_rabbit_hole_service().should_override_selector_visual_type(sim_info):
+        if services.get_rabbit_hole_service().should_override_selector_visual_type(sim_info.id):
             return (Sims_pb2.SimPB.OTHER, None)
         if sim is not None and sim.has_hidden_flags(HiddenReasonFlag.RABBIT_HOLE):
             return (Sims_pb2.SimPB.OTHER, None)

@@ -16,34 +16,12 @@ logger = sims4.log.Logger('UniversityTuning', default_owner='nabaker')
 class UniversityCourseCareerSlot(Career):
     INSTANCE_TUNABLES = {'caught_cheating_loot': TunableReference(description='\n            Loot action applied on a sim who has been caught cheating\n            on homework. It is applied at the time that homework is processed.\n            ', manager=services.get_instance_manager(sims4.resources.Types.ACTION)), 'successful_cheating_loot': TunableReference(description='\n            Loot action applied on a sim who has cheated on homework but\n            was not caught. It is applied at the time that homework is processed.\n            ', manager=services.get_instance_manager(sims4.resources.Types.ACTION)), 'prelecture_affordance': OptionalTunable(tunable=TunableReference(description='\n                The affordance that is pushed onto the Sim prior to going to \n                class.\n                ', manager=services.get_instance_manager(sims4.resources.Types.INTERACTION))), 'end_of_course_loot': TunableReference(description='\n            Loot action applied on a sim when all work has been completed for \n            a course. \n            ', manager=services.get_instance_manager(sims4.resources.Types.ACTION))}
 
-    def get_career_affordance(self):
-        degree_tracker = self._sim_info.degree_tracker
-        if degree_tracker is None:
-            logger.error('Getting career_affordance for {} with no degree tracker', self._sim_info)
-            return
-        course_data = degree_tracker.get_course_data(self.guid64)
-        if course_data is None:
-            logger.error('sim {} has no course for slot {} when getting career_affordance.', self._sim_info, self)
-            return
-        return course_data.career_affordance
-
-    def get_go_home_to_work_affordance(self):
-        degree_tracker = self._sim_info.degree_tracker
-        if degree_tracker is None:
-            logger.error('Getting career go_home_to_work_affordance for {} with no degree tracker', self._sim_info)
-            return
-        course_data = degree_tracker.get_course_data(self.guid64)
-        if course_data is None:
-            logger.error('sim {} has no course for slot {} when getting go_home_to_work_affordance.', self._sim_info, self)
-            return
-        return course_data.go_home_to_work_affordance
-
-    def push_go_to_work_affordance(self):
+    def put_sim_in_career_rabbit_hole(self):
         sim = self._get_sim()
         if self.prelecture_affordance is not None:
             context = interactions.context.InteractionContext(sim, interactions.context.InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT, interactions.priority.Priority.High, insert_strategy=QueueInsertStrategy.LAST)
             sim.push_super_affordance(self.prelecture_affordance, sim, context, career_uid=self.guid64)
-        return super().push_go_to_work_affordance()
+        return super().put_sim_in_career_rabbit_hole()
 
     def end_career_session(self):
         super().end_career_session()
@@ -131,7 +109,7 @@ class UniversityCourseCareerSlot(Career):
     def can_change_level(self, demote=False):
         return False
 
-lock_instance_tunables(UniversityCourseCareerSlot, available_for_club_criteria=False, can_be_fired=False, career_affordance=None, career_availablity_tests=CompoundTestList(), career_story_progression=CareerStoryProgressionParameters(joining=None, retiring=None, quitting=None), days_to_level_loss=0, demotion_buff=None, demotion_chance_modifiers=TunableMultiplier(base_value=0, multipliers=()), early_promotion_chance=TunableMultiplier(base_value=0, multipliers=()), early_promotion_modifiers=TunableMultiplier(base_value=0, multipliers=()), fired_buff=None, go_home_to_work_affordance=None, initial_pto=0, is_active=False, levels_lost_on_leave=0, promotion_buff=None, quittable_data=None, start_level_modifiers=TestedSum(base_value=0, modifiers=()), disable_pto=True, show_career_in_join_career_picker=False)
+lock_instance_tunables(UniversityCourseCareerSlot, available_for_club_criteria=False, can_be_fired=False, career_availablity_tests=CompoundTestList(), career_story_progression=CareerStoryProgressionParameters(joining=None, retiring=None, quitting=None), days_to_level_loss=0, demotion_buff=None, demotion_chance_modifiers=TunableMultiplier(base_value=0, multipliers=()), early_promotion_chance=TunableMultiplier(base_value=0, multipliers=()), early_promotion_modifiers=TunableMultiplier(base_value=0, multipliers=()), fired_buff=None, initial_pto=0, is_active=False, levels_lost_on_leave=0, promotion_buff=None, quittable_data=None, start_level_modifiers=TestedSum(base_value=0, modifiers=()), disable_pto=True, show_career_in_join_career_picker=False)
 
 class UniversityCourseTrack(TunableCareerTrack):
 

@@ -54,6 +54,7 @@ with object_manager_schema.add_has_many('commodities', GsiGridSchema) as sub_sch
     sub_schema.add_field('value', label='value')
     sub_schema.add_field('convergence_value', label='convergence value')
     sub_schema.add_field('decay_rate', label='decay')
+    sub_schema.add_field('decay_rate_modifier', label='decay modifier')
     sub_schema.add_field('change_rate', label='change rate')
 with object_manager_schema.add_has_many('postures', GsiGridSchema) as sub_schema:
     sub_schema.add_field('interactionName', label='Interaction Name')
@@ -237,6 +238,7 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
                                                 if commodity.continuous:
                                                     com_entry['convergence_value'] = (commodity.convergence_value,)
                                                     com_entry['decay_rate'] = (commodity.base_decay_rate,)
+                                                    com_entry['decay_rate_modifier'] = (commodity.get_decay_rate_modifier,)
                                                     com_entry['change_rate'] = (commodity.get_change_rate,)
                                                 ret_dict['commodities'].append(com_entry)
                                             ret_dict['postures'] = []
@@ -461,6 +463,7 @@ def generate_object_manager_data(*args, zone_id:int=None, filter=None, **kwargs)
                 if commodity.continuous:
                     com_entry['convergence_value'] = (commodity.convergence_value,)
                     com_entry['decay_rate'] = (commodity.base_decay_rate,)
+                    com_entry['decay_rate_modifier'] = (commodity.get_decay_rate_modifier,)
                     com_entry['change_rate'] = (commodity.get_change_rate,)
                 ret_dict['commodities'].append(com_entry)
             ret_dict['postures'] = []

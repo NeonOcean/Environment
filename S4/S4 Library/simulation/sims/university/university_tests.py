@@ -53,16 +53,16 @@ class UniversityEnrollmentTest(HasTunableSingletonFactory, AutoFactoryInit, even
             valid_major_result = self.major.is_valid_major(sim_info, tooltip=tooltip)
             if not valid_major_result:
                 return valid_major_result
+        degree_tracker = sim_info.degree_tracker
+        if degree_tracker is None:
+            return TestResult(False, "{0} doesn't have a degree tracker.", sim_info, tooltip=tooltip)
         if self.university is not None:
-            degree_tracker = sim_info.degree_tracker
-            if degree_tracker is None:
-                return TestResult(False, "{0} doesn't have a degree tracker.", sim_info, tooltip=tooltip)
             current_university = degree_tracker.get_university()
             if current_university is None:
                 return TestResult(False, '{0} has no university specified in their degree tracker.', sim_info, tooltip=tooltip)
             if current_university.guid64 != self.university.guid64:
                 return TestResult(False, '{0} is not enrolled in the correct university.', sim_info, tooltip=tooltip)
-        if self.enrollment_status is not None and not self.enrollment_status.test_item(sim_info.degree_tracker._enrollment_status):
+        if self.enrollment_status is not None and not self.enrollment_status.test_item(degree_tracker._enrollment_status):
             return TestResult(False, '{0} does not pass the whitelist/blacklist for university enrollment status', sim_info, tooltip=tooltip)
         return TestResult.TRUE
 

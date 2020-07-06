@@ -53,7 +53,7 @@ class SwimmingPool(SwimmingMixin, GameObject):
         return set()
 
     def get_edges(self):
-        pool_edges = build_buy.get_pool_edges(self.zone_id)
+        pool_edges = build_buy.get_pool_edges()
         return pool_edges[(self.block_id, self.routing_surface.secondary_id)]
 
     def get_edge_constraint(self, constraint_width=1.0, inward_dir=False, return_constraint_list=False, los_reference_point=DEFAULT, sim=None):

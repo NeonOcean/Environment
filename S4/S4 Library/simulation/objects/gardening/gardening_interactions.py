@@ -6,6 +6,8 @@ from objects.gardening.gardening_tuning import GardeningTuning
 from sims4.utils import flexmethod
 from singletons import DEFAULT
 import event_testing
+import sims4
+logger = sims4.log.Logger('Gardening Interactions')
 
 class GardeningSpliceInteraction(SuperInteraction):
 
@@ -13,6 +15,10 @@ class GardeningSpliceInteraction(SuperInteraction):
         result = yield from super()._run_interaction_gen(timeline)
         if result:
             gardening_component = self.target.get_component(types.GARDENING_COMPONENT)
+            if gardening_component is None:
+                logger.error('{} target has no Gardening Component', self)
+                return False
+                yield
             shoot = gardening_component.create_shoot()
             try:
                 if shoot is not None and self.sim.inventory_component.player_try_add_object(shoot):
@@ -31,6 +37,9 @@ class GardeningGraftPickerInteraction(ObjectPickerInteraction):
     @flexmethod
     def _get_objects_gen(cls, inst, target, context, **kwargs):
         gardening_component = target.get_component(types.GARDENING_COMPONENT)
+        if gardening_component is None:
+            logger.error('{} target has no Gardening Component', inst or cls)
+            return
         for shoot in context.sim.inventory_component:
             if gardening_component.can_splice_with(shoot):
                 yield shoot
@@ -53,6 +62,10 @@ class GardeningGraftInteraction(SuperInteraction):
         if result:
             shoot = self.carry_target
             gardening_component = self.target.get_component(types.GARDENING_COMPONENT)
+            if gardening_component is None:
+                logger.error('{} target has no Gardening Component', self)
+                return False
+                yield
             gardening_component.add_fruit(shoot)
             self.target.set_state(GardeningTuning.SPLICED_STATE_VALUE.state, GardeningTuning.SPLICED_STATE_VALUE)
             shoot.transient = True

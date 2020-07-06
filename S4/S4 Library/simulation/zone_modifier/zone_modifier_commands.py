@@ -19,7 +19,7 @@ def add_zone_modifier(zone_modifier:TunableInstanceParam(sims4.resources.Types.Z
         sims4.commands.output('{} is already a trait on the lot.'.format(zone_modifier), _connection)
         return
     zone_data.lot_traits.append(zone_modifier_id)
-    services.get_zone_modifier_service().on_zone_modifiers_updated(target_zone_id)
+    services.get_zone_modifier_service().check_for_and_apply_new_zone_modifiers(target_zone_id)
 
 @sims4.commands.Command('zone_modifier.remove_zone_modifier', command_type=sims4.commands.CommandType.DebugOnly)
 def remove_zone_modifier(zone_modifier:TunableInstanceParam(sims4.resources.Types.ZONE_MODIFIER), target_zone_id:int=None, _connection=None):
@@ -34,7 +34,7 @@ def remove_zone_modifier(zone_modifier:TunableInstanceParam(sims4.resources.Type
         sims4.commands.output('{} is not a trait on the lot.'.format(zone_modifier), _connection)
         return
     zone_data.lot_traits.remove(zone_modifier_id)
-    services.get_zone_modifier_service().on_zone_modifiers_updated(target_zone_id)
+    services.get_zone_modifier_service().check_for_and_apply_new_zone_modifiers(target_zone_id)
 
 @sims4.commands.Command('zone_modifier.remove_all_zone_modifiers', command_type=sims4.commands.CommandType.DebugOnly)
 def remove_all_zone_modifiers(target_zone_id:int=None, _connection=None):
@@ -47,7 +47,7 @@ def remove_all_zone_modifiers(target_zone_id:int=None, _connection=None):
     traits_to_remove = list(zone_data.lot_traits)
     for trait in traits_to_remove:
         zone_data.lot_traits.remove(trait)
-    services.get_zone_modifier_service().on_zone_modifiers_updated(target_zone_id)
+    services.get_zone_modifier_service().check_for_and_apply_new_zone_modifiers(target_zone_id)
 
 def run_zone_modifier_entry(zone_modifier, schedule_entry_index, _connection):
     persistence_service = services.get_persistence_service()

@@ -4,7 +4,8 @@ from contextlib import contextmanager
 from protocolbuffers import Dialog_pb2, Consts_pb2
 from bucks.bucks_enums import BucksType
 from bucks.bucks_perk import BucksPerkTunables
-from bucks.bucks_telemetry import bucks_telemetry_writer, TELEMETRY_HOOK_BUCKS_GAIN, TELEMETRY_FIELD_BUCKS_TYPE, TELEMETRY_FIELD_BUCKS_AMOUNT, TELEMETRY_FIELD_BUCKS_TOTAL, TELEMETRY_FIELD_BUCKS_SOURCE, TELEMETRY_HOOK_BUCKS_SPEND, TELEMETRY_HOOK_BUCKS_REFUND
+from bucks.bucks_telemetry import bucks_telemetry_writer, TELEMETRY_HOOK_BUCKS_GAIN, TELEMETRY_FIELD_BUCKS_TYPE, TELEMETRY_FIELD_BUCKS_AMOUNT, TELEMETRY_FIELD_BUCKS_TOTAL, TELEMETRY_FIELD_BUCKS_SOURCE, TELEMETRY_HOOK_PERKS_REFUND, TELEMETRY_HOOK_PERKS_GAIN, TELEMETRY_HOOK_BUCKS_SPEND, perks_telemetry_writer
+from bucks.bucks_utils import BucksUtils
 from clock import interval_in_sim_hours
 from date_and_time import DateAndTime
 from distributor import shared_messages
@@ -84,7 +85,7 @@ class BucksTrackerBase:
         perk_data = self._unlocked_perks[perk.associated_bucks_type][perk]
         return perk_data.timestamp
 
-    def unlock_perk(self, perk, unlocked_by=None):
+    def unlock_perk(self, perk, unlocked_by=None, suppress_telemetry=False):
         self._award_rewards(perk)
         self._award_buffs(perk)
         self._award_loots(perk.loots_on_unlock)
@@ -97,8 +98,9 @@ class BucksTrackerBase:
             services.get_event_manager().process_event(TestEvent.BucksPerkUnlocked, sim_info=sim_info)
         for linked_perk in perk.linked_perks:
             if not self.is_perk_unlocked(linked_perk):
-                self.unlock_perk(linked_perk, unlocked_by=perk)
-        self._handle_unlock_telemetry(perk)
+                self.unlock_perk(linked_perk, unlocked_by=perk, suppress_telemetry=suppress_telemetry)
+        if not suppress_telemetry:
+            self._handle_perk_unlock_telemetry(perk)
         caches.clear_all_caches()
 
     def _award_rewards(self, perk, **kwargs):
@@ -109,7 +111,7 @@ class BucksTrackerBase:
             logger.error('Trying to unlock a Perk for owner {}, but there are no Sims.', self._owner)
             return
         for reward in perk.rewards:
-            reward().open_reward(dummy_sim)
+            reward().open_reward(dummy_sim, reward_source=perk)
 
     def _award_loots(self, loot_list):
         resolver = SingleSimResolver(self._owner)
@@ -157,7 +159,7 @@ class BucksTrackerBase:
             self.try_modify_bucks(perk.associated_bucks_type, perk.unlock_cost, distribute=distribute)
         self._unlocked_perks[perk.associated_bucks_type][perk] = PerkData(None, 0, False)
         self._recently_locked_perks[perk.associated_bucks_type].add(perk)
-        self._handle_lock_telemetry(perk)
+        self._handle_perk_lock_telemetry(perk)
 
     def lock_all_perks(self, bucks_type, refund_cost=False):
         for perk in list(self._unlocked_perks[bucks_type]):
@@ -306,7 +308,7 @@ class BucksTrackerBase:
     def distribute_bucks(self, bucks_type):
         raise NotImplementedError
 
-    def try_modify_bucks(self, bucks_type, amount, distribute=True, reason=None, force_refund=False):
+    def try_modify_bucks(self, bucks_type, amount, distribute=True, reason=None, force_refund=False, from_load=False, suppress_telemetry=False):
         if bucks_type in self._bucks:
             new_amount = self._bucks[bucks_type] + amount
         else:
@@ -328,10 +330,19 @@ class BucksTrackerBase:
         new_amount = min(new_amount, self.MAX_BUCKS_ALLOWED)
         self._bucks[bucks_type] = new_amount
         self._bucks_modified_callbacks[bucks_type]()
+        headline = None
         if distribute:
             self.distribute_bucks(bucks_type)
-            if amount > 0:
+            if not suppress_telemetry:
                 self._handle_modify_bucks_telemetry(bucks_type, amount, new_amount, source=reason)
+            if bucks_type in BucksUtils.BUCK_TYPE_TO_DISPLAY_DATA:
+                headline = BucksUtils.BUCK_TYPE_TO_DISPLAY_DATA[bucks_type].headline
+        for sim_info in self._owner_sim_info_gen():
+            if not from_load:
+                services.get_event_manager().process_event(TestEvent.BucksEarned, bucks_type=bucks_type, amount=amount, sim_info=sim_info)
+            if headline is not None:
+                if sim_info.is_selectable:
+                    headline.send_headline_message(sim_info, amount)
         return True
 
     def validate_perks(self, bucks_type, current_rank):
@@ -353,24 +364,29 @@ class BucksTrackerBase:
             del self._recently_locked_perks[bucks_type]
 
     def _handle_modify_bucks_telemetry(self, type_gained, amount_gained, new_total, source=None):
-        with telemetry_helper.begin_hook(bucks_telemetry_writer, TELEMETRY_HOOK_BUCKS_GAIN) as hook:
+        if type_gained is BucksType.INVALID or amount_gained == 0:
+            return
+        telemetry_hook = TELEMETRY_HOOK_BUCKS_GAIN if amount_gained >= 0 else TELEMETRY_HOOK_BUCKS_SPEND
+        with telemetry_helper.begin_hook(bucks_telemetry_writer, telemetry_hook) as hook:
             hook.write_int(TELEMETRY_FIELD_BUCKS_TYPE, type_gained)
-            hook.write_int(TELEMETRY_FIELD_BUCKS_AMOUNT, amount_gained)
+            hook.write_int(TELEMETRY_FIELD_BUCKS_AMOUNT, abs(amount_gained))
             hook.write_int(TELEMETRY_FIELD_BUCKS_TOTAL, new_total)
             if source is not None:
                 hook.write_string(TELEMETRY_FIELD_BUCKS_SOURCE, source)
 
-    def _handle_unlock_telemetry(self, perk):
+    def _handle_perk_unlock_telemetry(self, perk):
+        if perk.associated_bucks_type is BucksType.INVALID:
+            return
         new_bucks_total = self.get_bucks_amount_for_type(perk.associated_bucks_type)
-        with telemetry_helper.begin_hook(bucks_telemetry_writer, TELEMETRY_HOOK_BUCKS_SPEND) as hook:
+        with telemetry_helper.begin_hook(perks_telemetry_writer, TELEMETRY_HOOK_PERKS_GAIN) as hook:
             hook.write_int(TELEMETRY_FIELD_BUCKS_TYPE, perk.associated_bucks_type)
             hook.write_int(TELEMETRY_FIELD_BUCKS_AMOUNT, perk.unlock_cost)
             hook.write_int(TELEMETRY_FIELD_BUCKS_TOTAL, new_bucks_total)
             hook.write_guid(TELEMETRY_FIELD_BUCKS_SOURCE, perk.guid64)
 
-    def _handle_lock_telemetry(self, perk):
+    def _handle_perk_lock_telemetry(self, perk):
         new_bucks_total = self.get_bucks_amount_for_type(perk.associated_bucks_type)
-        with telemetry_helper.begin_hook(bucks_telemetry_writer, TELEMETRY_HOOK_BUCKS_REFUND) as hook:
+        with telemetry_helper.begin_hook(perks_telemetry_writer, TELEMETRY_HOOK_PERKS_REFUND) as hook:
             hook.write_int(TELEMETRY_FIELD_BUCKS_TYPE, perk.associated_bucks_type)
             hook.write_int(TELEMETRY_FIELD_BUCKS_AMOUNT, perk.unlock_cost)
             hook.write_int(TELEMETRY_FIELD_BUCKS_TOTAL, new_bucks_total)
@@ -379,7 +395,7 @@ class BucksTrackerBase:
     def load_data(self, owner_proto):
         bucks_perk_manager = services.get_instance_manager(sims4.resources.Types.BUCKS_PERK)
         for bucks_data in owner_proto.bucks_data:
-            self.try_modify_bucks(bucks_data.bucks_type, bucks_data.amount, distribute=False)
+            self.try_modify_bucks(bucks_data.bucks_type, bucks_data.amount, distribute=False, from_load=True)
             for perk_data in bucks_data.unlocked_perks:
                 perk_ref = bucks_perk_manager.get(perk_data.perk)
                 if perk_ref is None:

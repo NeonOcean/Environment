@@ -47,7 +47,7 @@ class InviteOverSituation(VisitingNPCSituation):
 
     def _invite_sim_in(self):
         if self._invited_sim is not None:
-            services.current_zone().venue_service.venue.summon_npcs((self._invited_sim.sim_info,), self.purpose, self.initiating_sim_info)
+            services.current_zone().venue_service.active_venue.summon_npcs((self._invited_sim.sim_info,), self.purpose, self.initiating_sim_info)
         self._self_destruct()
 
 sims4.tuning.instances.lock_instance_tunables(InviteOverSituation, exclusivity=situations.bouncer.bouncer_types.BouncerExclusivityCategory.PRE_VISIT, creation_ui_option=situations.situation_types.SituationCreationUIOption.NOT_AVAILABLE, duration=120, _implies_greeted_status=True)

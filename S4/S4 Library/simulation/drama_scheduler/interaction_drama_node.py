@@ -1,4 +1,4 @@
-from drama_scheduler.drama_node import BaseDramaNode, CooldownOption
+from drama_scheduler.drama_node import BaseDramaNode, CooldownOption, DramaNodeRunOutcome
 from drama_scheduler.drama_node_types import DramaNodeType
 from sims4.tuning.instances import lock_instance_tunables
 from sims4.tuning.tunable import TunableReference
@@ -36,6 +36,4 @@ class RunAffordanceDramaNode(BaseDramaNode):
         target_sim_id = self._sender_sim_info.id if self._sender_sim_info is not None else None
         dialog = self.dialog(self._receiver_sim_info, target_sim_id=target_sim_id, resolver=resolver)
         dialog.show_dialog(on_response=self._push_affordance)
-        return False
-
-lock_instance_tunables(RunAffordanceDramaNode, cooldown_option=CooldownOption.ON_RUN)
+        return DramaNodeRunOutcome.SUCCESS_NODE_INCOMPLETE

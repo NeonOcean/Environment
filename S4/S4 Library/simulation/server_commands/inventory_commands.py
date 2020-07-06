@@ -1,6 +1,10 @@
 from collections import Counter
+from distributor.ops import SendUIMessage
+from distributor.system import Distributor
+from google.protobuf import text_format
 from protocolbuffers import Consts_pb2
 from protocolbuffers import SimObjectAttributes_pb2
+from protocolbuffers import UI_pb2
 from objects.components.inventory_enums import StackScheme
 from objects.system import create_object
 from server_commands.argument_helpers import OptionalTargetParam, get_optional_target, RequiredTargetParam, TunableInstanceParam
@@ -203,6 +207,73 @@ def inventory_view_update(obj_id:int=0, _connection=None):
         obj.inventory_view_update()
         return True
     return False
+
+@sims4.commands.Command('inventory.sim_inventory_sell_multiple', command_type=sims4.commands.CommandType.Live)
+def sim_inventory_sell_multiple(msg:str, _connection=None):
+    proto = UI_pb2.InventorySellRequest()
+    text_format.Merge(msg, proto)
+    if proto is None:
+        return
+    sim_info = services.sim_info_manager().get(proto.sim_id)
+    if sim_info is None:
+        return
+    inventory_component = sim_info.get_sim_instance().inventory_component
+    if inventory_component is None:
+        return
+    sell_value = 0
+    objs = []
+    inventory_stack_items = inventory_component.get_stack_items_map(proto.stacks)
+    if proto.stacks is not None:
+        for stack_id in proto.stacks:
+            stack_items = inventory_stack_items.get(stack_id, None)
+            if stack_items is None:
+                continue
+            for item in stack_items:
+                if item.non_deletable_by_user:
+                    break
+                sell_value += item.current_value*item.stack_count()
+                objs.append(item)
+    if proto.items is not None:
+        inventory_manager = services.inventory_manager()
+        for item_data in proto.items:
+            if item_data not in inventory_component:
+                continue
+            item = inventory_manager.get(item_data.id)
+            if item is None:
+                continue
+            if item.non_deletable_by_user:
+                continue
+            sell_value += item.current_value*item_data.count
+            item.update_stack_count(-item_data.count)
+            if item.stack_count() < 1:
+                objs.append(item)
+            else:
+                inventory_component.push_inventory_item_update_msg(item)
+    if objs:
+        services.active_household().funds.add(sell_value, Consts_pb2.TELEMETRY_OBJECT_SELL, sim_info)
+        services.get_reset_and_delete_service().trigger_batch_destroy(objs)
+    op = SendUIMessage('InventorySellItemsComplete')
+    Distributor.instance().add_op_with_no_owner(op)
+
+@sims4.commands.Command('inventory.sim_inventory_favorite_multiple', command_type=sims4.commands.CommandType.Live)
+def sim_inventory_favorite_multiple(sim_id:int=0, is_add:bool=False, *items:int, _connection=None):
+    sim_info = services.sim_info_manager().get(sim_id)
+    if sim_info is None:
+        return
+    favorites_tracker = sim_info.favorites_tracker
+    if favorites_tracker is None:
+        return
+    inventory_component = sim_info.get_sim_instance().inventory_component
+    if inventory_component is None:
+        return
+    inventory_manager = services.inventory_manager()
+    for item_id in items:
+        item = inventory_manager.get(item_id)
+        if is_add:
+            favorites_tracker.set_favorite_stack(item)
+        else:
+            favorites_tracker.unset_favorite_stack(item)
+        inventory_component.push_inventory_item_stack_update_msg(item)
 
 @sims4.commands.Command('inventory.sim_inventory_census.instanced_sims', command_type=CommandType.Automation)
 def sim_inventory_census_instances_sims(_connection=None):

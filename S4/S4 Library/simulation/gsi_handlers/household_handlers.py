@@ -1,7 +1,11 @@
-from gsi_handlers.gsi_utils import format_enum_name
+from sims.bills_enums import UtilityEndOfBillAction
 from sims4.gsi.dispatcher import GsiHandler
 from sims4.gsi.schema import GsiGridSchema, GsiFieldVisualizers
 from sims4.resources import Types
+from event_testing.resolver import SingleSimResolver
+from gsi_handlers.gsi_utils import format_enum_name
+from sims.bills import Bills
+from sims.household_utilities.utility_types import Utilities
 import services
 import world.street
 household_archive_schema = GsiGridSchema(label='Household Archive', sim_specific=False)
@@ -17,7 +21,7 @@ household_archive_schema.add_field('funds', label='Funds', type=GsiFieldVisualiz
 household_archive_schema.add_field('net_worth', label='Net Worth', type=GsiFieldVisualizers.INT)
 household_archive_schema.add_field('region_id', label='Region ID', type=GsiFieldVisualizers.INT)
 household_archive_schema.add_field('home_zone_id', label='Home Zone ID', type=GsiFieldVisualizers.STRING)
-household_archive_schema.add_field('household_id', label='Household ID', type=GsiFieldVisualizers.STRING)
+household_archive_schema.add_field('household_id', label='Household ID', type=GsiFieldVisualizers.STRING, unique_field=True)
 household_archive_schema.add_field('premade_household_id', label='Premade Household ID', type=GsiFieldVisualizers.STRING)
 household_archive_schema.add_field('move_in_time', label='Home Zone Move In Time', type=GsiFieldVisualizers.STRING)
 with household_archive_schema.add_has_many('sim_infos', GsiGridSchema) as sub_schema:
@@ -39,6 +43,17 @@ with household_archive_schema.add_has_many('service_npcs', GsiGridSchema) as sub
     sub_schema.add_field('preferred_sims', label='Preferred Sims', type=GsiFieldVisualizers.STRING, width=4)
     sub_schema.add_field('fired_sims', label='Fired Sims', type=GsiFieldVisualizers.STRING, width=4)
     sub_schema.add_field('user_data', label='User Data', type=GsiFieldVisualizers.STRING, width=1)
+with household_archive_schema.add_has_many('bills', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('source', label='Source', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('amount', label='Amount', type=GsiFieldVisualizers.INT, width=1)
+with household_archive_schema.add_has_many('utilities', GsiGridSchema) as sub_schema:
+    sub_schema.add_field('utility', label='Utility', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('consumed', label='Consumed', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('value', label='Value', type=GsiFieldVisualizers.FLOAT, width=1)
+    sub_schema.add_field('due', label='Due', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('keep_excess', label='Keep Excess', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('active', label='Active', type=GsiFieldVisualizers.STRING, width=1)
+    sub_schema.add_field('statistic', label='Consumption', type=GsiFieldVisualizers.STRING, width=1)
 
 @GsiHandler('household_info', household_archive_schema)
 def generate_household_data(*args, **kwargs):
@@ -83,5 +98,49 @@ def generate_household_data(*args, **kwargs):
                 stype = npc_tuning.get(service_type)
                 e = {'guid': stype.__name__ if stype is not None else str(service_type), 'hired': rec.hired, 'recurring': rec.recurring, 'last_started': str(rec.time_last_started_service), 'last_finished': str(rec.time_last_finished_service), 'preferred_sims': ', '.join(str(sim_mgr.get(i)) for i in rec._preferred_service_sim_ids), 'fired_sims': ', '.join(str(sim_mgr.get(i)) for i in rec._fired_service_sim_ids), 'user_data': rec.user_specified_data_id}
                 service_npcs.append(e)
+        utilities = []
+        entry['utilities'] = utilities
+        bills = []
+        entry['bills'] = bills
+        if household.bills_manager is not None:
+            bills_manager = household.bills_manager
+            current_payment_owed = bills_manager.current_payment_owed
+            detail_amount = 0
+            for (source_key, details) in bills_manager._current_bill_details.items():
+                source = Bills.get_bill_source_enum_from_key(source_key)
+                e = {'source': source.name, 'amount': details.billable_amount}
+                bills.append(e)
+                detail_amount += details.billable_amount
+            if current_payment_owed is not None:
+                e = {'source': 'Lot', 'amount': current_payment_owed - detail_amount}
+                bills.append(e)
+                e = {'source': 'Total', 'amount': current_payment_owed}
+                bills.append(e)
+            if household.home_zone_id != 0:
+                utility_manager = services.utilities_manager(household_id=household.id)
+            else:
+                utility_manager = None
+            for utility in Utilities:
+                utility_info = bills_manager.get_utility_info(utility)
+                if utility_info is None:
+                    continue
+                details = bills_manager.get_utility_bill_info(utility)
+                bill_details = bills_manager.current_source_owed(utility)
+                delinquent = bills_manager.is_utility_delinquent(utility)
+                if utility_manager is not None:
+                    active_str = 'Y' if utility_manager.is_utility_active(utility) else 'N'
+                else:
+                    active_str = 'NA'
+                keep_excess_str = 'Y' if bills_manager.get_end_of_bill_action(utility) == UtilityEndOfBillAction.STORE else 'N'
+                if bill_details is None:
+                    current_owed = 0
+                else:
+                    current_owed = bill_details.billable_amount
+                if delinquent:
+                    due_str = '{} (PAST DUE)'.format(current_owed)
+                else:
+                    due_str = str(current_owed)
+                e = {'utility': utility.name, 'consumed': details.net_consumption, 'value': details.billable_amount, 'due': due_str, 'keep_excess': keep_excess_str, 'active': active_str, 'statistic': str(utility_info.statistic)}
+                utilities.append(e)
         household_data.append(entry)
     return household_data

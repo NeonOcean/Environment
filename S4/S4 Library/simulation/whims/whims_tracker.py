@@ -1,5 +1,6 @@
 from _functools import reduce
 import collections
+import game_services
 import operator
 from protocolbuffers import DistributorOps_pb2, Sims_pb2, GameplaySaveData_pb2
 from protocolbuffers.DistributorOps_pb2 import Operation, SetWhimBucks
@@ -192,11 +193,12 @@ class WhimsTracker(SimInfoTracker):
                 whim.destroy()
             if whim_data.anti_thrashing_alarm_handle is not None:
                 alarms.cancel_alarm(whim_data.anti_thrashing_alarm_handle)
-        self._active_whims.clear()
+        self._active_whims = [_ActiveWhimData() for _ in range(self.max_whims)]
         for alarm_handle in self._cooldown_alarms.values():
             alarms.cancel_alarm(alarm_handle)
         self._cooldown_alarms.clear()
         self._test_results_map.clear()
+        self._active_whimsets_data.clear()
 
     def refresh_whim(self, whim_type):
         whim = self._get_whim_by_whim_type(whim_type)
@@ -260,6 +262,13 @@ class WhimsTracker(SimInfoTracker):
             self._score_multipliers.remove(multiplier)
         self._goals_dirty = True
         self._send_goals_update()
+
+    def on_zone_unload(self):
+        if not game_services.service_manager.is_traveling:
+            return
+        self._whim_goal_proto = GameplaySaveData_pb2.WhimsetTrackerData()
+        self.save_whims_info_to_proto(self._whim_goal_proto, copy_existing=False)
+        self.clean_up()
 
     def purchase_whim_award(self, reward_guid64):
         reward_instance = services.get_instance_manager(sims4.resources.Types.REWARD).get(reward_guid64)
@@ -346,10 +355,10 @@ class WhimsTracker(SimInfoTracker):
         self._whim_goal_proto = None
         self._send_goals_update()
 
-    def save_whims_info_to_proto(self, whim_tracker_proto):
+    def save_whims_info_to_proto(self, whim_tracker_proto, copy_existing=True):
         if self._sim_info.is_npc:
             return
-        if self._whim_goal_proto is not None:
+        if copy_existing and self._whim_goal_proto is not None:
             whim_tracker_proto.CopyFrom(self._whim_goal_proto)
             return
         for (index, active_whim_data) in enumerate(self._active_whims):

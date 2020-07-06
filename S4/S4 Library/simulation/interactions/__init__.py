@@ -116,8 +116,13 @@ class ParticipantType(enum.LongFlags):
     ActorHousehold = 1237940039285380274899124224
     TargetHousehold = 2475880078570760549798248448
     AllInstancedActiveHouseholdSims = 4951760157141521099596496896
+    Street = 9903520314283042199192993792
+    VenuePolicyProvider = 19807040628566084398385987584
+    ActorLot = 39614081257132168796771975168
+    ObjectIngredients = 79228162514264337593543950336
+    CreatedObjectIngredients = 158456325028528675187087900672
 
-class ParticipantTypeSavedActor(enum.IntFlags):
+class ParticipantTypeSavedActor(enum.LongFlags):
     SavedActor1 = ParticipantType.SavedActor1
     SavedActor2 = ParticipantType.SavedActor2
     SavedActor3 = ParticipantType.SavedActor3
@@ -128,7 +133,7 @@ class ParticipantTypeSituationSims(enum.LongFlags):
     SituationParticipants2 = ParticipantType.SituationParticipants2
     SituationParticipants3 = ParticipantType.SituationParticipants3
 
-class ParticipantTypeAnimation(enum.IntFlags):
+class ParticipantTypeAnimation(enum.LongFlags):
     Invalid = ParticipantType.Invalid
     Actor = ParticipantType.Actor
     TargetSim = ParticipantType.TargetSim
@@ -138,6 +143,7 @@ class ParticipantTypeAnimation(enum.IntFlags):
 class ParticipantTypeSingle(enum.LongFlags):
     Actor = ParticipantType.Actor
     TargetSim = ParticipantType.TargetSim
+    Lot = ParticipantType.Lot
     CarriedObject = ParticipantType.CarriedObject
     CraftingObject = ParticipantType.CraftingObject
     StoredSim = ParticipantType.StoredSim
@@ -173,17 +179,19 @@ class ParticipantTypeSingle(enum.LongFlags):
     PickedStatistic = ParticipantType.PickedStatistic
     ActorHousehold = ParticipantType.ActorHousehold
     TargetHousehold = ParticipantType.TargetHousehold
+    Street = ParticipantType.Street
+    VenuePolicyProvider = ParticipantType.VenuePolicyProvider
 
-class ParticipantTypeReactionlet(enum.IntFlags):
+class ParticipantTypeReactionlet(enum.LongFlags):
     Invalid = ParticipantType.Invalid
     TargetSim = ParticipantType.TargetSim
     Listeners = ParticipantType.Listeners
 
-class ParticipantTypeActorTargetSim(enum.IntFlags):
+class ParticipantTypeActorTargetSim(enum.LongFlags):
     Actor = ParticipantType.Actor
     TargetSim = ParticipantType.TargetSim
 
-class ParticipantTypeResponse(enum.IntFlags):
+class ParticipantTypeResponse(enum.LongFlags):
     Invalid = ParticipantType.Invalid
     Actor = ParticipantType.Actor
     TargetSim = ParticipantType.TargetSim
@@ -204,20 +212,25 @@ class ParticipantTypeSingleSim(enum.LongFlags):
     SavedActor2 = ParticipantType.SavedActor2
     SavedActor3 = ParticipantType.SavedActor3
     SavedActor4 = ParticipantType.SavedActor4
+    ActorFiance = ParticipantType.ActorFiance
+    TargetFiance = ParticipantType.TargetFiance
 
-class ParticipantTypeResponsePaired(enum.IntFlags):
+class ParticipantTypeResponsePaired(enum.LongFlags):
     TargetSim = ParticipantType.TargetSim
 
-class ParticipantTypeLot(enum.IntFlags):
+class ParticipantTypeLot(enum.LongFlags):
     Lot = ParticipantType.Lot
     PickedZoneId = ParticipantType.PickedZoneId
+    ActorLot = ParticipantType.ActorLot
 
 class ParticipantTypeObject(enum.LongFlags):
     ActorSurface = ParticipantType.ActorSurface
     CarriedObject = ParticipantType.CarriedObject
     CraftingObject = ParticipantType.CraftingObject
     CreatedObject = ParticipantType.CreatedObject
+    CreatedObjectIngredients = ParticipantType.CreatedObjectIngredients
     Object = ParticipantType.Object
+    ObjectIngredients = ParticipantType.ObjectIngredients
     PickedObject = ParticipantType.PickedObject
     SocialGroupAnchor = ParticipantType.SocialGroupAnchor
     ObjectInventoryOwner = ParticipantType.ObjectInventoryOwner
@@ -277,7 +290,7 @@ class MixerInteractionGroup(DynamicEnum):
 
 DEFAULT_MIXER_GROUP_SET = frozenset((MixerInteractionGroup.DEFAULT,))
 
-class ParticipantTypeReaction(enum.IntFlags):
+class ParticipantTypeReaction(enum.LongFlags):
     Actor = ParticipantType.Actor
     Object = ParticipantType.Object
     TargetSim = ParticipantType.TargetSim

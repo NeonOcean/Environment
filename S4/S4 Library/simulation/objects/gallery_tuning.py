@@ -9,3 +9,4 @@ class ContentSource(enum.Int, export=False):
     DEFAULT = 0
     LIBRARY = 1
     GALLERY = 2
+    HOUSEHOLD_INVENTORY_PROXY = 3

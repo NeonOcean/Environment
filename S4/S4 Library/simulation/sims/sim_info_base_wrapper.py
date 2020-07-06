@@ -219,10 +219,12 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
 
     def generate_outfit(self, outfit_category, outfit_index=0, tag_list=(), filter_flag=DEFAULT, **kwargs):
         filter_flag = OutfitFilterFlag.USE_EXISTING_IF_APPROPRIATE if filter_flag is DEFAULT else filter_flag
-        self._base.generate_outfit(outfit_category, outfit_index, tag_list, filter_flag=filter_flag, **kwargs)
+        if not self._base.generate_outfit(outfit_category, outfit_index, tag_list, filter_flag=filter_flag, **kwargs):
+            return False
         self.resend_outfits()
         self.on_outfit_generated(outfit_category, outfit_index)
         self.set_outfit_dirty(outfit_category)
+        return True
 
     def generate_merged_outfit(self, source_sim_info, destination_outfit, template_outfit, source_outfit, preserve_outfit_flags=False):
         if preserve_outfit_flags:
@@ -504,6 +506,10 @@ class SimInfoBaseWrapper(OutfitTrackerMixin):
     @property
     def is_toddler(self):
         return self.age == Age.TODDLER
+
+    @property
+    def rig_key(self):
+        return self._base.rig_key
 
     @distributor.fields.Field(op=distributor.ops.SetSkinTone, priority=distributor.fields.Field.Priority.HIGH)
     def skin_tone(self):

@@ -35,8 +35,8 @@ Finally we save token information.
 
 from __future__ import print_function
 
-from xdis.code import iscode
-from xdis.bytecode import instruction_size, _get_const_info
+from xdis import iscode, instruction_size
+from xdis.bytecode import _get_const_info
 
 from uncompyle6.scanner import Token, parse_fn_counts
 import xdis
@@ -62,7 +62,8 @@ class Scanner3(Scanner):
         # Create opcode classification sets
         # Note: super initilization above initializes self.opc
 
-        # Ops that start SETUP_ ... We will COME_FROM with these names
+        # For ops that start SETUP_ ... we will add COME_FROM with these names
+        # at the their targets.
         # Some blocks and END_ statements. And they can start
         # a new statement
         if self.version < 3.8:
@@ -257,22 +258,31 @@ class Scanner3(Scanner):
             # RAISE_VARARGS then we have a "raise" statement
             # else we have an "assert" statement.
             if self.version == 3.0:
-                # There is a an implied JUMP_IF_TRUE that we are not testing for (yet?) here
+                # Like 2.6, 3.0 doesn't have POP_JUMP_IF... so we have
+                # to go through more machinations
                 assert_can_follow = inst.opname == "POP_TOP" and i + 1 < n
+                if assert_can_follow:
+                    prev_inst = self.insts[i - 1]
+                    assert_can_follow = (
+                        prev_inst.opname in ("JUMP_IF_TRUE", "JUMP_IF_FALSE")
+                        and i + 1 < n )
+                    jump_if_inst = prev_inst
             else:
-                assert_can_follow = inst.opname == "POP_JUMP_IF_TRUE" and i + 1 < n
+                assert_can_follow = (
+                    inst.opname in ("POP_JUMP_IF_TRUE", "POP_JUMP_IF_FALSE")
+                    and i + 1 < n
+                )
+                jump_if_inst = inst
             if assert_can_follow:
                 next_inst = self.insts[i + 1]
                 if (
                     next_inst.opname == "LOAD_GLOBAL"
                     and next_inst.argval == "AssertionError"
-                    and inst.argval
+                    and jump_if_inst.argval
                 ):
-                    raise_idx = self.offset2inst_index[self.prev_op[inst.argval]]
+                    raise_idx = self.offset2inst_index[self.prev_op[jump_if_inst.argval]]
                     raise_inst = self.insts[raise_idx]
-                    if raise_inst.opname.startswith(
-                        "RAISE_VARARGS"
-                    ):
+                    if raise_inst.opname.startswith("RAISE_VARARGS"):
                         self.load_asserts.add(next_inst.offset)
                     pass
                 pass
@@ -369,7 +379,7 @@ class Scanner3(Scanner):
                     # pattr = 'code_object @ 0x%x %s->%s' %\
                     # (id(const), const.co_filename, const.co_name)
                     pattr = "<code_object " + const.co_name + ">"
-                elif isinstance(const, str):
+                elif isinstance(const, str) or xdis.PYTHON_VERSION <= 2.7 and isinstance(const, unicode):
                     opname = "LOAD_STR"
                 else:
                     if isinstance(inst.arg, int) and inst.arg < len(co.co_consts):
@@ -428,11 +438,16 @@ class Scanner3(Scanner):
                 else:
                     opname = "%s_%d" % (opname, pos_args)
 
-            elif self.is_pypy and opname == "JUMP_IF_NOT_DEBUG":
-                # The value in the dict is in special cases in semantic actions, such
-                # as JUMP_IF_NOT_DEBUG. The value is not used in these cases, so we put
-                # in arbitrary value 0.
-                customize[opname] = 0
+            elif self.is_pypy and opname in ("JUMP_IF_NOT_DEBUG", "CALL_FUNCTION"):
+                if opname == "JUMP_IF_NOT_DEBUG":
+                    # The value in the dict is in special cases in semantic actions, such
+                    # as JUMP_IF_NOT_DEBUG. The value is not used in these cases, so we put
+                    # in arbitrary value 0.
+                    customize[opname] = 0
+                elif self.version >= 3.6 and argval > 255:
+                    opname = "CALL_FUNCTION_KW"
+                    pass
+
             elif opname == "UNPACK_EX":
                 # FIXME: try with scanner and parser by
                 # changing argval
@@ -467,6 +482,12 @@ class Scanner3(Scanner):
                         self.insts[self.offset2inst_index[target]].opname == "FOR_ITER"
                         and self.insts[i + 1].opname == "JUMP_FORWARD"
                     )
+
+                    if (self.version == 3.0 and self.insts[i + 1].opname == "JUMP_FORWARD"
+                        and not is_continue):
+                        target_prev = self.offset2inst_index[self.prev_op[target]]
+                        is_continue = (
+                            self.insts[target_prev].opname == "SETUP_LOOP")
 
                     if is_continue or (
                         inst.offset in self.stmts
@@ -518,7 +539,7 @@ class Scanner3(Scanner):
 
         if show_asm in ("both", "after"):
             for t in tokens:
-                print(t.format(line_prefix="L."))
+                print(t.format(line_prefix=""))
             print()
         return tokens, customize
 
@@ -867,6 +888,7 @@ class Scanner3(Scanner):
                     start, self.next_stmt[offset], self.opc.POP_JUMP_IF_FALSE, target
                 )
 
+                # FIXME: Remove this whole "if" block
                 # If we still have any offsets in set, start working on it
                 if match:
                     is_jump_forward = self.is_jump_forward(pre_rtarget)
@@ -935,7 +957,7 @@ class Scanner3(Scanner):
                             )
                         ):
                             pass
-                        else:
+                        elif self.version <= 3.2:
                             fix = None
                             jump_ifs = self.inst_matches(
                                 start,

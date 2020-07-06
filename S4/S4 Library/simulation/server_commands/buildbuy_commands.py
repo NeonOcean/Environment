@@ -1,3 +1,4 @@
+from sims4.common import Pack
 import build_buy
 import services
 import sims4.commands
@@ -23,3 +24,8 @@ def force_exit_buildbuy(_connection=None):
 @sims4.commands.Command('qa.is_in_build_buy', command_type=sims4.commands.CommandType.Automation)
 def qa_is_in_build_buy(_connection=None):
     sims4.commands.automation_output('BuildBuy; IsInBuildBuy:{}'.format(services.current_zone().is_in_build_buy), _connection)
+
+@sims4.commands.Command('bb.set_build_eco_effects_enabled', pack=Pack.EP09, command_type=sims4.commands.CommandType.Live)
+def set_build_eco_effects_enabled(enabled:bool=True, _connection=None):
+    zone_modifier_service = services.get_zone_modifier_service()
+    zone_modifier_service.set_build_eco_effects_enabled(enabled)

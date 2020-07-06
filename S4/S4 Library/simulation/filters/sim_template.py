@@ -265,7 +265,7 @@ class TunableSimTemplate(HasTunableReference, metaclass=TunedInstanceMetaclass, 
                         num_to_add -= 1
 
     @classmethod
-    def add_rank(cls, sim_info, sim_creator=None):
+    def add_rank(cls, sim_info, sim_creator=None, suppress_telemetry=False):
         for rank in cls._ranks:
             ranked_statistic = rank.ranked_statistic
             if ranked_statistic is None:
@@ -277,10 +277,14 @@ class TunableSimTemplate(HasTunableReference, metaclass=TunedInstanceMetaclass, 
                 continue
             points_needed = stat.points_to_rank(rank.rank)
             stat.refresh_threshold_callback()
-            stat.set_value(points_needed, from_load=True)
+            if suppress_telemetry:
+                with stat.suppress_level_up_telemetry():
+                    stat.set_value(points_needed, from_load=True)
+            else:
+                stat.set_value(points_needed, from_load=True)
 
     @classmethod
-    def add_perks(cls, sim_info, sim_creator=None):
+    def add_perks(cls, sim_info, sim_creator=None, suppress_telemetry=False):
         bucks_tracker = sim_info.get_bucks_tracker(add_if_none=False)
         if bucks_tracker is not None:
             bucks_tracker.clear_bucks_tracker()
@@ -288,7 +292,7 @@ class TunableSimTemplate(HasTunableReference, metaclass=TunedInstanceMetaclass, 
             if bucks_tracker is None:
                 bucks_tracker = sim_info.get_bucks_tracker(add_if_none=True)
             for perk in cls._perks.explicit:
-                bucks_tracker.unlock_perk(perk)
+                bucks_tracker.unlock_perk(perk, suppress_telemetry=suppress_telemetry)
         if cls._perks.num_random:
             num_to_add = cls._perks.num_random.random_int()
             if num_to_add > 0:
@@ -300,7 +304,7 @@ class TunableSimTemplate(HasTunableReference, metaclass=TunedInstanceMetaclass, 
                     while available_bucks_perk_types:
                         perk = random.choice(available_bucks_perk_types)
                         available_bucks_perk_types.remove(perk)
-                        bucks_tracker.unlock_perk(perk)
+                        bucks_tracker.unlock_perk(perk, suppress_telemetry=suppress_telemetry)
                         num_to_add -= 1
 
     @classmethod

@@ -160,6 +160,7 @@ VENUE_LIST = 'venue_list'
 SCREEN_SLAM = 'screen_slam'
 ANIMATION_ACTOR_MAP = 'animation_actor_map'
 MUSIC_TRACK_DATA = 'music_track_data'
+CUSTOM_STATES_SITUATION_STATE = 'custom_states_situation_state'
 (TunableAffordanceListReference, TunableAffordanceListSnippet) = define_snippet(AFFORDANCE_LIST, TunableList(TunableReference(services.affordance_manager(), pack_safe=True)))
 (TunableVenueListReference, TunableVenueListSnippet) = define_snippet(VENUE_LIST, TunableList(TunableReference(manager=services.get_instance_manager(sims4.resources.Types.VENUE), pack_safe=True, tuning_group=GroupNames.VENUES)))
 

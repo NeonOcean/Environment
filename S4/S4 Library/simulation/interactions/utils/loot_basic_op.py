@@ -94,7 +94,7 @@ class BaseLootOperation(HasTunableSingletonFactory, HasDisplayTextMixin):
     @staticmethod
     def resolve_participants(participant, resolver):
         if isinstance(participant, tag.Tag):
-            return (obj for obj in services.object_manager().values() if obj.has_tag(participant))
+            return tuple(obj for obj in services.object_manager().values() if obj.has_tag(participant))
         return resolver.get_participants(participant)
 
     def apply_to_resolver(self, resolver, skip_test=False):
