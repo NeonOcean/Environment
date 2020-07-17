@@ -1,2 +1,1 @@
-NeonOcean.S4.Main/Uninstall.exe
-NeonOcean.Main/Uninstall.exe
+NeonOcean.S4.Cycle/Uninstall.exe
