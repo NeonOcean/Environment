@@ -47,8 +47,7 @@ class ModVersion:
 			self.InstallerURL = versionBaseURL + "/" + installerRelativeFilePath.replace("\\", "/")  # type: str
 
 		if not hasattr(self, "InstallerFilePath"):
-			self.InstallerURL = "" # TODO REMOVE TEMP LINE
-			#raise Exception("Found no installer distribution file in '" + installerDirectoryPath + "'.")
+			raise Exception("Found no installer distribution file in '" + installerDirectoryPath + "'.")
 
 		filesDirectoryPath = os.path.join(versionDirectoryPath, "files")  # type: str
 
