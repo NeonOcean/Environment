@@ -25,3 +25,6 @@
 [submodule "Mods/NeonOcean.S4.Time"]
 	path = Mods/NeonOcean.S4.Time
 	url = https://github.com/NeonOcean/S4.Time_Development.git
+[submodule "Mods/NeonOcean.S4.Refer"]
+	path = Mods/NeonOcean.S4.Refer
+	url = https://github.com/NeonOcean/S4.Refer.git
