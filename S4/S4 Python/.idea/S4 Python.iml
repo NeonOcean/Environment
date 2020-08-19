@@ -9,12 +9,12 @@
     <orderEntry type="module" module-name="NeonOcean.S4.Order" />
     <orderEntry type="module" module-name="NeonOcean.S4.Time" />
     <orderEntry type="module" module-name="NeonOcean.S4.Debug" />
-    <orderEntry type="module" module-name="NeonOcean.S4.Cycle" />
     <orderEntry type="module" module-name="NeonOcean.S4.Choreography" />
     <orderEntry type="module" module-name="NeonOcean.S4.Choreography" />
+    <orderEntry type="module" module-name="NeonOcean.S4.Time" />
+    <orderEntry type="module" module-name="NeonOcean.S4.Time" />
+    <orderEntry type="module" module-name="NeonOcean.S4.Refer" />
     <orderEntry type="module" module-name="NeonOcean.S4.Cycle" />
-    <orderEntry type="module" module-name="NeonOcean.S4.Time" />
-    <orderEntry type="module" module-name="NeonOcean.S4.Time" />
   </component>
   <component name="TestRunnerService">
     <option name="PROJECT_TEST_RUNNER" value="Unittests" />

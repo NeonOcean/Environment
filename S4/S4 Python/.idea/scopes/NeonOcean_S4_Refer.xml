@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="NeonOcean.S4.Refer" pattern="file[NeonOcean.S4.Refer]:*/" />
+</component>
